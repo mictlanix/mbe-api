@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+- VS Code debug configuration (`.vscode/launch.json`) for F5 launch via debugpy + uvicorn
+- README with setup, environment variables, run, migration, test, and lint instructions
+
 ### Changed
 - Password hashing simplified to SHA1-only; `verify_password` now compares hashes case-insensitively
 - `currency` columns in all affected models now use `Mapped[CurrencyCode]` instead of `Mapped[int]`
