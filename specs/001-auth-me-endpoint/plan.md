@@ -1,46 +1,42 @@
-# Implementation Plan: [FEATURE]
+# Implementation Plan: Self-Service Profile Endpoint (`/auth/me`)
 
-**Branch**: `[###-feature-name]` | **Date**: [DATE] | **Spec**: [link]
+**Branch**: `001-auth-me-endpoint` | **Date**: 2026-06-14 | **Spec**: [spec.md](./spec.md)
 
-**Input**: Feature specification from `/specs/[###-feature-name]/spec.md`
+**Input**: Feature specification from `/specs/001-auth-me-endpoint/spec.md`
 
 **Note**: This template is filled in by the `/speckit-plan` command. See `.specify/templates/plan-template.md` for the execution workflow.
 
 ## Summary
 
-[Extract from feature spec: primary requirement + technical approach from research]
+Add `GET /api/v1/auth/me`, returning the authenticated caller's own `UserResponse` (user_id, email, employee_id, administrator, disabled, session_version, settings, privileges). Gated by `get_current_user` only (no `require_admin`), so any authenticated, non-disabled user with a valid session can bootstrap their session/RBAC state — fully reusing existing schema, dependency, and service-layer lookup with no new entities or migrations.
 
 ## Technical Context
 
-<!--
-  ACTION REQUIRED: Replace the content in this section with the technical details
-  for the project. The structure here is presented in advisory capacity to guide
-  the iteration process.
--->
+**Language/Version**: Python 3.12
 
-**Language/Version**: [e.g., Python 3.11, Swift 5.9, Rust 1.75 or NEEDS CLARIFICATION]
+**Primary Dependencies**: FastAPI, SQLAlchemy (async ORM), python-jose (JWT), Pydantic
 
-**Primary Dependencies**: [e.g., FastAPI, UIKit, LLVM or NEEDS CLARIFICATION]
+**Storage**: MySQL via `aiomysql` / SQLAlchemy async session (existing `User` model, no schema changes)
 
-**Storage**: [if applicable, e.g., PostgreSQL, CoreData, files or N/A]
+**Testing**: pytest + pytest-asyncio + httpx `ASGITransport` (existing pattern in `tests/api/`)
 
-**Testing**: [e.g., pytest, XCTest, cargo test or NEEDS CLARIFICATION]
+**Target Platform**: Linux server (FastAPI ASGI service)
 
-**Target Platform**: [e.g., Linux server, iOS 15+, WASM or NEEDS CLARIFICATION]
+**Project Type**: Single web-service project (existing `app/` FastAPI app)
 
-**Project Type**: [e.g., library/cli/web-service/mobile-app/compiler/desktop-app or NEEDS CLARIFICATION]
+**Performance Goals**: N/A — single primary-key lookup, same cost as existing `GET /users/{user_id}`
 
-**Performance Goals**: [domain-specific, e.g., 1000 req/s, 10k lines/sec, 60 fps or NEEDS CLARIFICATION]
+**Constraints**: Must reuse existing `UserResponse` schema, `get_current_user` dependency, and `user_service.get_user`; no new fields, models, or migrations
 
-**Constraints**: [domain-specific, e.g., <200ms p95, <100MB memory, offline-capable or NEEDS CLARIFICATION]
-
-**Scale/Scope**: [domain-specific, e.g., 10k users, 1M LOC, 50 screens or NEEDS CLARIFICATION]
+**Scale/Scope**: One new route handler in `app/api/v1/endpoints/auth.py`; no new modules
 
 ## Constitution Check
 
 *GATE: Must pass before Phase 0 research. Re-check after Phase 1 design.*
 
-[Gates determined based on constitution file]
+`.specify/memory/constitution.md` is still the unfilled template (no project-specific gates ratified yet). Falling back to `CLAUDE.md` guidelines: minimum code to satisfy the spec, no speculative abstractions, surgical changes only.
+
+- This feature adds one route handler and reuses existing schema/dependency/service — no new abstractions, models, or configuration. **PASS**.
 
 ## Project Structure
 
@@ -57,57 +53,27 @@ specs/[###-feature]/
 ```
 
 ### Source Code (repository root)
-<!--
-  ACTION REQUIRED: Replace the placeholder tree below with the concrete layout
-  for this feature. Delete unused options and expand the chosen structure with
-  real paths (e.g., apps/admin, packages/something). The delivered plan must
-  not include Option labels.
--->
 
 ```text
-# [REMOVE IF UNUSED] Option 1: Single project (DEFAULT)
-src/
-├── models/
-├── services/
-├── cli/
-└── lib/
+app/
+├── api/v1/
+│   ├── router.py              # existing — /auth prefix already registered, no change
+│   └── endpoints/
+│       └── auth.py            # add GET /me handler here
+├── core/
+│   └── deps.py                # get_current_user (existing, reused, unchanged)
+├── schemas/
+│   └── user.py                # UserResponse (existing, reused, unchanged)
+└── services/
+    └── user_service.py        # get_user (existing, reused, unchanged)
 
 tests/
-├── contract/
-├── integration/
-└── unit/
-
-# [REMOVE IF UNUSED] Option 2: Web application (when "frontend" + "backend" detected)
-backend/
-├── src/
-│   ├── models/
-│   ├── services/
-│   └── api/
-└── tests/
-
-frontend/
-├── src/
-│   ├── components/
-│   ├── pages/
-│   └── services/
-└── tests/
-
-# [REMOVE IF UNUSED] Option 3: Mobile + API (when "iOS/Android" detected)
-api/
-└── [same as backend above]
-
-ios/ or android/
-└── [platform-specific structure: feature modules, UI flows, platform tests]
+└── api/
+    └── test_auth.py           # new — tests for GET /api/v1/auth/me
 ```
 
-**Structure Decision**: [Document the selected structure and reference the real
-directories captured above]
+**Structure Decision**: Single existing FastAPI project (`app/`). The new endpoint is one handler added to `app/api/v1/endpoints/auth.py` under the already-registered `/auth` prefix. No new modules, schemas, services, or migrations — fully reuses `get_current_user`, `UserResponse`, and `user_service.get_user`.
 
 ## Complexity Tracking
 
-> **Fill ONLY if Constitution Check has violations that must be justified**
-
-| Violation | Why Needed | Simpler Alternative Rejected Because |
-|-----------|------------|-------------------------------------|
-| [e.g., 4th project] | [current need] | [why 3 projects insufficient] |
-| [e.g., Repository pattern] | [specific problem] | [why direct DB access insufficient] |
+N/A — Constitution Check passed with no violations.
