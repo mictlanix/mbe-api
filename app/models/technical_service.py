@@ -1,7 +1,7 @@
 from datetime import datetime
 from decimal import Decimal
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, Numeric, SmallInteger, String
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, Numeric, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -26,7 +26,9 @@ class TechServiceReceiptComponent(Base):
     __tablename__ = "tech_service_receipt_component"
 
     tech_service_receipt_component_id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    receipt: Mapped[int] = mapped_column(Integer, ForeignKey("tech_service_receipt.tech_service_receipt_id"))
+    receipt: Mapped[int] = mapped_column(
+        Integer, ForeignKey("tech_service_receipt.tech_service_receipt_id")
+    )
     name: Mapped[str] = mapped_column(String(128))
     quantity: Mapped[int] = mapped_column(Integer)
     serial_number: Mapped[str | None] = mapped_column(String(64))
@@ -81,7 +83,9 @@ class TechServiceRequestComponent(Base):
     __tablename__ = "tech_service_request_component"
 
     tech_service_request_component_id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    request: Mapped[int] = mapped_column(Integer, ForeignKey("tech_service_request.tech_service_request_id"))
+    request: Mapped[int] = mapped_column(
+        Integer, ForeignKey("tech_service_request.tech_service_request_id")
+    )
     name: Mapped[str] = mapped_column(String(128))
     quantity: Mapped[int] = mapped_column(Integer)
     serial_number: Mapped[str | None] = mapped_column(String(64))

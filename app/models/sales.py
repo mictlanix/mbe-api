@@ -60,7 +60,9 @@ class SalesOrder(Base):
     point_sale: Mapped[int] = mapped_column(Integer, ForeignKey("point_sale.point_sale_id"))
     salesperson: Mapped[int] = mapped_column(Integer, ForeignKey("employee.employee_id"))
     customer: Mapped[int] = mapped_column(Integer, ForeignKey("customer.customer_id"))
-    sales_quote: Mapped[int | None] = mapped_column(Integer, ForeignKey("sales_quote.sales_quote_id"))
+    sales_quote: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("sales_quote.sales_quote_id")
+    )
     payment_terms: Mapped[int] = mapped_column(SmallInteger)
     date: Mapped[datetime] = mapped_column(DateTime)
     promise_date: Mapped[datetime] = mapped_column(DateTime)
@@ -120,7 +122,9 @@ class CustomerPayment(Base):
         Integer, ForeignKey("payment_method_option.payment_method_option_id")
     )
     date: Mapped[datetime] = mapped_column(DateTime)
-    cash_session: Mapped[int | None] = mapped_column(Integer, ForeignKey("cash_session.cash_session_id"))
+    cash_session: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("cash_session.cash_session_id")
+    )
     reference: Mapped[str | None] = mapped_column(String(50))
     customer: Mapped[int] = mapped_column(Integer, ForeignKey("customer.customer_id"))
     store: Mapped[int] = mapped_column(Integer, ForeignKey("store.store_id"))
@@ -139,7 +143,9 @@ class SalesOrderPayment(Base):
 
     sales_order_payment_id: Mapped[int] = mapped_column(Integer, primary_key=True)
     sales_order: Mapped[int] = mapped_column(Integer, ForeignKey("sales_order.sales_order_id"))
-    customer_payment: Mapped[int] = mapped_column(Integer, ForeignKey("customer_payment.customer_payment_id"))
+    customer_payment: Mapped[int] = mapped_column(
+        Integer, ForeignKey("customer_payment.customer_payment_id")
+    )
     amount: Mapped[Decimal] = mapped_column(Numeric(18, 4))
     amount_change: Mapped[Decimal] = mapped_column(Numeric(18, 4))
     applier: Mapped[int | None] = mapped_column(Integer, ForeignKey("employee.employee_id"))
@@ -172,7 +178,9 @@ class CustomerRefundDetail(Base):
     __tablename__ = "customer_refund_detail"
 
     customer_refund_detail_id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    customer_refund: Mapped[int] = mapped_column(Integer, ForeignKey("customer_refund.customer_refund_id"))
+    customer_refund: Mapped[int] = mapped_column(
+        Integer, ForeignKey("customer_refund.customer_refund_id")
+    )
     sales_order_detail: Mapped[int] = mapped_column(
         Integer, ForeignKey("sales_order_detail.sales_order_detail_id")
     )
@@ -194,11 +202,17 @@ class CreditNote(Base):
 
     credit_note_id: Mapped[int] = mapped_column(Integer, primary_key=True)
     sales_order: Mapped[int] = mapped_column(Integer, ForeignKey("sales_order.sales_order_id"))
-    customer_refund: Mapped[int] = mapped_column(Integer, ForeignKey("customer_refund.customer_refund_id"))
-    customer_payment: Mapped[int] = mapped_column(Integer, ForeignKey("customer_payment.customer_payment_id"))
+    customer_refund: Mapped[int] = mapped_column(
+        Integer, ForeignKey("customer_refund.customer_refund_id")
+    )
+    customer_payment: Mapped[int] = mapped_column(
+        Integer, ForeignKey("customer_payment.customer_payment_id")
+    )
     customer: Mapped[int] = mapped_column(Integer, ForeignKey("customer.customer_id"))
     refunded: Mapped[Decimal] = mapped_column(Numeric(20, 6))
-    cash_session: Mapped[int | None] = mapped_column(Integer, ForeignKey("cash_session.cash_session_id"))
+    cash_session: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("cash_session.cash_session_id")
+    )
     date: Mapped[datetime | None] = mapped_column(DateTime)
 
 
@@ -206,7 +220,11 @@ class PaymentOnDelivery(Base):
     __tablename__ = "payment_on_delivery"
 
     payment_on_delivery_id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    customer_payment: Mapped[int] = mapped_column(Integer, ForeignKey("customer_payment.customer_payment_id"))
-    cash_session: Mapped[int | None] = mapped_column(Integer, ForeignKey("cash_session.cash_session_id"))
+    customer_payment: Mapped[int] = mapped_column(
+        Integer, ForeignKey("customer_payment.customer_payment_id")
+    )
+    cash_session: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("cash_session.cash_session_id")
+    )
     paid: Mapped[bool] = mapped_column(Boolean)
     date: Mapped[datetime] = mapped_column(DateTime)

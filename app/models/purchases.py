@@ -1,7 +1,7 @@
 from datetime import datetime
 from decimal import Decimal
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, Numeric, SmallInteger, String
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, Numeric, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -64,7 +64,9 @@ class PurchaseOrderDetail(Base):
     __tablename__ = "purchase_order_detail"
 
     purchase_order_detail_id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    purchase_order: Mapped[int] = mapped_column(Integer, ForeignKey("purchase_order.purchase_order_id"))
+    purchase_order: Mapped[int] = mapped_column(
+        Integer, ForeignKey("purchase_order.purchase_order_id")
+    )
     product: Mapped[int] = mapped_column(Integer, ForeignKey("product.product_id"))
     warehouse: Mapped[int | None] = mapped_column(Integer, ForeignKey("warehouse.warehouse_id"))
     quantity: Mapped[Decimal] = mapped_column(Numeric(18, 4))
@@ -101,7 +103,9 @@ class ExpenseVoucherDetail(Base):
     __tablename__ = "expense_voucher_detail"
 
     expense_voucher_detail_id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    expense_voucher: Mapped[int] = mapped_column(Integer, ForeignKey("expense_voucher.expense_voucher_id"))
+    expense_voucher: Mapped[int] = mapped_column(
+        Integer, ForeignKey("expense_voucher.expense_voucher_id")
+    )
     expense: Mapped[int] = mapped_column(Integer, ForeignKey("expenses.expense_id"))
     amount: Mapped[Decimal] = mapped_column(Numeric(18, 2))
     comment: Mapped[str | None] = mapped_column(String(500))

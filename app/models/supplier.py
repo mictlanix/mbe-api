@@ -69,7 +69,9 @@ class SupplierReturn(Base):
     __tablename__ = "supplier_return"
 
     supplier_return_id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    purchase_order: Mapped[int] = mapped_column(Integer, ForeignKey("purchase_order.purchase_order_id"))
+    purchase_order: Mapped[int] = mapped_column(
+        Integer, ForeignKey("purchase_order.purchase_order_id")
+    )
     creator: Mapped[int] = mapped_column(Integer, ForeignKey("employee.employee_id"))
     updater: Mapped[int] = mapped_column(Integer, ForeignKey("employee.employee_id"))
     supplier: Mapped[int] = mapped_column(Integer, ForeignKey("supplier.supplier_id"))
@@ -83,7 +85,9 @@ class SupplierReturnDetail(Base):
     __tablename__ = "supplier_return_detail"
 
     supplier_return_detail_id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    supplier_return: Mapped[int] = mapped_column(Integer, ForeignKey("supplier_return.supplier_return_id"))
+    supplier_return: Mapped[int] = mapped_column(
+        Integer, ForeignKey("supplier_return.supplier_return_id")
+    )
     purchase_order_detail: Mapped[int] = mapped_column(
         Integer, ForeignKey("purchase_order_detail.purchase_order_detail_id")
     )

@@ -1,4 +1,4 @@
-from datetime import date, datetime
+from datetime import datetime
 from decimal import Decimal
 
 from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Integer, Numeric, String
@@ -18,7 +18,9 @@ class InventoryReceipt(Base):
     creator: Mapped[int] = mapped_column(Integer, ForeignKey("employee.employee_id"))
     updater: Mapped[int] = mapped_column(Integer, ForeignKey("employee.employee_id"))
     warehouse: Mapped[int] = mapped_column(Integer, ForeignKey("warehouse.warehouse_id"))
-    purchase_order: Mapped[int | None] = mapped_column(Integer, ForeignKey("purchase_order.purchase_order_id"))
+    purchase_order: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("purchase_order.purchase_order_id")
+    )
     completed: Mapped[bool] = mapped_column(Boolean)
     cancelled: Mapped[bool] = mapped_column(Boolean)
     comment: Mapped[str | None] = mapped_column(String(500))
@@ -28,7 +30,9 @@ class InventoryReceiptDetail(Base):
     __tablename__ = "inventory_receipt_detail"
 
     receipt_detail_id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    receipt: Mapped[int] = mapped_column(Integer, ForeignKey("inventory_receipt.inventory_receipt_id"))
+    receipt: Mapped[int] = mapped_column(
+        Integer, ForeignKey("inventory_receipt.inventory_receipt_id")
+    )
     product: Mapped[int] = mapped_column(Integer, ForeignKey("product.product_id"))
     purchase_order_detail: Mapped[int | None] = mapped_column(
         Integer, ForeignKey("purchase_order_detail.purchase_order_detail_id")
@@ -90,7 +94,9 @@ class InventoryTransferDetail(Base):
     __tablename__ = "inventory_transfer_detail"
 
     transfer_detail_id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    transfer: Mapped[int] = mapped_column(Integer, ForeignKey("inventory_transfer.inventory_transfer_id"))
+    transfer: Mapped[int] = mapped_column(
+        Integer, ForeignKey("inventory_transfer.inventory_transfer_id")
+    )
     product: Mapped[int] = mapped_column(Integer, ForeignKey("product.product_id"))
     quantity: Mapped[Decimal] = mapped_column(Numeric(18, 4))
     product_code: Mapped[str | None] = mapped_column(String(25))

@@ -72,9 +72,13 @@ class Store(Base):
     store_id: Mapped[int] = mapped_column(Integer, primary_key=True)
     code: Mapped[str] = mapped_column(String(25))
     name: Mapped[str] = mapped_column(String(250))
-    location: Mapped[str] = mapped_column(String(5), ForeignKey("sat_postal_code.sat_postal_code_id"))
+    location: Mapped[str] = mapped_column(
+        String(5), ForeignKey("sat_postal_code.sat_postal_code_id")
+    )
     address: Mapped[int] = mapped_column(Integer, ForeignKey("address.address_id"))
-    taxpayer: Mapped[str] = mapped_column(String(13), ForeignKey("taxpayer_issuer.taxpayer_issuer_id"))
+    taxpayer: Mapped[str] = mapped_column(
+        String(13), ForeignKey("taxpayer_issuer.taxpayer_issuer_id")
+    )
     logo: Mapped[str] = mapped_column(String(255))
     receipt_message: Mapped[str | None] = mapped_column(String(250))
     default_batch: Mapped[str | None] = mapped_column(String(10))

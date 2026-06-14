@@ -56,7 +56,9 @@ async def get_current_user(
 
 def require_admin(current_user: CurrentUser = Depends(get_current_user)) -> CurrentUser:
     if not current_user.administrator:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Administrator access required")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="Administrator access required"
+        )
     return current_user
 
 
@@ -79,7 +81,9 @@ def require_privilege(system_object: SystemObject, right: AccessRight = AccessRi
         )
         priv = result.scalar_one_or_none()
         if priv is None or not (priv.privileges & int(right)):
-            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Insufficient privileges")
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN, detail="Insufficient privileges"
+            )
         return current_user
 
     return _check

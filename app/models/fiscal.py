@@ -25,7 +25,9 @@ class TaxpayerCertificate(Base):
     __tablename__ = "taxpayer_certificate"
 
     taxpayer_certificate_id: Mapped[str] = mapped_column(String(20), primary_key=True)
-    taxpayer: Mapped[str] = mapped_column(String(13), ForeignKey("taxpayer_issuer.taxpayer_issuer_id"))
+    taxpayer: Mapped[str] = mapped_column(
+        String(13), ForeignKey("taxpayer_issuer.taxpayer_issuer_id")
+    )
     certificate_data: Mapped[bytes] = mapped_column(LargeBinary)
     key_data: Mapped[bytes] = mapped_column(LargeBinary)
     key_password: Mapped[bytes] = mapped_column(LargeBinary)
@@ -38,7 +40,9 @@ class TaxpayerBatch(Base):
     __tablename__ = "taxpayer_batch"
 
     taxpayer_batch_id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    taxpayer: Mapped[str] = mapped_column(String(13), ForeignKey("taxpayer_issuer.taxpayer_issuer_id"))
+    taxpayer: Mapped[str] = mapped_column(
+        String(13), ForeignKey("taxpayer_issuer.taxpayer_issuer_id")
+    )
     batch: Mapped[str] = mapped_column(String(10))
     type: Mapped[int] = mapped_column(Integer)
     template: Mapped[str] = mapped_column(Text)
@@ -52,7 +56,9 @@ class FiscalDocument(Base):
     modification_time: Mapped[datetime] = mapped_column(DateTime)
     creator: Mapped[int] = mapped_column(Integer, ForeignKey("employee.employee_id"))
     updater: Mapped[int] = mapped_column(Integer, ForeignKey("employee.employee_id"))
-    issuer: Mapped[str] = mapped_column(String(13), ForeignKey("taxpayer_issuer.taxpayer_issuer_id"))
+    issuer: Mapped[str] = mapped_column(
+        String(13), ForeignKey("taxpayer_issuer.taxpayer_issuer_id")
+    )
     issuer_name: Mapped[str | None] = mapped_column(String(250))
     issuer_regime: Mapped[str | None] = mapped_column(String(3))
     issuer_regime_name: Mapped[str | None] = mapped_column(String(250))
@@ -78,7 +84,9 @@ class FiscalDocument(Base):
     exchange_rate: Mapped[Decimal] = mapped_column(Numeric(8, 4))
     currency: Mapped[CurrencyCode] = mapped_column(Integer)
     payment_terms: Mapped[int] = mapped_column(Integer)
-    usage: Mapped[str | None] = mapped_column(String(3), ForeignKey("sat_cfdi_usage.sat_cfdi_usage_id"))
+    usage: Mapped[str | None] = mapped_column(
+        String(3), ForeignKey("sat_cfdi_usage.sat_cfdi_usage_id")
+    )
     comment: Mapped[str | None] = mapped_column(String(1000))
     stamped: Mapped[datetime | None] = mapped_column(DateTime)
     stamp_uuid: Mapped[str | None] = mapped_column(String(36))

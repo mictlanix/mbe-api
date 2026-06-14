@@ -21,7 +21,9 @@ class CommissionAgent(Base):
 
     __tablename__ = "commission_agent"
 
-    employee: Mapped[int] = mapped_column(Integer, ForeignKey("employee.employee_id"), primary_key=True)
+    employee: Mapped[int] = mapped_column(
+        Integer, ForeignKey("employee.employee_id"), primary_key=True
+    )
 
 
 class CommissionParticipation(Base):

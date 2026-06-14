@@ -3,7 +3,7 @@ from fastapi.security import OAuth2PasswordRequestForm
 from jose import JWTError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.deps import get_current_user, CurrentUser
+from app.core.deps import CurrentUser, get_current_user
 from app.core.security import create_access_token, decode_token
 from app.db.session import get_db
 from app.models.user import User
@@ -37,7 +37,9 @@ async def confirm_recovery(
     db: AsyncSession = Depends(get_db),
 ) -> None:
     """Complete an admin-triggered password recovery using a signed recovery token."""
-    bad_token = HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid or expired recovery token")
+    bad_token = HTTPException(
+        status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid or expired recovery token"
+    )
     try:
         payload = decode_token(data.recovery_token)
         if payload.get("type") != "recovery":
@@ -67,7 +69,10 @@ async def change_password(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
 
     from app.core.security import verify_password
+
     if not verify_password(data.old_password, user.password, user.password_scheme):
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Incorrect current password")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Incorrect current password"
+        )
 
     await user_service.change_password(db, user, data.new_password)

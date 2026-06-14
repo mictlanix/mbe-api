@@ -1,10 +1,10 @@
 from collections.abc import Sequence
-from datetime import UTC, datetime
+from datetime import datetime
 
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.security import bcrypt_hash, create_recovery_token, random_password, verify_password
+from app.core.security import bcrypt_hash, create_recovery_token, verify_password
 from app.enums import SystemObject
 from app.models.user import AccessPrivilege, User, UserSettings
 from app.schemas.user import UserCreate, UserSettingsUpdate, UserUpdate

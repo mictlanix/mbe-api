@@ -34,7 +34,9 @@ class DeliveryOrderDetail(Base):
     __tablename__ = "delivery_order_detail"
 
     delivery_order_detail_id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    delivery_order: Mapped[int] = mapped_column(Integer, ForeignKey("delivery_order.delivery_order_id"))
+    delivery_order: Mapped[int] = mapped_column(
+        Integer, ForeignKey("delivery_order.delivery_order_id")
+    )
     sales_order_detail: Mapped[int | None] = mapped_column(
         Integer, ForeignKey("sales_order_detail.sales_order_detail_id")
     )

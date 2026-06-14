@@ -40,7 +40,9 @@ class TaxpayerRecipient(Base):
     name: Mapped[str | None] = mapped_column(String(250))
     email: Mapped[str] = mapped_column(String(80))
     postal_code: Mapped[str | None] = mapped_column(String(5))
-    regime: Mapped[str | None] = mapped_column(String(3), ForeignKey("sat_tax_regime.sat_tax_regime_id"))
+    regime: Mapped[str | None] = mapped_column(
+        String(3), ForeignKey("sat_tax_regime.sat_tax_regime_id")
+    )
 
 
 class Customer(Base):

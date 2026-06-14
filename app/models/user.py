@@ -61,10 +61,16 @@ class AccessPrivilege(Base):
 class UserSettings(Base):
     __tablename__ = "user_settings"
 
-    user_id: Mapped[str] = mapped_column("user", String(20), ForeignKey("user.user_id"), primary_key=True)
+    user_id: Mapped[str] = mapped_column(
+        "user", String(20), ForeignKey("user.user_id"), primary_key=True
+    )
     # store is NOT NULL per schema — a user must belong to a store
     store_id: Mapped[int] = mapped_column("store", Integer, ForeignKey("store.store_id"))
-    point_sale_id: Mapped[int | None] = mapped_column("point_sale", Integer, ForeignKey("point_sale.point_sale_id"))
-    cash_drawer_id: Mapped[int | None] = mapped_column("cash_drawer", Integer, ForeignKey("cash_drawer.cash_drawer_id"))
+    point_sale_id: Mapped[int | None] = mapped_column(
+        "point_sale", Integer, ForeignKey("point_sale.point_sale_id")
+    )
+    cash_drawer_id: Mapped[int | None] = mapped_column(
+        "cash_drawer", Integer, ForeignKey("cash_drawer.cash_drawer_id")
+    )
 
     user: Mapped["User"] = relationship(back_populates="settings")
