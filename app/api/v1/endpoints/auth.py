@@ -70,7 +70,7 @@ async def change_password(
 
     from app.core.security import verify_password
 
-    if not verify_password(data.old_password, user.password, user.password_scheme):
+    if not verify_password(data.old_password, user.password):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail="Incorrect current password"
         )

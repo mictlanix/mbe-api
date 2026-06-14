@@ -10,8 +10,6 @@ class User(Base):
     user_id: Mapped[str] = mapped_column(String(20), primary_key=True)
     # varchar(40) in legacy DB (SHA1 hex); extended to 255 for bcrypt migration — see spec §5
     password: Mapped[str] = mapped_column(String(255))
-    # added column to track hash scheme during SHA1→bcrypt migration; not in original schema
-    password_scheme: Mapped[str] = mapped_column(String(10), server_default="sha1")
     email: Mapped[str] = mapped_column(String(250))
     employee_id: Mapped[int | None] = mapped_column(
         "employee", Integer, ForeignKey("employee.employee_id")

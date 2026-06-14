@@ -7,10 +7,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Changed
+- Password hashing simplified to SHA1-only; `verify_password` now compares hashes case-insensitively
 - `currency` columns in all affected models now use `Mapped[CurrencyCode]` instead of `Mapped[int]`
   (models: `core.ExchangeRate`, `product.Product`, `sales.*`, `supplier.SupplierReturnDetail`,
   `purchases.PurchaseOrderDetail`, `fiscal.FiscalDocument`, `fiscal.FiscalDocumentDetail`)
 - `ExchangeRate.base` and `ExchangeRate.target` now typed as `Mapped[CurrencyCode]`
+
+### Removed
+- `password_scheme` column from `User` model (not present in the real DB schema)
+- bcrypt hashing and `passlib` dependency; `bcrypt_hash`, `verify_bcrypt`, `verify_sha1` removed
+- SHA1→bcrypt migration logic on login
 
 ### Fixed
 - All ruff rule violations across the codebase

@@ -4,7 +4,7 @@ from datetime import datetime
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.security import bcrypt_hash, create_recovery_token, verify_password
+from app.core.security import create_recovery_token, sha1_hash, verify_password
 from app.enums import SystemObject
 from app.models.user import AccessPrivilege, User, UserSettings
 from app.schemas.user import UserCreate, UserSettingsUpdate, UserUpdate
@@ -37,8 +37,7 @@ async def list_users(
 async def create_user(db: AsyncSession, data: UserCreate) -> User:
     user = User(
         user_id=data.user_id,
-        password=bcrypt_hash(data.password),
-        password_scheme="bcrypt",
+        password=sha1_hash(data.password),
         email=data.email.lower(),
         employee_id=data.employee_id,
         administrator=data.administrator,
@@ -104,21 +103,14 @@ async def authenticate_user(db: AsyncSession, username: str, password: str) -> U
     if user is None or user.disabled:
         return None
 
-    if not verify_password(password, user.password, user.password_scheme):
+    if not verify_password(password, user.password):
         return None
-
-    # Migrate SHA1 → bcrypt on successful login
-    if user.password_scheme == "sha1":
-        user.password = bcrypt_hash(password)
-        user.password_scheme = "bcrypt"
-        await db.commit()
 
     return user
 
 
 async def change_password(db: AsyncSession, user: User, new_password: str) -> None:
-    user.password = bcrypt_hash(new_password)
-    user.password_scheme = "bcrypt"
+    user.password = sha1_hash(new_password)
     await db.commit()
 
 
@@ -130,8 +122,7 @@ async def initiate_recovery(db: AsyncSession, user: User) -> tuple[str, datetime
 
 
 async def complete_recovery(db: AsyncSession, user: User, new_password: str) -> None:
-    user.password = bcrypt_hash(new_password)
-    user.password_scheme = "bcrypt"
+    user.password = sha1_hash(new_password)
     await db.commit()
 
 

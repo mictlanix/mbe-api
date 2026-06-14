@@ -3,33 +3,16 @@ import secrets
 from datetime import UTC, datetime, timedelta
 
 from jose import jwt
-from passlib.context import CryptContext
 
 from app.core.config import settings
-
-_pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 
 def sha1_hash(password: str) -> str:
     return hashlib.sha1(password.encode()).hexdigest()
 
 
-def verify_sha1(plain: str, hashed: str) -> bool:
-    return sha1_hash(plain) == hashed
-
-
-def bcrypt_hash(password: str) -> str:
-    return _pwd_context.hash(password)
-
-
-def verify_bcrypt(plain: str, hashed: str) -> bool:
-    return _pwd_context.verify(plain, hashed)
-
-
-def verify_password(plain: str, hashed: str, scheme: str) -> bool:
-    if scheme == "sha1":
-        return verify_sha1(plain, hashed)
-    return verify_bcrypt(plain, hashed)
+def verify_password(plain: str, hashed: str) -> bool:
+    return sha1_hash(plain).upper() == hashed.upper()
 
 
 def create_access_token(
