@@ -1,0 +1,25 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "ssh-tunnel",
+            "type": "shell",
+            "command": "[ -S /tmp/mysql-xolotl.sock ] || ssh -fN -L /tmp/mysql-xolotl.sock:/var/run/mysqld/mysqld.sock mictlanix@xolotl.mictlanix.net",
+            "presentation": {
+                "reveal": "silent",
+                "panel": "shared"
+            },
+            "problemMatcher": []
+        },
+        {
+            "label": "stop-tunnel",
+            "type": "shell",
+            "command": "pkill -f 'ssh -fN -L /tmp/mysql-xolotl.sock' ; rm -f /tmp/mysql-xolotl.sock",
+            "presentation": {
+                "reveal": "silent",
+                "panel": "shared"
+            },
+            "problemMatcher": []
+        }
+    ]
+}

@@ -10,7 +10,9 @@
       "python": "${workspaceFolder}/.venv/bin/python3",
       "envFile": "${workspaceFolder}/.env",
       "jinja": true,
-      "justMyCode": true
+      "justMyCode": true,
+      "preLaunchTask": "ssh-tunnel",
+      "postDebugTask": "stop-tunnel"
     }
   ]
 }
