@@ -7,8 +7,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
+- `docs/constants.md` — full enum reference extracted from `Model/Constants/` with integer values and descriptions
 - VS Code debug configuration (`.vscode/launch.json`) for F5 launch via debugpy + uvicorn
 - README with setup, environment variables, run, migration, test, and lint instructions
+
+### Docs
+- Updated specs: `02-sales`, `03-production`, `04-inventory`, `05-purchases`, `07-administration`, `08-technical-service`, `09-front-desk`, `10-fiscal-documents`, `11-reports`
+- `docs/README.md` index updated to reference `constants.md`
 
 ### Changed
 - Password hashing simplified to SHA1-only; `verify_password` now compares hashes case-insensitively
