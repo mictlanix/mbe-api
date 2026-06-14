@@ -8,7 +8,7 @@ from app.core.security import create_access_token, decode_token
 from app.db.session import get_db
 from app.models.user import User
 from app.schemas.auth import ConfirmRecoveryRequest, TokenResponse
-from app.schemas.user import ChangePasswordRequest
+from app.schemas.user import ChangePasswordRequest, UserResponse
 from app.services import user_service
 
 router = APIRouter()
@@ -29,6 +29,18 @@ async def login(
     store_id = user.settings.store_id if user.settings else None
     token = create_access_token(user.user_id, user.session_version, user.administrator, store_id)
     return TokenResponse(access_token=token)
+
+
+@router.get("/me", response_model=UserResponse)
+async def get_me(
+    current_user: CurrentUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> UserResponse:
+    """Return the authenticated caller's own profile, settings, and privileges."""
+    user = await user_service.get_user(db, current_user.user_id)
+    if user is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+    return UserResponse.model_validate(user)
 
 
 @router.post("/recover", status_code=status.HTTP_204_NO_CONTENT)

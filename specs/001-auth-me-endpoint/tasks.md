@@ -37,11 +37,11 @@ Single project — `app/` and `tests/` at repository root (see [plan.md](./plan.
 
 ### Implementation for User Story 1
 
-- [ ] T001 [US1] Add `GET /me` handler to `app/api/v1/endpoints/auth.py`: depend on `get_current_user`, look up the caller via `user_service.get_user(db, current_user.user_id)`, return `UserResponse.model_validate(user)` (404 if somehow not found, matching existing endpoint conventions)
+- [X] T001 [US1] Add `GET /me` handler to `app/api/v1/endpoints/auth.py`: depend on `get_current_user`, look up the caller via `user_service.get_user(db, current_user.user_id)`, return `UserResponse.model_validate(user)` (404 if somehow not found, matching existing endpoint conventions)
 
 ### Tests for User Story 1
 
-- [ ] T002 [US1] In `tests/api/test_auth.py`, add `test_auth_me_returns_own_profile_for_non_admin` and `test_auth_me_returns_own_profile_for_admin`: log in via `/api/v1/auth/login`, call `GET /api/v1/auth/me` with the bearer token, assert `200` and that the response matches `UserResponse` shape (depends on T001)
+- [X] T002 [US1] In `tests/api/test_auth.py`, add `test_auth_me_returns_own_profile_for_non_admin` and `test_auth_me_returns_own_profile_for_admin`: override `get_current_user`/`get_db` (no real DB — see project decision below) to provide a transient user, call `GET /api/v1/auth/me` with a bearer token, assert `200` and that the response matches `UserResponse` shape (depends on T001)
 
 **Checkpoint**: Non-admin and admin users can both retrieve their own profile via `/api/v1/auth/me` — mbe-ui session bootstrap unblocked.
 
@@ -55,9 +55,9 @@ Single project — `app/` and `tests/` at repository root (see [plan.md](./plan.
 
 ### Tests for User Story 2
 
-- [ ] T003 [US2] In `tests/api/test_auth.py`, add `test_auth_me_requires_authentication`: call `GET /api/v1/auth/me` with no `Authorization` header, assert `401` (depends on T001)
-- [ ] T004 [US2] In `tests/api/test_auth.py`, add `test_auth_me_rejects_stale_session_version`: issue a token, then bump the user's `session_version` in the DB (simulating logout/password change), call `GET /api/v1/auth/me`, assert `401` (depends on T001)
-- [ ] T005 [US2] In `tests/api/test_auth.py`, add `test_auth_me_rejects_disabled_user`: issue a token for a user, then mark the user `disabled=True`, call `GET /api/v1/auth/me`, assert `401` (depends on T001)
+- [X] T003 [US2] In `tests/api/test_auth.py`, add `test_auth_me_requires_authentication`: call `GET /api/v1/auth/me` with no `Authorization` header, assert `401` (depends on T001)
+- [X] T004 [US2] In `tests/api/test_auth.py`, add `test_auth_me_rejects_stale_session_version`: issue a real token via `create_access_token` with `session_version=1`, override `get_db` to return a stored user with `session_version=2`, call `GET /api/v1/auth/me`, assert `401` (depends on T001)
+- [X] T005 [US2] In `tests/api/test_auth.py`, add `test_auth_me_rejects_disabled_user`: issue a real token for a user, override `get_db` to return a stored user with `disabled=True`, call `GET /api/v1/auth/me`, assert `401` (depends on T001)
 
 **Checkpoint**: `/auth/me` enforces the same authentication guarantees (`get_current_user`) as every other authenticated endpoint — no new information-leak surface.
 
@@ -65,8 +65,12 @@ Single project — `app/` and `tests/` at repository root (see [plan.md](./plan.
 
 ## Final Phase: Polish & Cross-Cutting Concerns
 
-- [ ] T006 [P] Run `uv run ruff check .` and `uv run mypy app` and fix any violations introduced by T001
-- [ ] T007 Run [quickstart.md](./quickstart.md) manual validation steps end-to-end against a local server
+- [X] T006 [P] Run `uv run ruff check .` and `uv run mypy app` and fix any violations introduced by T001 — clean; pre-existing mypy errors in `inventory.py`/`security.py`/`deps.py` are unrelated to this change
+- [ ] T007 Run [quickstart.md](./quickstart.md) manual validation steps end-to-end against a local server — **not run**: requires a live server with a seeded MySQL DB, not available in this environment. Automated tests (T002–T005) cover the same scenarios against a mocked DB.
+
+## Project Decisions
+
+- **Testing approach (T002–T005)**: No DB-backed test fixtures exist in this project (only `tests/api/test_health.py`, which doesn't touch the DB). Per user decision, tests use FastAPI `dependency_overrides` for `get_current_user`/`get_db` with a transient `User` instance and a minimal fake async session — no real database required. This establishes a lightweight pattern reusable for future authenticated-endpoint tests.
 
 ---
 
