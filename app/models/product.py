@@ -4,6 +4,7 @@ from sqlalchemy import Boolean, Column, ForeignKey, Integer, Numeric, SmallInteg
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
+from app.enums import CurrencyCode
 
 # Junction table: product ↔ label (no extra columns)
 product_label = Table(
@@ -47,7 +48,7 @@ class Product(Base):
     tax_rate: Mapped[Decimal] = mapped_column(Numeric(7, 6))
     tax_included: Mapped[bool] = mapped_column(Boolean)
     price_type: Mapped[int] = mapped_column(SmallInteger)
-    currency: Mapped[int] = mapped_column(Integer)
+    currency: Mapped[CurrencyCode] = mapped_column(Integer)
     min_order_qty: Mapped[int] = mapped_column(Integer)
     comment: Mapped[str | None] = mapped_column(String(500))
     supplier: Mapped[int | None] = mapped_column(Integer, ForeignKey("supplier.supplier_id"))

@@ -1,6 +1,12 @@
 from enum import IntEnum, IntFlag
 
 
+class CurrencyCode(IntEnum):
+    MXN = 0
+    USD = 1
+    EUR = 2
+
+
 class AccessRight(IntFlag):
     NONE = 0
     CREATE = 1

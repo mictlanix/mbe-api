@@ -5,6 +5,7 @@ from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, LargeBinary, Nume
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
+from app.enums import CurrencyCode
 
 
 class TaxpayerIssuer(Base):
@@ -75,7 +76,7 @@ class FiscalDocument(Base):
     payment_method: Mapped[int] = mapped_column(Integer)
     payment_reference: Mapped[str | None] = mapped_column(String(50))
     exchange_rate: Mapped[Decimal] = mapped_column(Numeric(8, 4))
-    currency: Mapped[int] = mapped_column(Integer)
+    currency: Mapped[CurrencyCode] = mapped_column(Integer)
     payment_terms: Mapped[int] = mapped_column(Integer)
     usage: Mapped[str | None] = mapped_column(String(3), ForeignKey("sat_cfdi_usage.sat_cfdi_usage_id"))
     comment: Mapped[str | None] = mapped_column(String(1000))
@@ -118,7 +119,7 @@ class FiscalDocumentDetail(Base):
     discount: Mapped[Decimal] = mapped_column(Numeric(9, 8))
     tax_rate: Mapped[Decimal] = mapped_column(Numeric(7, 6))
     exchange_rate: Mapped[Decimal] = mapped_column(Numeric(8, 4))
-    currency: Mapped[int] = mapped_column(Integer)
+    currency: Mapped[CurrencyCode] = mapped_column(Integer)
     tax_included: Mapped[bool] = mapped_column(Boolean)
     comment: Mapped[str | None] = mapped_column(String(1000))
 

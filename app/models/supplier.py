@@ -5,6 +5,7 @@ from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, Numeric, 
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
+from app.enums import CurrencyCode
 
 # Junction tables
 supplier_address = Table(
@@ -95,5 +96,5 @@ class SupplierReturnDetail(Base):
     tax_rate: Mapped[Decimal] = mapped_column(Numeric(5, 4))
     discount: Mapped[Decimal] = mapped_column(Numeric(9, 8))
     exchange_rate: Mapped[Decimal] = mapped_column(Numeric(8, 4))
-    currency: Mapped[int] = mapped_column(Integer)
+    currency: Mapped[CurrencyCode] = mapped_column(Integer)
     tax_included: Mapped[bool] = mapped_column(Boolean)

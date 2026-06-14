@@ -5,6 +5,7 @@ from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, Numeric, SmallInt
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
+from app.enums import CurrencyCode
 
 
 class SalesQuote(Base):
@@ -27,7 +28,7 @@ class SalesQuote(Base):
     contact: Mapped[int | None] = mapped_column(Integer, ForeignKey("contact.contact_id"))
     ship_to: Mapped[int | None] = mapped_column(Integer, ForeignKey("address.address_id"))
     comment: Mapped[str | None] = mapped_column(String(1024))
-    currency: Mapped[int] = mapped_column(Integer)
+    currency: Mapped[CurrencyCode] = mapped_column(Integer)
     exchange_rate: Mapped[Decimal] = mapped_column(Numeric(8, 4))
 
 
@@ -45,7 +46,7 @@ class SalesQuoteDetail(Base):
     product_code: Mapped[str] = mapped_column(String(25))
     product_name: Mapped[str] = mapped_column(String(250))
     exchange_rate: Mapped[Decimal] = mapped_column(Numeric(8, 4))
-    currency: Mapped[int] = mapped_column(Integer)
+    currency: Mapped[CurrencyCode] = mapped_column(Integer)
     tax_included: Mapped[bool] = mapped_column(Boolean)
     comment: Mapped[str | None] = mapped_column(String(1024))
 
@@ -79,7 +80,7 @@ class SalesOrder(Base):
     ship_to: Mapped[int | None] = mapped_column(Integer, ForeignKey("address.address_id"))
     delivered: Mapped[bool] = mapped_column(Boolean)
     comment: Mapped[str | None] = mapped_column(String(500))
-    currency: Mapped[int] = mapped_column(Integer)
+    currency: Mapped[CurrencyCode] = mapped_column(Integer)
     exchange_rate: Mapped[Decimal] = mapped_column(Numeric(8, 4))
     customer_name: Mapped[str | None] = mapped_column(String(100))
     customer_shipto: Mapped[str | None] = mapped_column(String(200))
@@ -103,7 +104,7 @@ class SalesOrderDetail(Base):
     delivery: Mapped[bool] = mapped_column(Boolean)
     warehouse: Mapped[int | None] = mapped_column(Integer, ForeignKey("warehouse.warehouse_id"))
     exchange_rate: Mapped[Decimal] = mapped_column(Numeric(8, 4))
-    currency: Mapped[int] = mapped_column(Integer)
+    currency: Mapped[CurrencyCode] = mapped_column(Integer)
     tax_included: Mapped[bool] = mapped_column(Boolean)
     comment: Mapped[str | None] = mapped_column(String(500))
 
@@ -129,7 +130,7 @@ class CustomerPayment(Base):
     verifier: Mapped[int | None] = mapped_column(Integer, ForeignKey("employee.employee_id"))
     creation_time: Mapped[datetime] = mapped_column(DateTime)
     modification_time: Mapped[datetime] = mapped_column(DateTime)
-    currency: Mapped[int] = mapped_column(Integer)
+    currency: Mapped[CurrencyCode] = mapped_column(Integer)
     payment_type: Mapped[int] = mapped_column(SmallInteger)
 
 
@@ -163,7 +164,7 @@ class CustomerRefund(Base):
     store: Mapped[int] = mapped_column(Integer, ForeignKey("store.store_id"))
     serial: Mapped[int | None] = mapped_column(Integer)
     date: Mapped[datetime | None] = mapped_column(DateTime)
-    currency: Mapped[int] = mapped_column(Integer)
+    currency: Mapped[CurrencyCode] = mapped_column(Integer)
     exchange_rate: Mapped[Decimal] = mapped_column(Numeric(8, 4))
 
 
@@ -183,7 +184,7 @@ class CustomerRefundDetail(Base):
     tax_rate: Mapped[Decimal] = mapped_column(Numeric(5, 4))
     discount: Mapped[Decimal] = mapped_column(Numeric(9, 8))
     exchange_rate: Mapped[Decimal] = mapped_column(Numeric(8, 4))
-    currency: Mapped[int] = mapped_column(Integer)
+    currency: Mapped[CurrencyCode] = mapped_column(Integer)
     tax_included: Mapped[bool] = mapped_column(Boolean)
     warehouse: Mapped[int | None] = mapped_column(Integer, ForeignKey("warehouse.warehouse_id"))
 

@@ -5,6 +5,7 @@ from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Integer, Numeric, Sm
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
+from app.enums import CurrencyCode
 
 
 class Address(Base):
@@ -141,8 +142,8 @@ class ExchangeRate(Base):
     exchange_rate_id: Mapped[int] = mapped_column(Integer, primary_key=True)
     date: Mapped[date] = mapped_column(Date)
     rate: Mapped[Decimal] = mapped_column(Numeric(8, 4))
-    base: Mapped[int] = mapped_column(Integer)
-    target: Mapped[int] = mapped_column(Integer)
+    base: Mapped[CurrencyCode] = mapped_column(Integer)
+    target: Mapped[CurrencyCode] = mapped_column(Integer)
 
 
 class Expense(Base):

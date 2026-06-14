@@ -5,6 +5,7 @@ from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, Numeric, SmallInt
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
+from app.enums import CurrencyCode
 
 
 class PurchaseRequest(Base):
@@ -73,7 +74,7 @@ class PurchaseOrderDetail(Base):
     product_code: Mapped[str] = mapped_column(String(25))
     product_name: Mapped[str] = mapped_column(String(250))
     exchange_rate: Mapped[Decimal] = mapped_column(Numeric(8, 4))
-    currency: Mapped[int] = mapped_column(Integer)
+    currency: Mapped[CurrencyCode] = mapped_column(Integer)
     tax_included: Mapped[bool] = mapped_column(Boolean)
     purchase_request_detail: Mapped[int | None] = mapped_column(
         Integer, ForeignKey("purchase_request_detail.purchase_request_detail_id")
