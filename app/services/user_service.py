@@ -47,7 +47,7 @@ async def create_user(db: AsyncSession, data: UserCreate) -> User:
     )
     db.add(user)
 
-    db.add(UserSettings(user_id=data.user_id))
+    # UserSettings.store is NOT NULL — row is created via update_user once a store is assigned
 
     # Pre-create one access_privilege row per SystemObject, all denied
     for obj in SystemObject:
@@ -138,12 +138,15 @@ async def complete_recovery(db: AsyncSession, user: User, new_password: str) -> 
 async def _apply_settings(db: AsyncSession, user: User, data: UserSettingsUpdate) -> None:
     settings = user.settings
     if settings is None:
-        settings = UserSettings(user_id=user.user_id)
+        if data.store_id is None:
+            return  # store is NOT NULL — cannot create UserSettings without a store
+        settings = UserSettings(user_id=user.user_id, store_id=data.store_id)
         db.add(settings)
         user.settings = settings
+    else:
+        if data.store_id is not None:
+            settings.store_id = data.store_id
 
-    if data.store_id is not None:
-        settings.store_id = data.store_id
     if data.point_sale_id is not None:
         settings.point_sale_id = data.point_sale_id
     if data.cash_drawer_id is not None:
