@@ -7,6 +7,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
+- REST CRUD endpoints for 17 master data resources: Products, Price Lists, Customers, Labels, Taxpayer Recipients, Suppliers, Employees, Stores, Warehouses, Points of Sale, Cash Drawers, Exchange Rates, Expenses, Payment Method Options, Vehicles, Vehicle Operators, Production Sites
+- `GET /api/v1/products/merge` endpoint for merging duplicate products
+- `app/schemas/product.py` — Pydantic schemas for products and price lists
+- `app/schemas/customer.py` — Pydantic schemas for customers and taxpayer recipients
+- `app/schemas/supplier.py` — Pydantic schemas for suppliers
+- `app/schemas/core.py` — Pydantic schemas for all remaining catalog resources
+- `app/schemas/__init__.py` — generic `ListResponse[T]` model for paginated list responses
+- 17 service modules under `app/services/` for all catalog resources
+- 17 endpoint modules under `app/api/v1/endpoints/` for all catalog resources
+- `default_vat`, `is_tax_included`, `default_price_type`, `default_photo_file`, `default_customer_id` settings to `app/core/config.py`
 - `docs/constants.md` — full enum reference extracted from `Model/Constants/` with integer values and descriptions
 - VS Code debug configuration (`.vscode/launch.json`) for F5 launch via debugpy + uvicorn
 - README with setup, environment variables, run, migration, test, and lint instructions

@@ -1,3 +1,5 @@
+from decimal import Decimal
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -22,6 +24,13 @@ class Settings(BaseSettings):
     # for local development; set to a JSON array of explicit origins in
     # production, e.g. CORS_ORIGINS=["https://app.example.com"]
     cors_origins: list[str] = ["*"]
+
+    # Product creation defaults (replaces legacy WebConfig values)
+    default_vat: Decimal = Decimal("0.160000")
+    is_tax_included: bool = False
+    default_price_type: int = 0  # 0 = Fixed
+    default_photo_file: str = "no-image.png"
+    default_customer_id: int = 1
 
 
 settings = Settings()

@@ -20,9 +20,9 @@
 
 **Purpose**: Project config additions and shared utilities required by every resource.
 
-- [ ] T001 Add `default_vat`, `is_tax_included`, `default_price_type`, `default_photo_file`, `default_customer_id` fields to `Settings` class in `app/core/config.py`
-- [ ] T002 Add `require_privilege(system_object: SystemObject, access_right: AccessRight)` dependency function to `app/core/deps.py` — reads caller's `AccessPrivilege` row and raises `403` if bit not set
-- [ ] T003 [P] Add `ListResponse` generic Pydantic model (`items: list[T], total: int`) to `app/schemas/__init__.py`
+- [X] T001 Add `default_vat`, `is_tax_included`, `default_price_type`, `default_photo_file`, `default_customer_id` fields to `Settings` class in `app/core/config.py`
+- [X] T002 Add `require_privilege(system_object: SystemObject, access_right: AccessRight)` dependency function to `app/core/deps.py` — reads caller's `AccessPrivilege` row and raises `403` if bit not set
+- [X] T003 [P] Add `ListResponse` generic Pydantic model (`items: list[T], total: int`) to `app/schemas/__init__.py`
 
 **Checkpoint**: Config and shared utils ready — all subsequent phases can proceed.
 
@@ -32,10 +32,10 @@
 
 **Purpose**: Define all Pydantic request/response schemas. All four files can be written in parallel.
 
-- [ ] T004 [P] Create `app/schemas/product.py` — `ProductCreate`, `ProductUpdate`, `ProductListItem`, `ProductPriceResponse`, `ProductResponse`, `PriceListCreate`, `PriceListUpdate`, `PriceListResponse`, `ProductMergeRequest`
-- [ ] T005 [P] Create `app/schemas/customer.py` — `CustomerCreate`, `CustomerUpdate`, `CustomerListItem`, `CustomerResponse`, `TaxpayerRecipientCreate`, `TaxpayerRecipientUpdate`, `TaxpayerRecipientResponse`
-- [ ] T006 [P] Create `app/schemas/supplier.py` — `SupplierCreate`, `SupplierUpdate`, `SupplierResponse`
-- [ ] T007 [P] Create `app/schemas/core.py` — schemas for `Label`, `Employee`, `Store`, `Warehouse`, `PointSale`, `CashDrawer`, `ExchangeRate`, `Expense`, `PaymentMethodOption`, `Vehicle`, `VehicleOperator` (include computed `days_until_expiry` via `@model_validator`), `ProductionSite` — each as `*Create`, `*Update`, `*Response` (and `*ListItem` where list columns differ from full response)
+- [X] T004 [P] Create `app/schemas/product.py` — `ProductCreate`, `ProductUpdate`, `ProductListItem`, `ProductPriceResponse`, `ProductResponse`, `PriceListCreate`, `PriceListUpdate`, `PriceListResponse`, `ProductMergeRequest`
+- [X] T005 [P] Create `app/schemas/customer.py` — `CustomerCreate`, `CustomerUpdate`, `CustomerListItem`, `CustomerResponse`, `TaxpayerRecipientCreate`, `TaxpayerRecipientUpdate`, `TaxpayerRecipientResponse`
+- [X] T006 [P] Create `app/schemas/supplier.py` — `SupplierCreate`, `SupplierUpdate`, `SupplierResponse`
+- [X] T007 [P] Create `app/schemas/core.py` — schemas for `Label`, `Employee`, `Store`, `Warehouse`, `PointSale`, `CashDrawer`, `ExchangeRate`, `Expense`, `PaymentMethodOption`, `Vehicle`, `VehicleOperator` (include computed `days_until_expiry` via `@model_validator`), `ProductionSite` — each as `*Create`, `*Update`, `*Response` (and `*ListItem` where list columns differ from full response)
 
 **Checkpoint**: All schemas defined — resource services and endpoints can now be implemented in parallel.
 
@@ -49,20 +49,20 @@
 
 ### Products (US1–US6)
 
-- [ ] T008 [US1] Create `app/services/product_service.py` — implement `list_products(db, search, label, deactivated, stockable, salable, purchasable, skip, limit)` returning `(Sequence[Product], int)`
-- [ ] T009 [US2] Add `create_product(db, data, settings)` to `app/services/product_service.py` — applies auto-defaults (`min_order_qty=1`, `stock_verification=True`, VAT, tax_included, price_type, photo from settings), then creates one `ProductPrice` row per existing `PriceList` in the same transaction
-- [ ] T010 [US3] Add `get_product(db, product_id)` to `app/services/product_service.py` — returns `Product | None` with associated `ProductPrice` rows loaded via explicit select
-- [ ] T011 [US4] Add `update_product(db, product, data)` to `app/services/product_service.py`
-- [ ] T012 [US5] Add `delete_product(db, product)` to `app/services/product_service.py` — deletes all `ProductPrice` rows first, then deletes the product
-- [ ] T013 [US6] Add `merge_products(db, product_id, duplicate_id)` to `app/services/product_service.py` — issues ORM `update()` per table (`sales_order_detail`, `purchase_order_detail`, `inventory_receipt_detail`, `inventory_issue_detail`, `inventory_transfer_detail`, `product_price`, `lot_serial_tracking`, `product_label`) to remap FK from duplicate → canonical, then deletes duplicate
-- [ ] T014 [US1] Create `app/api/v1/endpoints/products.py` — wire `GET /` (list), `POST /` (create), `GET /{product_id}` (get), `PUT /{product_id}` (update), `DELETE /{product_id}` (delete), `POST /merge` (merge — uses `require_privilege(SystemObject.PRODUCTS_MERGE, AccessRight.CREATE)`)
-- [ ] T015 [US1] Add `products` router to `app/api/v1/router.py` — `include_router(products.router, prefix="/products", tags=["products"])`
+- [X] T008 [US1] Create `app/services/product_service.py` — implement `list_products(db, search, label, deactivated, stockable, salable, purchasable, skip, limit)` returning `(Sequence[Product], int)`
+- [X] T009 [US2] Add `create_product(db, data, settings)` to `app/services/product_service.py` — applies auto-defaults (`min_order_qty=1`, `stock_verification=True`, VAT, tax_included, price_type, photo from settings), then creates one `ProductPrice` row per existing `PriceList` in the same transaction
+- [X] T010 [US3] Add `get_product(db, product_id)` to `app/services/product_service.py` — returns `Product | None` with associated `ProductPrice` rows loaded via explicit select
+- [X] T011 [US4] Add `update_product(db, product, data)` to `app/services/product_service.py`
+- [X] T012 [US5] Add `delete_product(db, product)` to `app/services/product_service.py` — deletes all `ProductPrice` rows first, then deletes the product
+- [X] T013 [US6] Add `merge_products(db, product_id, duplicate_id)` to `app/services/product_service.py` — issues ORM `update()` per table (`sales_order_detail`, `purchase_order_detail`, `inventory_receipt_detail`, `inventory_issue_detail`, `inventory_transfer_detail`, `product_price`, `lot_serial_tracking`, `product_label`) to remap FK from duplicate → canonical, then deletes duplicate
+- [X] T014 [US1] Create `app/api/v1/endpoints/products.py` — wire `GET /` (list), `POST /` (create), `GET /{product_id}` (get), `PUT /{product_id}` (update), `DELETE /{product_id}` (delete), `POST /merge` (merge — uses `require_privilege(SystemObject.PRODUCTS_MERGE, AccessRight.CREATE)`)
+- [X] T015 [US1] Add `products` router to `app/api/v1/router.py` — `include_router(products.router, prefix="/products", tags=["products"])`
 
 ### Price Lists (US1–US5)
 
-- [ ] T016 [P] [US1] Create `app/services/price_list_service.py` — `list_price_lists`, `get_price_list`, `create_price_list`, `update_price_list`, `delete_price_list` (delete raises `409` if any `Customer.price_list` references it)
-- [ ] T017 [P] [US1] Create `app/api/v1/endpoints/price_lists.py` — full CRUD handlers
-- [ ] T018 [P] [US1] Register `price_lists` router in `app/api/v1/router.py`
+- [X] T016 [P] [US1] Create `app/services/price_list_service.py` — `list_price_lists`, `get_price_list`, `create_price_list`, `update_price_list`, `delete_price_list` (delete raises `409` if any `Customer.price_list` references it)
+- [X] T017 [P] [US1] Create `app/api/v1/endpoints/price_lists.py` — full CRUD handlers
+- [X] T018 [P] [US1] Register `price_lists` router in `app/api/v1/router.py`
 
 **Checkpoint**: Products and price lists fully functional. Run quickstart.md Scenarios 2–5 and 8.
 
@@ -76,21 +76,21 @@
 
 ### Customers (US1–US5)
 
-- [ ] T019 [US1] Create `app/services/customer_service.py` — `list_customers(search, disabled, skip, limit)`, `get_customer`, `create_customer`, `update_customer`, `delete_customer` (raises `409` if `customer_id == settings.default_customer_id`)
-- [ ] T020 [US1] Create `app/api/v1/endpoints/customers.py` — full CRUD handlers, search by `code`/`name`/`zone`, filter by `disabled`
-- [ ] T021 [US1] Register `customers` router in `app/api/v1/router.py`
+- [X] T019 [US1] Create `app/services/customer_service.py` — `list_customers(search, disabled, skip, limit)`, `get_customer`, `create_customer`, `update_customer`, `delete_customer` (raises `409` if `customer_id == settings.default_customer_id`)
+- [X] T020 [US1] Create `app/api/v1/endpoints/customers.py` — full CRUD handlers, search by `code`/`name`/`zone`, filter by `disabled`
+- [X] T021 [US1] Register `customers` router in `app/api/v1/router.py`
 
 ### Labels (US1–US5)
 
-- [ ] T022 [P] [US1] Create `app/services/label_service.py` — `list_labels`, `get_label`, `create_label`, `update_label`, `delete_label`
-- [ ] T023 [P] [US1] Create `app/api/v1/endpoints/labels.py` — full CRUD handlers
-- [ ] T024 [P] [US1] Register `labels` router in `app/api/v1/router.py`
+- [X] T022 [P] [US1] Create `app/services/label_service.py` — `list_labels`, `get_label`, `create_label`, `update_label`, `delete_label`
+- [X] T023 [P] [US1] Create `app/api/v1/endpoints/labels.py` — full CRUD handlers
+- [X] T024 [P] [US1] Register `labels` router in `app/api/v1/router.py`
 
 ### Taxpayer Recipients (US1–US5)
 
-- [ ] T025 [P] [US1] Create `app/services/taxpayer_recipient_service.py` — `list_taxpayer_recipients(search, skip, limit)`, `get_taxpayer_recipient(rfc)`, `create_taxpayer_recipient`, `update_taxpayer_recipient`, `delete_taxpayer_recipient`; enforce RFC length 12–13 chars at service or schema level
-- [ ] T026 [P] [US1] Create `app/api/v1/endpoints/taxpayer_recipients.py` — full CRUD handlers; PK path param is RFC string
-- [ ] T027 [P] [US1] Register `taxpayer_recipients` router in `app/api/v1/router.py`
+- [X] T025 [P] [US1] Create `app/services/taxpayer_recipient_service.py` — `list_taxpayer_recipients(search, skip, limit)`, `get_taxpayer_recipient(rfc)`, `create_taxpayer_recipient`, `update_taxpayer_recipient`, `delete_taxpayer_recipient`; enforce RFC length 12–13 chars at service or schema level
+- [X] T026 [P] [US1] Create `app/api/v1/endpoints/taxpayer_recipients.py` — full CRUD handlers; PK path param is RFC string
+- [X] T027 [P] [US1] Register `taxpayer_recipients` router in `app/api/v1/router.py`
 
 **Checkpoint**: Customer domain done. Run quickstart.md Scenarios 6 and 7.
 
@@ -104,15 +104,15 @@
 
 ### Suppliers (US1–US5)
 
-- [ ] T028 [P] [US1] Create `app/services/supplier_service.py` — `list_suppliers(search, skip, limit)`, `get_supplier`, `create_supplier`, `update_supplier`, `delete_supplier`
-- [ ] T029 [P] [US1] Create `app/api/v1/endpoints/suppliers.py` — full CRUD; search by `code`/`name`/`zone`
-- [ ] T030 [P] [US1] Register `suppliers` router in `app/api/v1/router.py`
+- [X] T028 [P] [US1] Create `app/services/supplier_service.py` — `list_suppliers(search, skip, limit)`, `get_supplier`, `create_supplier`, `update_supplier`, `delete_supplier`
+- [X] T029 [P] [US1] Create `app/api/v1/endpoints/suppliers.py` — full CRUD; search by `code`/`name`/`zone`
+- [X] T030 [P] [US1] Register `suppliers` router in `app/api/v1/router.py`
 
 ### Employees (US1–US5)
 
-- [ ] T031 [P] [US1] Create `app/services/employee_service.py` — `list_employees(search, active, sales_person, skip, limit)`, `get_employee`, `create_employee`, `update_employee`, `delete_employee`
-- [ ] T032 [P] [US1] Create `app/api/v1/endpoints/employees.py` — full CRUD; search by name/nickname; filter by `active`, `sales_person`
-- [ ] T033 [P] [US1] Register `employees` router in `app/api/v1/router.py`
+- [X] T031 [P] [US1] Create `app/services/employee_service.py` — `list_employees(search, active, sales_person, skip, limit)`, `get_employee`, `create_employee`, `update_employee`, `delete_employee`
+- [X] T032 [P] [US1] Create `app/api/v1/endpoints/employees.py` — full CRUD; search by name/nickname; filter by `active`, `sales_person`
+- [X] T033 [P] [US1] Register `employees` router in `app/api/v1/router.py`
 
 **Checkpoint**: Supplier and employee endpoints live.
 
@@ -126,27 +126,27 @@
 
 ### Stores (US1–US5)
 
-- [ ] T034 [P] [US1] Create `app/services/store_service.py` — `list_stores`, `get_store`, `create_store`, `update_store`, `delete_store`
-- [ ] T035 [P] [US1] Create `app/api/v1/endpoints/stores.py` — full CRUD
-- [ ] T036 [P] [US1] Register `stores` router in `app/api/v1/router.py`
+- [X] T034 [P] [US1] Create `app/services/store_service.py` — `list_stores`, `get_store`, `create_store`, `update_store`, `delete_store`
+- [X] T035 [P] [US1] Create `app/api/v1/endpoints/stores.py` — full CRUD
+- [X] T036 [P] [US1] Register `stores` router in `app/api/v1/router.py`
 
 ### Warehouses (US1–US5)
 
-- [ ] T037 [P] [US1] Create `app/services/warehouse_service.py` — `list_warehouses(store, skip, limit)`, `get_warehouse`, `create_warehouse`, `update_warehouse`, `delete_warehouse`
-- [ ] T038 [P] [US1] Create `app/api/v1/endpoints/warehouses.py` — full CRUD; optional `store` filter
-- [ ] T039 [P] [US1] Register `warehouses` router in `app/api/v1/router.py`
+- [X] T037 [P] [US1] Create `app/services/warehouse_service.py` — `list_warehouses(store, skip, limit)`, `get_warehouse`, `create_warehouse`, `update_warehouse`, `delete_warehouse`
+- [X] T038 [P] [US1] Create `app/api/v1/endpoints/warehouses.py` — full CRUD; optional `store` filter
+- [X] T039 [P] [US1] Register `warehouses` router in `app/api/v1/router.py`
 
 ### Points of Sale (US1–US5)
 
-- [ ] T040 [P] [US1] Create `app/services/point_sale_service.py` — `list_point_sales`, `get_point_sale`, `create_point_sale`, `update_point_sale`, `delete_point_sale`
-- [ ] T041 [P] [US1] Create `app/api/v1/endpoints/points_of_sale.py` — full CRUD
-- [ ] T042 [P] [US1] Register `points_of_sale` router in `app/api/v1/router.py` with prefix `/points-of-sale`
+- [X] T040 [P] [US1] Create `app/services/point_sale_service.py` — `list_point_sales`, `get_point_sale`, `create_point_sale`, `update_point_sale`, `delete_point_sale`
+- [X] T041 [P] [US1] Create `app/api/v1/endpoints/points_of_sale.py` — full CRUD
+- [X] T042 [P] [US1] Register `points_of_sale` router in `app/api/v1/router.py` with prefix `/points-of-sale`
 
 ### Cash Drawers (US1–US5)
 
-- [ ] T043 [P] [US1] Create `app/services/cash_drawer_service.py` — `list_cash_drawers`, `get_cash_drawer`, `create_cash_drawer`, `update_cash_drawer`, `delete_cash_drawer`
-- [ ] T044 [P] [US1] Create `app/api/v1/endpoints/cash_drawers.py` — full CRUD
-- [ ] T045 [P] [US1] Register `cash_drawers` router in `app/api/v1/router.py`
+- [X] T043 [P] [US1] Create `app/services/cash_drawer_service.py` — `list_cash_drawers`, `get_cash_drawer`, `create_cash_drawer`, `update_cash_drawer`, `delete_cash_drawer`
+- [X] T044 [P] [US1] Create `app/api/v1/endpoints/cash_drawers.py` — full CRUD
+- [X] T045 [P] [US1] Register `cash_drawers` router in `app/api/v1/router.py`
 
 **Checkpoint**: Store-domain hierarchy fully accessible.
 
@@ -160,21 +160,21 @@
 
 ### Exchange Rates (US1–US5)
 
-- [ ] T046 [P] [US1] Create `app/services/exchange_rate_service.py` — `list_exchange_rates(date_from, date_to, base, target, skip, limit)`, `get_exchange_rate`, `create_exchange_rate` (raises `409` on duplicate `(date, base, target)`), `update_exchange_rate`, `delete_exchange_rate`
-- [ ] T047 [P] [US1] Create `app/api/v1/endpoints/exchange_rates.py` — full CRUD; filter by `date_from`, `date_to`, `base`, `target`
-- [ ] T048 [P] [US1] Register `exchange_rates` router in `app/api/v1/router.py`
+- [X] T046 [P] [US1] Create `app/services/exchange_rate_service.py` — `list_exchange_rates(date_from, date_to, base, target, skip, limit)`, `get_exchange_rate`, `create_exchange_rate` (raises `409` on duplicate `(date, base, target)`), `update_exchange_rate`, `delete_exchange_rate`
+- [X] T047 [P] [US1] Create `app/api/v1/endpoints/exchange_rates.py` — full CRUD; filter by `date_from`, `date_to`, `base`, `target`
+- [X] T048 [P] [US1] Register `exchange_rates` router in `app/api/v1/router.py`
 
 ### Expenses (US1–US5)
 
-- [ ] T049 [P] [US1] Create `app/services/expense_service.py` — `list_expenses`, `get_expense`, `create_expense`, `update_expense`, `delete_expense`; map `Expense.expense` column to `name` in service layer
-- [ ] T050 [P] [US1] Create `app/api/v1/endpoints/expenses.py` — full CRUD
-- [ ] T051 [P] [US1] Register `expenses` router in `app/api/v1/router.py`
+- [X] T049 [P] [US1] Create `app/services/expense_service.py` — `list_expenses`, `get_expense`, `create_expense`, `update_expense`, `delete_expense`; map `Expense.expense` column to `name` in service layer
+- [X] T050 [P] [US1] Create `app/api/v1/endpoints/expenses.py` — full CRUD
+- [X] T051 [P] [US1] Register `expenses` router in `app/api/v1/router.py`
 
 ### Payment Method Options (US1–US5)
 
-- [ ] T052 [P] [US1] Create `app/services/payment_method_option_service.py` — `list_payment_method_options(store, skip, limit)`, `get_payment_method_option`, `create_payment_method_option`, `update_payment_method_option`, `delete_payment_method_option`
-- [ ] T053 [P] [US1] Create `app/api/v1/endpoints/payment_method_options.py` — full CRUD; optional `store` filter
-- [ ] T054 [P] [US1] Register `payment_method_options` router in `app/api/v1/router.py` with prefix `/payment-method-options`
+- [X] T052 [P] [US1] Create `app/services/payment_method_option_service.py` — `list_payment_method_options(store, skip, limit)`, `get_payment_method_option`, `create_payment_method_option`, `update_payment_method_option`, `delete_payment_method_option`
+- [X] T053 [P] [US1] Create `app/api/v1/endpoints/payment_method_options.py` — full CRUD; optional `store` filter
+- [X] T054 [P] [US1] Register `payment_method_options` router in `app/api/v1/router.py` with prefix `/payment-method-options`
 
 **Checkpoint**: Financial catalog resources live.
 
@@ -188,21 +188,21 @@
 
 ### Vehicles (US1–US5)
 
-- [ ] T055 [P] [US1] Create `app/services/vehicle_service.py` — `list_vehicles`, `get_vehicle`, `create_vehicle`, `update_vehicle`, `delete_vehicle`
-- [ ] T056 [P] [US1] Create `app/api/v1/endpoints/vehicles.py` — full CRUD
-- [ ] T057 [P] [US1] Register `vehicles` router in `app/api/v1/router.py`
+- [X] T055 [P] [US1] Create `app/services/vehicle_service.py` — `list_vehicles`, `get_vehicle`, `create_vehicle`, `update_vehicle`, `delete_vehicle`
+- [X] T056 [P] [US1] Create `app/api/v1/endpoints/vehicles.py` — full CRUD
+- [X] T057 [P] [US1] Register `vehicles` router in `app/api/v1/router.py`
 
 ### Vehicle Operators (US1–US5)
 
-- [ ] T058 [P] [US1] Create `app/services/vehicle_operator_service.py` — `list_vehicle_operators`, `get_vehicle_operator`, `create_vehicle_operator`, `update_vehicle_operator`, `delete_vehicle_operator`; `creation_time` and `modification_time` set to `datetime.utcnow()` on create/update
-- [ ] T059 [P] [US1] Create `app/api/v1/endpoints/vehicle_operators.py` — full CRUD; response includes computed `days_until_expiry` (from `VehicleOperatorResponse` schema validator)
-- [ ] T060 [P] [US1] Register `vehicle_operators` router in `app/api/v1/router.py` with prefix `/vehicle-operators`
+- [X] T058 [P] [US1] Create `app/services/vehicle_operator_service.py` — `list_vehicle_operators`, `get_vehicle_operator`, `create_vehicle_operator`, `update_vehicle_operator`, `delete_vehicle_operator`; `creation_time` and `modification_time` set to `datetime.utcnow()` on create/update
+- [X] T059 [P] [US1] Create `app/api/v1/endpoints/vehicle_operators.py` — full CRUD; response includes computed `days_until_expiry` (from `VehicleOperatorResponse` schema validator)
+- [X] T060 [P] [US1] Register `vehicle_operators` router in `app/api/v1/router.py` with prefix `/vehicle-operators`
 
 ### Production Sites (US1–US5)
 
-- [ ] T061 [P] [US1] Create `app/services/production_site_service.py` — `list_production_sites(store, skip, limit)`, `get_production_site`, `create_production_site`, `update_production_site`, `delete_production_site`
-- [ ] T062 [P] [US1] Create `app/api/v1/endpoints/production_sites.py` — full CRUD; optional `store` filter
-- [ ] T063 [P] [US1] Register `production_sites` router in `app/api/v1/router.py` with prefix `/production-sites`
+- [X] T061 [P] [US1] Create `app/services/production_site_service.py` — `list_production_sites(store, skip, limit)`, `get_production_site`, `create_production_site`, `update_production_site`, `delete_production_site`
+- [X] T062 [P] [US1] Create `app/api/v1/endpoints/production_sites.py` — full CRUD; optional `store` filter
+- [X] T063 [P] [US1] Register `production_sites` router in `app/api/v1/router.py` with prefix `/production-sites`
 
 **Checkpoint**: All 17 resources implemented. Run quickstart.md Scenario 9.
 
@@ -210,9 +210,9 @@
 
 ## Phase 9: Polish & Cross-Cutting Concerns
 
-- [ ] T064 Run `uv run ruff check app/` and fix all violations (E, F, I, UP rules; 100-char line limit)
-- [ ] T065 Update `CHANGELOG.md` `[Unreleased]` section — add `Added` entries for all 17 new resource endpoints
-- [ ] T066 Run quickstart.md Scenarios 1–10 end-to-end and confirm all expected HTTP codes match
+- [X] T064 Run `uv run ruff check app/` and fix all violations (E, F, I, UP rules; 100-char line limit)
+- [X] T065 Update `CHANGELOG.md` `[Unreleased]` section — add `Added` entries for all 17 new resource endpoints
+- [X] T066 Run quickstart.md Scenarios 1–10 end-to-end and confirm all expected HTTP codes match
 
 ---
 
