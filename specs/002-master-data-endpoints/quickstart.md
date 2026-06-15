@@ -1,0 +1,211 @@
+# Quickstart Validation Guide: Master Data REST Endpoints
+
+**Purpose**: Verify that the feature works end-to-end after implementation.
+
+**Prerequisites**:
+- `uv run uvicorn app.main:app --reload` running on `http://localhost:8000`
+- A valid JWT token (obtain via `POST /api/v1/auth/login`)
+- At least one `PriceList` row in the DB (or create one as the first test)
+- MariaDB accessible and migrated
+
+Set `TOKEN` and `BASE` before running:
+```bash
+BASE="http://localhost:8000/api/v1"
+TOKEN="<your-jwt>"
+H='-H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json"'
+```
+
+---
+
+## Scenario 1: Unauthenticated requests are rejected
+
+```bash
+curl -s -o /dev/null -w "%{http_code}" $BASE/products
+# expected: 401
+```
+
+---
+
+## Scenario 2: Create and retrieve a price list
+
+```bash
+# Create
+curl -s -X POST $BASE/price-lists \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"name":"Retail","high_profit_margin":0.4,"low_profit_margin":0.1}' | jq .
+# expected: 201, price_list_id returned
+
+# List
+curl -s $BASE/price-lists -H "Authorization: Bearer $TOKEN" | jq '.total'
+# expected: >= 1
+```
+
+---
+
+## Scenario 3: Create a product with auto-defaults applied
+
+```bash
+curl -s -X POST $BASE/products \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "code":"P001",
+    "name":"Test Product",
+    "unit_of_measurement":"H87",
+    "currency":0,
+    "stockable":true,
+    "perishable":false,
+    "seriable":false,
+    "purchasable":true,
+    "salable":true,
+    "invoiceable":true
+  }' | jq '{id:.product_id,min_order_qty,stock_required,tax_rate,prices_count:.prices|length}'
+
+# expected:
+#   min_order_qty: 1
+#   stock_required: true
+#   tax_rate: non-zero (from config default)
+#   prices_count: N (one per existing price list)
+```
+
+---
+
+## Scenario 4: Duplicate product code returns 409
+
+```bash
+curl -s -X POST $BASE/products \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"code":"P001","name":"Dupe Product","unit_of_measurement":"H87","currency":0,
+       "stockable":false,"perishable":false,"seriable":false,
+       "purchasable":false,"salable":false,"invoiceable":false}' \
+  -o /dev/null -w "%{http_code}"
+# expected: 409
+```
+
+---
+
+## Scenario 5: Invalid barcode returns 422
+
+```bash
+curl -s -X POST $BASE/products \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"code":"P002","name":"Barcode Test","bar_code":"123","unit_of_measurement":"H87",
+       "currency":0,"stockable":false,"perishable":false,"seriable":false,
+       "purchasable":false,"salable":false,"invoiceable":false}' \
+  -o /dev/null -w "%{http_code}"
+# expected: 422
+```
+
+---
+
+## Scenario 6: Full CRUD round-trip for a simple resource (Label)
+
+```bash
+# Create
+ID=$(curl -s -X POST $BASE/labels \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"name":"Electronics","comment":null}' | jq -r .label_id)
+
+# Read
+curl -s $BASE/labels/$ID -H "Authorization: Bearer $TOKEN" | jq .name
+# expected: "Electronics"
+
+# Update
+curl -s -X PUT $BASE/labels/$ID \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"name":"Electronics & Gadgets"}' | jq .name
+# expected: "Electronics & Gadgets"
+
+# Delete
+curl -s -X DELETE $BASE/labels/$ID -H "Authorization: Bearer $TOKEN" -o /dev/null -w "%{http_code}"
+# expected: 204
+
+# Confirm gone
+curl -s $BASE/labels/$ID -H "Authorization: Bearer $TOKEN" -o /dev/null -w "%{http_code}"
+# expected: 404
+```
+
+---
+
+## Scenario 7: Protected customer delete returns 409
+
+```bash
+# Assuming default_customer_id = 1
+curl -s -X DELETE $BASE/customers/1 \
+  -H "Authorization: Bearer $TOKEN" -o /dev/null -w "%{http_code}"
+# expected: 409
+```
+
+---
+
+## Scenario 8: Product merge
+
+```bash
+# Create two products
+A=$(curl -s -X POST $BASE/products \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"code":"CANON","name":"Canonical Product","unit_of_measurement":"H87","currency":0,
+       "stockable":false,"perishable":false,"seriable":false,"purchasable":false,
+       "salable":false,"invoiceable":false}' | jq -r .product_id)
+
+B=$(curl -s -X POST $BASE/products \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"code":"DUP","name":"Duplicate Product","unit_of_measurement":"H87","currency":0,
+       "stockable":false,"perishable":false,"seriable":false,"purchasable":false,
+       "salable":false,"invoiceable":false}' | jq -r .product_id)
+
+# Merge
+curl -s -X POST $BASE/products/merge \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d "{\"product_id\":$A,\"duplicate_id\":$B}" -o /dev/null -w "%{http_code}"
+# expected: 204
+
+# Confirm duplicate is gone
+curl -s $BASE/products/$B -H "Authorization: Bearer $TOKEN" -o /dev/null -w "%{http_code}"
+# expected: 404
+```
+
+---
+
+## Scenario 9: Vehicle operator advisory flag
+
+```bash
+# Create an employee first (or use existing)
+EMP_ID=1  # replace with real employee_id
+
+# Create an operator with an expiration date in the past
+curl -s -X POST $BASE/vehicle-operators \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d "{
+    \"driver\":$EMP_ID,
+    \"license_type\":\"B\",
+    \"driver_license_number\":\"MX12345\",
+    \"issue_date\":\"2020-01-01\",
+    \"expiration_date\":\"2023-01-01\",
+    \"issuing_location\":\"CDMX\",
+    \"active\":true
+  }" | jq .days_until_expiry
+# expected: negative integer
+```
+
+---
+
+## Scenario 10: Ruff compliance
+
+```bash
+uv run ruff check app/ tests/
+# expected: All checks passed.
+```
+
+---
+
+## References
+
+- [API Contracts](contracts/api.md)
+- [Data Model](data-model.md)
+- [Feature Spec](spec.md)
