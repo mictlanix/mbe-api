@@ -1,30 +1,22 @@
 <!--
-## Sync Impact Report — Constitution v1.0.0
+## Sync Impact Report — Constitution v1.1.0
 
-**Version change**: unfilled template → 1.0.0
+**Version change**: 1.0.0 → 1.1.0
 
-**Initial ratification — all principles are new.**
+### Principles Changed
+- None removed or redefined.
 
-### Principles Added
-I.   Simplicity First
-II.  Think Before Coding
-III. Surgical Changes
-IV.  Goal-Driven Execution
-V.   Reuse Over Rebuild
-VI.  Async-First
-VII. Security by Default
-VIII. Ruff Compliance
-
-### Sections Added
-- Technology Stack
-- Development Workflow
+### Sections Changed
+- `Development Workflow > Testing`: Tests are now REQUIRED whenever new API endpoints are
+  introduced. The previous blanket "tests are OPTIONAL unless explicitly requested" policy
+  remains for non-endpoint work only.
 
 ### Templates Reviewed
-- ✅ plan-template.md — Constitution Check already references this file; no update needed
-- ✅ spec-template.md — Generic structure compatible with all 8 principles; no update needed
-- ✅ tasks-template.md — Phase/dependency model aligns with Principles I–IV; no update needed
-- ✅ checklist-template.md — Generic; no principle-specific changes required
-- ✅ agent-context command — No outdated references
+- ✅ plan-template.md — No update needed; Constitution Check will surface the new rule.
+- ✅ spec-template.md — No update needed.
+- ✅ tasks-template.md — Tasks for endpoints must now include test tasks by default.
+- ✅ checklist-template.md — No update needed.
+- ✅ agent-context command — No outdated references.
 
 ### Deferred Items
 None. All fields resolved.
@@ -159,7 +151,12 @@ Fixed constraints — MUST NOT change without a constitution amendment.
 
 - Test files live in `tests/api/` following the existing pattern.
 - Stack: pytest + pytest-asyncio + httpx `ASGITransport`.
-- Tests are OPTIONAL unless explicitly requested in the feature spec.
+- **MUST write unit tests when new API endpoints are introduced.** A test file MUST be
+  created or updated in `tests/api/` covering at minimum: happy path, 404 (not found),
+  401 (unauthenticated), and any resource-specific constraints (409 conflicts, 422 validation
+  errors). Tests MUST be committed in the same task as the endpoints they cover.
+- For non-endpoint work (services, utilities, config): tests are OPTIONAL unless explicitly
+  requested in the feature spec.
 - When tests are included: MUST write tests first, confirm they fail, then implement.
 
 ### Changelog
@@ -192,4 +189,4 @@ and receive explicit justification before implementation proceeds.
 **Runtime guidance**: See `CLAUDE.md` for session-level behavioral guidelines that complement
 this constitution.
 
-**Version**: 1.0.0 | **Ratified**: 2026-06-14 | **Last Amended**: 2026-06-14
+**Version**: 1.1.0 | **Ratified**: 2026-06-14 | **Last Amended**: 2026-06-15
