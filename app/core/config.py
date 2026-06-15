@@ -18,5 +18,10 @@ class Settings(BaseSettings):
     # "Managed" = admin sets store/POS/drawer; "SelfService" = user selects after login
     user_settings_mode: str = "Managed"
 
+    # Origins allowed to call this API from a browser (CORS). Defaults to "*"
+    # for local development; set to a JSON array of explicit origins in
+    # production, e.g. CORS_ORIGINS=["https://app.example.com"]
+    cors_origins: list[str] = ["*"]
+
 
 settings = Settings()
