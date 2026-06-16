@@ -33,6 +33,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 - `PUT /api/v1/products/{id}` with `{"photo": null}` now correctly clears the photo field; previously the null value was silently ignored due to `if data.photo is not None` guard in `update_product`
+- BIT(1) columns now correctly map to Python `bool`; previously aiomysql returned raw bytes and `b'\x00'` (false) was incorrectly evaluated as `True` in boolean contexts
 
 ### Changed
 - Password hashing simplified to SHA1-only; `verify_password` now compares hashes case-insensitively
