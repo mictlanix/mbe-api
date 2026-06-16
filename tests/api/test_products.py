@@ -12,7 +12,6 @@ from app.core.deps import CurrentUser, get_current_user
 from app.db.session import get_db
 from app.main import app
 
-
 # ── Fixtures ──────────────────────────────────────────────────────────────────
 
 
