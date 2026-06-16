@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -13,9 +13,16 @@ from app.schemas.product import (
     ProductResponse,
     ProductUpdate,
 )
-from app.services import product_service
+from app.services import image_service, product_service
 
 router = APIRouter()
+
+
+def _photo_url(filename: str | None) -> str | None:
+    if filename is None:
+        return None
+    base = settings.images_base_url.rstrip("/")
+    return f"{base}/images/{filename}" if base else f"/images/{filename}"
 
 
 @router.get("", response_model=ListResponse[ProductListItem])
@@ -52,7 +59,9 @@ async def create_product(
     db: AsyncSession = Depends(get_db),
 ) -> ProductResponse:
     product = await product_service.create_product(db, data, settings)
-    return ProductResponse.model_validate(product)
+    response = ProductResponse.model_validate(product)
+    response.photo = _photo_url(product.photo)
+    return response
 
 
 @router.post("/merge", status_code=status.HTTP_204_NO_CONTENT)
@@ -64,6 +73,27 @@ async def merge_products(
     await product_service.merge_products(db, data)
 
 
+@router.post("/{product_id}/image", response_model=ProductResponse)
+async def upload_product_image(
+    product_id: int,
+    file: UploadFile = File(...),
+    _: CurrentUser = Depends(require_privilege(SystemObject.PRODUCTS, AccessRight.UPDATE)),
+    db: AsyncSession = Depends(get_db),
+) -> ProductResponse:
+    product = await product_service.get_product(db, product_id)
+    if product is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Product not found")
+    content = await file.read()
+    try:
+        filename = await image_service.process_and_save_image(content, settings.images_dir)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc))
+    product = await product_service.update_product(db, product, ProductUpdate(photo=filename))
+    response = ProductResponse.model_validate(product)
+    response.photo = _photo_url(product.photo)
+    return response
+
+
 @router.get("/{product_id}", response_model=ProductResponse)
 async def get_product(
     product_id: int,
@@ -73,7 +103,9 @@ async def get_product(
     product = await product_service.get_product(db, product_id)
     if product is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Product not found")
-    return ProductResponse.model_validate(product)
+    response = ProductResponse.model_validate(product)
+    response.photo = _photo_url(product.photo)
+    return response
 
 
 @router.put("/{product_id}", response_model=ProductResponse)
@@ -87,7 +119,9 @@ async def update_product(
     if product is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Product not found")
     product = await product_service.update_product(db, product, data)
-    return ProductResponse.model_validate(product)
+    response = ProductResponse.model_validate(product)
+    response.photo = _photo_url(product.photo)
+    return response
 
 
 @router.delete("/{product_id}", status_code=status.HTTP_204_NO_CONTENT)

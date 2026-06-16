@@ -7,6 +7,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
+- `POST /api/v1/products/{product_id}/image` — upload a product image (JPEG/PNG/GIF/WEBP); resized to ≤150 px wide, saved as PNG named by SHA-256 content hash; duplicate uploads reuse the existing file
+- `GET /images/{filename}` — public static endpoint serving stored product images (no authentication required)
+- `images_dir` setting in `app/core/config.py` for configuring the image storage directory (default: `"images"`, override with `IMAGES_DIR` env var)
+- `images_base_url` setting in `app/core/config.py` for constructing full image URLs in API responses (default: `""` → relative `/images/{filename}`, override with `IMAGES_BASE_URL` env var)
+- `app/services/image_service.py` — image processing service (resize, convert, hash, dedup)
+- `ProductResponse.photo` now returns the full public URL of the image (e.g. `/images/{hash}.png` or `https://host/images/{hash}.png`) instead of the bare filename; existing bare filenames in the DB are automatically upgraded at read time
 - REST CRUD endpoints for 17 master data resources: Products, Price Lists, Customers, Labels, Taxpayer Recipients, Suppliers, Employees, Stores, Warehouses, Points of Sale, Cash Drawers, Exchange Rates, Expenses, Payment Method Options, Vehicles, Vehicle Operators, Production Sites
 - `GET /api/v1/products/merge` endpoint for merging duplicate products
 - `app/schemas/product.py` — Pydantic schemas for products and price lists
@@ -24,6 +30,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Docs
 - Updated specs: `02-sales`, `03-production`, `04-inventory`, `05-purchases`, `07-administration`, `08-technical-service`, `09-front-desk`, `10-fiscal-documents`, `11-reports`
 - `docs/README.md` index updated to reference `constants.md`
+
+### Fixed
+- `PUT /api/v1/products/{id}` with `{"photo": null}` now correctly clears the photo field; previously the null value was silently ignored due to `if data.photo is not None` guard in `update_product`
 
 ### Changed
 - Password hashing simplified to SHA1-only; `verify_password` now compares hashes case-insensitively

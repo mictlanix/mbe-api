@@ -1,0 +1,71 @@
+{
+  "workflow": "speckit",
+  "specName": "003-product-image-upload",
+  "branch": "003-product-image-upload",
+  "selectedAt": "2026-06-16T04:02:24.422Z",
+  "currentStep": "specify",
+  "status": "draft",
+  "history": [],
+  "reviewComments": [
+    {
+      "id": "ref-1781582641224-kdtz5",
+      "doc": "spec",
+      "anchor": {
+        "heading": "Feature Specification: Product Image Upload",
+        "blockText": "",
+        "line": 10
+      },
+      "comment": "Any user with proper privileges (Update Products), not only admins.",
+      "status": "applied",
+      "createdAt": "2026-06-16T04:04:01.228Z"
+    },
+    {
+      "id": "ref-1781582751408-bfng6",
+      "doc": "spec",
+      "anchor": {
+        "heading": "User Story 2 - Remove a Product Image (Priority: P2)",
+        "blockText": "",
+        "line": 40
+      },
+      "comment": "2 MB max",
+      "status": "applied",
+      "createdAt": "2026-06-16T04:05:51.411Z"
+    },
+    {
+      "id": "ref-1781582841443-9qh6s",
+      "doc": "spec",
+      "anchor": {
+        "heading": "User Story 2 - Remove a Product Image (Priority: P2)",
+        "blockText": "2. **Given** a product has no photo, **When** an administrator sends an update with `photo` set to null, **Then** the request succeeds with no error.",
+        "line": 42
+      },
+      "comment": "system try to create it if that fails system exits",
+      "status": "applied",
+      "createdAt": "2026-06-16T04:07:21.446Z"
+    },
+    {
+      "id": "ref-1781582874675-pyqkv",
+      "doc": "spec",
+      "anchor": {
+        "heading": "User Story 2 - Remove a Product Image (Priority: P2)",
+        "blockText": "",
+        "line": 43
+      },
+      "comment": "overwrites file",
+      "status": "applied",
+      "createdAt": "2026-06-16T04:07:54.677Z"
+    },
+    {
+      "id": "ref-1781632118268-n5qyv",
+      "doc": "spec",
+      "anchor": {
+        "heading": "User Story 2 - Remove a Product Image (Priority: P2)",
+        "blockText": "**Independent Test**: Upload an image, then clear it via a product update and confirm the `photo` field returns null.",
+        "line": 37
+      },
+      "comment": "size limit should be in app settings, default: 2 MB",
+      "status": "applied",
+      "createdAt": "2026-06-16T17:48:38.272Z"
+    }
+  ]
+}

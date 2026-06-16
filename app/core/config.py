@@ -32,5 +32,10 @@ class Settings(BaseSettings):
     default_photo_file: str = "no-image.png"
     default_customer_id: int = 1
 
+    # Directory where uploaded product images are stored
+    images_dir: str = "images"
+    # Base URL used to construct full image URLs in API responses (e.g. https://api.example.com)
+    images_base_url: str = ""
+
 
 settings = Settings()

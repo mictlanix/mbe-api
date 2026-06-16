@@ -152,7 +152,7 @@ async def update_product(db: AsyncSession, product: Product, data: ProductUpdate
         product.code = data.code
     if data.name is not None:
         product.name = data.name
-    if data.photo is not None:
+    if "photo" in data.model_fields_set:
         product.photo = data.photo
     if data.sku is not None:
         product.sku = data.sku
