@@ -1,7 +1,27 @@
 from sqlalchemy import Boolean, ForeignKey, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.types import TypeDecorator
 
 from app.db.base import Base
+
+
+class MySQLBit(TypeDecorator):
+    """bit(1) columns: PyMySQL/aiomysql return raw bytes (b'\\x00'/b'\\x01') for
+    these instead of an int, since their BIT converter is a no-op. Plain Boolean
+    then does bool(value), and bool(b'\\x00') is True — every row reads back as
+    True. Override result_processor (not process_result_value) so we see the raw
+    driver value before Boolean's own processor coerces it."""
+
+    impl = Boolean
+    cache_ok = True
+
+    def result_processor(self, dialect, coltype):
+        def process(value):
+            if isinstance(value, bytes):
+                return value != b"\x00"
+            return value
+
+        return process
 
 
 class User(Base):
@@ -14,8 +34,7 @@ class User(Base):
     employee_id: Mapped[int | None] = mapped_column(
         "employee", Integer, ForeignKey("employee.employee_id")
     )
-    # bit(1) in DB; SQLAlchemy Boolean maps correctly
-    administrator: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
+    administrator: Mapped[bool] = mapped_column(MySQLBit, default=False, server_default="0")
     disabled: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
     session_version: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
 
