@@ -140,6 +140,7 @@ class ProductListItem(BaseModel):
     product_id: int
     code: str
     name: str
+    photo: str | None
     brand: str | None
     model: str | None
     unit_of_measurement: str

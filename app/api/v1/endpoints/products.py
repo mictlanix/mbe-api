@@ -49,7 +49,12 @@ async def list_products(
         skip=skip,
         limit=limit,
     )
-    return ListResponse(items=list(items), total=total)
+    responses = []
+    for item in items:
+        response = ProductListItem.model_validate(item)
+        response.photo = _photo_url(item.photo)
+        responses.append(response)
+    return ListResponse(items=responses, total=total)
 
 
 @router.post("", response_model=ProductResponse, status_code=status.HTTP_201_CREATED)

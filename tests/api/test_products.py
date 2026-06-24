@@ -44,11 +44,12 @@ def _pl(pl_id: int = 1) -> SimpleNamespace:
     )
 
 
-def _product_item(prod_id: int = 1) -> SimpleNamespace:
+def _product_item(prod_id: int = 1, photo: str | None = None) -> SimpleNamespace:
     return SimpleNamespace(
         product_id=prod_id,
         code="P001",
         name="Widget Alpha",
+        photo=photo,
         brand=None,
         model=None,
         unit_of_measurement="PCS",
@@ -224,6 +225,20 @@ async def test_list_products_returns_200() -> None:
             r = await c.get("/api/v1/products")
     assert r.status_code == 200
     assert r.json()["total"] == 1
+    assert r.json()["items"][0]["photo"] is None
+
+
+@pytest.mark.asyncio
+async def test_list_products_resolves_photo_url() -> None:
+    _auth()
+    with patch(
+        "app.services.product_service.list_products",
+        new=AsyncMock(return_value=([_product_item(photo="widget.jpg")], 1)),
+    ):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+            r = await c.get("/api/v1/products")
+    assert r.status_code == 200
+    assert r.json()["items"][0]["photo"].endswith("/images/widget.jpg")
 
 
 @pytest.mark.asyncio
