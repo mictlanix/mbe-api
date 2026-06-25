@@ -461,3 +461,27 @@ async def test_list_production_sites_requires_auth() -> None:
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
         r = await c.get("/api/v1/production-sites")
     assert r.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_list_vehicle_operators_employee_filter_passed_through() -> None:
+    _auth()
+    mock = AsyncMock(return_value=([_vehicle_operator()], 1))
+    with patch("app.services.vehicle_operator_service.list_vehicle_operators", new=mock):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+            r = await c.get("/api/v1/vehicle-operators?employee=7")
+    assert r.status_code == 200
+    _, kwargs = mock.call_args
+    assert kwargs.get("employee") == 7
+
+
+@pytest.mark.asyncio
+async def test_list_vehicle_operators_no_employee_filter() -> None:
+    _auth()
+    mock = AsyncMock(return_value=([_vehicle_operator()], 1))
+    with patch("app.services.vehicle_operator_service.list_vehicle_operators", new=mock):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+            r = await c.get("/api/v1/vehicle-operators")
+    assert r.status_code == 200
+    _, kwargs = mock.call_args
+    assert kwargs.get("employee") is None

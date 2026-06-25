@@ -429,3 +429,40 @@ async def test_list_customers_requires_auth() -> None:
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
         r = await c.get("/api/v1/customers")
     assert r.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_list_customers_price_list_filter_passed_through() -> None:
+    _auth()
+    mock = AsyncMock(return_value=([_customer()], 1))
+    with patch("app.services.customer_service.list_customers", new=mock):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+            r = await c.get("/api/v1/customers?price_list=2")
+    assert r.status_code == 200
+    _, kwargs = mock.call_args
+    assert kwargs.get("price_list") == 2
+
+
+@pytest.mark.asyncio
+async def test_list_customers_salesperson_filter_passed_through() -> None:
+    _auth()
+    mock = AsyncMock(return_value=([_customer()], 1))
+    with patch("app.services.customer_service.list_customers", new=mock):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+            r = await c.get("/api/v1/customers?salesperson=5")
+    assert r.status_code == 200
+    _, kwargs = mock.call_args
+    assert kwargs.get("salesperson") == 5
+
+
+@pytest.mark.asyncio
+async def test_list_customers_no_fk_filters() -> None:
+    _auth()
+    mock = AsyncMock(return_value=([_customer()], 1))
+    with patch("app.services.customer_service.list_customers", new=mock):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+            r = await c.get("/api/v1/customers")
+    assert r.status_code == 200
+    _, kwargs = mock.call_args
+    assert kwargs.get("price_list") is None
+    assert kwargs.get("salesperson") is None

@@ -366,3 +366,27 @@ async def test_list_products_requires_auth() -> None:
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
         r = await c.get("/api/v1/products")
     assert r.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_list_products_supplier_filter_passed_through() -> None:
+    _auth()
+    mock = AsyncMock(return_value=([_product_item()], 1))
+    with patch("app.services.product_service.list_products", new=mock):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+            r = await c.get("/api/v1/products?supplier=3")
+    assert r.status_code == 200
+    _, kwargs = mock.call_args
+    assert kwargs.get("supplier") == 3
+
+
+@pytest.mark.asyncio
+async def test_list_products_no_supplier_filter() -> None:
+    _auth()
+    mock = AsyncMock(return_value=([_product_item()], 1))
+    with patch("app.services.product_service.list_products", new=mock):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+            r = await c.get("/api/v1/products")
+    assert r.status_code == 200
+    _, kwargs = mock.call_args
+    assert kwargs.get("supplier") is None

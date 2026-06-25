@@ -14,6 +14,7 @@ from app.api.v1.endpoints import (
     price_lists,
     production_sites,
     products,
+    sat_catalogs,
     stores,
     suppliers,
     taxpayer_recipients,
@@ -54,3 +55,4 @@ api_router.include_router(
 api_router.include_router(
     production_sites.router, prefix="/production-sites", tags=["production-sites"]
 )
+api_router.include_router(sat_catalogs.router, prefix="/sat", tags=["sat-catalogs"])

@@ -8,10 +8,19 @@ from app.schemas.core import CashDrawerCreate, CashDrawerUpdate
 
 
 async def list_cash_drawers(
-    db: AsyncSession, *, skip: int = 0, limit: int = 20
+    db: AsyncSession,
+    *,
+    store: int | None = None,
+    skip: int = 0,
+    limit: int = 20,
 ) -> tuple[Sequence[CashDrawer], int]:
-    total: int = (await db.execute(select(func.count()).select_from(CashDrawer))).scalar_one()
-    items = (await db.execute(select(CashDrawer).offset(skip).limit(limit))).scalars().all()
+    base = select(CashDrawer)
+    count_q = select(func.count()).select_from(CashDrawer)
+    if store is not None:
+        base = base.where(CashDrawer.store == store)
+        count_q = count_q.where(CashDrawer.store == store)
+    total: int = (await db.execute(count_q)).scalar_one()
+    items = (await db.execute(base.offset(skip).limit(limit))).scalars().all()
     return items, total
 
 

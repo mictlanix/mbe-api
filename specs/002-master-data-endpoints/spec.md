@@ -4,9 +4,11 @@
 
 **Created**: 2026-06-14
 
-**Status**: Draft
+**Status**: Refined
 
-**Input**: User description: "implement the endpoints covered by @docs/specs/01-master-data.md, reuse the existing models and update accordingly"
+**Updated**: 2026-06-16
+
+**Input**: User description: "implement the endpoints covered by @docs/specs/01-master-data.md, reuse the existing models and update accordingly"; refined to add FK filters on list endpoints and SAT catalog read-only endpoints.
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -24,6 +26,11 @@ An authenticated API consumer needs to retrieve lists of master data records (pr
 2. **Given** products exist, **When** `GET /api/v1/products?search=acero` is called, **Then** only products whose `code`, `name`, `model`, `sku`, or `brand` match the term are returned.
 3. **Given** an unauthenticated caller, **When** any list endpoint is called, **Then** `401 Unauthorized` is returned.
 4. **Given** a valid session, **When** `GET /api/v1/customers?search=juan` is called, **Then** results are filtered by `code`, `name`, or `zone`.
+5. **Given** products exist for a specific supplier, **When** `GET /api/v1/products?supplier=3` is called, **Then** only products whose default supplier is supplier #3 are returned.
+6. **Given** customers are assigned to a price list, **When** `GET /api/v1/customers?price_list=2` is called, **Then** only customers on price list #2 are returned.
+7. **Given** points of sale are associated with a store, **When** `GET /api/v1/points-of-sale?store=1` is called, **Then** only POS terminals belonging to store #1 are returned; adding `?warehouse=4` further filters to those assigned to warehouse #4.
+8. **Given** cash drawers are associated with a store, **When** `GET /api/v1/cash-drawers?store=1` is called, **Then** only cash drawers belonging to store #1 are returned.
+9. **Given** vehicle operators are linked to an employee, **When** `GET /api/v1/vehicle-operators?employee=7` is called, **Then** only operator records for employee #7 are returned.
 
 ---
 
@@ -106,6 +113,24 @@ An administrator merges a duplicate product into a canonical product to clean up
 
 ---
 
+### User Story 7 - Browse SAT Catalog Reference Data (Priority: P2)
+
+An authenticated API consumer looks up valid SAT codes to populate dropdowns in fiscal-document creation screens (product/service key, unit of measurement, CFDI usage, tax regime, etc.).
+
+**Why this priority**: SAT codes are FK targets in products and fiscal documents. Without readable endpoints, clients cannot validate or display these codes in the UI.
+
+**Independent Test**: Can be fully tested by calling `GET /api/v1/sat/units-of-measurement` and verifying a list of known codes is returned, then `GET /api/v1/sat/units-of-measurement/H87` and verifying the single record is returned.
+
+**Acceptance Scenarios**:
+
+1. **Given** a valid authenticated session, **When** `GET /api/v1/sat/{catalog}` is called for any of the 8 SAT catalogs, **Then** a paginated list of records is returned with `200 OK`.
+2. **Given** a SAT code exists (e.g., unit `H87`), **When** `GET /api/v1/sat/units-of-measurement/H87` is called, **Then** the single record is returned with `200 OK`.
+3. **Given** a SAT code does not exist, **When** `GET /api/v1/sat/{catalog}/{id}` is called, **Then** `404 Not Found` is returned.
+4. **Given** an unauthenticated caller, **When** any SAT catalog endpoint is called, **Then** `401 Unauthorized` is returned.
+5. **Given** the 8 SAT catalogs, **When** any write operation (POST, PUT, DELETE) is attempted, **Then** `405 Method Not Allowed` is returned — these catalogs are read-only.
+
+---
+
 ### Edge Cases
 
 - What happens when a search returns no results? → Empty list `{items: [], total: 0}` with `200 OK`.
@@ -113,6 +138,8 @@ An administrator merges a duplicate product into a canonical product to clean up
 - What happens when merging a product with itself (`product_id == duplicate_id`)? → `400 Bad Request`.
 - What happens when a vehicle operator's license expiry date is in the past? → The record is saved but flagged (response includes `active` status); clients should not assign expired operators to itineraries.
 - What happens when deleting a label still assigned to products? → Allow delete (junction rows are removed); no conflict check required by the spec.
+- What happens when an FK filter value references a non-existent record (e.g., `?supplier=9999`)? → Return an empty list `{items: [], total: 0}` with `200 OK`; no validation error.
+- What happens when a client tries to create or update a SAT catalog record? → `405 Method Not Allowed`; SAT data is managed externally and loaded by migration only.
 
 ## Requirements *(mandatory)*
 
@@ -120,7 +147,7 @@ An administrator merges a duplicate product into a canonical product to clean up
 
 **Products (`/api/v1/products`)**
 
-- **FR-001**: System MUST expose `GET /api/v1/products` returning a paginated list searchable by `code`, `name`, `model`, `sku`, and `brand`; filterable by `deactivated`, `stockable`, `salable`, `purchasable`, and `label`.
+- **FR-001**: System MUST expose `GET /api/v1/products` returning a paginated list searchable by `code`, `name`, `model`, `sku`, and `brand`; filterable by `deactivated`, `stockable`, `salable`, `purchasable`, `label`, and `supplier` (supplier ID).
 - **FR-002**: System MUST expose `POST /api/v1/products` to create a product; on creation the system MUST auto-set: `min_order_qty = 1`, `stock_required = true` (model field `stock_verification`), `tax_rate` from config default, `tax_included` from config default, `price_type` from config default, `photo` from config default, and one `product_price` row per existing price list (price = 0).
 - **FR-003**: System MUST expose `GET /api/v1/products/{id}` returning full product detail including prices and labels.
 - **FR-004**: System MUST expose `PUT /api/v1/products/{id}` to update a product.
@@ -135,7 +162,7 @@ An administrator merges a duplicate product into a canonical product to clean up
 
 **Customers (`/api/v1/customers`)**
 
-- **FR-010**: System MUST expose `GET /api/v1/customers` returning a paginated list searchable by `code`, `name`, `zone`; filterable by `disabled`.
+- **FR-010**: System MUST expose `GET /api/v1/customers` returning a paginated list searchable by `code`, `name`, `zone`; filterable by `disabled`, `price_list` (price list ID), and `salesperson` (employee ID).
 - **FR-011**: System MUST expose `POST`, `GET /{id}`, `PUT /{id}`, `DELETE /{id}` for customers.
 - **FR-012**: The system-default customer (id from config) MUST NOT be deletable; the delete endpoint MUST return `409 Conflict`.
 
@@ -161,11 +188,11 @@ An administrator merges a duplicate product into a canonical product to clean up
 
 **Points of Sale (`/api/v1/points-of-sale`)**
 
-- **FR-018**: System MUST expose full CRUD for points of sale.
+- **FR-018**: System MUST expose full CRUD for points of sale. The list endpoint MUST be filterable by `store` (store ID) and `warehouse` (warehouse ID).
 
 **Cash Drawers (`/api/v1/cash-drawers`)**
 
-- **FR-019**: System MUST expose full CRUD for cash drawers.
+- **FR-019**: System MUST expose full CRUD for cash drawers. The list endpoint MUST be filterable by `store` (store ID).
 
 **Stores (`/api/v1/stores`)**
 
@@ -189,7 +216,7 @@ An administrator merges a duplicate product into a canonical product to clean up
 
 **Vehicle Operators (`/api/v1/vehicle-operators`)**
 
-- **FR-025**: System MUST expose full CRUD for vehicle operators. The response MUST include an advisory flag when the license is within 30 days of expiry or already expired.
+- **FR-025**: System MUST expose full CRUD for vehicle operators. The list endpoint MUST be filterable by `employee` (employee/driver ID). The response MUST include an advisory flag when the license is within 30 days of expiry or already expired.
 
 **Production Sites (`/api/v1/production-sites`)**
 
@@ -200,6 +227,18 @@ An administrator merges a duplicate product into a canonical product to clean up
 - **FR-027**: All endpoints MUST require a valid authenticated JWT (`get_current_user`).
 - **FR-028**: All list endpoints MUST support `skip` and `limit` pagination parameters and return a `{items: [...], total: N}` envelope.
 - **FR-029**: All write endpoints MUST return the persisted record (or `204 No Content` for deletes).
+
+**SAT Catalog Reference Data (`/api/v1/sat/...`)**
+
+- **FR-030**: System MUST expose `GET /api/v1/sat/cfdi-usages` (paginated list) and `GET /api/v1/sat/cfdi-usages/{id}` (single record). No write operations.
+- **FR-031**: System MUST expose `GET /api/v1/sat/countries` and `GET /api/v1/sat/countries/{id}`. No write operations.
+- **FR-032**: System MUST expose `GET /api/v1/sat/currencies` and `GET /api/v1/sat/currencies/{id}`. No write operations.
+- **FR-033**: System MUST expose `GET /api/v1/sat/postal-codes` and `GET /api/v1/sat/postal-codes/{id}`. No write operations.
+- **FR-034**: System MUST expose `GET /api/v1/sat/product-services` and `GET /api/v1/sat/product-services/{id}`. No write operations.
+- **FR-035**: System MUST expose `GET /api/v1/sat/reason-cancellations` and `GET /api/v1/sat/reason-cancellations/{id}`. No write operations.
+- **FR-036**: System MUST expose `GET /api/v1/sat/tax-regimes` and `GET /api/v1/sat/tax-regimes/{id}`. No write operations.
+- **FR-037**: System MUST expose `GET /api/v1/sat/units-of-measurement` and `GET /api/v1/sat/units-of-measurement/{id}`. No write operations.
+- **FR-038**: All SAT catalog list endpoints MUST support `skip` and `limit` pagination and return the standard `{items, total}` envelope. All SAT catalog endpoints MUST require authentication.
 
 ### Key Entities *(include if feature involves data)*
 
@@ -220,6 +259,14 @@ An administrator merges a duplicate product into a canonical product to clean up
 - **Vehicle**: Fleet vehicle with load capacity.
 - **VehicleOperator**: Driver license record for an employee.
 - **ProductionSite**: Manufacturing line configuration within a store.
+- **SatCfdiUsage**: SAT CFDI usage codes (e.g., G01, P01) — read-only reference.
+- **SatCountry**: SAT country codes — read-only reference.
+- **SatCurrency**: SAT currency codes (MXN, USD, etc.) — read-only reference.
+- **SatPostalCode**: SAT postal codes with state/borough/locality — read-only reference.
+- **SatProductService**: SAT product/service classification codes — read-only reference.
+- **SatReasonCancellation**: SAT CFDI cancellation reason codes — read-only reference.
+- **SatTaxRegime**: SAT tax regime codes — read-only reference.
+- **SatUnitOfMeasurement**: SAT unit of measurement codes (e.g., H87 for piece) — read-only reference.
 
 ## Success Criteria *(mandatory)*
 
@@ -230,6 +277,8 @@ An administrator merges a duplicate product into a canonical product to clean up
 - **SC-003**: The product merge operation leaves zero orphan FK references to the deleted duplicate across all transactional tables.
 - **SC-004**: All endpoints return `401` for unauthenticated requests and never expose record data to unauthenticated callers.
 - **SC-005**: The product creation auto-default logic (prices, defaults) executes atomically — either all rows are created or none are.
+- **SC-006**: All 5 FK filters (supplier, price_list, salesperson, store, warehouse, employee) narrow results correctly — a filter for a non-existent ID returns an empty list, never an error.
+- **SC-007**: All 8 SAT catalog list endpoints return results and respond to `GET /{id}` with `200` for known codes and `404` for unknown codes; no write operation succeeds on any SAT catalog.
 
 ## Assumptions
 

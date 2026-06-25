@@ -31,7 +31,7 @@ and return `{"items": [...], "total": N}`.
 ### `GET /api/v1/products`
 
 Query params: `search` (code, name, model, sku, brand), `label` (int), `deactivated` (bool),
-`stockable` (bool), `salable` (bool), `purchasable` (bool), `skip`, `limit`.
+`stockable` (bool), `salable` (bool), `purchasable` (bool), `supplier` (int), `skip`, `limit`.
 
 Response `200`: `{"items": [ProductListItem, ...], "total": N}`
 
@@ -200,7 +200,7 @@ Error `409` if any Customer references this price list.
 
 ### `GET /api/v1/customers`
 
-Query: `search` (code, name, zone), `disabled` (bool), `skip`, `limit`  
+Query: `search` (code, name, zone), `disabled` (bool), `price_list` (int), `salesperson` (int), `skip`, `limit`  
 Response `200`: `{"items": [CustomerListItem, ...], "total": N}`
 
 ```
@@ -426,6 +426,8 @@ WarehouseResponse:
 
 **Prefix**: `/api/v1/points-of-sale`
 
+List filter params: `store` (int), `warehouse` (int), `skip`, `limit`.
+
 ```
 PointSaleCreate / PointSaleUpdate:
   store: int
@@ -450,6 +452,8 @@ PointSaleResponse:
 ## 10. Cash Drawers
 
 **Prefix**: `/api/v1/cash-drawers`
+
+List filter params: `store` (int), `skip`, `limit`.
 
 ```
 CashDrawerCreate / CashDrawerUpdate:
@@ -601,6 +605,8 @@ VehicleResponse:
 
 **Prefix**: `/api/v1/vehicle-operators`
 
+List filter params: `employee` (int — filters by `VehicleOperator.driver`), `skip`, `limit`.
+
 ```
 VehicleOperatorCreate / VehicleOperatorUpdate:
   driver: int
@@ -647,3 +653,41 @@ ProductionSiteResponse:
   comment: str | null
   disabled: bool | null
 ```
+
+---
+
+## 18–25. SAT Catalog Reference Data (Read-Only)
+
+**Prefix**: `/api/v1/sat`
+
+All 8 SAT catalogs follow the same pattern — list and get-by-id only. No write operations.
+
+| # | Path prefix | ID field | ID type |
+|---|------------|----------|---------|
+| 18 | `/api/v1/sat/cfdi-usages` | `sat_cfdi_usage_id` | str(4) |
+| 19 | `/api/v1/sat/countries` | `sat_country_id` | str(3) |
+| 20 | `/api/v1/sat/currencies` | `sat_currency_id` | str(3) |
+| 21 | `/api/v1/sat/postal-codes` | `sat_postal_code_id` | str(5) |
+| 22 | `/api/v1/sat/product-services` | `sat_product_service_id` | str(8) |
+| 23 | `/api/v1/sat/reason-cancellations` | `sat_reason_cancellation_id` | str(2) |
+| 24 | `/api/v1/sat/tax-regimes` | `sat_tax_regime_id` | str(3) |
+| 25 | `/api/v1/sat/units-of-measurement` | `sat_unit_of_measurement_id` | str(3) |
+
+**For each catalog:**
+
+```
+GET /api/v1/sat/{resource}
+  Query: skip (int, default 0), limit (int, 1–100, default 20)
+  Response 200: {"items": [SatXxxResponse, ...], "total": N}
+  Response 401: unauthenticated
+
+GET /api/v1/sat/{resource}/{id}
+  Response 200: SatXxxResponse
+  Response 404: {"detail": "Not found"}
+  Response 401: unauthenticated
+
+SatXxxResponse:
+  id: str   # the PK value (e.g. "H87", "MXN", "G01")
+```
+
+**Write operations**: POST, PUT, DELETE are not registered. FastAPI returns 405 Method Not Allowed automatically.

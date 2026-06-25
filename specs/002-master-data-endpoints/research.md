@@ -164,6 +164,57 @@ all 17 resources before or at the PR.
 
 ---
 
+---
+
+## Decision 10: FK Filter Parameters on List Endpoints
+
+**Decision**: Add optional integer query parameters directly to the affected list handlers — no
+new abstraction. Five endpoints receive new filter params:
+
+| Endpoint | New param(s) | Model field |
+|----------|-------------|-------------|
+| `GET /api/v1/products` | `supplier` | `Product.supplier` |
+| `GET /api/v1/customers` | `price_list`, `salesperson` | `Customer.price_list`, `Customer.salesperson` |
+| `GET /api/v1/points-of-sale` | `store`, `warehouse` | `PointSale.store`, `PointSale.warehouse` |
+| `GET /api/v1/cash-drawers` | `store` | `CashDrawer.store` |
+| `GET /api/v1/vehicle-operators` | `employee` | `VehicleOperator.driver` |
+
+**Rationale**: Pattern is identical to the existing `label` filter on products and `store` filter
+on warehouses — `Query(None)` parameter, `where(Model.field == value)` clause added only when the
+param is not `None`. No new service abstraction needed.
+
+**Edge case**: A filter value referencing a non-existent ID returns an empty list (not 404) —
+consistent with search returning no results (spec SC-006).
+
+---
+
+## Decision 11: SAT Catalog Endpoints
+
+**Decision**: All 8 SAT catalog read-only endpoints are implemented in a single file
+`app/api/v1/endpoints/sat_catalogs.py` with a single service module
+`app/services/sat_catalog_service.py`. The router is mounted at `/api/v1/sat`.
+
+**Models used** (all from `app/models/sat_catalog.py`):
+`SatCfdiUsage`, `SatCountry`, `SatCurrency`, `SatPostalCode`, `SatProductService`,
+`SatReasonCancellation`, `SatTaxRegime`, `SatUnitOfMeasurement`.
+
+**Schema approach**: Each catalog gets a minimal response schema with only its PK (string).
+Since the current model only has the PK column, the schema is just `{ id: str }`. If additional
+descriptive fields exist in the DB they can be added later — surgical changes principle applies.
+
+**Route pattern**:
+- `GET /api/v1/sat/cfdi-usages` → paginated list
+- `GET /api/v1/sat/cfdi-usages/{id}` → single record or 404
+(Repeated for all 8 catalogs.)
+
+**Write operations**: No `POST`, `PUT`, or `DELETE` routes are registered — 405 is returned by
+FastAPI automatically for unregistered methods. No explicit rejection handler needed.
+
+**Rationale**: Consolidating all 8 into one file avoids 8 near-identical tiny files. The service
+is parameterized by model class (a dict lookup), keeping the code DRY without overengineering.
+
+---
+
 ## Unresolved Items
 
 None. All NEEDS CLARIFICATION markers resolved.

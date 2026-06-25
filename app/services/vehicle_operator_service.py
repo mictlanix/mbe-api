@@ -9,10 +9,19 @@ from app.schemas.core import VehicleOperatorCreate, VehicleOperatorUpdate
 
 
 async def list_vehicle_operators(
-    db: AsyncSession, *, skip: int = 0, limit: int = 20
+    db: AsyncSession,
+    *,
+    employee: int | None = None,
+    skip: int = 0,
+    limit: int = 20,
 ) -> tuple[Sequence[VehicleOperator], int]:
-    total: int = (await db.execute(select(func.count()).select_from(VehicleOperator))).scalar_one()
-    items = (await db.execute(select(VehicleOperator).offset(skip).limit(limit))).scalars().all()
+    base = select(VehicleOperator)
+    count_q = select(func.count()).select_from(VehicleOperator)
+    if employee is not None:
+        base = base.where(VehicleOperator.driver == employee)
+        count_q = count_q.where(VehicleOperator.driver == employee)
+    total: int = (await db.execute(count_q)).scalar_one()
+    items = (await db.execute(base.offset(skip).limit(limit))).scalars().all()
     return items, total
 
 

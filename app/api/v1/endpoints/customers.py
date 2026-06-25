@@ -15,13 +15,21 @@ router = APIRouter()
 async def list_customers(
     search: str | None = Query(None),
     disabled: bool | None = Query(None),
+    price_list: int | None = Query(None),
+    salesperson: int | None = Query(None),
     skip: int = Query(0, ge=0),
     limit: int = Query(20, ge=1, le=100),
     _: CurrentUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> ListResponse[CustomerListItem]:
     items, total = await customer_service.list_customers(
-        db, search=search, disabled=disabled, skip=skip, limit=limit
+        db,
+        search=search,
+        disabled=disabled,
+        price_list=price_list,
+        salesperson=salesperson,
+        skip=skip,
+        limit=limit,
     )
     return ListResponse(items=list(items), total=total)
 

@@ -19,6 +19,7 @@ async def list_products(
     stockable: bool | None = None,
     salable: bool | None = None,
     purchasable: bool | None = None,
+    supplier: int | None = None,
     skip: int = 0,
     limit: int = 20,
 ) -> tuple[Sequence[Product], int]:
@@ -63,6 +64,9 @@ async def list_products(
     if purchasable is not None:
         base = base.where(Product.purchasable == purchasable)
         count_q = count_q.where(Product.purchasable == purchasable)
+    if supplier is not None:
+        base = base.where(Product.supplier == supplier)
+        count_q = count_q.where(Product.supplier == supplier)
 
     total: int = (await db.execute(count_q)).scalar_one()
     products = (await db.execute(base.offset(skip).limit(limit))).scalars().all()

@@ -8,10 +8,23 @@ from app.schemas.core import PointSaleCreate, PointSaleUpdate
 
 
 async def list_point_sales(
-    db: AsyncSession, *, skip: int = 0, limit: int = 20
+    db: AsyncSession,
+    *,
+    store: int | None = None,
+    warehouse: int | None = None,
+    skip: int = 0,
+    limit: int = 20,
 ) -> tuple[Sequence[PointSale], int]:
-    total: int = (await db.execute(select(func.count()).select_from(PointSale))).scalar_one()
-    items = (await db.execute(select(PointSale).offset(skip).limit(limit))).scalars().all()
+    base = select(PointSale)
+    count_q = select(func.count()).select_from(PointSale)
+    if store is not None:
+        base = base.where(PointSale.store == store)
+        count_q = count_q.where(PointSale.store == store)
+    if warehouse is not None:
+        base = base.where(PointSale.warehouse == warehouse)
+        count_q = count_q.where(PointSale.warehouse == warehouse)
+    total: int = (await db.execute(count_q)).scalar_one()
+    items = (await db.execute(base.offset(skip).limit(limit))).scalars().all()
     return items, total
 
 

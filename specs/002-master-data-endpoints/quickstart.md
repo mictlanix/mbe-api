@@ -204,6 +204,65 @@ uv run ruff check app/ tests/
 
 ---
 
+## Scenario 11: FK filter — products by supplier
+
+```bash
+TOKEN=$(curl -s -X POST http://localhost:8000/api/v1/auth/login \
+  -d '{"username":"user","password":"pass"}' | jq -r .access_token)
+
+# Filter products by supplier_id=1
+curl -s "http://localhost:8000/api/v1/products?supplier=1" \
+  -H "Authorization: Bearer $TOKEN" | jq '{total: .total, first_code: .items[0].code}'
+# expected: total ≥ 0; all returned products have supplier == 1
+```
+
+---
+
+## Scenario 12: FK filter — customers by price list
+
+```bash
+curl -s "http://localhost:8000/api/v1/customers?price_list=1" \
+  -H "Authorization: Bearer $TOKEN" | jq '.total'
+# expected: count of customers assigned to price list 1
+```
+
+---
+
+## Scenario 13: SAT catalog list and get-by-id
+
+```bash
+# List units of measurement
+curl -s "http://localhost:8000/api/v1/sat/units-of-measurement?limit=5" \
+  -H "Authorization: Bearer $TOKEN" | jq '{total: .total, first: .items[0].id}'
+# expected: total > 0, first id is a 3-char SAT code (e.g. "H87")
+
+# Get known code
+curl -s "http://localhost:8000/api/v1/sat/units-of-measurement/H87" \
+  -H "Authorization: Bearer $TOKEN" | jq .id
+# expected: "H87"
+
+# Unknown code → 404
+curl -o /dev/null -s -w "%{http_code}" \
+  "http://localhost:8000/api/v1/sat/units-of-measurement/XXX" \
+  -H "Authorization: Bearer $TOKEN"
+# expected: 404
+```
+
+---
+
+## Scenario 14: SAT catalog write attempt → 405
+
+```bash
+curl -o /dev/null -s -w "%{http_code}" \
+  -X POST "http://localhost:8000/api/v1/sat/units-of-measurement" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"id":"ZZZ"}'
+# expected: 405
+```
+
+---
+
 ## References
 
 - [API Contracts](contracts/api.md)

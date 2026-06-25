@@ -14,6 +14,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `app/services/image_service.py` — image processing service (resize, convert, hash, dedup)
 - `ProductResponse.photo` now returns the full public URL of the image (e.g. `/images/{hash}.png` or `https://host/images/{hash}.png`) instead of the bare filename; existing bare filenames in the DB are automatically upgraded at read time
 - REST CRUD endpoints for 17 master data resources: Products, Price Lists, Customers, Labels, Taxpayer Recipients, Suppliers, Employees, Stores, Warehouses, Points of Sale, Cash Drawers, Exchange Rates, Expenses, Payment Method Options, Vehicles, Vehicle Operators, Production Sites
+- FK filter query parameters on 5 list endpoints: `supplier` on `GET /api/v1/products`, `price_list`/`salesperson` on `GET /api/v1/customers`, `store`/`warehouse` on `GET /api/v1/points-of-sale`, `store` on `GET /api/v1/cash-drawers`, `employee` on `GET /api/v1/vehicle-operators`
+- Read-only SAT catalog endpoints under `/api/v1/sat/` for 8 reference catalogs: `cfdi-usages`, `countries`, `currencies`, `postal-codes`, `product-services`, `reason-cancellations`, `tax-regimes`, `units-of-measurement`; each exposes paginated list and get-by-id; write operations return `405`
+- `app/schemas/sat_catalog.py` — `SatCatalogResponse` schema used by all 8 SAT catalog endpoints
+- `app/services/sat_catalog_service.py` — generic list/get service for SAT catalog models
 - `GET /api/v1/products/merge` endpoint for merging duplicate products
 - `app/schemas/product.py` — Pydantic schemas for products and price lists
 - `app/schemas/customer.py` — Pydantic schemas for customers and taxpayer recipients

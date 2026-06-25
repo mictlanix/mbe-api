@@ -374,6 +374,29 @@ Used by all 17 list endpoints.
 
 ---
 
+## 19. SAT Catalog Models (read-only)
+
+All 8 SAT catalog models are in `app/models/sat_catalog.py`. Each has only a string primary key;
+no additional columns are mapped (the real tables may have more, but only the PK is needed for
+FK validation and lookup).
+
+| Model class | Table | PK field | PK type |
+|-------------|-------|----------|---------|
+| `SatCfdiUsage` | `sat_cfdi_usage` | `sat_cfdi_usage_id` | `str(4)` |
+| `SatCountry` | `sat_country` | `sat_country_id` | `str(3)` |
+| `SatCurrency` | `sat_currency` | `sat_currency_id` | `str(3)` |
+| `SatPostalCode` | `sat_postal_code` | `sat_postal_code_id` | `str(5)` |
+| `SatProductService` | `sat_product_service` | `sat_product_service_id` | `str(8)` |
+| `SatReasonCancellation` | `sat_reason_cancellation` | `sat_reason_cancellation_id` | `str(2)` |
+| `SatTaxRegime` | `sat_tax_regime` | `sat_tax_regime_id` | `str(3)` |
+| `SatUnitOfMeasurement` | `sat_unit_of_measurement` | `sat_unit_of_measurement_id` | `str(3)` |
+
+**API response schema**: `{ "id": str }` for single-item; list uses `ListResponse[SatXxxResponse]`.
+
+**Write operations**: None — catalogs are read-only and populated by migration from SAT data.
+
+---
+
 ## Config Additions (`app/core/config.py`)
 
 ```python

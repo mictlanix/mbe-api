@@ -9,10 +9,11 @@
 Expose 17 master data catalog resources (products, price lists, customers, suppliers, employees,
 stores, warehouses, points of sale, cash drawers, labels, taxpayer recipients, exchange rates,
 expenses, payment method options, vehicles, vehicle operators, production sites) as authenticated
-REST endpoints under `/api/v1/`. All ORM models already exist; the work is schema definitions,
-service functions, route handlers, and router registration. A small set of new config defaults
-(`default_vat`, `is_tax_included`, `default_price_type`, `default_photo_file`,
-`default_customer_id`) must be added to `Settings` to support product-creation auto-defaults.
+REST endpoints under `/api/v1/`. Also expose 8 SAT catalog reference tables as read-only
+endpoints under `/api/v1/sat/`. FK filters are added to 5 list endpoints (products by supplier,
+customers by price_list/salesperson, points-of-sale by store/warehouse, cash-drawers by store,
+vehicle-operators by employee). All ORM models already exist; the work is schema definitions,
+service functions, route handlers, and router registration.
 
 ## Technical Context
 
@@ -33,7 +34,7 @@ Pydantic v2, aiomysql (MariaDB)
 
 **Constraints**: All endpoints authenticated; product creation must be atomic (SC-005)
 
-**Scale/Scope**: 17 resources × 5 CRUD operations = ~85 new route handlers
+**Scale/Scope**: 17 resources × 5 CRUD operations + 8 SAT catalogs × 2 read-only handlers + 5 FK filter additions = ~103 new route handlers
 
 ## Constitution Check
 
@@ -91,7 +92,8 @@ app/
 │           ├── payment_method_options.py # NEW: PaymentMethodOption CRUD
 │           ├── vehicles.py              # NEW: Vehicle CRUD
 │           ├── vehicle_operators.py     # NEW: VehicleOperator CRUD
-│           └── production_sites.py      # NEW: ProductionSite CRUD
+│           ├── production_sites.py      # NEW: ProductionSite CRUD
+│           └── sat_catalogs.py          # NEW: 8 SAT catalog read-only endpoints
 ├── schemas/
 │   ├── product.py                       # NEW: Product + PriceList + ProductPrice schemas
 │   ├── customer.py                      # NEW: Customer + TaxpayerRecipient schemas
@@ -117,7 +119,8 @@ app/
     ├── payment_method_option_service.py # NEW: PaymentMethodOption service
     ├── vehicle_service.py               # NEW: Vehicle service
     ├── vehicle_operator_service.py      # NEW: VehicleOperator service
-    └── production_site_service.py       # NEW: ProductionSite service
+    ├── production_site_service.py       # NEW: ProductionSite service
+    └── sat_catalog_service.py           # NEW: SAT catalog list/get service (all 8 models)
 
 tests/
 └── api/

@@ -33,6 +33,7 @@ async def list_products(
     stockable: bool | None = Query(None),
     salable: bool | None = Query(None),
     purchasable: bool | None = Query(None),
+    supplier: int | None = Query(None),
     skip: int = Query(0, ge=0),
     limit: int = Query(20, ge=1, le=100),
     _: CurrentUser = Depends(get_current_user),
@@ -46,6 +47,7 @@ async def list_products(
         stockable=stockable,
         salable=salable,
         purchasable=purchasable,
+        supplier=supplier,
         skip=skip,
         limit=limit,
     )

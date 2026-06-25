@@ -13,6 +13,8 @@ async def list_customers(
     *,
     search: str | None = None,
     disabled: bool | None = None,
+    price_list: int | None = None,
+    salesperson: int | None = None,
     skip: int = 0,
     limit: int = 20,
 ) -> tuple[Sequence[Customer], int]:
@@ -32,6 +34,12 @@ async def list_customers(
     if disabled is not None:
         base = base.where(Customer.disabled == disabled)
         count_q = count_q.where(Customer.disabled == disabled)
+    if price_list is not None:
+        base = base.where(Customer.price_list == price_list)
+        count_q = count_q.where(Customer.price_list == price_list)
+    if salesperson is not None:
+        base = base.where(Customer.salesperson == salesperson)
+        count_q = count_q.where(Customer.salesperson == salesperson)
 
     total: int = (await db.execute(count_q)).scalar_one()
     items = (await db.execute(base.offset(skip).limit(limit))).scalars().all()

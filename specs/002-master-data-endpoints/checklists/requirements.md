@@ -2,6 +2,7 @@
 
 **Purpose**: Validate specification completeness and quality before proceeding to planning
 **Created**: 2026-06-14
+**Updated**: 2026-06-16
 **Feature**: [spec.md](../spec.md)
 
 ## Content Quality
@@ -31,8 +32,10 @@
 
 ## Notes
 
-All items pass. Ready to proceed to `/speckit-plan`.
+All items pass. Ready to proceed to `/speckit-plan` and `/speckit-tasks`.
 
 Sub-panel endpoints (customer addresses, supplier contacts, etc.) are explicitly deferred out of scope and documented in Assumptions.
 
 The `stock_verification` vs `stock_required` field name discrepancy is documented in Assumptions.
+
+Refined 2026-06-16: Added FK filter parameters to FR-001, FR-010, FR-018, FR-019, FR-025; added US7 (SAT catalog browsing) and FR-030–FR-038 covering 8 read-only SAT catalog endpoints.

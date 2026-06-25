@@ -216,6 +216,46 @@
 
 ---
 
+## Phase 10: FK Filters on Existing List Endpoints (US1 — Refinement)
+
+**Goal**: Add the missing FK query-parameter filters to 5 already-implemented list endpoints. Each task edits both the service function signature and the endpoint handler — they touch different files so T069–T071 are parallelisable with each other but must follow T067/T068 only if sharing the same files (they do not).
+
+**Independent Test**: `quickstart.md` Scenarios 11–12 (products by supplier, customers by price list).
+
+- [X] T067 [US1] Add `supplier: int | None = Query(None)` param to `list_products` in `app/services/product_service.py` and expose it in `GET /products` handler in `app/api/v1/endpoints/products.py` — append `where(Product.supplier == supplier)` when not None
+- [X] T068 [US1] Add `price_list: int | None` and `salesperson: int | None` params to `list_customers` in `app/services/customer_service.py` and expose them in `GET /customers` handler in `app/api/v1/endpoints/customers.py`
+- [X] T069 [P] [US1] Add `store: int | None` and `warehouse: int | None` params to `list_point_sales` in `app/services/point_sale_service.py` and expose them in `GET /points-of-sale` handler in `app/api/v1/endpoints/points_of_sale.py`
+- [X] T070 [P] [US1] Add `store: int | None` param to `list_cash_drawers` in `app/services/cash_drawer_service.py` and expose it in `GET /cash-drawers` handler in `app/api/v1/endpoints/cash_drawers.py`
+- [X] T071 [P] [US1] Add `employee: int | None` param (filters `VehicleOperator.driver`) to `list_vehicle_operators` in `app/services/vehicle_operator_service.py` and expose it in `GET /vehicle-operators` handler in `app/api/v1/endpoints/vehicle_operators.py`
+- [X] T072 [US1] Write or extend test coverage for FK filter params — update `tests/api/test_products.py` (supplier filter), `tests/api/test_customers.py` (price_list + salesperson), and add `tests/api/test_stores.py` coverage for POS store/warehouse filter and cash-drawer store filter, and `tests/api/test_fleet.py` for employee filter on vehicle-operators; each test must cover: filter param passed (results narrowed via mock), filter omitted (all results returned)
+
+**Checkpoint**: All 5 FK filters live; Scenarios 11–12 pass.
+
+---
+
+## Phase 11: SAT Catalog Read-Only Endpoints (US7 — Refinement)
+
+**Goal**: Expose all 8 SAT reference catalogs as paginated read-only endpoints under `/api/v1/sat/`. Constitution v1.1.0 requires tests for new API endpoints.
+
+**Independent Test**: `quickstart.md` Scenarios 13–14 (list, get-by-id 200/404, write attempt 405).
+
+- [X] T073 [US7] Create `app/schemas/sat_catalog.py` — define `SatCatalogResponse(id: str)` and one `Annotated` alias per catalog mapping the correct PK field name to `id` (e.g. `SatCfdiUsageResponse`, `SatCountryResponse`, …, `SatUnitOfMeasurementResponse`)
+- [X] T074 [US7] Create `app/services/sat_catalog_service.py` — implement `list_sat(db, model, pk_attr, skip, limit) → tuple[Sequence, int]` and `get_sat(db, model, pk_attr, id) → row | None`; define a `SAT_CATALOG_MAP: dict[str, tuple[type, InstrumentedAttribute]]` mapping URL slug → (model class, PK column) for all 8 catalogs
+- [X] T075 [US7] Create `app/api/v1/endpoints/sat_catalogs.py` — for each of the 8 catalogs register `GET /{slug}` (paginated list, returns `ListResponse[SatCatalogResponse]`) and `GET /{slug}/{id}` (single record or 404); all handlers call `list_sat` / `get_sat` from the service; all require `get_current_user`
+- [X] T076 [US7] Register `sat_catalogs` router in `app/api/v1/router.py` with prefix `/sat` and tag `sat-catalogs`
+- [X] T077 [US7] Write `tests/api/test_sat_catalogs.py` — mock `sat_catalog_service.list_sat` and `get_sat`; cover: list 200 (returns items+total), get-by-id 200 (known code), get-by-id 404 (unknown code), list 401 (no auth), at least one catalog path (e.g. `units-of-measurement`)
+
+**Checkpoint**: All SAT catalog endpoints live; Scenarios 13–14 pass; test suite green.
+
+---
+
+## Phase 12: Refinement Polish
+
+- [X] T078 Run `uv run ruff check app/ tests/` and fix any new violations introduced by Phases 10–11
+- [X] T079 Update `CHANGELOG.md` `[Unreleased]` section — add `Added` entries for FK filters (5 endpoints enhanced) and SAT catalog endpoints (8 new read-only resources under `/api/v1/sat/`)
+
+---
+
 ## Dependencies & Execution Order
 
 ### Phase Dependencies
@@ -249,6 +289,8 @@ T017, T018 can run in parallel once T016 is done
 - **US4 (P2)**: Already covered within the same service/endpoint files as US1 — no separate phase needed
 - **US5 (P3)**: Already covered within the same service/endpoint files as US1 — no separate phase needed
 - **US6 (P3)**: T013+T014 (merge) — depends on T008 (product service exists)
+- **US1 refinement (FK filters)**: Phase 10 — depends on Phase 3–8 completion (services/endpoints must exist first)
+- **US7 (SAT catalogs)**: Phase 11 — depends on T003 (ListResponse) and T073 (schemas); T073–T077 in order
 
 ---
 

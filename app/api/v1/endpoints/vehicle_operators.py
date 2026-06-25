@@ -12,12 +12,15 @@ router = APIRouter()
 
 @router.get("", response_model=ListResponse[VehicleOperatorResponse])
 async def list_vehicle_operators(
+    employee: int | None = Query(None),
     skip: int = Query(0, ge=0),
     limit: int = Query(20, ge=1, le=100),
     _: CurrentUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> ListResponse[VehicleOperatorResponse]:
-    items, total = await vehicle_operator_service.list_vehicle_operators(db, skip=skip, limit=limit)
+    items, total = await vehicle_operator_service.list_vehicle_operators(
+        db, employee=employee, skip=skip, limit=limit
+    )
     return ListResponse(items=list(items), total=total)
 
 
