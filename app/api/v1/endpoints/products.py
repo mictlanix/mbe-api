@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
-from app.core.deps import CurrentUser, get_current_user, require_privilege
+from app.core.deps import CurrentUser, require_privilege
 from app.db.session import get_db
 from app.enums import AccessRight, SystemObject
 from app.schemas import ListResponse
@@ -36,7 +36,7 @@ async def list_products(
     supplier: int | None = Query(None),
     skip: int = Query(0, ge=0),
     limit: int = Query(20, ge=1, le=100),
-    _: CurrentUser = Depends(get_current_user),
+    _: CurrentUser = Depends(require_privilege(SystemObject.PRODUCTS, AccessRight.READ)),
     db: AsyncSession = Depends(get_db),
 ) -> ListResponse[ProductListItem]:
     items, total = await product_service.list_products(
@@ -62,7 +62,7 @@ async def list_products(
 @router.post("", response_model=ProductResponse, status_code=status.HTTP_201_CREATED)
 async def create_product(
     data: ProductCreate,
-    _: CurrentUser = Depends(get_current_user),
+    _: CurrentUser = Depends(require_privilege(SystemObject.PRODUCTS, AccessRight.CREATE)),
     db: AsyncSession = Depends(get_db),
 ) -> ProductResponse:
     product = await product_service.create_product(db, data, settings)
@@ -104,7 +104,7 @@ async def upload_product_image(
 @router.get("/{product_id}", response_model=ProductResponse)
 async def get_product(
     product_id: int,
-    _: CurrentUser = Depends(get_current_user),
+    _: CurrentUser = Depends(require_privilege(SystemObject.PRODUCTS, AccessRight.READ)),
     db: AsyncSession = Depends(get_db),
 ) -> ProductResponse:
     product = await product_service.get_product(db, product_id)
@@ -119,7 +119,7 @@ async def get_product(
 async def update_product(
     product_id: int,
     data: ProductUpdate,
-    _: CurrentUser = Depends(get_current_user),
+    _: CurrentUser = Depends(require_privilege(SystemObject.PRODUCTS, AccessRight.UPDATE)),
     db: AsyncSession = Depends(get_db),
 ) -> ProductResponse:
     product = await product_service.get_product(db, product_id)
@@ -134,7 +134,7 @@ async def update_product(
 @router.delete("/{product_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_product(
     product_id: int,
-    _: CurrentUser = Depends(get_current_user),
+    _: CurrentUser = Depends(require_privilege(SystemObject.PRODUCTS, AccessRight.DELETE)),
     db: AsyncSession = Depends(get_db),
 ) -> None:
     product = await product_service.get_product(db, product_id)

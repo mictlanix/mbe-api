@@ -36,6 +36,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `docs/README.md` index updated to reference `constants.md`
 
 ### Fixed
+- `GET /api/v1/products`, `POST /api/v1/products`, `GET /api/v1/products/{id}`, `PUT /api/v1/products/{id}`, and `DELETE /api/v1/products/{id}` now enforce `require_privilege(SystemObject.PRODUCTS, ...)`; previously any authenticated user could call them regardless of their `products` privilege (#70)
 - `PUT /api/v1/products/{id}` with `{"photo": null}` now correctly clears the photo field; previously the null value was silently ignored due to `if data.photo is not None` guard in `update_product`
 - BIT(1) columns now correctly map to Python `bool`; previously aiomysql returned raw bytes and `b'\x00'` (false) was incorrectly evaluated as `True` in boolean contexts
 
