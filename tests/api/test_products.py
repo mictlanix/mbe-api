@@ -58,6 +58,10 @@ def _product_item(prod_id: int = 1, photo: str | None = None) -> SimpleNamespace
     )
 
 
+def _label(label_id: int = 1, name: str = "Fragile") -> SimpleNamespace:
+    return SimpleNamespace(label_id=label_id, name=name, comment=None)
+
+
 def _product(prod_id: int = 1) -> SimpleNamespace:
     return SimpleNamespace(
         product_id=prod_id,
@@ -87,6 +91,7 @@ def _product(prod_id: int = 1) -> SimpleNamespace:
         deactivated=False,
         comment=None,
         prices=[],
+        labels=[],
     )
 
 
@@ -255,6 +260,20 @@ async def test_get_product_returns_200() -> None:
 
 
 @pytest.mark.asyncio
+async def test_get_product_returns_labels() -> None:
+    _auth()
+    product = _product()
+    product.labels = [_label()]
+    with patch(
+        "app.services.product_service.get_product", new=AsyncMock(return_value=product)
+    ):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+            r = await c.get("/api/v1/products/1")
+    assert r.status_code == 200
+    assert r.json()["labels"] == [{"label_id": 1, "name": "Fragile", "comment": None}]
+
+
+@pytest.mark.asyncio
 async def test_get_product_returns_404() -> None:
     _auth()
     with patch(
@@ -278,6 +297,25 @@ async def test_create_product_returns_201() -> None:
             )
     assert r.status_code == 201
     assert r.json()["code"] == "P001"
+
+
+@pytest.mark.asyncio
+async def test_create_product_forwards_labels() -> None:
+    _auth()
+    mock_create = AsyncMock(return_value=_product())
+    with patch("app.services.product_service.create_product", new=mock_create):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+            r = await c.post(
+                "/api/v1/products",
+                json={
+                    "code": "P001",
+                    "name": "Widget Alpha",
+                    "unit_of_measurement": "PCS",
+                    "labels": [1, 2],
+                },
+            )
+    assert r.status_code == 201
+    assert mock_create.call_args.args[1].labels == [1, 2]
 
 
 @pytest.mark.asyncio
@@ -308,6 +346,22 @@ async def test_update_product_returns_200() -> None:
             r = await c.put("/api/v1/products/1", json={"name": "Widget Beta"})
     assert r.status_code == 200
     assert r.json()["name"] == "Widget Beta"
+
+
+@pytest.mark.asyncio
+async def test_update_product_forwards_labels() -> None:
+    _auth()
+    mock_update = AsyncMock(return_value=_product())
+    with (
+        patch(
+            "app.services.product_service.get_product", new=AsyncMock(return_value=_product())
+        ),
+        patch("app.services.product_service.update_product", new=mock_update),
+    ):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+            r = await c.put("/api/v1/products/1", json={"labels": [3]})
+    assert r.status_code == 200
+    assert mock_update.call_args.args[2].labels == [3]
 
 
 @pytest.mark.asyncio

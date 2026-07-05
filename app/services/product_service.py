@@ -2,10 +2,11 @@ from collections.abc import Sequence
 from decimal import Decimal
 
 from fastapi import HTTPException, status
-from sqlalchemy import delete, or_, select
+from sqlalchemy import delete, insert, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings
+from app.models.core import Label
 from app.models.product import PriceList, Product, ProductPrice, product_label
 from app.schemas.product import ProductCreate, ProductMergeRequest, ProductUpdate
 
@@ -73,6 +74,26 @@ async def list_products(
     return products, total
 
 
+async def _get_labels(db: AsyncSession, product_id: int) -> list[Label]:
+    rows = (
+        await db.execute(
+            select(Label)
+            .join(product_label, product_label.c["label"] == Label.label_id)
+            .where(product_label.c["product"] == product_id)
+        )
+    ).scalars().all()
+    return list(rows)
+
+
+async def _set_labels(db: AsyncSession, product_id: int, label_ids: list[int]) -> None:
+    await db.execute(delete(product_label).where(product_label.c["product"] == product_id))
+    if label_ids:
+        await db.execute(
+            insert(product_label),
+            [{"product": product_id, "label": label_id} for label_id in label_ids],
+        )
+
+
 async def get_product(db: AsyncSession, product_id: int) -> Product | None:
     product = await db.get(Product, product_id)
     if product is None:
@@ -81,6 +102,7 @@ async def get_product(db: AsyncSession, product_id: int) -> Product | None:
         await db.execute(select(ProductPrice).where(ProductPrice.product == product_id))
     ).scalars().all()
     product.__dict__["prices"] = list(prices)
+    product.__dict__["labels"] = await _get_labels(db, product_id)
     return product
 
 
@@ -140,6 +162,9 @@ async def create_product(db: AsyncSession, data: ProductCreate, settings: Settin
             high_profit=Decimal("0"),
         ))
 
+    if data.labels is not None:
+        await _set_labels(db, product.product_id, data.labels)
+
     await db.commit()
     await db.refresh(product)
     product.__dict__["prices"] = [
@@ -147,6 +172,7 @@ async def create_product(db: AsyncSession, data: ProductCreate, settings: Settin
             await db.execute(select(ProductPrice).where(ProductPrice.product == product.product_id))
         ).scalars().all()
     ]
+    product.__dict__["labels"] = await _get_labels(db, product.product_id)
     return product
 
 
@@ -202,11 +228,14 @@ async def update_product(db: AsyncSession, product: Product, data: ProductUpdate
         product.deactivated = data.deactivated
     if data.comment is not None:
         product.comment = data.comment
+    if data.labels is not None:
+        await _set_labels(db, product.product_id, data.labels)
 
     await db.commit()
     await db.refresh(product)
     rows = await db.execute(select(ProductPrice).where(ProductPrice.product == product.product_id))
     product.__dict__["prices"] = list(rows.scalars().all())
+    product.__dict__["labels"] = await _get_labels(db, product.product_id)
     return product
 
 

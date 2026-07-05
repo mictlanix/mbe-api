@@ -3,6 +3,8 @@ from decimal import Decimal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from app.schemas.core import LabelResponse
+
 _WHITESPACE_RE = re.compile(r"\s")
 
 
@@ -82,6 +84,7 @@ class ProductCreate(BaseModel):
     invoiceable: bool = False
     stock_required: bool | None = None
     comment: str | None = None
+    labels: list[int] | None = None
 
     @field_validator("code")
     @classmethod
@@ -120,6 +123,7 @@ class ProductUpdate(BaseModel):
     stock_required: bool | None = None
     deactivated: bool | None = None
     comment: str | None = None
+    labels: list[int] | None = None
 
     @field_validator("code")
     @classmethod
@@ -178,6 +182,7 @@ class ProductResponse(BaseModel):
     deactivated: bool
     comment: str | None
     prices: list[ProductPriceResponse] = []
+    labels: list[LabelResponse] = []
 
 
 # ── Merge ─────────────────────────────────────────────────────────────────────
