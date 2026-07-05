@@ -72,7 +72,7 @@ def _product(prod_id: int = 1, photo: str | None = None) -> SimpleNamespace:
         model=None,
         bar_code=None,
         location=None,
-        unit_of_measurement="PCS",
+        unit_of_measurement={"id": "PCS", "description": "Piece"},
         key=None,
         tax_rate=Decimal("0.16"),
         tax_included=False,

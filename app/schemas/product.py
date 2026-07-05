@@ -4,6 +4,8 @@ from decimal import Decimal
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.schemas.core import LabelResponse
+from app.schemas.sat_catalog import SatCatalogResponse
+from app.schemas.supplier import SupplierResponse
 
 _WHITESPACE_RE = re.compile(r"\s")
 
@@ -51,7 +53,7 @@ class ProductPriceResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     product_price_id: int
-    price_list: int
+    price_list: PriceListResponse
     price: Decimal
     low_profit: Decimal
     high_profit: Decimal
@@ -147,7 +149,7 @@ class ProductListItem(BaseModel):
     photo: str | None
     brand: str | None
     model: str | None
-    unit_of_measurement: str
+    unit_of_measurement: SatCatalogResponse
     tax_rate: Decimal
     deactivated: bool
 
@@ -164,14 +166,14 @@ class ProductResponse(BaseModel):
     model: str | None
     bar_code: str | None
     location: str | None
-    unit_of_measurement: str
-    key: str | None
+    unit_of_measurement: SatCatalogResponse
+    key: SatCatalogResponse | None
     tax_rate: Decimal
     tax_included: bool
     price_type: int
     currency: int
     min_order_qty: int
-    supplier: int | None
+    supplier: SupplierResponse | None
     stockable: bool
     perishable: bool
     seriable: bool

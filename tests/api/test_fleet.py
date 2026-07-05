@@ -49,10 +49,29 @@ def _vehicle(vehicle_id: int = 1) -> SimpleNamespace:
     )
 
 
+def _employee(employee_id: int = 1) -> SimpleNamespace:
+    return SimpleNamespace(
+        employee_id=employee_id,
+        first_name="Jane",
+        last_name="Doe",
+        nickname="JD",
+        gender=0,
+        birthday=datetime.date(1990, 1, 1),
+        taxpayer_id=None,
+        sales_person=False,
+        active=True,
+        personal_id=None,
+        start_job_date=datetime.date(2020, 1, 1),
+        enroll_number=None,
+        comment=None,
+        disabled=None,
+    )
+
+
 def _vehicle_operator(vo_id: int = 1) -> SimpleNamespace:
     return SimpleNamespace(
         vehicle_operator_id=vo_id,
-        driver=1,
+        driver=_employee(),
         license_type="C",
         driver_license_number="L123456",
         issue_date=datetime.date(2024, 1, 1),
@@ -60,15 +79,35 @@ def _vehicle_operator(vo_id: int = 1) -> SimpleNamespace:
         issuing_location="CDMX",
         creation_time=datetime.datetime(2024, 1, 1, 0, 0, 0),
         modification_time=datetime.datetime(2024, 1, 1, 0, 0, 0),
-        creator=0,
-        updater=0,
+        creator=_employee(0),
+        updater=_employee(0),
         active=True,
+    )
+
+
+def _store_summary(store_id: int = 1) -> SimpleNamespace:
+    return SimpleNamespace(
+        store_id=store_id,
+        code="S1",
+        name="Main Store",
+        location="06000",
+        address=1,
+        taxpayer="RFC123456789A",
+        logo="logo.png",
+        receipt_message=None,
+        default_batch=None,
+        disabled=None,
     )
 
 
 def _production_site(ps_id: int = 1) -> SimpleNamespace:
     return SimpleNamespace(
-        production_site_id=ps_id, store=1, code="KIT1", name="Kitchen", comment=None, disabled=None
+        production_site_id=ps_id,
+        store=_store_summary(),
+        code="KIT1",
+        name="Kitchen",
+        comment=None,
+        disabled=None,
     )
 
 

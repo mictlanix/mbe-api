@@ -50,10 +50,25 @@ def _expense(expense_id: int = 1) -> SimpleNamespace:
     return SimpleNamespace(expense_id=expense_id, expense="Office Supplies", comment=None)
 
 
+def _store_summary(store_id: int = 1) -> SimpleNamespace:
+    return SimpleNamespace(
+        store_id=store_id,
+        code="S1",
+        name="Main Store",
+        location="06000",
+        address=1,
+        taxpayer="RFC123456789A",
+        logo="logo.png",
+        receipt_message=None,
+        default_batch=None,
+        disabled=None,
+    )
+
+
 def _pmo(pmo_id: int = 1) -> SimpleNamespace:
     return SimpleNamespace(
         payment_method_option_id=pmo_id,
-        store=1,
+        store=_store_summary(),
         warehouse=None,
         name="Cash",
         number_of_payments=1,

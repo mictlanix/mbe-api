@@ -4,7 +4,22 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.core import Store
+from app.models.sat_catalog import SatPostalCode
 from app.schemas.core import StoreCreate, StoreUpdate
+from app.services.fk_expansion import batch_fetch
+from app.services.sat_catalog_service import SAT_CATALOG_MAP, to_response
+
+
+async def _attach_relations(db: AsyncSession, stores: Sequence[Store]) -> None:
+    if not stores:
+        return
+    postal_config = SAT_CATALOG_MAP["postal-codes"]
+    postal_codes_by_id = await batch_fetch(
+        db, SatPostalCode, SatPostalCode.sat_postal_code_id, (s.location for s in stores)
+    )
+    for s in stores:
+        postal_row = postal_codes_by_id.get(s.location)
+        s.__dict__["location"] = to_response(postal_row, postal_config) if postal_row else None
 
 
 async def list_stores(
@@ -12,11 +27,16 @@ async def list_stores(
 ) -> tuple[Sequence[Store], int]:
     total: int = (await db.execute(select(func.count()).select_from(Store))).scalar_one()
     items = (await db.execute(select(Store).offset(skip).limit(limit))).scalars().all()
+    await _attach_relations(db, items)
     return items, total
 
 
 async def get_store(db: AsyncSession, store_id: int) -> Store | None:
-    return await db.get(Store, store_id)
+    store = await db.get(Store, store_id)
+    if store is None:
+        return None
+    await _attach_relations(db, [store])
+    return store
 
 
 async def create_store(db: AsyncSession, data: StoreCreate) -> Store:
@@ -34,6 +54,7 @@ async def create_store(db: AsyncSession, data: StoreCreate) -> Store:
     db.add(store)
     await db.commit()
     await db.refresh(store)
+    await _attach_relations(db, [store])
     return store
 
 
@@ -58,6 +79,7 @@ async def update_store(db: AsyncSession, store: Store, data: StoreUpdate) -> Sto
         store.disabled = data.disabled
     await db.commit()
     await db.refresh(store)
+    await _attach_relations(db, [store])
     return store
 
 

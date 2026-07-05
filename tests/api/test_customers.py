@@ -49,6 +49,15 @@ def _taxpayer(rfc: str = "RFC123456789A") -> SimpleNamespace:
     )
 
 
+def _price_list(price_list_id: int = 1) -> SimpleNamespace:
+    return SimpleNamespace(
+        price_list_id=price_list_id,
+        name="General",
+        high_profit_margin=Decimal("0"),
+        low_profit_margin=Decimal("0"),
+    )
+
+
 def _customer(cust_id: int = 1) -> SimpleNamespace:
     return SimpleNamespace(
         customer_id=cust_id,
@@ -57,7 +66,7 @@ def _customer(cust_id: int = 1) -> SimpleNamespace:
         zone=None,
         credit_limit=Decimal("0"),
         credit_days=0,
-        price_list=1,
+        price_list=_price_list(),
         shipping=False,
         shipping_required_document=False,
         salesperson=None,

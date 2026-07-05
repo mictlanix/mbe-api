@@ -3,8 +3,17 @@ from collections.abc import Sequence
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.core import CashDrawer
+from app.models.core import CashDrawer, Store
 from app.schemas.core import CashDrawerCreate, CashDrawerUpdate
+from app.services.fk_expansion import batch_fetch
+
+
+async def _attach_relations(db: AsyncSession, cash_drawers: Sequence[CashDrawer]) -> None:
+    if not cash_drawers:
+        return
+    stores_by_id = await batch_fetch(db, Store, Store.store_id, (c.store for c in cash_drawers))
+    for c in cash_drawers:
+        c.__dict__["store"] = stores_by_id.get(c.store)
 
 
 async def list_cash_drawers(
@@ -21,11 +30,16 @@ async def list_cash_drawers(
         count_q = count_q.where(CashDrawer.store == store)
     total: int = (await db.execute(count_q)).scalar_one()
     items = (await db.execute(base.offset(skip).limit(limit))).scalars().all()
+    await _attach_relations(db, items)
     return items, total
 
 
 async def get_cash_drawer(db: AsyncSession, cash_drawer_id: int) -> CashDrawer | None:
-    return await db.get(CashDrawer, cash_drawer_id)
+    cd = await db.get(CashDrawer, cash_drawer_id)
+    if cd is None:
+        return None
+    await _attach_relations(db, [cd])
+    return cd
 
 
 async def create_cash_drawer(db: AsyncSession, data: CashDrawerCreate) -> CashDrawer:
@@ -39,6 +53,7 @@ async def create_cash_drawer(db: AsyncSession, data: CashDrawerCreate) -> CashDr
     db.add(cd)
     await db.commit()
     await db.refresh(cd)
+    await _attach_relations(db, [cd])
     return cd
 
 
@@ -57,6 +72,7 @@ async def update_cash_drawer(
         cd.disabled = data.disabled
     await db.commit()
     await db.refresh(cd)
+    await _attach_relations(db, [cd])
     return cd
 
 

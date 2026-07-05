@@ -6,9 +6,9 @@
 
 **Status**: Refined
 
-**Updated**: 2026-06-16
+**Updated**: 2026-07-04
 
-**Input**: User description: "implement the endpoints covered by @docs/specs/01-master-data.md, reuse the existing models and update accordingly"; refined to add FK filters on list endpoints and SAT catalog read-only endpoints.
+**Input**: User description: "implement the endpoints covered by @docs/specs/01-master-data.md, reuse the existing models and update accordingly"; refined to add FK filters on list endpoints and SAT catalog read-only endpoints; further refined so that FK properties in responses return the complete referenced object instead of only its ID.
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -131,6 +131,44 @@ An authenticated API consumer looks up valid SAT codes to populate dropdowns in 
 
 ---
 
+### User Story 8 - Read Embedded Related Records on FK Fields (Priority: P2)
+
+An authenticated API consumer reads a master data list or detail response and needs the full
+referenced record for each foreign-key field (e.g. a product's supplier, a customer's price list,
+a point of sale's store and warehouse) without issuing a follow-up lookup per ID.
+
+**Why this priority**: Reduces N+1 lookups for UI screens that render human-readable labels (a
+product's supplier name, a customer's price list name) instead of raw IDs. Not required for the
+MVP CRUD flows to function, but materially improves usability, so it ranks alongside other P2
+read-enhancement stories.
+
+**Independent Test**: Can be fully tested by calling `GET /api/v1/products/{id}` and confirming
+`supplier` is a nested object (`{supplier_id, code, name, ...}`) rather than a bare integer, and by
+calling `GET /api/v1/products` and confirming the same shape appears on every list item.
+
+**Acceptance Scenarios**:
+
+1. **Given** a product with a supplier assigned, **When** `GET /api/v1/products/{id}` or
+   `GET /api/v1/products` is called, **Then** the `supplier` field is the full `SupplierResponse`
+   object, not an integer; if no supplier is assigned, `supplier` is `null`.
+2. **Given** a product, **When** its response is read, **Then** `unit_of_measurement` and `key`
+   are the full SAT catalog objects (`{id, description}`), not bare codes.
+3. **Given** a customer, **When** its response is read, **Then** `price_list` is the full
+   `PriceListResponse` object and `salesperson` is the full `EmployeeResponse` object (or `null`).
+4. **Given** a point of sale, **When** its response is read, **Then** `store` is the full
+   `StoreResponse`-shaped object and `warehouse` is the full `WarehouseResponse`-shaped object;
+   that embedded warehouse's own `store` field remains a plain integer ID (nesting stops after one
+   level — see FR-039).
+5. **Given** a `POST` or `PUT` request body for any resource, **When** the payload is submitted,
+   **Then** FK fields are still supplied as plain IDs (unchanged request shape); only responses
+   are expanded.
+6. **Given** a store, **When** its response is read, **Then** `location` (SAT postal code) is the
+   full SAT catalog object; `address` and `taxpayer` remain plain IDs because their target entities
+   (`Address`, `TaxpayerIssuer`) have no read endpoint in this feature (out of scope per
+   Assumptions).
+
+---
+
 ### Edge Cases
 
 - What happens when a search returns no results? → Empty list `{items: [], total: 0}` with `200 OK`.
@@ -140,6 +178,9 @@ An authenticated API consumer looks up valid SAT codes to populate dropdowns in 
 - What happens when deleting a label still assigned to products? → Allow delete (junction rows are removed); no conflict check required by the spec.
 - What happens when an FK filter value references a non-existent record (e.g., `?supplier=9999`)? → Return an empty list `{items: [], total: 0}` with `200 OK`; no validation error.
 - What happens when a client tries to create or update a SAT catalog record? → `405 Method Not Allowed`; SAT data is managed externally and loaded by migration only.
+- What happens when an FK field is nullable and unset (e.g. `product.supplier`, `payment_method_option.warehouse`)? → The field is `null` in the response, not an empty object.
+- What happens when an embedded FK object itself has FK fields (e.g. a point of sale's embedded `warehouse` has its own `store`)? → Expansion stops after one level; the embedded object's own FK fields remain plain IDs (see FR-039).
+- What happens to FK fields whose target entity has no read endpoint in this feature (`Store.address` → `Address`, `Store.taxpayer` → `TaxpayerIssuer`)? → They remain plain IDs; expanding them is out of scope until those entities get their own endpoints.
 
 ## Requirements *(mandatory)*
 
@@ -240,6 +281,23 @@ An authenticated API consumer looks up valid SAT codes to populate dropdowns in 
 - **FR-037**: System MUST expose `GET /api/v1/sat/units-of-measurement` and `GET /api/v1/sat/units-of-measurement/{id}`. No write operations.
 - **FR-038**: All SAT catalog list endpoints MUST support `skip` and `limit` pagination and return the standard `{items, total}` envelope. All SAT catalog endpoints MUST require authentication.
 
+**FK Field Expansion (all resources)**
+
+- **FR-039**: In every list and detail response (not just detail), every FK field whose target
+  entity has a read schema in this feature MUST be serialized as the full referenced object
+  instead of its bare ID, one level deep only: the embedded object's own FK fields MUST remain
+  plain IDs (they are not expanded a second time). This applies to, among others: `Product.supplier`,
+  `Product.unit_of_measurement`, `Product.key`, `ProductPrice.price_list`, `Customer.price_list`,
+  `Customer.salesperson`, `TaxpayerRecipient.postal_code`, `TaxpayerRecipient.regime`,
+  `Store.location`, `Warehouse.store`, `PointSale.store`, `PointSale.warehouse`,
+  `CashDrawer.store`, `PaymentMethodOption.store`, `PaymentMethodOption.warehouse`,
+  `VehicleOperator.driver`, `VehicleOperator.creator`, `VehicleOperator.updater`,
+  `ProductionSite.store`. Nullable FK fields with no assigned value MUST serialize as `null`.
+- **FR-040**: `POST` and `PUT` request bodies are unaffected by FR-039 — FK fields are still
+  submitted as plain IDs/strings. Only response serialization changes. FK fields whose target
+  entity has no read schema in this feature (`Store.address`, `Store.taxpayer`) remain plain IDs
+  in responses too.
+
 ### Key Entities *(include if feature involves data)*
 
 - **Product**: The central SKU record. Has prices per price list, label tags, a supplier, SAT catalog references, and boolean flags controlling stockability, perishability, traceability, and sales eligibility.
@@ -279,6 +337,7 @@ An authenticated API consumer looks up valid SAT codes to populate dropdowns in 
 - **SC-005**: The product creation auto-default logic (prices, defaults) executes atomically — either all rows are created or none are.
 - **SC-006**: All 5 FK filters (supplier, price_list, salesperson, store, warehouse, employee) narrow results correctly — a filter for a non-existent ID returns an empty list, never an error.
 - **SC-007**: All 8 SAT catalog list endpoints return results and respond to `GET /{id}` with `200` for known codes and `404` for unknown codes; no write operation succeeds on any SAT catalog.
+- **SC-008**: Every FK field covered by FR-039 is serialized as the full referenced object (or `null`) in both list and detail responses across all 17 resources, with no more than one level of nesting, while list endpoints still respond within 500 ms (SC-001) — related rows are batch-fetched, not queried per row.
 
 ## Assumptions
 
@@ -290,3 +349,5 @@ An authenticated API consumer looks up valid SAT codes to populate dropdowns in 
 - Authentication and privilege enforcement use the existing `get_current_user` and `require_admin` dependency pattern; per-resource privilege checks (SystemObject-based) are out of scope unless explicitly noted (the product merge endpoint requires `ProductsMerge` privilege check).
 - Tests are optional per the project constitution; the plan will include tests if the implementer decides to include them.
 - Exchange rates are uniquely constrained by `(date, base, target)` pair; attempting to create a duplicate returns `409 Conflict`.
+- FK expansion (FR-039) is implemented by fetching related rows in the service layer and attaching them to the ORM instance before Pydantic serialization (no SQLAlchemy `relationship()` objects are added to models, consistent with the existing "hold the integer/string PK, no ORM relationship objects" convention for the raw FK columns themselves — the expansion happens at the response-schema/service boundary, not the mapped-column level).
+- `Store.address` (→ `Address`) and `Store.taxpayer` (→ `TaxpayerIssuer`) are not expanded because those entities have no read schema/endpoint in this feature (sub-panel entities, out of scope per the existing Assumptions above).

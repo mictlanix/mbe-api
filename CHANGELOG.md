@@ -44,6 +44,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `GET /api/v1/products/{id}` now returns `labels` (populated from the `product_label` junction table), satisfying FR-003/Acceptance Scenario 1 of `specs/002-master-data-endpoints/spec.md`; `POST /api/v1/products` and `PUT /api/v1/products/{id}` now accept a `labels: list[int]` field to assign/replace a product's labels (#74)
 
 ### Changed
+- FK properties in master data list/detail responses now return the full referenced object instead of only its ID, one level deep (request bodies still accept plain IDs): `Product.supplier`/`unit_of_measurement`/`key`, `ProductPrice.price_list`, `Customer.price_list`/`salesperson`, `TaxpayerRecipient.postal_code`/`regime`, `Store.location`, `Warehouse.store`, `PointSale.store`/`warehouse`, `CashDrawer.store`, `PaymentMethodOption.store`/`warehouse`, `VehicleOperator.driver`/`creator`/`updater`, `ProductionSite.store`; new `StoreSummary`/`WarehouseSummary` schemas represent the flat (non-expanded) shape when embedded a second level deep (e.g. a `PointSale`'s embedded `warehouse` keeps its own `store` as a plain ID); `Store.address`/`Store.taxpayer` remain plain IDs since `Address`/`TaxpayerIssuer` have no read endpoint in this feature
 - Password hashing simplified to SHA1-only; `verify_password` now compares hashes case-insensitively
 - `currency` columns in all affected models now use `Mapped[CurrencyCode]` instead of `Mapped[int]`
   (models: `core.ExchangeRate`, `product.Product`, `sales.*`, `supplier.SupplierReturnDetail`,

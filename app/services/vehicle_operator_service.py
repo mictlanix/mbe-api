@@ -4,8 +4,20 @@ from datetime import UTC, datetime
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.core import VehicleOperator
+from app.models.core import Employee, VehicleOperator
 from app.schemas.core import VehicleOperatorCreate, VehicleOperatorUpdate
+from app.services.fk_expansion import batch_fetch
+
+
+async def _attach_relations(db: AsyncSession, operators: Sequence[VehicleOperator]) -> None:
+    if not operators:
+        return
+    employee_ids = {i for vo in operators for i in (vo.driver, vo.creator, vo.updater)}
+    employees_by_id = await batch_fetch(db, Employee, Employee.employee_id, employee_ids)
+    for vo in operators:
+        vo.__dict__["driver"] = employees_by_id.get(vo.driver)
+        vo.__dict__["creator"] = employees_by_id.get(vo.creator)
+        vo.__dict__["updater"] = employees_by_id.get(vo.updater)
 
 
 async def list_vehicle_operators(
@@ -22,13 +34,18 @@ async def list_vehicle_operators(
         count_q = count_q.where(VehicleOperator.driver == employee)
     total: int = (await db.execute(count_q)).scalar_one()
     items = (await db.execute(base.offset(skip).limit(limit))).scalars().all()
+    await _attach_relations(db, items)
     return items, total
 
 
 async def get_vehicle_operator(
     db: AsyncSession, vehicle_operator_id: int
 ) -> VehicleOperator | None:
-    return await db.get(VehicleOperator, vehicle_operator_id)
+    vo = await db.get(VehicleOperator, vehicle_operator_id)
+    if vo is None:
+        return None
+    await _attach_relations(db, [vo])
+    return vo
 
 
 async def create_vehicle_operator(
@@ -51,6 +68,7 @@ async def create_vehicle_operator(
     db.add(vo)
     await db.commit()
     await db.refresh(vo)
+    await _attach_relations(db, [vo])
     return vo
 
 
@@ -75,6 +93,7 @@ async def update_vehicle_operator(
     vo.updater = updater_id
     await db.commit()
     await db.refresh(vo)
+    await _attach_relations(db, [vo])
     return vo
 
 

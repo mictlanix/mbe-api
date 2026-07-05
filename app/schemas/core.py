@@ -4,6 +4,8 @@ from decimal import Decimal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from app.schemas.sat_catalog import SatCatalogResponse
+
 # ── Label ─────────────────────────────────────────────────────────────────────
 
 
@@ -105,13 +107,30 @@ class StoreUpdate(BaseModel):
     disabled: bool | None = None
 
 
-class StoreResponse(BaseModel):
+class StoreSummary(BaseModel):
+    """Flat Store representation used when embedded as another resource's FK."""
+
     model_config = ConfigDict(from_attributes=True)
 
     store_id: int
     code: str
     name: str
     location: str
+    address: int
+    taxpayer: str
+    logo: str
+    receipt_message: str | None
+    default_batch: str | None
+    disabled: bool | None
+
+
+class StoreResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    store_id: int
+    code: str
+    name: str
+    location: SatCatalogResponse
     address: int
     taxpayer: str
     logo: str
@@ -139,11 +158,24 @@ class WarehouseUpdate(BaseModel):
     disabled: bool | None = None
 
 
-class WarehouseResponse(BaseModel):
+class WarehouseSummary(BaseModel):
+    """Flat Warehouse representation used when embedded as another resource's FK."""
+
     model_config = ConfigDict(from_attributes=True)
 
     warehouse_id: int
     store: int
+    code: str
+    name: str
+    comment: str | None
+    disabled: bool | None
+
+
+class WarehouseResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    warehouse_id: int
+    store: StoreSummary
     code: str
     name: str
     comment: str | None
@@ -175,10 +207,10 @@ class PointSaleResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     point_sale_id: int
-    store: int
+    store: StoreSummary
     code: str
     name: str
-    warehouse: int
+    warehouse: WarehouseSummary
     comment: str | None
     disabled: bool | None
 
@@ -206,7 +238,7 @@ class CashDrawerResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     cash_drawer_id: int
-    store: int
+    store: StoreSummary
     code: str
     name: str
     comment: str | None
@@ -290,8 +322,8 @@ class PaymentMethodOptionResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     payment_method_option_id: int
-    store: int
-    warehouse: int | None
+    store: StoreSummary
+    warehouse: WarehouseSummary | None
     name: str
     number_of_payments: int
     display_on_ticket: bool
@@ -357,7 +389,7 @@ class VehicleOperatorResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     vehicle_operator_id: int
-    driver: int
+    driver: EmployeeResponse
     license_type: str
     driver_license_number: str
     issue_date: dt.date
@@ -365,8 +397,8 @@ class VehicleOperatorResponse(BaseModel):
     issuing_location: str
     creation_time: datetime
     modification_time: datetime
-    creator: int
-    updater: int
+    creator: EmployeeResponse
+    updater: EmployeeResponse
     active: bool
     days_until_expiry: int = 0
 
@@ -399,7 +431,7 @@ class ProductionSiteResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     production_site_id: int
-    store: int
+    store: StoreSummary
     code: str
     name: str
     comment: str | None

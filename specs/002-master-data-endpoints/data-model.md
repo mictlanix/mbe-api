@@ -16,6 +16,34 @@ authors and implementers. No database migrations are required.
 
 ---
 
+## FK Expansion Convention
+
+Response schemas serialize FK fields as the full referenced object, one level deep, instead of a
+bare ID (see spec.md FR-039/FR-040). Rules:
+
+- The raw FK column on the ORM model is untouched (still an `int`/`str` PK, no `relationship()`
+  added). The service layer fetches the referenced row(s) — batch-fetched for list endpoints to
+  avoid N+1 queries — and attaches them to the ORM instance before Pydantic serialization, the
+  same pattern already used for `Product.prices` / `Product.labels`.
+- Request bodies (`Create`/`Update` schemas) are unchanged — FK fields are still submitted as
+  plain IDs.
+- Nesting stops after one level: an embedded object's own FK fields stay as plain IDs. This means
+  two response shapes exist for `Store` and `Warehouse`, since both are themselves FK targets and
+  also own FK fields of their own:
+  - `StoreResponse` (top-level `GET /stores`) — `location` expanded to the SAT postal code object.
+  - `StoreSummary` (embedded inside `Warehouse`/`PointSale`/`CashDrawer`/`PaymentMethodOption`/
+    `ProductionSite` responses) — same fields, but `location` stays a plain string.
+  - `WarehouseResponse` (top-level `GET /warehouses`) — `store` expanded to `StoreSummary`.
+  - `WarehouseSummary` (embedded inside `PointSale`/`PaymentMethodOption` responses) — `store`
+    stays a plain integer.
+- All other FK targets (`Supplier`, `PriceList`, `Employee`, `Label`, SAT catalogs) have no FK
+  fields of their own, so their existing single response schema is reused directly for embedding
+  — no separate "summary" variant is needed for those.
+- `Store.address` and `Store.taxpayer` are not expanded (no read schema exists for `Address` /
+  `TaxpayerIssuer` in this feature); they remain plain IDs in every response.
+
+---
+
 ## 1. Product
 
 **ORM class**: `Product` in `app/models/product.py`  
@@ -32,7 +60,7 @@ authors and implementers. No database migrations are required.
 | `model` | `model` | `str \| None` | |
 | `bar_code` | `bar_code` | `str \| None` | exactly 13 digits or empty |
 | `location` | `location` | `str \| None` | shelf/bin code |
-| `unit_of_measurement` | `unit_of_measurement` | `str` | FK → `sat_unit_of_measurement` |
+| `unit_of_measurement` | `unit_of_measurement` | `str` | FK → `sat_unit_of_measurement`; **response**: expanded to `SatCatalogResponse` |
 | `stockable` | `stockable` | `bool` | |
 | `perishable` | `perishable` | `bool` | lot/expiry tracking |
 | `seriable` | `seriable` | `bool` | serial number tracking |
@@ -45,8 +73,8 @@ authors and implementers. No database migrations are required.
 | `currency` | `currency` | `CurrencyCode` | IntEnum (0=MXN, 1=USD, 2=EUR) |
 | `min_order_qty` | `min_order_qty` | `int` | default = 1 on create |
 | `comment` | `comment` | `str \| None` | |
-| `supplier` | `supplier` | `int \| None` | FK → `supplier` |
-| `key` | `key` | `str \| None` | FK → `sat_product_service` |
+| `supplier` | `supplier` | `int \| None` | FK → `supplier`; **response**: expanded to `SupplierResponse \| None` |
+| `key` | `key` | `str \| None` | FK → `sat_product_service`; **response**: expanded to `SatCatalogResponse \| None` |
 | `deactivated` | `deactivated` | `bool` | |
 | `stock_verification` | `stock_verification` | `bool` | **API alias**: `stock_required`; default = true on create |
 
@@ -64,7 +92,7 @@ schemas via a Pydantic alias. The column name in MariaDB is unchanged.
 |--------------|--------|------|-------------|
 | `product_price_id` | `product_price_id` | `int` | PK, auto |
 | `product` | `product` | `int` | FK → `product` |
-| `price_list` | `list` | `int` | FK → `price_list` (DB column is `list`) |
+| `price_list` | `list` | `int` | FK → `price_list` (DB column is `list`); **response**: expanded to `PriceListResponse` |
 | `price` | `price` | `Decimal` | default = 0 on create |
 | `low_profit` | `low_profit` | `Decimal` | |
 | `high_profit` | `high_profit` | `Decimal` | |
@@ -117,10 +145,10 @@ existing `PriceList` with `price = 0`, `low_profit = 0`, `high_profit = 0`.
 | `credit_limit` | `credit_limit` | `Decimal` | |
 | `credit_days` | `credit_days` | `int` | |
 | `comment` | `comment` | `str \| None` | |
-| `price_list` | `price_list` | `int` | FK → `price_list` |
+| `price_list` | `price_list` | `int` | FK → `price_list`; **response**: expanded to `PriceListResponse` |
 | `shipping` | `shipping` | `bool` | |
 | `shipping_required_document` | `shipping_required_document` | `bool` | |
-| `salesperson` | `salesperson` | `int \| None` | FK → `employee` |
+| `salesperson` | `salesperson` | `int \| None` | FK → `employee`; **response**: expanded to `EmployeeResponse \| None` |
 | `disabled` | `disabled` | `bool \| None` | |
 | `creator` | `creator` | `int \| None` | FK → `employee` |
 
@@ -138,8 +166,8 @@ existing `PriceList` with `price = 0`, `low_profit = 0`, `high_profit = 0`.
 | `taxpayer_recipient_id` | `taxpayer_recipient_id` | `str` | PK, 12–13 chars (RFC) |
 | `name` | `name` | `str \| None` | |
 | `email` | `email` | `str` | |
-| `postal_code` | `postal_code` | `str \| None` | FK → `sat_postal_code` |
-| `regime` | `regime` | `str \| None` | FK → `sat_tax_regime` |
+| `postal_code` | `postal_code` | `str \| None` | FK → `sat_postal_code`; **response**: expanded to `SatCatalogResponse \| None` |
+| `regime` | `regime` | `str \| None` | FK → `sat_tax_regime`; **response**: expanded to `SatCatalogResponse \| None` |
 
 ---
 
@@ -194,9 +222,9 @@ existing `PriceList` with `price = 0`, `low_profit = 0`, `high_profit = 0`.
 | `store_id` | `store_id` | `int` PK |
 | `code` | `code` | `str` |
 | `name` | `name` | `str` |
-| `location` | `location` | `str` FK → `sat_postal_code` |
-| `address` | `address` | `int` FK → `address` |
-| `taxpayer` | `taxpayer` | `str` FK → `taxpayer_issuer` |
+| `location` | `location` | `str` FK → `sat_postal_code`; **response**: expanded to `SatCatalogResponse` |
+| `address` | `address` | `int` FK → `address`; **not expanded** (no `Address` read schema) |
+| `taxpayer` | `taxpayer` | `str` FK → `taxpayer_issuer`; **not expanded** (no `TaxpayerIssuer` read schema) |
 | `logo` | `logo` | `str` |
 | `receipt_message` | `receipt_message` | `str \| None` |
 | `default_batch` | `default_batch` | `str \| None` |
@@ -212,7 +240,7 @@ existing `PriceList` with `price = 0`, `low_profit = 0`, `high_profit = 0`.
 | Python field | Column | Type |
 |--------------|--------|------|
 | `warehouse_id` | `warehouse_id` | `int` PK |
-| `store` | `store` | `int` FK → `store` |
+| `store` | `store` | `int` FK → `store`; **response**: expanded to `StoreSummary` (top-level `WarehouseResponse`) — stays a plain ID when this `Warehouse` is itself embedded in another response as `WarehouseSummary` |
 | `code` | `code` | `str` unique |
 | `name` | `name` | `str` |
 | `comment` | `comment` | `str \| None` |
@@ -228,10 +256,10 @@ existing `PriceList` with `price = 0`, `low_profit = 0`, `high_profit = 0`.
 | Python field | Column | Type |
 |--------------|--------|------|
 | `point_sale_id` | `point_sale_id` | `int` PK |
-| `store` | `store` | `int` FK → `store` |
+| `store` | `store` | `int` FK → `store`; **response**: expanded to `StoreSummary` |
 | `code` | `code` | `str` unique |
 | `name` | `name` | `str` |
-| `warehouse` | `warehouse` | `int` FK → `warehouse` |
+| `warehouse` | `warehouse` | `int` FK → `warehouse`; **response**: expanded to `WarehouseSummary` |
 | `comment` | `comment` | `str \| None` |
 | `disabled` | `disabled` | `bool \| None` |
 
@@ -245,7 +273,7 @@ existing `PriceList` with `price = 0`, `low_profit = 0`, `high_profit = 0`.
 | Python field | Column | Type |
 |--------------|--------|------|
 | `cash_drawer_id` | `cash_drawer_id` | `int` PK |
-| `store` | `store` | `int` FK → `store` |
+| `store` | `store` | `int` FK → `store`; **response**: expanded to `StoreSummary` |
 | `code` | `code` | `str` unique |
 | `name` | `name` | `str` |
 | `comment` | `comment` | `str \| None` |
@@ -292,8 +320,8 @@ API schema, mapping to `expense` via alias.
 | Python field | Column | Type |
 |--------------|--------|------|
 | `payment_method_option_id` | `payment_method_option_id` | `int` PK |
-| `warehouse` | `warehouse` | `int \| None` FK → `warehouse` |
-| `store` | `store` | `int` FK → `store` |
+| `warehouse` | `warehouse` | `int \| None` FK → `warehouse`; **response**: expanded to `WarehouseSummary \| None` |
+| `store` | `store` | `int` FK → `store`; **response**: expanded to `StoreSummary` |
 | `name` | `name` | `str` |
 | `number_of_payments` | `number_of_payments` | `int` |
 | `display_on_ticket` | `display_on_ticket` | `bool` |
@@ -327,7 +355,7 @@ API schema, mapping to `expense` via alias.
 | Python field | Column | Type |
 |--------------|--------|------|
 | `vehicle_operator_id` | `vehicle_operator_id` | `int` PK |
-| `driver` | `driver` | `int` FK → `employee` |
+| `driver` | `driver` | `int` FK → `employee`; **response**: expanded to `EmployeeResponse` |
 | `license_type` | `license_type` | `str` |
 | `driver_license_number` | `driver_license_number` | `str` |
 | `issue_date` | `issue_date` | `date` |
@@ -335,8 +363,8 @@ API schema, mapping to `expense` via alias.
 | `issuing_location` | `issuing_location` | `str` |
 | `creation_time` | `creation_time` | `datetime` |
 | `modification_time` | `modification_time` | `datetime` |
-| `creator` | `creator` | `int` FK → `employee` |
-| `updater` | `updater` | `int` FK → `employee` |
+| `creator` | `creator` | `int` FK → `employee`; **response**: expanded to `EmployeeResponse` |
+| `updater` | `updater` | `int` FK → `employee`; **response**: expanded to `EmployeeResponse` |
 | `active` | `active` | `bool` |
 
 **Computed API field**: `days_until_expiry: int` — days until `expiration_date` from today
@@ -352,7 +380,7 @@ API schema, mapping to `expense` via alias.
 | Python field | Column | Type |
 |--------------|--------|------|
 | `production_site_id` | `production_site_id` | `int` PK |
-| `store` | `store` | `int` FK → `store` |
+| `store` | `store` | `int` FK → `store`; **response**: expanded to `StoreSummary` |
 | `code` | `code` | `str` unique |
 | `name` | `name` | `str` |
 | `comment` | `comment` | `str \| None` |

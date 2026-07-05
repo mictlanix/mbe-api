@@ -34,12 +34,13 @@ def _auth() -> None:
 # ── Fake objects ──────────────────────────────────────────────────────────────
 
 
-def _store(store_id: int = 1) -> SimpleNamespace:
+def _store_summary(store_id: int = 1) -> SimpleNamespace:
+    """Flat Store shape (as embedded in Warehouse/PointSale/CashDrawer FK fields)."""
     return SimpleNamespace(
         store_id=store_id,
         code="S1",
         name="Main Store",
-        location="Downtown",
+        location="06000",
         address=1,
         taxpayer="RFC123456789A",
         logo="logo.png",
@@ -49,23 +50,38 @@ def _store(store_id: int = 1) -> SimpleNamespace:
     )
 
 
-def _warehouse(warehouse_id: int = 1) -> SimpleNamespace:
+def _store(store_id: int = 1) -> SimpleNamespace:
+    """Top-level Store shape (as returned by /stores) — location expanded to a SAT object."""
+    summary = _store_summary(store_id)
+    summary.location = {"id": "06000", "description": "CDMX"}
+    return summary
+
+
+def _warehouse_summary(warehouse_id: int = 1) -> SimpleNamespace:
+    """Flat Warehouse shape (as embedded in PointSale/PaymentMethodOption FK fields)."""
     return SimpleNamespace(
         warehouse_id=warehouse_id, store=1, code="WH1", name="Main Warehouse",
         comment=None, disabled=None,
     )
 
 
+def _warehouse(warehouse_id: int = 1) -> SimpleNamespace:
+    """Top-level Warehouse shape (as returned by /warehouses) — store expanded."""
+    w = _warehouse_summary(warehouse_id)
+    w.store = _store_summary()
+    return w
+
+
 def _pos(point_sale_id: int = 1) -> SimpleNamespace:
     return SimpleNamespace(
-        point_sale_id=point_sale_id, store=1, code="POS1", name="Register 1",
-        warehouse=1, comment=None, disabled=None,
+        point_sale_id=point_sale_id, store=_store_summary(), code="POS1", name="Register 1",
+        warehouse=_warehouse_summary(), comment=None, disabled=None,
     )
 
 
 def _cash_drawer(cash_drawer_id: int = 1) -> SimpleNamespace:
     return SimpleNamespace(
-        cash_drawer_id=cash_drawer_id, store=1, code="CD1", name="Drawer 1",
+        cash_drawer_id=cash_drawer_id, store=_store_summary(), code="CD1", name="Drawer 1",
         comment=None, disabled=None,
     )
 

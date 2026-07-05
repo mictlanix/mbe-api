@@ -4,8 +4,34 @@ from fastapi import HTTPException, status
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.core import Employee
 from app.models.customer import Customer
+from app.models.product import PriceList
 from app.schemas.customer import CustomerCreate, CustomerUpdate
+
+
+async def _attach_customer_relations(db: AsyncSession, customers: Sequence[Customer]) -> None:
+    if not customers:
+        return
+    list_ids = {c.price_list for c in customers}
+    price_lists = (
+        await db.execute(select(PriceList).where(PriceList.price_list_id.in_(list_ids)))
+    ).scalars().all()
+    lists_by_id = {pl.price_list_id: pl for pl in price_lists}
+
+    salesperson_ids = {c.salesperson for c in customers if c.salesperson is not None}
+    employees_by_id: dict[int, Employee] = {}
+    if salesperson_ids:
+        employees = (
+            await db.execute(select(Employee).where(Employee.employee_id.in_(salesperson_ids)))
+        ).scalars().all()
+        employees_by_id = {e.employee_id: e for e in employees}
+
+    for c in customers:
+        c.__dict__["price_list"] = lists_by_id.get(c.price_list)
+        c.__dict__["salesperson"] = (
+            employees_by_id.get(c.salesperson) if c.salesperson is not None else None
+        )
 
 
 async def list_customers(
@@ -43,11 +69,16 @@ async def list_customers(
 
     total: int = (await db.execute(count_q)).scalar_one()
     items = (await db.execute(base.offset(skip).limit(limit))).scalars().all()
+    await _attach_customer_relations(db, items)
     return items, total
 
 
 async def get_customer(db: AsyncSession, customer_id: int) -> Customer | None:
-    return await db.get(Customer, customer_id)
+    customer = await db.get(Customer, customer_id)
+    if customer is None:
+        return None
+    await _attach_customer_relations(db, [customer])
+    return customer
 
 
 async def create_customer(db: AsyncSession, data: CustomerCreate) -> Customer:
@@ -67,6 +98,7 @@ async def create_customer(db: AsyncSession, data: CustomerCreate) -> Customer:
     db.add(customer)
     await db.commit()
     await db.refresh(customer)
+    await _attach_customer_relations(db, [customer])
     return customer
 
 
@@ -95,6 +127,7 @@ async def update_customer(db: AsyncSession, customer: Customer, data: CustomerUp
         customer.comment = data.comment
     await db.commit()
     await db.refresh(customer)
+    await _attach_customer_relations(db, [customer])
     return customer
 
 

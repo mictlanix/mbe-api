@@ -3,8 +3,23 @@ from collections.abc import Sequence
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.core import PaymentMethodOption
+from app.models.core import PaymentMethodOption, Store, Warehouse
 from app.schemas.core import PaymentMethodOptionCreate, PaymentMethodOptionUpdate
+from app.services.fk_expansion import batch_fetch
+
+
+async def _attach_relations(db: AsyncSession, options: Sequence[PaymentMethodOption]) -> None:
+    if not options:
+        return
+    stores_by_id = await batch_fetch(db, Store, Store.store_id, (o.store for o in options))
+    warehouses_by_id = await batch_fetch(
+        db, Warehouse, Warehouse.warehouse_id, (o.warehouse for o in options)
+    )
+    for o in options:
+        o.__dict__["store"] = stores_by_id.get(o.store)
+        o.__dict__["warehouse"] = (
+            warehouses_by_id.get(o.warehouse) if o.warehouse is not None else None
+        )
 
 
 async def list_payment_method_options(
@@ -23,13 +38,18 @@ async def list_payment_method_options(
 
     total: int = (await db.execute(count_q)).scalar_one()
     items = (await db.execute(base.offset(skip).limit(limit))).scalars().all()
+    await _attach_relations(db, items)
     return items, total
 
 
 async def get_payment_method_option(
     db: AsyncSession, payment_method_option_id: int
 ) -> PaymentMethodOption | None:
-    return await db.get(PaymentMethodOption, payment_method_option_id)
+    pmo = await db.get(PaymentMethodOption, payment_method_option_id)
+    if pmo is None:
+        return None
+    await _attach_relations(db, [pmo])
+    return pmo
 
 
 async def create_payment_method_option(
@@ -48,6 +68,7 @@ async def create_payment_method_option(
     db.add(pmo)
     await db.commit()
     await db.refresh(pmo)
+    await _attach_relations(db, [pmo])
     return pmo
 
 
@@ -72,6 +93,7 @@ async def update_payment_method_option(
         pmo.enabled = data.enabled
     await db.commit()
     await db.refresh(pmo)
+    await _attach_relations(db, [pmo])
     return pmo
 
 

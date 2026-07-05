@@ -6,14 +6,9 @@ from app.db.session import get_db
 from app.schemas import ListResponse
 from app.schemas.sat_catalog import SatCatalogResponse
 from app.services import sat_catalog_service
-from app.services.sat_catalog_service import SAT_CATALOG_MAP, SatCatalogConfig
+from app.services.sat_catalog_service import SAT_CATALOG_MAP
 
 router = APIRouter()
-
-
-def _to_response(row: object, config: SatCatalogConfig) -> SatCatalogResponse:
-    description = getattr(row, config.description_field) if config.description_field else None
-    return SatCatalogResponse(id=getattr(row, config.pk_field), description=description)
 
 
 def _make_list_handler(slug: str):
@@ -30,7 +25,7 @@ def _make_list_handler(slug: str):
             db, config, search=search, skip=skip, limit=limit
         )
         return ListResponse(
-            items=[_to_response(r, config) for r in rows],
+            items=[sat_catalog_service.to_response(r, config) for r in rows],
             total=total,
         )
 
@@ -49,7 +44,7 @@ def _make_get_handler(slug: str):
         row = await sat_catalog_service.get_sat(db, config.model, id)
         if row is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
-        return _to_response(row, config)
+        return sat_catalog_service.to_response(row, config)
 
     handler.__name__ = f"get_{slug.replace('-', '_')}"
     return handler

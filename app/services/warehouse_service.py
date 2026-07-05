@@ -3,8 +3,17 @@ from collections.abc import Sequence
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.core import Warehouse
+from app.models.core import Store, Warehouse
 from app.schemas.core import WarehouseCreate, WarehouseUpdate
+from app.services.fk_expansion import batch_fetch
+
+
+async def _attach_relations(db: AsyncSession, warehouses: Sequence[Warehouse]) -> None:
+    if not warehouses:
+        return
+    stores_by_id = await batch_fetch(db, Store, Store.store_id, (w.store for w in warehouses))
+    for w in warehouses:
+        w.__dict__["store"] = stores_by_id.get(w.store)
 
 
 async def list_warehouses(
@@ -23,11 +32,16 @@ async def list_warehouses(
 
     total: int = (await db.execute(count_q)).scalar_one()
     items = (await db.execute(base.offset(skip).limit(limit))).scalars().all()
+    await _attach_relations(db, items)
     return items, total
 
 
 async def get_warehouse(db: AsyncSession, warehouse_id: int) -> Warehouse | None:
-    return await db.get(Warehouse, warehouse_id)
+    warehouse = await db.get(Warehouse, warehouse_id)
+    if warehouse is None:
+        return None
+    await _attach_relations(db, [warehouse])
+    return warehouse
 
 
 async def create_warehouse(db: AsyncSession, data: WarehouseCreate) -> Warehouse:
@@ -41,6 +55,7 @@ async def create_warehouse(db: AsyncSession, data: WarehouseCreate) -> Warehouse
     db.add(warehouse)
     await db.commit()
     await db.refresh(warehouse)
+    await _attach_relations(db, [warehouse])
     return warehouse
 
 
@@ -59,6 +74,7 @@ async def update_warehouse(
         warehouse.disabled = int(data.disabled)
     await db.commit()
     await db.refresh(warehouse)
+    await _attach_relations(db, [warehouse])
     return warehouse
 
 

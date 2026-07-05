@@ -3,8 +3,21 @@ from collections.abc import Sequence
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.core import PointSale
+from app.models.core import PointSale, Store, Warehouse
 from app.schemas.core import PointSaleCreate, PointSaleUpdate
+from app.services.fk_expansion import batch_fetch
+
+
+async def _attach_relations(db: AsyncSession, point_sales: Sequence[PointSale]) -> None:
+    if not point_sales:
+        return
+    stores_by_id = await batch_fetch(db, Store, Store.store_id, (p.store for p in point_sales))
+    warehouses_by_id = await batch_fetch(
+        db, Warehouse, Warehouse.warehouse_id, (p.warehouse for p in point_sales)
+    )
+    for p in point_sales:
+        p.__dict__["store"] = stores_by_id.get(p.store)
+        p.__dict__["warehouse"] = warehouses_by_id.get(p.warehouse)
 
 
 async def list_point_sales(
@@ -25,11 +38,16 @@ async def list_point_sales(
         count_q = count_q.where(PointSale.warehouse == warehouse)
     total: int = (await db.execute(count_q)).scalar_one()
     items = (await db.execute(base.offset(skip).limit(limit))).scalars().all()
+    await _attach_relations(db, items)
     return items, total
 
 
 async def get_point_sale(db: AsyncSession, point_sale_id: int) -> PointSale | None:
-    return await db.get(PointSale, point_sale_id)
+    ps = await db.get(PointSale, point_sale_id)
+    if ps is None:
+        return None
+    await _attach_relations(db, [ps])
+    return ps
 
 
 async def create_point_sale(db: AsyncSession, data: PointSaleCreate) -> PointSale:
@@ -44,6 +62,7 @@ async def create_point_sale(db: AsyncSession, data: PointSaleCreate) -> PointSal
     db.add(ps)
     await db.commit()
     await db.refresh(ps)
+    await _attach_relations(db, [ps])
     return ps
 
 
@@ -62,6 +81,7 @@ async def update_point_sale(db: AsyncSession, ps: PointSale, data: PointSaleUpda
         ps.disabled = data.disabled
     await db.commit()
     await db.refresh(ps)
+    await _attach_relations(db, [ps])
     return ps
 
 

@@ -2,6 +2,10 @@ from decimal import Decimal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from app.schemas.core import EmployeeResponse
+from app.schemas.product import PriceListResponse
+from app.schemas.sat_catalog import SatCatalogResponse
+
 # ── Taxpayer Recipient ────────────────────────────────────────────────────────
 
 
@@ -26,8 +30,8 @@ class TaxpayerRecipientResponse(BaseModel):
     taxpayer_recipient_id: str
     name: str | None
     email: str
-    postal_code: str | None
-    regime: str | None
+    postal_code: SatCatalogResponse | None
+    regime: SatCatalogResponse | None
 
 
 # ── Customer ──────────────────────────────────────────────────────────────────
@@ -76,8 +80,8 @@ class CustomerListItem(BaseModel):
     zone: str | None
     credit_limit: Decimal
     credit_days: int
-    price_list: int
-    salesperson: int | None
+    price_list: PriceListResponse
+    salesperson: EmployeeResponse | None
     disabled: bool | None
 
 
@@ -90,9 +94,9 @@ class CustomerResponse(BaseModel):
     zone: str | None
     credit_limit: Decimal
     credit_days: int
-    price_list: int
+    price_list: PriceListResponse
     shipping: bool
     shipping_required_document: bool
-    salesperson: int | None
+    salesperson: EmployeeResponse | None
     disabled: bool | None
     comment: str | None

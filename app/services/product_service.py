@@ -8,7 +8,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import Settings
 from app.models.core import Label
 from app.models.product import PriceList, Product, ProductPrice, product_label
+from app.models.sat_catalog import SatProductService, SatUnitOfMeasurement
+from app.models.supplier import Supplier
 from app.schemas.product import ProductCreate, ProductMergeRequest, ProductUpdate
+from app.services.sat_catalog_service import SAT_CATALOG_MAP, to_response
 
 
 async def list_products(
@@ -71,6 +74,7 @@ async def list_products(
 
     total: int = (await db.execute(count_q)).scalar_one()
     products = (await db.execute(base.offset(skip).limit(limit))).scalars().all()
+    await _attach_unit_of_measurement(db, products)
     return products, total
 
 
@@ -94,6 +98,70 @@ async def _set_labels(db: AsyncSession, product_id: int, label_ids: list[int]) -
         )
 
 
+async def _attach_price_relations(db: AsyncSession, prices: Sequence[ProductPrice]) -> None:
+    list_ids = {pp.price_list for pp in prices}
+    if not list_ids:
+        return
+    price_lists = (
+        await db.execute(select(PriceList).where(PriceList.price_list_id.in_(list_ids)))
+    ).scalars().all()
+    by_id = {pl.price_list_id: pl for pl in price_lists}
+    for pp in prices:
+        pp.__dict__["price_list"] = by_id.get(pp.price_list)
+
+
+async def _attach_unit_of_measurement(db: AsyncSession, products: Sequence[Product]) -> None:
+    """Attach only `unit_of_measurement` — the single FK field ProductListItem exposes."""
+    if not products:
+        return
+    unit_config = SAT_CATALOG_MAP["units-of-measurement"]
+    unit_ids = {p.unit_of_measurement for p in products}
+    units = (
+        await db.execute(
+            select(SatUnitOfMeasurement).where(
+                SatUnitOfMeasurement.sat_unit_of_measurement_id.in_(unit_ids)
+            )
+        )
+    ).scalars().all()
+    units_by_id = {u.sat_unit_of_measurement_id: u for u in units}
+    for p in products:
+        unit_row = units_by_id.get(p.unit_of_measurement)
+        p.__dict__["unit_of_measurement"] = to_response(unit_row, unit_config) if unit_row else None
+
+
+async def _attach_product_relations(db: AsyncSession, products: Sequence[Product]) -> None:
+    """Attach unit_of_measurement, key, and supplier — full FK set for ProductResponse."""
+    if not products:
+        return
+    await _attach_unit_of_measurement(db, products)
+    key_config = SAT_CATALOG_MAP["product-services"]
+
+    key_ids = {p.key for p in products if p.key is not None}
+    keys_by_id: dict[str, SatProductService] = {}
+    if key_ids:
+        keys = (
+            await db.execute(
+                select(SatProductService).where(
+                    SatProductService.sat_product_service_id.in_(key_ids)
+                )
+            )
+        ).scalars().all()
+        keys_by_id = {k.sat_product_service_id: k for k in keys}
+
+    supplier_ids = {p.supplier for p in products if p.supplier is not None}
+    suppliers_by_id: dict[int, Supplier] = {}
+    if supplier_ids:
+        suppliers = (
+            await db.execute(select(Supplier).where(Supplier.supplier_id.in_(supplier_ids)))
+        ).scalars().all()
+        suppliers_by_id = {s.supplier_id: s for s in suppliers}
+
+    for p in products:
+        key_row = keys_by_id.get(p.key) if p.key is not None else None
+        p.__dict__["key"] = to_response(key_row, key_config) if key_row else None
+        p.__dict__["supplier"] = suppliers_by_id.get(p.supplier) if p.supplier is not None else None
+
+
 async def get_product(db: AsyncSession, product_id: int) -> Product | None:
     product = await db.get(Product, product_id)
     if product is None:
@@ -103,6 +171,8 @@ async def get_product(db: AsyncSession, product_id: int) -> Product | None:
     ).scalars().all()
     product.__dict__["prices"] = list(prices)
     product.__dict__["labels"] = await _get_labels(db, product_id)
+    await _attach_price_relations(db, prices)
+    await _attach_product_relations(db, [product])
     return product
 
 
@@ -167,12 +237,13 @@ async def create_product(db: AsyncSession, data: ProductCreate, settings: Settin
 
     await db.commit()
     await db.refresh(product)
-    product.__dict__["prices"] = [
-        pp for pp in (
-            await db.execute(select(ProductPrice).where(ProductPrice.product == product.product_id))
-        ).scalars().all()
-    ]
+    prices = (
+        await db.execute(select(ProductPrice).where(ProductPrice.product == product.product_id))
+    ).scalars().all()
+    product.__dict__["prices"] = list(prices)
     product.__dict__["labels"] = await _get_labels(db, product.product_id)
+    await _attach_price_relations(db, prices)
+    await _attach_product_relations(db, [product])
     return product
 
 
@@ -234,8 +305,11 @@ async def update_product(db: AsyncSession, product: Product, data: ProductUpdate
     await db.commit()
     await db.refresh(product)
     rows = await db.execute(select(ProductPrice).where(ProductPrice.product == product.product_id))
-    product.__dict__["prices"] = list(rows.scalars().all())
+    prices = list(rows.scalars().all())
+    product.__dict__["prices"] = prices
     product.__dict__["labels"] = await _get_labels(db, product.product_id)
+    await _attach_price_relations(db, prices)
+    await _attach_product_relations(db, [product])
     return product
 
 

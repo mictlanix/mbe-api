@@ -15,6 +15,7 @@ from app.models.sat_catalog import (
     SatTaxRegime,
     SatUnitOfMeasurement,
 )
+from app.schemas.sat_catalog import SatCatalogResponse
 
 
 @dataclass(frozen=True)
@@ -80,3 +81,10 @@ async def list_sat(
 
 async def get_sat(db: AsyncSession, model: type, id: str) -> Any | None:
     return await db.get(model, id)
+
+
+def to_response(row: Any, config: SatCatalogConfig) -> SatCatalogResponse:
+    """Build a SatCatalogResponse from any SAT catalog row, used both by the SAT catalog
+    endpoints and by other services embedding a SAT catalog FK as a full object."""
+    description = getattr(row, config.description_field) if config.description_field else None
+    return SatCatalogResponse(id=getattr(row, config.pk_field), description=description)
