@@ -60,7 +60,7 @@ bare ID (see spec.md FR-039/FR-040). Rules:
 | `model` | `model` | `str \| None` | |
 | `bar_code` | `bar_code` | `str \| None` | exactly 13 digits or empty |
 | `location` | `location` | `str \| None` | shelf/bin code |
-| `unit_of_measurement` | `unit_of_measurement` | `str` | FK → `sat_unit_of_measurement`; **response**: expanded to `SatCatalogResponse` |
+| `unit_of_measurement` | `unit_of_measurement` | `str` | FK → `sat_unit_of_measurement`; **response**: expanded to `SatUnitOfMeasurementResponse` (`{id, name, description, symbol}` — the full catalog record, not the generic `SatCatalogResponse` shape used by other SAT FKs) |
 | `stockable` | `stockable` | `bool` | |
 | `perishable` | `perishable` | `bool` | lot/expiry tracking |
 | `seriable` | `seriable` | `bool` | serial number tracking |

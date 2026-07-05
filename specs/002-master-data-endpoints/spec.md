@@ -151,8 +151,9 @@ calling `GET /api/v1/products` and confirming the same shape appears on every li
 1. **Given** a product with a supplier assigned, **When** `GET /api/v1/products/{id}` or
    `GET /api/v1/products` is called, **Then** the `supplier` field is the full `SupplierResponse`
    object, not an integer; if no supplier is assigned, `supplier` is `null`.
-2. **Given** a product, **When** its response is read, **Then** `unit_of_measurement` and `key`
-   are the full SAT catalog objects (`{id, description}`), not bare codes.
+2. **Given** a product, **When** its response is read, **Then** `unit_of_measurement` is the full
+   `sat_unit_of_measurement` record (`{id, name, description, symbol}`) and `key` is the generic
+   SAT catalog object (`{id, description}`); neither is a bare code.
 3. **Given** a customer, **When** its response is read, **Then** `price_list` is the full
    `PriceListResponse` object and `salesperson` is the full `EmployeeResponse` object (or `null`).
 4. **Given** a point of sale, **When** its response is read, **Then** `store` is the full
@@ -293,6 +294,10 @@ calling `GET /api/v1/products` and confirming the same shape appears on every li
   `CashDrawer.store`, `PaymentMethodOption.store`, `PaymentMethodOption.warehouse`,
   `VehicleOperator.driver`, `VehicleOperator.creator`, `VehicleOperator.updater`,
   `ProductionSite.store`. Nullable FK fields with no assigned value MUST serialize as `null`.
+  `Product.unit_of_measurement` is a documented exception: it expands to the full
+  `sat_unit_of_measurement` record (`{id, name, description, symbol}`) rather than the generic
+  `{id, description}` shape used elsewhere for SAT catalog FKs (e.g. `Product.key`,
+  `TaxpayerRecipient.postal_code`/`regime`, `Store.location`).
 - **FR-040**: `POST` and `PUT` request bodies are unaffected by FR-039 — FK fields are still
   submitted as plain IDs/strings. Only response serialization changes. FK fields whose target
   entity has no read schema in this feature (`Store.address`, `Store.taxpayer`) remain plain IDs

@@ -45,7 +45,7 @@ def _pl(pl_id: int = 1) -> SimpleNamespace:
 
 
 def _unit_of_measurement() -> dict:
-    return {"id": "PCS", "description": "Piece"}
+    return {"id": "PCS", "name": "Piece", "description": None, "symbol": None}
 
 
 def _product_item(prod_id: int = 1, photo: str | None = None) -> SimpleNamespace:

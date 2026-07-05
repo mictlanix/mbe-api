@@ -11,6 +11,7 @@ from app.models.product import PriceList, Product, ProductPrice, product_label
 from app.models.sat_catalog import SatProductService, SatUnitOfMeasurement
 from app.models.supplier import Supplier
 from app.schemas.product import ProductCreate, ProductMergeRequest, ProductUpdate
+from app.schemas.sat_catalog import SatUnitOfMeasurementResponse
 from app.services.sat_catalog_service import SAT_CATALOG_MAP, to_response
 
 
@@ -111,10 +112,13 @@ async def _attach_price_relations(db: AsyncSession, prices: Sequence[ProductPric
 
 
 async def _attach_unit_of_measurement(db: AsyncSession, products: Sequence[Product]) -> None:
-    """Attach only `unit_of_measurement` — the single FK field ProductListItem exposes."""
+    """Attach only `unit_of_measurement` — the single FK field ProductListItem exposes.
+
+    Returns the full sat_unit_of_measurement record (id, name, description, symbol), not just
+    the generic id/description shape used by the standalone SAT catalog endpoints.
+    """
     if not products:
         return
-    unit_config = SAT_CATALOG_MAP["units-of-measurement"]
     unit_ids = {p.unit_of_measurement for p in products}
     units = (
         await db.execute(
@@ -126,7 +130,16 @@ async def _attach_unit_of_measurement(db: AsyncSession, products: Sequence[Produ
     units_by_id = {u.sat_unit_of_measurement_id: u for u in units}
     for p in products:
         unit_row = units_by_id.get(p.unit_of_measurement)
-        p.__dict__["unit_of_measurement"] = to_response(unit_row, unit_config) if unit_row else None
+        p.__dict__["unit_of_measurement"] = (
+            SatUnitOfMeasurementResponse(
+                id=unit_row.sat_unit_of_measurement_id,
+                name=unit_row.name,
+                description=unit_row.description,
+                symbol=unit_row.symbol,
+            )
+            if unit_row
+            else None
+        )
 
 
 async def _attach_product_relations(db: AsyncSession, products: Sequence[Product]) -> None:

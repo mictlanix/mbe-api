@@ -4,7 +4,7 @@ from decimal import Decimal
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.schemas.core import LabelResponse
-from app.schemas.sat_catalog import SatCatalogResponse
+from app.schemas.sat_catalog import SatCatalogResponse, SatUnitOfMeasurementResponse
 from app.schemas.supplier import SupplierResponse
 
 _WHITESPACE_RE = re.compile(r"\s")
@@ -149,7 +149,7 @@ class ProductListItem(BaseModel):
     photo: str | None
     brand: str | None
     model: str | None
-    unit_of_measurement: SatCatalogResponse
+    unit_of_measurement: SatUnitOfMeasurementResponse
     tax_rate: Decimal
     deactivated: bool
 
@@ -166,7 +166,7 @@ class ProductResponse(BaseModel):
     model: str | None
     bar_code: str | None
     location: str | None
-    unit_of_measurement: SatCatalogResponse
+    unit_of_measurement: SatUnitOfMeasurementResponse
     key: SatCatalogResponse | None
     tax_rate: Decimal
     tax_included: bool
