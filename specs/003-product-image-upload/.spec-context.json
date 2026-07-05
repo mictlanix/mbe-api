@@ -4,8 +4,16 @@
   "branch": "003-product-image-upload",
   "selectedAt": "2026-06-16T04:02:24.422Z",
   "currentStep": "specify",
-  "status": "draft",
-  "history": [],
+  "status": "completed",
+  "history": [
+    {
+      "step": "specify",
+      "substep": null,
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-07-05T02:43:12.194Z"
+    }
+  ],
   "reviewComments": [
     {
       "id": "ref-1781582641224-kdtz5",
@@ -67,5 +75,6 @@
       "status": "applied",
       "createdAt": "2026-06-16T17:48:38.272Z"
     }
-  ]
+  ],
+  "telemetryInstanceId": "492ec4fc-4cf8-4f78-a9c4-f383428b3f71"
 }

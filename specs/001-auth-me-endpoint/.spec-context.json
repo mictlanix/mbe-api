@@ -1,0 +1,17 @@
+{
+  "workflow": "speckit",
+  "specName": "Auth Me Endpoint",
+  "branch": "",
+  "currentStep": "specify",
+  "status": "completed",
+  "history": [
+    {
+      "step": "specify",
+      "substep": null,
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-07-05T02:43:19.753Z"
+    }
+  ],
+  "telemetryInstanceId": "adf4c547-7216-4c5f-8f03-fb29a7a4abec"
+}
