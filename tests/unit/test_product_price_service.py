@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from app.models.product import PriceList, ProductPrice
-from app.services.product_service import _attach_price_relations
+from app.services.product_price_service import _attach_price_list
 
 
 def _db_returning(price_lists: list[PriceList]) -> AsyncMock:
@@ -16,10 +16,10 @@ def _db_returning(price_lists: list[PriceList]) -> AsyncMock:
 
 
 @pytest.mark.asyncio
-async def test_attach_price_relations_survives_repeated_calls() -> None:
-    """Reproduces GH #75: get_product + update_product both call
-    _attach_price_relations on the same ProductPrice instances, so the second
-    call must not choke on a PriceList object already injected by the first."""
+async def test_attach_price_list_survives_repeated_calls() -> None:
+    """Reproduces GH #75: get_product_price + update_product_price both call
+    _attach_price_list on the same ProductPrice instance, so the second call
+    must not choke on a PriceList object already injected by the first."""
     price_list = PriceList(
         price_list_id=5,
         name="Retail",
@@ -36,10 +36,10 @@ async def test_attach_price_relations_survives_repeated_calls() -> None:
     )
 
     db = _db_returning([price_list])
-    await _attach_price_relations(db, [price])
+    await _attach_price_list(db, [price])
     assert price.price_list is price_list
 
-    # Second call (as happens when update_product re-runs the attach step)
+    # Second call (as happens when update_product_price re-runs the attach step)
     # must not raise ArgumentError from passing a PriceList into .in_().
-    await _attach_price_relations(db, [price])
+    await _attach_price_list(db, [price])
     assert price.price_list is price_list

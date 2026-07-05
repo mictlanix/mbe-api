@@ -6,8 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+- CRUD endpoints for per-product prices under `/api/v1/product-prices` (list with `product`/`price_list` filters, create, get, update, delete), gated by `SystemObject.PRICING`; `app/schemas/product_price.py` and `app/services/product_price_service.py`
+
 ### Changed
 - `Product.unit_of_measurement` in `GET /api/v1/products` and `GET /api/v1/products/{id}` now returns the full `sat_unit_of_measurement` record (`{id, name, description, symbol}`) instead of the generic `{id, description}` shape used by other SAT catalog FKs; new `SatUnitOfMeasurementResponse` schema in `app/schemas/sat_catalog.py`
+
+### Removed
+- `ProductResponse.prices` field — product endpoints no longer return or manage pricing data; use `GET /api/v1/product-prices?product={id}` instead
+- Auto-creation of a zeroed `ProductPrice` row per price list on `POST /api/v1/products`; new products now start with zero prices until explicitly created via `/api/v1/product-prices`
 
 ### Fixed
 - `PUT /api/v1/products/{id}` no longer returns HTTP 500 for products with price list entries; `_attach_price_relations` in `app/services/product_service.py` was passing a stale `PriceList` ORM object (injected by the endpoint's earlier `get_product` call) into a `.in_()` clause instead of its integer FK (#75)

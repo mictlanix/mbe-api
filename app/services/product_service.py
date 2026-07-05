@@ -1,5 +1,4 @@
 from collections.abc import Sequence
-from decimal import Decimal
 
 from fastapi import HTTPException, status
 from sqlalchemy import delete, insert, or_, select
@@ -7,11 +6,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings
 from app.models.core import Label
-from app.models.product import PriceList, Product, ProductPrice, product_label
+from app.models.product import Product, product_label
 from app.models.sat_catalog import SatProductService, SatUnitOfMeasurement
 from app.models.supplier import Supplier
 from app.schemas.product import ProductCreate, ProductMergeRequest, ProductUpdate
 from app.schemas.sat_catalog import SatUnitOfMeasurementResponse
+from app.services import product_price_service
 from app.services.sat_catalog_service import SAT_CATALOG_MAP, to_response
 
 
@@ -99,24 +99,6 @@ async def _set_labels(db: AsyncSession, product_id: int, label_ids: list[int]) -
         )
 
 
-def _price_list_id(pp: ProductPrice) -> int:
-    """Read the FK id even if a previous call already injected the PriceList object."""
-    value = pp.price_list
-    return value.price_list_id if isinstance(value, PriceList) else value
-
-
-async def _attach_price_relations(db: AsyncSession, prices: Sequence[ProductPrice]) -> None:
-    list_ids = {_price_list_id(pp) for pp in prices}
-    if not list_ids:
-        return
-    price_lists = (
-        await db.execute(select(PriceList).where(PriceList.price_list_id.in_(list_ids)))
-    ).scalars().all()
-    by_id = {pl.price_list_id: pl for pl in price_lists}
-    for pp in prices:
-        pp.__dict__["price_list"] = by_id.get(_price_list_id(pp))
-
-
 async def _attach_unit_of_measurement(db: AsyncSession, products: Sequence[Product]) -> None:
     """Attach only `unit_of_measurement` — the single FK field ProductListItem exposes.
 
@@ -185,12 +167,7 @@ async def get_product(db: AsyncSession, product_id: int) -> Product | None:
     product = await db.get(Product, product_id)
     if product is None:
         return None
-    prices = (
-        await db.execute(select(ProductPrice).where(ProductPrice.product == product_id))
-    ).scalars().all()
-    product.__dict__["prices"] = list(prices)
     product.__dict__["labels"] = await _get_labels(db, product_id)
-    await _attach_price_relations(db, prices)
     await _attach_product_relations(db, [product])
     return product
 
@@ -239,29 +216,14 @@ async def create_product(db: AsyncSession, data: ProductCreate, settings: Settin
         comment=data.comment,
     )
     db.add(product)
-    await db.flush()  # get product_id before creating prices
-
-    price_lists = (await db.execute(select(PriceList))).scalars().all()
-    for pl in price_lists:
-        db.add(ProductPrice(
-            product=product.product_id,
-            price_list=pl.price_list_id,
-            price=Decimal("0"),
-            low_profit=Decimal("0"),
-            high_profit=Decimal("0"),
-        ))
+    await db.flush()  # get product_id before setting labels
 
     if data.labels is not None:
         await _set_labels(db, product.product_id, data.labels)
 
     await db.commit()
     await db.refresh(product)
-    prices = (
-        await db.execute(select(ProductPrice).where(ProductPrice.product == product.product_id))
-    ).scalars().all()
-    product.__dict__["prices"] = list(prices)
     product.__dict__["labels"] = await _get_labels(db, product.product_id)
-    await _attach_price_relations(db, prices)
     await _attach_product_relations(db, [product])
     return product
 
@@ -323,17 +285,13 @@ async def update_product(db: AsyncSession, product: Product, data: ProductUpdate
 
     await db.commit()
     await db.refresh(product)
-    rows = await db.execute(select(ProductPrice).where(ProductPrice.product == product.product_id))
-    prices = list(rows.scalars().all())
-    product.__dict__["prices"] = prices
     product.__dict__["labels"] = await _get_labels(db, product.product_id)
-    await _attach_price_relations(db, prices)
     await _attach_product_relations(db, [product])
     return product
 
 
 async def delete_product(db: AsyncSession, product: Product) -> None:
-    await db.execute(delete(ProductPrice).where(ProductPrice.product == product.product_id))
+    await product_price_service.delete_for_product(db, product.product_id)
     await db.delete(product)
     await db.commit()
 
@@ -376,7 +334,7 @@ async def merge_products(db: AsyncSession, req: ProductMergeRequest) -> None:
         )
 
     # product_price: remove duplicate's prices (canonical already has its own rows)
-    await db.execute(delete(ProductPrice).where(ProductPrice.product == req.duplicate_id))
+    await product_price_service.delete_for_product(db, req.duplicate_id)
 
     # product_label junction: remap, ignoring duplicates (ON DUPLICATE KEY approach via text)
     await db.execute(

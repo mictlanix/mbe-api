@@ -94,7 +94,6 @@ def _product(prod_id: int = 1) -> SimpleNamespace:
         stock_verification=True,
         deactivated=False,
         comment=None,
-        prices=[],
         labels=[],
     )
 
@@ -261,6 +260,7 @@ async def test_get_product_returns_200() -> None:
     assert r.status_code == 200
     assert r.json()["code"] == "P001"
     assert r.json()["stock_verification"] is True
+    assert "prices" not in r.json()
 
 
 @pytest.mark.asyncio
@@ -301,6 +301,7 @@ async def test_create_product_returns_201() -> None:
             )
     assert r.status_code == 201
     assert r.json()["code"] == "P001"
+    assert "prices" not in r.json()
 
 
 @pytest.mark.asyncio

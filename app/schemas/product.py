@@ -46,19 +46,6 @@ class PriceListResponse(BaseModel):
     low_profit_margin: Decimal
 
 
-# ── Product Price ─────────────────────────────────────────────────────────────
-
-
-class ProductPriceResponse(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-
-    product_price_id: int
-    price_list: PriceListResponse
-    price: Decimal
-    low_profit: Decimal
-    high_profit: Decimal
-
-
 # ── Product ───────────────────────────────────────────────────────────────────
 
 
@@ -183,7 +170,6 @@ class ProductResponse(BaseModel):
     stock_required: bool = Field(alias="stock_verification")
     deactivated: bool
     comment: str | None
-    prices: list[ProductPriceResponse] = []
     labels: list[LabelResponse] = []
 
 
