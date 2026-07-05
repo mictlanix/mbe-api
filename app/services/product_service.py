@@ -99,8 +99,14 @@ async def _set_labels(db: AsyncSession, product_id: int, label_ids: list[int]) -
         )
 
 
+def _price_list_id(pp: ProductPrice) -> int:
+    """Read the FK id even if a previous call already injected the PriceList object."""
+    value = pp.price_list
+    return value.price_list_id if isinstance(value, PriceList) else value
+
+
 async def _attach_price_relations(db: AsyncSession, prices: Sequence[ProductPrice]) -> None:
-    list_ids = {pp.price_list for pp in prices}
+    list_ids = {_price_list_id(pp) for pp in prices}
     if not list_ids:
         return
     price_lists = (
@@ -108,7 +114,7 @@ async def _attach_price_relations(db: AsyncSession, prices: Sequence[ProductPric
     ).scalars().all()
     by_id = {pl.price_list_id: pl for pl in price_lists}
     for pp in prices:
-        pp.__dict__["price_list"] = by_id.get(pp.price_list)
+        pp.__dict__["price_list"] = by_id.get(_price_list_id(pp))
 
 
 async def _attach_unit_of_measurement(db: AsyncSession, products: Sequence[Product]) -> None:
