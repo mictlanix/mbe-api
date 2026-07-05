@@ -18,6 +18,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Read-only SAT catalog endpoints under `/api/v1/sat/` for 8 reference catalogs: `cfdi-usages`, `countries`, `currencies`, `postal-codes`, `product-services`, `reason-cancellations`, `tax-regimes`, `units-of-measurement`; each exposes paginated list and get-by-id; write operations return `405`
 - `app/schemas/sat_catalog.py` — `SatCatalogResponse` schema used by all 8 SAT catalog endpoints
 - `app/services/sat_catalog_service.py` — generic list/get service for SAT catalog models
+- `SatCatalogResponse.description` — human-readable text now returned on all SAT catalog endpoints, mapped from each table's existing `description`/`name` column (`sat_unit_of_measurement.name` for units-of-measurement, `description` for the rest); `sat_postal_code` has no description text in the source schema, so it stays `null` (#73)
+- `search` query parameter on `GET /api/v1/sat/{catalog}`, matching (case-insensitive, substring) against every varchar column on the catalog's table — the code, the description/name column, and any remaining text columns (`keywords` for `product-services`; `state`/`borough`/`locality` for `postal-codes`; `description`/`symbol` for `units-of-measurement`) (#73)
 - `GET /api/v1/products/merge` endpoint for merging duplicate products
 - `app/schemas/product.py` — Pydantic schemas for products and price lists
 - `app/schemas/customer.py` — Pydantic schemas for customers and taxpayer recipients

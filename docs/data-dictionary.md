@@ -1387,16 +1387,74 @@ Calculated commission record per sold order line.
 
 Reference tables from Mexico's SAT (tax authority) for CFDI compliance. Read-only lookups, populated from SAT published catalogs.
 
-| Table | PK | Description |
-|-------|----|-------------|
-| `sat_cfdi_usage` | `sat_cfdi_usage_id` varchar(4) | CFDI usage codes (G01, G03, P01, etc.) |
-| `sat_country` | `sat_country_id` varchar(3) | Country codes |
-| `sat_currency` | `sat_currency_id` varchar(3) | Currency codes (MXN, USD, etc.) |
-| `sat_postal_code` | `sat_postal_code_id` varchar(5) | SAT postal code with state/borough/locality |
-| `sat_product_service` | `sat_product_service_id` varchar(8) | Product/service classification codes |
-| `sat_reason_cancellation` | `sat_reason_cancellation_id` varchar(2) | CFDI cancellation reason codes |
-| `sat_tax_regime` | `sat_tax_regime_id` varchar(3) | Tax regime codes |
-| `sat_unit_of_measurement` | `sat_unit_of_measurement_id` varchar(3) | Unit of measurement codes |
+### `sat_cfdi_usage`
+CFDI usage codes (G01, G03, P01, etc.).
+
+| Column | Type | Null | Description |
+|--------|------|------|-------------|
+| `sat_cfdi_usage_id` | varchar(4) | NO | PK |
+| `description` | varchar(256) | NO | Human-readable usage description |
+
+### `sat_country`
+Country codes.
+
+| Column | Type | Null | Description |
+|--------|------|------|-------------|
+| `sat_country_id` | varchar(3) | NO | PK |
+| `description` | varchar(256) | NO | Country name |
+
+### `sat_currency`
+Currency codes (MXN, USD, etc.).
+
+| Column | Type | Null | Description |
+|--------|------|------|-------------|
+| `sat_currency_id` | varchar(3) | NO | PK |
+| `description` | varchar(256) | NO | Currency name |
+
+### `sat_postal_code`
+SAT postal code with state/borough/locality.
+
+| Column | Type | Null | Description |
+|--------|------|------|-------------|
+| `sat_postal_code_id` | varchar(5) | NO | PK |
+| `state` | varchar(4) | NO | SAT state code |
+| `borough` | varchar(3) | YES | SAT borough code |
+| `locality` | varchar(2) | YES | SAT locality code |
+
+### `sat_product_service`
+Product/service classification codes.
+
+| Column | Type | Null | Description |
+|--------|------|------|-------------|
+| `sat_product_service_id` | varchar(8) | NO | PK |
+| `description` | varchar(256) | NO | Product/service description |
+| `keywords` | varchar(1024) | YES | Searchable keywords |
+
+### `sat_reason_cancellation`
+CFDI cancellation reason codes.
+
+| Column | Type | Null | Description |
+|--------|------|------|-------------|
+| `sat_reason_cancellation_id` | varchar(2) | NO | PK |
+| `description` | varchar(100) | YES | Cancellation reason description |
+
+### `sat_tax_regime`
+Tax regime codes.
+
+| Column | Type | Null | Description |
+|--------|------|------|-------------|
+| `sat_tax_regime_id` | varchar(3) | NO | PK |
+| `description` | varchar(256) | NO | Tax regime name |
+
+### `sat_unit_of_measurement`
+Unit of measurement codes.
+
+| Column | Type | Null | Description |
+|--------|------|------|-------------|
+| `sat_unit_of_measurement_id` | varchar(3) | NO | PK |
+| `name` | varchar(128) | NO | Short unit name (e.g. "Kilogramo") |
+| `description` | varchar(1024) | YES | Long-form unit description |
+| `symbol` | varchar(32) | YES | Unit symbol (e.g. "kg") |
 
 ---
 

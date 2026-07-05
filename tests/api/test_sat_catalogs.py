@@ -31,8 +31,8 @@ def _auth() -> None:
     app.dependency_overrides[get_db] = _noop_db
 
 
-def _uom(code: str = "H87") -> SimpleNamespace:
-    return SimpleNamespace(sat_unit_of_measurement_id=code)
+def _uom(code: str = "H87", name: str = "Pieza") -> SimpleNamespace:
+    return SimpleNamespace(sat_unit_of_measurement_id=code, name=name)
 
 
 # ── List endpoint ─────────────────────────────────────────────────────────────
@@ -51,6 +51,18 @@ async def test_list_sat_units_of_measurement_returns_200() -> None:
     body = r.json()
     assert body["total"] == 1
     assert body["items"][0]["id"] == "H87"
+    assert body["items"][0]["description"] == "Pieza"
+
+
+@pytest.mark.asyncio
+async def test_list_sat_catalog_passes_search_to_service() -> None:
+    _auth()
+    mock_list = AsyncMock(return_value=([_uom()], 1))
+    with patch("app.services.sat_catalog_service.list_sat", new=mock_list):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+            r = await c.get("/api/v1/sat/units-of-measurement", params={"search": "pieza"})
+    assert r.status_code == 200
+    assert mock_list.call_args.kwargs["search"] == "pieza"
 
 
 @pytest.mark.asyncio
@@ -73,7 +85,9 @@ async def test_get_sat_unit_of_measurement_returns_200() -> None:
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
             r = await c.get("/api/v1/sat/units-of-measurement/H87")
     assert r.status_code == 200
-    assert r.json()["id"] == "H87"
+    body = r.json()
+    assert body["id"] == "H87"
+    assert body["description"] == "Pieza"
 
 
 @pytest.mark.asyncio

@@ -6,23 +6,31 @@ from app.db.session import get_db
 from app.schemas import ListResponse
 from app.schemas.sat_catalog import SatCatalogResponse
 from app.services import sat_catalog_service
-from app.services.sat_catalog_service import SAT_CATALOG_MAP
+from app.services.sat_catalog_service import SAT_CATALOG_MAP, SatCatalogConfig
 
 router = APIRouter()
 
 
+def _to_response(row: object, config: SatCatalogConfig) -> SatCatalogResponse:
+    description = getattr(row, config.description_field) if config.description_field else None
+    return SatCatalogResponse(id=getattr(row, config.pk_field), description=description)
+
+
 def _make_list_handler(slug: str):
-    model, pk_field = SAT_CATALOG_MAP[slug]
+    config = SAT_CATALOG_MAP[slug]
 
     async def handler(
+        search: str | None = Query(None),
         skip: int = Query(0, ge=0),
         limit: int = Query(20, ge=1, le=100),
         _: CurrentUser = Depends(get_current_user),
         db: AsyncSession = Depends(get_db),
     ) -> ListResponse[SatCatalogResponse]:
-        rows, total = await sat_catalog_service.list_sat(db, model, skip=skip, limit=limit)
+        rows, total = await sat_catalog_service.list_sat(
+            db, config, search=search, skip=skip, limit=limit
+        )
         return ListResponse(
-            items=[SatCatalogResponse(id=getattr(r, pk_field)) for r in rows],
+            items=[_to_response(r, config) for r in rows],
             total=total,
         )
 
@@ -31,17 +39,17 @@ def _make_list_handler(slug: str):
 
 
 def _make_get_handler(slug: str):
-    model, pk_field = SAT_CATALOG_MAP[slug]
+    config = SAT_CATALOG_MAP[slug]
 
     async def handler(
         id: str,
         _: CurrentUser = Depends(get_current_user),
         db: AsyncSession = Depends(get_db),
     ) -> SatCatalogResponse:
-        row = await sat_catalog_service.get_sat(db, model, id)
+        row = await sat_catalog_service.get_sat(db, config.model, id)
         if row is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
-        return SatCatalogResponse(id=getattr(row, pk_field))
+        return _to_response(row, config)
 
     handler.__name__ = f"get_{slug.replace('-', '_')}"
     return handler
