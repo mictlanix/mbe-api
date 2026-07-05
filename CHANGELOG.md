@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-07-04
+
 ### Added
 - `POST /api/v1/products/{product_id}/image` — upload a product image (JPEG/PNG/GIF/WEBP); resized to ≤150 px wide, saved as PNG named by SHA-256 content hash; duplicate uploads reuse the existing file
 - `GET /images/{filename}` — public static endpoint serving stored product images (no authentication required)
