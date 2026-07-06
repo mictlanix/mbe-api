@@ -28,7 +28,7 @@ def _photo_url(filename: str | None) -> str | None:
 @router.get("", response_model=ListResponse[ProductListItem])
 async def list_products(
     search: str | None = Query(None),
-    label: int | None = Query(None),
+    label: list[int] | None = Query(None),
     deactivated: bool | None = Query(None),
     stockable: bool | None = Query(None),
     salable: bool | None = Query(None),

@@ -11,6 +11,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 - `Product.unit_of_measurement` in `GET /api/v1/products` and `GET /api/v1/products/{id}` now returns the full `sat_unit_of_measurement` record (`{id, name, description, symbol}`) instead of the generic `{id, description}` shape used by other SAT catalog FKs; new `SatUnitOfMeasurementResponse` schema in `app/schemas/sat_catalog.py`
+- `label` filter on `GET /api/v1/products` now accepts multiple values via repeated query params (e.g. `?label=2&label=5`); when more than one is given, only products carrying **all** requested labels are returned (a single `label` value behaves as before)
 
 ### Removed
 - `ProductResponse.prices` field — product endpoints no longer return or manage pricing data; use `GET /api/v1/product-prices?product={id}` instead

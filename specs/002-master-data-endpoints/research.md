@@ -215,6 +215,27 @@ is parameterized by model class (a dict lookup), keeping the code DRY without ov
 
 ---
 
+## Decision 12: Multi-Label Product Search (AND semantics)
+
+**Decision**: `label` on `GET /api/v1/products` becomes a repeatable query parameter
+(`list[int] | None`, via FastAPI `Query(None)`, e.g. `?label=2&label=5`). When multiple values are
+given, a product must be associated with **every** one (AND/intersection), not just one (OR/union).
+
+**Query approach**: `Product.product_id.in_(select(product_label.c.product).where(product_label.c.label.in_(labels)).group_by(product_label.c.product).having(func.count(func.distinct(product_label.c.label)) == len(labels)))`
+— group the junction rows by product and require the distinct-label count to equal the number of
+requested labels. This generalizes the existing single-label subquery (a single-element list
+degenerates to the same `IN` behavior) without adding a new abstraction.
+
+**Rationale**: AND semantics and the repeated-query-param format were confirmed as explicit product
+decisions (not defaults) when refining the spec — see spec.md Assumptions. Repeated params match
+the convention FastAPI/Starlette already uses for list-valued query params, and require no custom
+parsing (as a comma-separated value would).
+
+**Edge case**: If any requested label doesn't exist, the intersection can never be satisfied, so
+the endpoint returns an empty list — consistent with all other filter edge cases (SC-006, SC-009).
+
+---
+
 ## Unresolved Items
 
 None. All NEEDS CLARIFICATION markers resolved.

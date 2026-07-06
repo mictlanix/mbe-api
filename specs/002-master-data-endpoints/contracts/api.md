@@ -30,7 +30,8 @@ and return `{"items": [...], "total": N}`.
 
 ### `GET /api/v1/products`
 
-Query params: `search` (code, name, model, sku, brand), `label` (int), `deactivated` (bool),
+Query params: `search` (code, name, model, sku, brand), `label` (int, repeatable — e.g.
+`?label=2&label=5`; when repeated, a product must carry **all** given labels), `deactivated` (bool),
 `stockable` (bool), `salable` (bool), `purchasable` (bool), `supplier` (int), `skip`, `limit`.
 
 Response `200`: `{"items": [ProductListItem, ...], "total": N}`

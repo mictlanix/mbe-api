@@ -19,7 +19,7 @@ async def list_products(
     db: AsyncSession,
     *,
     search: str | None = None,
-    label: int | None = None,
+    label: list[int] | None = None,
     deactivated: bool | None = None,
     stockable: bool | None = None,
     salable: bool | None = None,
@@ -45,17 +45,15 @@ async def list_products(
         base = base.where(condition)
         count_q = count_q.where(condition)
 
-    if label is not None:
-        base = base.where(
-            Product.product_id.in_(
-                select(product_label.c["product"]).where(product_label.c["label"] == label)
-            )
+    if label:
+        labeled_products = (
+            select(product_label.c["product"])
+            .where(product_label.c["label"].in_(label))
+            .group_by(product_label.c["product"])
+            .having(func.count(func.distinct(product_label.c["label"])) == len(label))
         )
-        count_q = count_q.where(
-            Product.product_id.in_(
-                select(product_label.c["product"]).where(product_label.c["label"] == label)
-            )
-        )
+        base = base.where(Product.product_id.in_(labeled_products))
+        count_q = count_q.where(Product.product_id.in_(labeled_products))
 
     if deactivated is not None:
         base = base.where(Product.deactivated == deactivated)

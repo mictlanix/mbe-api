@@ -449,3 +449,39 @@ async def test_list_products_no_supplier_filter() -> None:
     assert r.status_code == 200
     _, kwargs = mock.call_args
     assert kwargs.get("supplier") is None
+
+
+@pytest.mark.asyncio
+async def test_list_products_single_label_filter_passed_through() -> None:
+    _auth()
+    mock = AsyncMock(return_value=([_product_item()], 1))
+    with patch("app.services.product_service.list_products", new=mock):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+            r = await c.get("/api/v1/products?label=2")
+    assert r.status_code == 200
+    _, kwargs = mock.call_args
+    assert kwargs.get("label") == [2]
+
+
+@pytest.mark.asyncio
+async def test_list_products_multiple_label_filter_passed_through() -> None:
+    _auth()
+    mock = AsyncMock(return_value=([_product_item()], 1))
+    with patch("app.services.product_service.list_products", new=mock):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+            r = await c.get("/api/v1/products?label=2&label=5")
+    assert r.status_code == 200
+    _, kwargs = mock.call_args
+    assert kwargs.get("label") == [2, 5]
+
+
+@pytest.mark.asyncio
+async def test_list_products_no_label_filter() -> None:
+    _auth()
+    mock = AsyncMock(return_value=([_product_item()], 1))
+    with patch("app.services.product_service.list_products", new=mock):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+            r = await c.get("/api/v1/products")
+    assert r.status_code == 200
+    _, kwargs = mock.call_args
+    assert kwargs.get("label") is None

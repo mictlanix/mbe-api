@@ -256,6 +256,23 @@
 
 ---
 
+## Phase 13: Multi-Label Product Search (US1 — Refinement)
+
+**Goal**: Allow `GET /api/v1/products` to filter by more than one label at once, matching only
+products that carry every requested label (AND/intersection semantics — see research.md Decision 12).
+
+**Independent Test**: `GET /api/v1/products?label=2&label=5` returns only products carrying both
+labels; `GET /api/v1/products?label=2` (single value) behaves exactly as before.
+
+- [X] T080 [US1] Change the `label` param in `list_products` (`app/services/product_service.py`) from `int | None` to `list[int] | None`; when set, build the `product_label` subquery grouped by product with `HAVING COUNT(DISTINCT label) == len(labels)` instead of a plain equality filter
+- [X] T081 [US1] Change `label: int | None = Query(None)` to `label: list[int] | None = Query(None)` in `GET /api/v1/products` handler (`app/api/v1/endpoints/products.py`)
+- [X] T082 [US1] Extend `tests/api/test_products.py` label-filter coverage (mock-based, consistent with the existing `supplier` filter tests): single `?label=2` passed through as `[2]`, repeated `?label=2&label=5` passed through as `[2, 5]`, no `label` param passed through as `None`
+- [X] T083 Update `CHANGELOG.md` `[Unreleased]` section — add an `Added`/`Changed` entry noting `label` on `GET /api/v1/products` now accepts multiple values with AND semantics
+
+**Checkpoint**: Multi-label filter live; existing single-label behavior unchanged; test suite green.
+
+---
+
 ## Dependencies & Execution Order
 
 ### Phase Dependencies
