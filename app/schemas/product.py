@@ -133,6 +133,7 @@ class ProductListItem(BaseModel):
     product_id: int
     code: str
     name: str
+    sku: str | None
     photo: str | None
     brand: str | None
     model: str | None
