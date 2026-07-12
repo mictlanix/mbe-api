@@ -53,6 +53,7 @@ def _product_item(prod_id: int = 1, photo: str | None = None) -> SimpleNamespace
         product_id=prod_id,
         code="P001",
         name="Widget Alpha",
+        sku=None,
         photo=photo,
         brand=None,
         model=None,
