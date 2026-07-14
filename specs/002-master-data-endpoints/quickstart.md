@@ -60,13 +60,15 @@ curl -s -X POST $BASE/products \
     "purchasable":true,
     "salable":true,
     "invoiceable":true
-  }' | jq '{id:.product_id,min_order_qty,stock_required,tax_rate,prices_count:.prices|length}'
+  }' | jq '{id:.product_id,min_order_qty,stock_required,tax_rate}'
 
 # expected:
 #   min_order_qty: 1
 #   stock_required: true
 #   tax_rate: non-zero (from config default)
-#   prices_count: N (one per existing price list)
+#
+# Note: ProductResponse has no `prices` field — per-product pricing is a separate resource,
+# see Scenario 15 below and specs/004-price-management-service.
 ```
 
 ---
@@ -259,6 +261,31 @@ curl -o /dev/null -s -w "%{http_code}" \
   -H "Content-Type: application/json" \
   -d '{"id":"ZZZ"}'
 # expected: 405
+```
+
+---
+
+## Scenario 15: Label facets narrow with the current filter set
+
+```bash
+# Two labels, applied to overlapping sets of products (assumes labels 2 and 5 already exist,
+# see Scenario 6 for creating one)
+curl -s "http://localhost:8000/api/v1/products/labels/facets" \
+  -H "Authorization: Bearer $TOKEN" | jq .
+# expected: [{"label_id":2,"count":N}, {"label_id":5,"count":M}, ...] — every label carried by
+# at least one product, no skip/limit params accepted
+
+# Narrow by an existing label filter — the response should only include labels that still
+# co-occur with products carrying label 2
+curl -s "http://localhost:8000/api/v1/products/labels/facets?label=2" \
+  -H "Authorization: Bearer $TOKEN" | jq .
+# expected: label_id 2 itself appears (count = size of the label=2 result set); any label that
+# never co-occurs with label 2 is absent from the array
+
+# Filters that match zero products return an empty array, not an error
+curl -s "http://localhost:8000/api/v1/products/labels/facets?search=zzz-no-such-product" \
+  -H "Authorization: Bearer $TOKEN" | jq .
+# expected: []
 ```
 
 ---

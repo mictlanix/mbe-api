@@ -24,7 +24,7 @@ bare ID (see spec.md FR-039/FR-040). Rules:
 - The raw FK column on the ORM model is untouched (still an `int`/`str` PK, no `relationship()`
   added). The service layer fetches the referenced row(s) — batch-fetched for list endpoints to
   avoid N+1 queries — and attaches them to the ORM instance before Pydantic serialization, the
-  same pattern already used for `Product.prices` / `Product.labels`.
+  same pattern already used for `Product.labels`.
 - Request bodies (`Create`/`Update` schemas) are unchanged — FK fields are still submitted as
   plain IDs.
 - Nesting stops after one level: an embedded object's own FK fields stay as plain IDs. This means
@@ -77,28 +77,26 @@ bare ID (see spec.md FR-039/FR-040). Rules:
 | `key` | `key` | `str \| None` | FK → `sat_product_service`; **response**: expanded to `SatCatalogResponse \| None` |
 | `deactivated` | `deactivated` | `bool` | |
 | `stock_verification` | `stock_verification` | `bool` | **API alias**: `stock_required`; default = true on create |
+| `labels` | *(none — via `product_label` join table)* | `list[Label]` | many-to-many through `product_label` (columns `product`, `label`); **response**: expanded to `[LabelResponse, ...]`; **request** (`ProductCreate`/`ProductUpdate`): submitted as `labels: list[int] \| None`, a full replace of the product's label set |
 
 **API alias note**: `stock_verification` is exposed as `stock_required` in all request/response
 schemas via a Pydantic alias. The column name in MariaDB is unchanged.
 
+**Label-facets query**: `GET /api/v1/products/labels/facets` (added for GH #78) applies the same
+filter predicates as `GET /api/v1/products` to select matching `product_id`s, then groups
+`product_label` rows for those products by `label` to return `[{label_id, count}, ...]` — see
+`contracts/api.md` §1 for the response shape. The filter-building logic is shared between
+`list_products` and this facet query (`app/services/product_service.py::_apply_product_filters`)
+so the two can never drift apart.
+
 ---
 
-## 2. ProductPrice
+## 2. ProductPrice — moved
 
-**ORM class**: `ProductPrice` in `app/models/product.py`  
-**Table**: `product_price`
-
-| Python field | Column | Type | Constraints |
-|--------------|--------|------|-------------|
-| `product_price_id` | `product_price_id` | `int` | PK, auto |
-| `product` | `product` | `int` | FK → `product` |
-| `price_list` | `list` | `int` | FK → `price_list` (DB column is `list`); **response**: expanded to `PriceListResponse` |
-| `price` | `price` | `Decimal` | default = 0 on create |
-| `low_profit` | `low_profit` | `Decimal` | |
-| `high_profit` | `high_profit` | `Decimal` | |
-
-**Auto-create rule**: On `POST /products`, the service creates one `ProductPrice` row per
-existing `PriceList` with `price = 0`, `low_profit = 0`, `high_profit = 0`.
+`ProductPrice` (per-product pricing) was extracted out of this feature into a standalone
+`/api/v1/product-prices` service; see `specs/004-price-management-service/data-model.md` for its
+current field reference. `Product` no longer auto-provisions price rows on create, and
+`ProductResponse` no longer embeds a `prices` field.
 
 ---
 

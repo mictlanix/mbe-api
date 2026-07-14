@@ -8,6 +8,7 @@ from app.enums import AccessRight, SystemObject
 from app.schemas import ListResponse
 from app.schemas.product import (
     ProductCreate,
+    ProductLabelFacet,
     ProductListItem,
     ProductMergeRequest,
     ProductResponse,
@@ -57,6 +58,31 @@ async def list_products(
         response.photo = _photo_url(item.photo)
         responses.append(response)
     return ListResponse(items=responses, total=total)
+
+
+@router.get("/labels/facets", response_model=list[ProductLabelFacet])
+async def get_product_label_facets(
+    search: str | None = Query(None),
+    label: list[int] | None = Query(None),
+    deactivated: bool | None = Query(None),
+    stockable: bool | None = Query(None),
+    salable: bool | None = Query(None),
+    purchasable: bool | None = Query(None),
+    supplier: int | None = Query(None),
+    _: CurrentUser = Depends(require_privilege(SystemObject.PRODUCTS, AccessRight.READ)),
+    db: AsyncSession = Depends(get_db),
+) -> list[ProductLabelFacet]:
+    rows = await product_service.get_label_facets(
+        db,
+        search=search,
+        label=label,
+        deactivated=deactivated,
+        stockable=stockable,
+        salable=salable,
+        purchasable=purchasable,
+        supplier=supplier,
+    )
+    return [ProductLabelFacet(label_id=row.label_id, count=row.count) for row in rows]
 
 
 @router.post("", response_model=ProductResponse, status_code=status.HTTP_201_CREATED)

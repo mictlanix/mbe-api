@@ -273,6 +273,27 @@ labels; `GET /api/v1/products?label=2` (single value) behaves exactly as before.
 
 ---
 
+## Phase 14: Product Label Facets (US1 — Refinement, GH #78)
+
+**Goal**: Expose which labels co-occur with the products matching the current `GET /api/v1/products`
+filters, so mbe-ui's faceted label filter drawer can grey out labels that would narrow the result
+set to zero, without paging through every matching product client-side.
+
+**Independent Test**: `GET /api/v1/products/labels/facets` (no filters) returns every label present
+across the catalog with an accurate product count; `?label=2` restricts the response to label 2
+(count = size of that result set) plus every label that still co-occurs with it.
+
+- [X] T084 [US1] Extract the `search`/`label`/`deactivated`/`stockable`/`salable`/`purchasable`/`supplier` predicate-building block out of `list_products` into `_apply_product_filters(query, *, ...)` in `app/services/product_service.py`, reused by `list_products` unchanged
+- [X] T085 [US1] Add `get_label_facets(db, *, search, label, deactivated, stockable, salable, purchasable, supplier)` to `app/services/product_service.py` — applies `_apply_product_filters` to a `select(Product.product_id)` subquery, then groups `product_label` rows for those products by `label` to return `(label_id, count)` rows
+- [X] T086 [US1] Add `ProductLabelFacet` (`label_id: int, count: int`) to `app/schemas/product.py`; add `GET /products/labels/facets` handler to `app/api/v1/endpoints/products.py` accepting the same filter query params as `GET /products` (no `skip`/`limit`), gated by the same `PRODUCTS`/`READ` privilege, `response_model=list[ProductLabelFacet]`
+- [X] T087 [US1] Add coverage in `tests/api/test_products.py` (200 response shape, filter pass-through, 401 without auth) and `tests/unit/test_product_service.py` (filter-builder SQL, facet query grouping/filtering)
+- [X] T088 Update `CHANGELOG.md` `[Unreleased]` section — add an `Added` entry for `GET /api/v1/products/labels/facets`
+
+**Checkpoint**: Facets endpoint live; `list_products` behavior unchanged (pure extraction); test
+suite green.
+
+---
+
 ## Dependencies & Execution Order
 
 ### Phase Dependencies

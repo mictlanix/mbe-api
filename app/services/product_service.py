@@ -1,7 +1,8 @@
 from collections.abc import Sequence
+from typing import Any
 
 from fastapi import HTTPException, status
-from sqlalchemy import delete, insert, or_, select
+from sqlalchemy import Row, Select, delete, func, insert, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings
@@ -13,6 +14,52 @@ from app.schemas.product import ProductCreate, ProductMergeRequest, ProductUpdat
 from app.schemas.sat_catalog import SatUnitOfMeasurementResponse
 from app.services import product_price_service
 from app.services.sat_catalog_service import SAT_CATALOG_MAP, to_response
+
+
+def _apply_product_filters(
+    query: Select[Any],
+    *,
+    search: str | None,
+    label: list[int] | None,
+    deactivated: bool | None,
+    stockable: bool | None,
+    salable: bool | None,
+    purchasable: bool | None,
+    supplier: int | None,
+) -> Select[Any]:
+    if search:
+        term = f"%{search}%"
+        query = query.where(
+            or_(
+                Product.code.ilike(term),
+                Product.name.ilike(term),
+                Product.model.ilike(term),
+                Product.sku.ilike(term),
+                Product.brand.ilike(term),
+            )
+        )
+
+    if label:
+        labeled_products = (
+            select(product_label.c["product"])
+            .where(product_label.c["label"].in_(label))
+            .group_by(product_label.c["product"])
+            .having(func.count(func.distinct(product_label.c["label"])) == len(label))
+        )
+        query = query.where(Product.product_id.in_(labeled_products))
+
+    if deactivated is not None:
+        query = query.where(Product.deactivated == deactivated)
+    if stockable is not None:
+        query = query.where(Product.stockable == stockable)
+    if salable is not None:
+        query = query.where(Product.salable == salable)
+    if purchasable is not None:
+        query = query.where(Product.purchasable == purchasable)
+    if supplier is not None:
+        query = query.where(Product.supplier == supplier)
+
+    return query
 
 
 async def list_products(
@@ -28,53 +75,63 @@ async def list_products(
     skip: int = 0,
     limit: int = 20,
 ) -> tuple[Sequence[Product], int]:
-    from sqlalchemy import func
-
-    base = select(Product)
-    count_q = select(func.count()).select_from(Product)
-
-    if search:
-        term = f"%{search}%"
-        condition = or_(
-            Product.code.ilike(term),
-            Product.name.ilike(term),
-            Product.model.ilike(term),
-            Product.sku.ilike(term),
-            Product.brand.ilike(term),
-        )
-        base = base.where(condition)
-        count_q = count_q.where(condition)
-
-    if label:
-        labeled_products = (
-            select(product_label.c["product"])
-            .where(product_label.c["label"].in_(label))
-            .group_by(product_label.c["product"])
-            .having(func.count(func.distinct(product_label.c["label"])) == len(label))
-        )
-        base = base.where(Product.product_id.in_(labeled_products))
-        count_q = count_q.where(Product.product_id.in_(labeled_products))
-
-    if deactivated is not None:
-        base = base.where(Product.deactivated == deactivated)
-        count_q = count_q.where(Product.deactivated == deactivated)
-    if stockable is not None:
-        base = base.where(Product.stockable == stockable)
-        count_q = count_q.where(Product.stockable == stockable)
-    if salable is not None:
-        base = base.where(Product.salable == salable)
-        count_q = count_q.where(Product.salable == salable)
-    if purchasable is not None:
-        base = base.where(Product.purchasable == purchasable)
-        count_q = count_q.where(Product.purchasable == purchasable)
-    if supplier is not None:
-        base = base.where(Product.supplier == supplier)
-        count_q = count_q.where(Product.supplier == supplier)
+    base = _apply_product_filters(
+        select(Product),
+        search=search,
+        label=label,
+        deactivated=deactivated,
+        stockable=stockable,
+        salable=salable,
+        purchasable=purchasable,
+        supplier=supplier,
+    )
+    count_q = _apply_product_filters(
+        select(func.count()).select_from(Product),
+        search=search,
+        label=label,
+        deactivated=deactivated,
+        stockable=stockable,
+        salable=salable,
+        purchasable=purchasable,
+        supplier=supplier,
+    )
 
     total: int = (await db.execute(count_q)).scalar_one()
     products = (await db.execute(base.offset(skip).limit(limit))).scalars().all()
     await _attach_unit_of_measurement(db, products)
     return products, total
+
+
+async def get_label_facets(
+    db: AsyncSession,
+    *,
+    search: str | None = None,
+    label: list[int] | None = None,
+    deactivated: bool | None = None,
+    stockable: bool | None = None,
+    salable: bool | None = None,
+    purchasable: bool | None = None,
+    supplier: int | None = None,
+) -> Sequence[Row[Any]]:
+    matching = _apply_product_filters(
+        select(Product.product_id),
+        search=search,
+        label=label,
+        deactivated=deactivated,
+        stockable=stockable,
+        salable=salable,
+        purchasable=purchasable,
+        supplier=supplier,
+    )
+    facet_q = (
+        select(
+            product_label.c["label"].label("label_id"),
+            func.count(func.distinct(product_label.c["product"])).label("count"),
+        )
+        .where(product_label.c["product"].in_(matching))
+        .group_by(product_label.c["label"])
+    )
+    return (await db.execute(facet_q)).all()
 
 
 async def _get_labels(db: AsyncSession, product_id: int) -> list[Label]:

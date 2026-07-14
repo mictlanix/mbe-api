@@ -6,9 +6,15 @@
 
 **Status**: Refined
 
-**Updated**: 2026-07-05
+**Updated**: 2026-07-13
 
-**Input**: User description: "implement the endpoints covered by @docs/specs/01-master-data.md, reuse the existing models and update accordingly"; refined to add FK filters on list endpoints and SAT catalog read-only endpoints; further refined so that FK properties in responses return the complete referenced object instead of only its ID; further refined to allow product search/filtering by multiple labels at once.
+**Input**: User description: "implement the endpoints covered by @docs/specs/01-master-data.md, reuse the existing models and update accordingly"; refined to add FK filters on list endpoints and SAT catalog read-only endpoints; further refined so that FK properties in responses return the complete referenced object instead of only its ID; further refined to allow product search/filtering by multiple labels at once; further refined to add a label-facets endpoint so clients can determine which labels still co-occur with the current filtered result set (GH #78).
+
+**Note (2026-07-13)**: Per-product pricing (`ProductPrice`) was extracted into a standalone
+`/api/v1/product-prices` service in `specs/004-price-management-service`. `ProductResponse` no
+longer includes a `prices` sub-panel and `POST /api/v1/products` no longer auto-provisions price
+rows; see FR-002/FR-003 below, updated accordingly. Everything else in this spec is unchanged by
+that extraction.
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -28,6 +34,7 @@ An authenticated API consumer needs to retrieve lists of master data records (pr
 4. **Given** a valid session, **When** `GET /api/v1/customers?search=juan` is called, **Then** results are filtered by `code`, `name`, or `zone`.
 5. **Given** products exist for a specific supplier, **When** `GET /api/v1/products?supplier=3` is called, **Then** only products whose default supplier is supplier #3 are returned.
 6. **Given** products are tagged with labels #2 and #5 in various combinations, **When** `GET /api/v1/products?label=2&label=5` is called, **Then** only products carrying **both** label #2 **and** label #5 are returned; a product carrying only one of the two is excluded.
+6a. **Given** the same `search`/attribute/`label` filters accepted by `GET /api/v1/products`, **When** `GET /api/v1/products/labels/facets` is called, **Then** every label carried by at least one product in that filtered set is returned with a count of how many matching products carry it, so a UI can grey out labels that would narrow the current result set to zero.
 7. **Given** customers are assigned to a price list, **When** `GET /api/v1/customers?price_list=2` is called, **Then** only customers on price list #2 are returned.
 8. **Given** points of sale are associated with a store, **When** `GET /api/v1/points-of-sale?store=1` is called, **Then** only POS terminals belonging to store #1 are returned; adding `?warehouse=4` further filters to those assigned to warehouse #4.
 9. **Given** cash drawers are associated with a store, **When** `GET /api/v1/cash-drawers?store=1` is called, **Then** only cash drawers belonging to store #1 are returned.
@@ -62,7 +69,7 @@ An authenticated user fetches the full detail of a specific master data record b
 
 **Acceptance Scenarios**:
 
-1. **Given** a product with `id = 5` exists, **When** `GET /api/v1/products/5` is called, **Then** all product fields are returned including sub-panel data (prices and labels).
+1. **Given** a product with `id = 5` exists, **When** `GET /api/v1/products/5` is called, **Then** all product fields are returned including its `labels` sub-panel (per-product prices are served separately by `GET /api/v1/product-prices?product=5`, see `specs/004-price-management-service`).
 2. **Given** no product with `id = 999` exists, **When** `GET /api/v1/products/999` is called, **Then** `404 Not Found` is returned.
 
 ---
@@ -180,6 +187,7 @@ calling `GET /api/v1/products` and confirming the same shape appears on every li
 - What happens when deleting a label still assigned to products? → Allow delete (junction rows are removed); no conflict check required by the spec.
 - What happens when an FK filter value references a non-existent record (e.g., `?supplier=9999`)? → Return an empty list `{items: [], total: 0}` with `200 OK`; no validation error.
 - What happens when the `label` filter is repeated with a value that doesn't exist (e.g., `?label=2&label=9999`)? → Return an empty list `{items: [], total: 0}` with `200 OK`; since a product can never carry the non-existent label, the AND condition can never be satisfied.
+- What happens when `GET /api/v1/products/labels/facets` is called with filters that match zero products? → Return `[]` with `200 OK`; no label can co-occur with an empty result set.
 - What happens when a client tries to create or update a SAT catalog record? → `405 Method Not Allowed`; SAT data is managed externally and loaded by migration only.
 - What happens when an FK field is nullable and unset (e.g. `product.supplier`, `payment_method_option.warehouse`)? → The field is `null` in the response, not an empty object.
 - What happens when an embedded FK object itself has FK fields (e.g. a point of sale's embedded `warehouse` has its own `store`)? → Expansion stops after one level; the embedded object's own FK fields remain plain IDs (see FR-039).
@@ -193,8 +201,9 @@ calling `GET /api/v1/products` and confirming the same shape appears on every li
 
 - **FR-001**: System MUST expose `GET /api/v1/products` returning a paginated list searchable by `code`, `name`, `model`, `sku`, and `brand`; filterable by `deactivated`, `stockable`, `salable`, `purchasable`, `label` (one or more label IDs), and `supplier` (supplier ID).
 - **FR-001a**: The `label` filter MUST accept multiple values via repeated query parameters (e.g., `?label=2&label=5`). When more than one label ID is supplied, a product MUST match only if it carries **every** supplied label (AND semantics), not merely one of them. A single `label` value behaves exactly as before (unchanged from prior behavior).
-- **FR-002**: System MUST expose `POST /api/v1/products` to create a product; on creation the system MUST auto-set: `min_order_qty = 1`, `stock_required = true` (model field `stock_verification`), `tax_rate` from config default, `tax_included` from config default, `price_type` from config default, `photo` from config default, and one `product_price` row per existing price list (price = 0).
-- **FR-003**: System MUST expose `GET /api/v1/products/{id}` returning full product detail including prices and labels.
+- **FR-001b**: System MUST expose `GET /api/v1/products/labels/facets`, accepting the same filter query params as `GET /api/v1/products` (`search`, `label`, `deactivated`, `stockable`, `salable`, `purchasable`, `supplier`) but no `skip`/`limit`. It MUST return, as a plain array, every label carried by at least one product matching those filters together with a count of matching products carrying it (`[{label_id, count}, ...]`); a label absent from the response carries none of the matching products. The filter set MUST include any currently-selected `label` params (AND semantics per FR-001a), so the response reflects labels that would *further* narrow — not replace — the current selection.
+- **FR-002**: System MUST expose `POST /api/v1/products` to create a product; on creation the system MUST auto-set: `min_order_qty = 1`, `stock_required = true` (model field `stock_verification`), `tax_rate` from config default, `tax_included` from config default, `price_type` from config default, and `photo` from config default. (Per-product price provisioning is owned by `specs/004-price-management-service` and is no longer part of product creation.)
+- **FR-003**: System MUST expose `GET /api/v1/products/{id}` returning full product detail including its labels. (Per-product prices are served by the standalone `/api/v1/product-prices` endpoint, not embedded here.)
 - **FR-004**: System MUST expose `PUT /api/v1/products/{id}` to update a product.
 - **FR-005**: System MUST expose `DELETE /api/v1/products/{id}` to hard-delete a product and all its `product_price` rows.
 - **FR-006**: System MUST expose `POST /api/v1/products/merge` to merge a duplicate product into a canonical product; requires the caller to hold `AllowCreate` on `SystemObject 73 (ProductsMerge)`.
@@ -342,9 +351,10 @@ calling `GET /api/v1/products` and confirming the same shape appears on every li
 - **SC-002**: All mandatory field validations (code uniqueness, bar code length, RFC length) return an error response before any data is persisted — zero silent data corruption.
 - **SC-003**: The product merge operation leaves zero orphan FK references to the deleted duplicate across all transactional tables.
 - **SC-004**: All endpoints return `401` for unauthenticated requests and never expose record data to unauthenticated callers.
-- **SC-005**: The product creation auto-default logic (prices, defaults) executes atomically — either all rows are created or none are.
+- **SC-005**: The product creation auto-default logic (`min_order_qty`, `stock_required`, `tax_rate`, `tax_included`, `price_type`, `photo`) executes atomically — either the product row is created with every default applied, or none of it is. (Per-product prices are no longer part of product creation; see `specs/004-price-management-service`.)
 - **SC-006**: All 5 FK filters (supplier, price_list, salesperson, store, warehouse, employee) narrow results correctly — a filter for a non-existent ID returns an empty list, never an error.
 - **SC-009**: The `label` filter on `GET /api/v1/products` correctly narrows results whether one or multiple label IDs are supplied — with multiple values, only products carrying all of them are returned; a non-existent label ID (alone or combined with valid ones) yields an empty list, never an error.
+- **SC-010**: `GET /api/v1/products/labels/facets` returns exactly the labels carried by at least one product in the filtered set (same filters as `GET /api/v1/products`, AND semantics for `label`), each with an accurate co-occurrence count, in a single grouped query rather than paging through the full result set.
 - **SC-007**: All 8 SAT catalog list endpoints return results and respond to `GET /{id}` with `200` for known codes and `404` for unknown codes; no write operation succeeds on any SAT catalog.
 - **SC-008**: Every FK field covered by FR-039 is serialized as the full referenced object (or `null`) in both list and detail responses across all 17 resources, with no more than one level of nesting, while list endpoints still respond within 500 ms (SC-001) — related rows are batch-fetched, not queried per row.
 
@@ -361,3 +371,4 @@ calling `GET /api/v1/products` and confirming the same shape appears on every li
 - FK expansion (FR-039) is implemented by fetching related rows in the service layer and attaching them to the ORM instance before Pydantic serialization (no SQLAlchemy `relationship()` objects are added to models, consistent with the existing "hold the integer/string PK, no ORM relationship objects" convention for the raw FK columns themselves — the expansion happens at the response-schema/service boundary, not the mapped-column level).
 - `Store.address` (→ `Address`) and `Store.taxpayer` (→ `TaxpayerIssuer`) are not expanded because those entities have no read schema/endpoint in this feature (sub-panel entities, out of scope per the existing Assumptions above).
 - Multi-label product search (FR-001a) uses AND (intersection) semantics rather than OR (union): a product must carry every requested label to match. This was a deliberate product decision, not a technical default — confirmed with the feature owner rather than assumed. Multiple values are passed as repeated `label` query parameters (`?label=2&label=5`), consistent with how list-valued query parameters are conventionally handled elsewhere in this API, rather than a comma-separated single value.
+- The label-facets endpoint (FR-001b) exists to support the mbe-ui faceted label filter (mbe-ui spec `009-label-filter-facets`, tracked externally per the repo-boundary rule — mbe-ui does not patch mbe-api directly). It deliberately returns `label_id` only, not label names: the client already holds names from `GET /api/v1/labels`.

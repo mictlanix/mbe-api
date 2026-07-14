@@ -41,12 +41,32 @@ ProductListItem:
   product_id: int
   code: str
   name: str
+  photo: str | null            # absolute image URL, or null
   brand: str | null
   model: str | null
-  unit_of_measurement: str
+  unit_of_measurement: SatUnitOfMeasurementResponse   # {id, name, description, symbol}
   tax_rate: Decimal
   deactivated: bool
 ```
+
+### `GET /api/v1/products/labels/facets`
+
+Added for the faceted product-filter UI (GH #78). Accepts the **same filter query params** as
+`GET /api/v1/products` — `search`, `label` (repeatable), `deactivated`, `stockable`, `salable`,
+`purchasable`, `supplier` — but **no `skip`/`limit`**: it summarizes the whole matching set, not a
+page. The `label` filter is applied with the same AND semantics as the list endpoint, so passing
+`label=3` restricts the base set before computing co-occurring labels.
+
+Response `200`: `[ProductLabelFacet, ...]` (plain array, not `{items, total}`)
+
+```
+ProductLabelFacet:
+  label_id: int
+  count: int   # number of matching products carrying this label
+```
+
+A label ID absent from the response carries none of the currently-matching products (selecting it
+would yield an empty result).
 
 ### `POST /api/v1/products`
 
@@ -77,9 +97,12 @@ ProductCreate:
   invoiceable: bool
   stock_required: bool | null   # defaults to true
   comment: str | null
+  labels: [int, ...] | null     # label IDs to attach on create
 ```
 
-Response `201`: `ProductResponse` (full product record)
+Response `201`: `ProductResponse` (full product record). Per-product pricing is **not** created
+here — `product_price` rows are managed independently via `/api/v1/product-prices`
+(`specs/004-price-management-service`); creating a product no longer auto-provisions price rows.
 
 ### `GET /api/v1/products/{product_id}`
 
@@ -90,20 +113,20 @@ ProductResponse:
   product_id: int
   code: str
   name: str
-  photo: str | null
+  photo: str | null                              # absolute image URL, or null
   sku: str | null
   brand: str | null
   model: str | null
   bar_code: str | null
   location: str | null
-  unit_of_measurement: str
-  key: str | null
+  unit_of_measurement: SatUnitOfMeasurementResponse   # {id, name, description, symbol}
+  key: SatCatalogResponse | null                      # {id, description}
   tax_rate: Decimal
   tax_included: bool
   price_type: int
   currency: int
   min_order_qty: int
-  supplier: int | null
+  supplier: SupplierResponse | null
   stockable: bool
   perishable: bool
   seriable: bool
@@ -113,21 +136,16 @@ ProductResponse:
   stock_required: bool     # alias for stock_verification
   deactivated: bool
   comment: str | null
-  prices: [ProductPriceResponse, ...]
+  labels: [LabelResponse, ...]
 ```
 
-```
-ProductPriceResponse:
-  product_price_id: int
-  price_list: int
-  price: Decimal
-  low_profit: Decimal
-  high_profit: Decimal
-```
+Per-product prices are **not** embedded in `ProductResponse` — fetch them via
+`GET /api/v1/product-prices?product={product_id}` (see `specs/004-price-management-service`).
 
 ### `PUT /api/v1/products/{product_id}`
 
-Body: `ProductUpdate` (same fields as `ProductCreate`, all optional)  
+Body: `ProductUpdate` (same fields as `ProductCreate`, all optional, plus `min_order_qty: int | null`
+and `deactivated: bool | null`)  
 Response `200`: `ProductResponse`
 
 ### `DELETE /api/v1/products/{product_id}`

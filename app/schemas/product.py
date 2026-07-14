@@ -174,6 +174,11 @@ class ProductResponse(BaseModel):
     labels: list[LabelResponse] = []
 
 
+class ProductLabelFacet(BaseModel):
+    label_id: int
+    count: int
+
+
 # ── Merge ─────────────────────────────────────────────────────────────────────
 
 

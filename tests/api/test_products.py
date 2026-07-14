@@ -486,3 +486,44 @@ async def test_list_products_no_label_filter() -> None:
     assert r.status_code == 200
     _, kwargs = mock.call_args
     assert kwargs.get("label") is None
+
+
+# ── Product label facets tests ───────────────────────────────────────────────
+
+
+def _facet(label_id: int, count: int) -> SimpleNamespace:
+    return SimpleNamespace(label_id=label_id, count=count)
+
+
+@pytest.mark.asyncio
+async def test_get_label_facets_returns_200() -> None:
+    _auth()
+    mock = AsyncMock(return_value=[_facet(3, 42), _facet(7, 12)])
+    with patch("app.services.product_service.get_label_facets", new=mock):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+            r = await c.get("/api/v1/products/labels/facets")
+    assert r.status_code == 200
+    assert r.json() == [{"label_id": 3, "count": 42}, {"label_id": 7, "count": 12}]
+
+
+@pytest.mark.asyncio
+async def test_get_label_facets_passes_filters_through() -> None:
+    _auth()
+    mock = AsyncMock(return_value=[])
+    with patch("app.services.product_service.get_label_facets", new=mock):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+            r = await c.get(
+                "/api/v1/products/labels/facets?search=widget&label=2&label=5&stockable=true"
+            )
+    assert r.status_code == 200
+    _, kwargs = mock.call_args
+    assert kwargs.get("search") == "widget"
+    assert kwargs.get("label") == [2, 5]
+    assert kwargs.get("stockable") is True
+
+
+@pytest.mark.asyncio
+async def test_get_label_facets_requires_auth() -> None:
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+        r = await c.get("/api/v1/products/labels/facets")
+    assert r.status_code == 401
