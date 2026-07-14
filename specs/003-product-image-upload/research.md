@@ -100,8 +100,10 @@ path that works out-of-the-box in development; production deployments set `IMAGE
 absolute path. `IMAGES_BASE_URL` is empty by default (produces relative-style bare filename when
 unset) and set to the public base URL in production (e.g. `https://api.example.com`).
 
-**Startup validation**: The lifespan event (or a startup check) should verify the directory exists
-and is writable, failing fast rather than at upload time.
+**Startup validation**: ~~The lifespan event (or a startup check) should verify the directory exists
+and is writable, failing fast rather than at upload time.~~ *Superseded*: no startup check was
+implemented — the static mount uses `check_dir=False` and the directory is created on first upload
+(see "Image Serving" → Mount detail below).
 
 ---
 

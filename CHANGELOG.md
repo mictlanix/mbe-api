@@ -21,6 +21,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Fixed
 - `PUT /api/v1/products/{id}` no longer returns HTTP 500 for products with price list entries; `_attach_price_relations` in `app/services/product_service.py` was passing a stale `PriceList` ORM object (injected by the endpoint's earlier `get_product` call) into a `.in_()` clause instead of its integer FK (#75)
 
+### Docs
+- Synced speckit docs for features `001`–`004` with the implementation: all four spec statuses set to Implemented; `002` contract's `ProductListItem` gained the missing `sku` field and a note that product endpoints require the `PRODUCTS` privilege (spec assumption updated to match); `003` spec/research corrected — a missing images directory no longer fails startup, it is created on first upload (`check_dir=False`)
+
 ## [0.2.0] - 2026-07-04
 
 ### Added

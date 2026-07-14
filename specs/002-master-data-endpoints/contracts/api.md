@@ -28,6 +28,11 @@ and return `{"items": [...], "total": N}`.
 
 **Prefix**: `/api/v1/products`
 
+**Privileges**: All product endpoints require the `PRODUCTS (0)` privilege with the access right
+matching the operation (`READ` for GETs, `CREATE` for POST, `UPDATE` for PUT and image upload,
+`DELETE` for DELETE); insufficient privilege returns `403`. The merge endpoint requires
+`PRODUCTS_MERGE (73)` / `CREATE` instead.
+
 ### `GET /api/v1/products`
 
 Query params: `search` (code, name, model, sku, brand), `label` (int, repeatable — e.g.
@@ -41,6 +46,7 @@ ProductListItem:
   product_id: int
   code: str
   name: str
+  sku: str | null
   photo: str | null            # absolute image URL, or null
   brand: str | null
   model: str | null

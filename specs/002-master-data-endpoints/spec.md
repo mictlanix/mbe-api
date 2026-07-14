@@ -4,7 +4,7 @@
 
 **Created**: 2026-06-14
 
-**Status**: Refined
+**Status**: Implemented
 
 **Updated**: 2026-07-13
 
@@ -365,7 +365,7 @@ calling `GET /api/v1/products` and confirming the same shape appears on every li
 - Config defaults (`DefaultVAT`, `IsTaxIncluded`, `DefaultPriceType`, `DefaultPhotoFile`, `DefaultCustomer`) are available through a config/settings object rather than `WebConfig` (legacy .NET concept); implementation will use the appropriate Python config mechanism.
 - Sub-panel endpoints for customers (addresses, contacts, taxpayers, discounts) and suppliers (addresses, contacts, bank accounts, agreements) are **out of scope** for this feature; only the parent resource CRUD is in scope.
 - The `Incidence` logging mentioned in the product spec is deferred — it is not a hard requirement for this feature.
-- Authentication and privilege enforcement use the existing `get_current_user` and `require_admin` dependency pattern; per-resource privilege checks (SystemObject-based) are out of scope unless explicitly noted (the product merge endpoint requires `ProductsMerge` privilege check).
+- Authentication and privilege enforcement use the existing `get_current_user` and `require_admin` dependency pattern; per-resource privilege checks (SystemObject-based) are out of scope unless explicitly noted (the product merge endpoint requires `ProductsMerge` privilege check). *Post-release refinement*: product CRUD endpoints (list, facets, get, create, update, delete, image upload) are now additionally gated by `require_privilege(SystemObject.PRODUCTS, <access right>)`; other resources remain gated by `get_current_user` only.
 - Tests are optional per the project constitution; the plan will include tests if the implementer decides to include them.
 - Exchange rates are uniquely constrained by `(date, base, target)` pair; attempting to create a duplicate returns `409 Conflict`.
 - FK expansion (FR-039) is implemented by fetching related rows in the service layer and attaching them to the ORM instance before Pydantic serialization (no SQLAlchemy `relationship()` objects are added to models, consistent with the existing "hold the integer/string PK, no ORM relationship objects" convention for the raw FK columns themselves — the expansion happens at the response-schema/service boundary, not the mapped-column level).

@@ -4,7 +4,7 @@
 
 **Created**: 2026-06-14
 
-**Status**: Draft
+**Status**: Implemented
 
 **Input**: User description: "Add a GET /api/v1/auth/me endpoint so non-admin users can fetch their own profile/privileges. Gated only by get_current_user (not require_admin) — any authenticated, non-disabled user with a valid session_version can fetch their own record. Response shape identical to UserResponse (user_id, email, employee_id, administrator, disabled, session_version, settings, privileges). Resolves mictlanix/mbe-api#1 and is a prerequisite for mbe-ui's 001-user-authentication feature, which currently relies on decoding the JWT and calling GET /users/{user_id} (admin-only) to bootstrap session/RBAC state."
 

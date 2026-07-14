@@ -6,7 +6,7 @@
 
 **Updated**: 2026-06-16
 
-**Status**: Refined
+**Status**: Implemented
 
 **Input**: "Add product image upload, serving, and URL exposure to the products endpoint."
 
@@ -65,7 +65,7 @@ Any client — authenticated or not — fetches a product image by its URL and r
 
 - What happens when a file larger than 2 MB is uploaded? → System rejects with a 422 error before processing.
 - What happens when an unsupported format is uploaded (e.g., PDF)? → System rejects with a 422 Unprocessable Entity.
-- What if the image storage directory does not exist at startup? → System fails fast at startup rather than silently at upload time.
+- What if the image storage directory does not exist at startup? → Startup succeeds without it (the static mount does not require the directory); the system creates the directory on demand at first upload, and the upload fails with an error if it cannot be created.
 - What if a client requests an image URL for a file that was never stored or was manually deleted? → 404 Not Found.
 - What if the `photo` column contains a bare filename (legacy data from before URL serving was added)? → The system constructs the full URL from the filename on read, so existing data remains valid.
 
