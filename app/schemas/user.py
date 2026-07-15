@@ -25,8 +25,14 @@ class UserSettingsResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     store_id: int | None
+    store_code: str | None = None
+    store_name: str | None = None
     point_sale_id: int | None
+    point_sale_code: str | None = None
+    point_sale_name: str | None = None
     cash_drawer_id: int | None
+    cash_drawer_code: str | None = None
+    cash_drawer_name: str | None = None
 
 
 class UserSettingsUpdate(BaseModel):

@@ -11,6 +11,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - CRUD endpoints for per-product prices under `/api/v1/product-prices` (list with `product`/`price_list` filters, create, get, update, delete), gated by `SystemObject.PRICING`; `app/schemas/product_price.py` and `app/services/product_price_service.py`
 
 ### Changed
+- `settings` in `GET /api/v1/auth/me` (and `/api/v1/users/{id}`) now carries the resolved `store_code`/`store_name`, `point_sale_code`/`point_sale_name`, and `cash_drawer_code`/`cash_drawer_name` alongside the existing ids, so clients can show the caller's location context without catalog-read privileges; the `*_id` fields are unchanged, making this additive for existing clients (#79)
 - `Product.unit_of_measurement` in `GET /api/v1/products` and `GET /api/v1/products/{id}` now returns the full `sat_unit_of_measurement` record (`{id, name, description, symbol}`) instead of the generic `{id, description}` shape used by other SAT catalog FKs; new `SatUnitOfMeasurementResponse` schema in `app/schemas/sat_catalog.py`
 - `label` filter on `GET /api/v1/products` now accepts multiple values via repeated query params (e.g. `?label=2&label=5`); when more than one is given, only products carrying **all** requested labels are returned (a single `label` value behaves as before)
 

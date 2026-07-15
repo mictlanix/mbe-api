@@ -2,6 +2,7 @@ from sqlalchemy import Boolean, ForeignKey, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
+from app.models.core import CashDrawer, PointSale, Store
 
 
 class User(Base):
@@ -72,3 +73,31 @@ class UserSettings(Base):
     )
 
     user: Mapped["User"] = relationship(back_populates="settings")
+    # Eager-loaded so /auth/me can expose location names without extra round-trips
+    store: Mapped["Store"] = relationship(lazy="joined")
+    point_sale: Mapped["PointSale | None"] = relationship(lazy="joined")
+    cash_drawer: Mapped["CashDrawer | None"] = relationship(lazy="joined")
+
+    @property
+    def store_code(self) -> str | None:
+        return self.store.code if self.store else None
+
+    @property
+    def store_name(self) -> str | None:
+        return self.store.name if self.store else None
+
+    @property
+    def point_sale_code(self) -> str | None:
+        return self.point_sale.code if self.point_sale else None
+
+    @property
+    def point_sale_name(self) -> str | None:
+        return self.point_sale.name if self.point_sale else None
+
+    @property
+    def cash_drawer_code(self) -> str | None:
+        return self.cash_drawer.code if self.cash_drawer else None
+
+    @property
+    def cash_drawer_name(self) -> str | None:
+        return self.cash_drawer.name if self.cash_drawer else None

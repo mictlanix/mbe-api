@@ -14,7 +14,7 @@ Maps directly to the existing `UserResponse` schema (`app/schemas/user.py`), bac
 | `administrator`   | `bool`                         |                                                      |
 | `disabled`        | `bool`                         | Always `false` for a caller reaching this endpoint, since `get_current_user` rejects disabled users |
 | `session_version` | `int`                          | Must match the value embedded in the caller's token |
-| `settings`        | `UserSettingsResponse \| None` | `store_id`, `point_sale_id`, `cash_drawer_id`       |
+| `settings`        | `UserSettingsResponse \| None` | `store_id`, `point_sale_id`, `cash_drawer_id`, each with a resolved `*_code` and `*_name` |
 | `privileges`      | `list[PrivilegeResponse]`      | May be empty                                        |
 
 ## Source of truth
