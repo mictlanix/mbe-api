@@ -12,12 +12,13 @@ router = APIRouter()
 
 @router.get("", response_model=ListResponse[ExpenseResponse])
 async def list_expenses(
+    search: str | None = Query(None),
     skip: int = Query(0, ge=0),
     limit: int = Query(20, ge=1, le=100),
     _: CurrentUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> ListResponse[ExpenseResponse]:
-    items, total = await expense_service.list_expenses(db, skip=skip, limit=limit)
+    items, total = await expense_service.list_expenses(db, search=search, skip=skip, limit=limit)
     return ListResponse(items=list(items), total=total)
 
 

@@ -225,6 +225,18 @@ async def test_list_expenses_returns_200() -> None:
 
 
 @pytest.mark.asyncio
+async def test_list_expenses_search_passed_through() -> None:
+    _auth()
+    mock = AsyncMock(return_value=([_expense()], 1))
+    with patch("app.services.expense_service.list_expenses", new=mock):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+            r = await c.get("/api/v1/expenses?search=office")
+    assert r.status_code == 200
+    _, kwargs = mock.call_args
+    assert kwargs.get("search") == "office"
+
+
+@pytest.mark.asyncio
 async def test_get_expense_returns_200() -> None:
     _auth()
     with patch(

@@ -8,10 +8,19 @@ from app.schemas.core import ExpenseCreate, ExpenseUpdate
 
 
 async def list_expenses(
-    db: AsyncSession, *, skip: int = 0, limit: int = 20
+    db: AsyncSession, *, search: str | None = None, skip: int = 0, limit: int = 20
 ) -> tuple[Sequence[Expense], int]:
-    total: int = (await db.execute(select(func.count()).select_from(Expense))).scalar_one()
-    items = (await db.execute(select(Expense).offset(skip).limit(limit))).scalars().all()
+    base = select(Expense)
+    count_q = select(func.count()).select_from(Expense)
+
+    if search:
+        term = f"%{search}%"
+        condition = Expense.expense.ilike(term)
+        base = base.where(condition)
+        count_q = count_q.where(condition)
+
+    total: int = (await db.execute(count_q)).scalar_one()
+    items = (await db.execute(base.offset(skip).limit(limit))).scalars().all()
     return items, total
 
 

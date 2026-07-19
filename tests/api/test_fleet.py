@@ -129,6 +129,18 @@ async def test_list_vehicles_returns_200() -> None:
 
 
 @pytest.mark.asyncio
+async def test_list_vehicles_search_passed_through() -> None:
+    _auth()
+    mock = AsyncMock(return_value=([_vehicle()], 1))
+    with patch("app.services.vehicle_service.list_vehicles", new=mock):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+            r = await c.get("/api/v1/vehicles?search=truck")
+    assert r.status_code == 200
+    _, kwargs = mock.call_args
+    assert kwargs.get("search") == "truck"
+
+
+@pytest.mark.asyncio
 async def test_get_vehicle_returns_200() -> None:
     _auth()
     with patch(
@@ -524,3 +536,15 @@ async def test_list_vehicle_operators_no_employee_filter() -> None:
     assert r.status_code == 200
     _, kwargs = mock.call_args
     assert kwargs.get("employee") is None
+
+
+@pytest.mark.asyncio
+async def test_list_vehicle_operators_search_passed_through() -> None:
+    _auth()
+    mock = AsyncMock(return_value=([_vehicle_operator()], 1))
+    with patch("app.services.vehicle_operator_service.list_vehicle_operators", new=mock):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+            r = await c.get("/api/v1/vehicle-operators?search=jane")
+    assert r.status_code == 200
+    _, kwargs = mock.call_args
+    assert kwargs.get("search") == "jane"

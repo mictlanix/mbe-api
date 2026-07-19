@@ -1,7 +1,7 @@
 from collections.abc import Sequence
 from datetime import UTC, datetime
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.core import Employee, VehicleOperator
@@ -23,12 +23,26 @@ async def _attach_relations(db: AsyncSession, operators: Sequence[VehicleOperato
 async def list_vehicle_operators(
     db: AsyncSession,
     *,
+    search: str | None = None,
     employee: int | None = None,
     skip: int = 0,
     limit: int = 20,
 ) -> tuple[Sequence[VehicleOperator], int]:
     base = select(VehicleOperator)
     count_q = select(func.count()).select_from(VehicleOperator)
+
+    if search:
+        term = f"%{search}%"
+        join_on = VehicleOperator.driver == Employee.employee_id
+        condition = or_(
+            VehicleOperator.driver_license_number.ilike(term),
+            Employee.first_name.ilike(term),
+            Employee.last_name.ilike(term),
+            Employee.nickname.ilike(term),
+        )
+        base = base.join(Employee, join_on).where(condition)
+        count_q = count_q.join(Employee, join_on).where(condition)
+
     if employee is not None:
         base = base.where(VehicleOperator.driver == employee)
         count_q = count_q.where(VehicleOperator.driver == employee)

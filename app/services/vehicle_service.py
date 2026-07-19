@@ -1,6 +1,6 @@
 from collections.abc import Sequence
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.core import Vehicle
@@ -8,10 +8,23 @@ from app.schemas.core import VehicleCreate, VehicleUpdate
 
 
 async def list_vehicles(
-    db: AsyncSession, *, skip: int = 0, limit: int = 20
+    db: AsyncSession, *, search: str | None = None, skip: int = 0, limit: int = 20
 ) -> tuple[Sequence[Vehicle], int]:
-    total: int = (await db.execute(select(func.count()).select_from(Vehicle))).scalar_one()
-    items = (await db.execute(select(Vehicle).offset(skip).limit(limit))).scalars().all()
+    base = select(Vehicle)
+    count_q = select(func.count()).select_from(Vehicle)
+
+    if search:
+        term = f"%{search}%"
+        condition = or_(
+            Vehicle.license_plate.ilike(term),
+            Vehicle.name.ilike(term),
+            Vehicle.nickname.ilike(term),
+        )
+        base = base.where(condition)
+        count_q = count_q.where(condition)
+
+    total: int = (await db.execute(count_q)).scalar_one()
+    items = (await db.execute(base.offset(skip).limit(limit))).scalars().all()
     return items, total
 
 
