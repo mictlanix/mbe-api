@@ -7,16 +7,15 @@ from app.api.v1.endpoints import (
     employees,
     exchange_rates,
     expenses,
+    facilities,
     health,
     labels,
     payment_method_options,
     points_of_sale,
     price_lists,
     product_prices,
-    production_sites,
     products,
     sat_catalogs,
-    stores,
     suppliers,
     taxpayer_recipients,
     users,
@@ -41,7 +40,7 @@ api_router.include_router(
 )
 api_router.include_router(suppliers.router, prefix="/suppliers", tags=["suppliers"])
 api_router.include_router(employees.router, prefix="/employees", tags=["employees"])
-api_router.include_router(stores.router, prefix="/stores", tags=["stores"])
+api_router.include_router(facilities.router, prefix="/facilities", tags=["facilities"])
 api_router.include_router(warehouses.router, prefix="/warehouses", tags=["warehouses"])
 api_router.include_router(points_of_sale.router, prefix="/points-of-sale", tags=["points-of-sale"])
 api_router.include_router(cash_drawers.router, prefix="/cash-drawers", tags=["cash-drawers"])
@@ -55,8 +54,5 @@ api_router.include_router(
 api_router.include_router(vehicles.router, prefix="/vehicles", tags=["vehicles"])
 api_router.include_router(
     vehicle_operators.router, prefix="/vehicle-operators", tags=["vehicle-operators"]
-)
-api_router.include_router(
-    production_sites.router, prefix="/production-sites", tags=["production-sites"]
 )
 api_router.include_router(sat_catalogs.router, prefix="/sat", tags=["sat-catalogs"])

@@ -7,7 +7,7 @@ All reports are read-only analytical views. They share common filter patterns an
 ## Common UI Patterns
 
 - **Date Range**: start date / end date selector (defaults to current month); passed as `DateRange dates`
-- **Store Filter**: single or all stores (admin sees all; user sees their store)
+- **Facility Filter**: single or all facilities (admin sees all; user sees their facility)
 - **Export**: CSV download and printable PDF for all reports
 - **Pagination**: server-side paging for large result sets
 
@@ -22,7 +22,7 @@ All reports are read-only analytical views. They share common filter patterns an
 List all customer payments received within a date range.
 
 ### Filters
-- Store, date range, payment method, customer, salesperson, cash session
+- Facility, date range, payment method, customer, salesperson, cash session
 - Advanced filter: gated by `ReceivedPaymentsAdvancedSearchFilter` (97) privilege — enables additional filter fields
 
 ### Columns
@@ -42,7 +42,7 @@ List all customer payments received within a date range.
 Total sales quantity and revenue grouped by product.
 
 ### Filters
-- Store, date range, warehouse, label, brand, model
+- Facility, date range, warehouse, label, brand, model
 
 ### Columns
 - Product code, name, brand, model, unit of measure, quantity sold, total revenue, total cost, gross profit
@@ -61,7 +61,7 @@ Total sales quantity and revenue grouped by product.
 Revenue, cost, and gross profit margin per customer.
 
 ### Filters
-- Store, date range
+- Facility, date range
 
 ### Columns
 - Customer, total sales, total cost, gross profit, margin %
@@ -77,7 +77,7 @@ Revenue, cost, and gross profit margin per customer.
 Revenue and gross profit per salesperson.
 
 ### Filters
-- Store, date range
+- Facility, date range
 
 ### Columns
 - Salesperson, order count, total sales, total cost, gross profit, margin %
@@ -93,7 +93,7 @@ Revenue and gross profit per salesperson.
 Margin analysis at the product level.
 
 ### Filters
-- Store, date range
+- Facility, date range
 
 ### Columns
 - Product code, name, quantity sold, revenue, cost, gross profit, margin %
@@ -151,7 +151,7 @@ Customer directory / profile export with search.
 Total sales per customer within a period.
 
 ### Filters
-- Store, date range
+- Facility, date range
 
 ### Columns
 - Customer, order count, total quantity, total revenue, total paid, balance
@@ -167,7 +167,7 @@ Total sales per customer within a period.
 Total sales per salesperson.
 
 ### Filters
-- Store, date range
+- Facility, date range
 
 ### Columns
 - Salesperson, order count, total revenue, total cost, gross profit, margin %
@@ -328,7 +328,7 @@ Product sales per salesperson, segmented by model.
 High-level summary: total orders, revenue, collected, and balance within a period — grouped by day or month.
 
 ### Filters
-- Store, date range
+- Facility, date range
 
 ### Columns
 - Period, order count, total revenue, total paid, balance, refunds, net
@@ -344,7 +344,7 @@ High-level summary: total orders, revenue, collected, and balance within a perio
 Line-level sales detail breakdown within a period. Shows individual order lines rather than order totals.
 
 ### Filters
-- Store, date range
+- Facility, date range
 
 ### Columns
 - Order folio, date, customer, salesperson, product code, name, quantity, unit price, discount, tax rate, line total
@@ -504,13 +504,13 @@ Per product per salesperson: units sold, units refunded, net units.
 **Action**: `Reports/StoreMovementsSummary`
 
 ### Purpose
-All inventory movements (receipts, issues, transfers, sales) summarized by store and period.
+All inventory movements (receipts, issues, transfers, sales) summarized by facility and period.
 
 ### Filters
-- Store, date range
+- Facility, date range
 
 ### Columns
-- Store, movement type, document count, total quantity, total value
+- Facility, movement type, document count, total quantity, total value
 
 ---
 
@@ -569,13 +569,13 @@ Collection performance report: shows credit sales, payments collected, and colle
 **Action**: `Reports/ReceivedPaymentsSummary`
 
 ### Purpose
-Totals of received payments grouped by method and store for a period.
+Totals of received payments grouped by method and facility for a period.
 
 ### Filters
 - Date range
 
 ### Columns
-- Store, payment method, count, total amount
+- Facility, payment method, count, total amount
 
 ---
 

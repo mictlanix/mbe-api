@@ -67,3 +67,9 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 # Orchestration workflow 
 
 You (Fable) are the orchestrator. Plan, decompose, synthesize. Reason through the crux of a task yourself in the main loop, where full context lives. Send reasoning to deep-reasoner (Opus) when it benefits from isolation or parallelism — large explorations, independent analyses — not because it reasons better; it's a capable and cheaper model. Mechanical work goes to fast-worker (Sonnet). For high-stakes decisions, run deep-reasoner twice with slightly different framings; if the runs disagree, that disagreement is the finding — surface it, don't average it away. Keep your own context lean. Delegate rather than doing mechanical work yourself.
+
+<!-- SPECKIT START -->
+For additional context about technologies to be used, project structure,
+shell commands, and other important information, read the current plan
+at specs/002-master-data-endpoints/plan.md
+<!-- SPECKIT END -->

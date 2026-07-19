@@ -39,8 +39,8 @@ Record goods arriving into a warehouse. Typically follows a purchase order but c
 
 | Field | Column | Notes |
 |-------|--------|-------|
-| Store | `inventory_receipt.store` | Auto-set from warehouse's store |
-| Serial/Folio | `inventory_receipt.serial` | Assigned on Confirm (MAX+1 for store) |
+| Facility | `inventory_receipt.facility` | Auto-set from warehouse's facility |
+| Serial/Folio | `inventory_receipt.serial` | Assigned on Confirm (MAX+1 for facility) |
 | Warehouse | `inventory_receipt.warehouse` | Destination; must match user's POS warehouse to edit |
 | Linked Purchase Order | `inventory_receipt.purchase_order` | Optional FK → `purchase_order` |
 | Notes | `inventory_receipt.comment` | |
@@ -63,8 +63,8 @@ An additional "complementary receipt" can be created from an existing one (`Crea
 
 ### Confirm Action (`ConfirmReceipt`)
 1. Validates: all products must be `IsStockable = true` (non-stockable products rejected)
-2. Sets `Store = warehouse.Store`
-3. Assigns `Serial = MAX(serial FOR store) + 1`
+2. Sets `Facility = warehouse.Facility`
+3. Assigns `Serial = MAX(serial FOR facility) + 1`
 4. Sets `IsCompleted = true`
 5. Posts `InventoryHelpers.ChangeNotification(TransactionType.InventoryReceipt, ..., +quantity)` for each line
 
@@ -96,7 +96,7 @@ Record goods leaving a warehouse (write-offs, waste, supplier returns, internal 
 
 | Field | Column | Notes |
 |-------|--------|-------|
-| Store | `inventory_issue.store` | |
+| Facility | `inventory_issue.facility` | |
 | Serial/Folio | `inventory_issue.serial` | |
 | Warehouse | `inventory_issue.warehouse` | Source warehouse |
 | Linked Supplier Return | `inventory_issue.supplier_return` | Optional FK → `supplier_return` |
@@ -131,7 +131,7 @@ For products with `perishable = true` or `seriable = true`, user must specify wh
 **SystemObject**: `InventoryTransfers` (17)
 
 ### Purpose
-Move stock between two warehouses within the same store.
+Move stock between two warehouses within the same facility.
 
 ### List View
 - Filter: user's POS warehouse scope (from/to)
@@ -140,7 +140,7 @@ Move stock between two warehouses within the same store.
 
 | Field | Column | Notes |
 |-------|--------|-------|
-| Store | `inventory_transfer.store` | |
+| Facility | `inventory_transfer.facility` | |
 | Serial/Folio | `inventory_transfer.serial` | |
 | From Warehouse | `inventory_transfer.warehouse` | Source |
 | To Warehouse | `inventory_transfer.warehouse_to` | Destination |
@@ -164,7 +164,7 @@ Move stock between two warehouses within the same store.
 ### Business Rules
 - Source and destination warehouses must be different.
 - Cannot transfer more than available stock in source.
-- Cross-store transfers are not supported; use Issue + Receipt between stores.
+- Cross-facility transfers are not supported; use Issue + Receipt between facilities.
 
 ---
 

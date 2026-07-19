@@ -19,16 +19,16 @@ Shows all outstanding customer balances: completed, non-cancelled, unpaid sales 
 The AR view runs a raw SQL query joining `sales_order`, `customer`, `employee`, and `fiscal_document`. Each row represents one unpaid sales order.
 
 Columns:
-- Date, Sales Order ID, Due Date, Customer, **Sales Agent** (from `customer.salesperson`), **Salesperson** (from `sales_order.salesperson`), Store code, Paid flag, Invoice folios (from linked fiscal documents), Total (in order currency), Total (in base currency), Refunds, Currency
+- Date, Sales Order ID, Due Date, Customer, **Sales Agent** (from `customer.salesperson`), **Salesperson** (from `sales_order.salesperson`), Facility code, Paid flag, Invoice folios (from linked fiscal documents), Total (in order currency), Total (in base currency), Refunds, Currency
 
 > Note: Two distinct employee fields — the customer's assigned sales agent vs. the salesperson on the order. These can differ.
 
 #### Optional Customer Filter
 When called with a `customer` parameter, filters to a single customer's open orders.
 
-#### Store Scope
-- Default: current user's store only
-- If user has `SearchCreditsFromAllStores.AllowRead` (101): can view all stores' AR
+#### Facility Scope
+- Default: current user's facility only
+- If user has `SearchCreditsFromAllStores.AllowRead` (101): can view all facilities' AR
 
 #### Actions
 - **Apply Payment**: shortcut to record a customer payment and apply to selected orders

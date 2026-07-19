@@ -166,14 +166,14 @@ Supervisor queue for approving completed-but-not-approved purchase orders (see P
 Petty cash / expense ticket issued during a cash session. Records miscellaneous cash outflows from the drawer.
 
 ### List View
-- Filter by: store, cash session, date range, status
-- Columns: ID, date, store, session, amount, status
+- Filter by: facility, cash session, date range, status
+- Columns: ID, date, facility, session, amount, status
 
 ### Header Fields
 
 | Field | Column | Notes |
 |-------|--------|-------|
-| Store | `expense_voucher.store` | From user context |
+| Facility | `expense_voucher.facility` | From user context |
 | Cash Session | `expense_voucher.cash_session` | Must be open |
 | Date | `expense_voucher.date` | |
 | Notes | `expense_voucher.comment` | |

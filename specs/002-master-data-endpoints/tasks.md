@@ -35,7 +35,7 @@
 - [X] T004 [P] Create `app/schemas/product.py` — `ProductCreate`, `ProductUpdate`, `ProductListItem`, `ProductPriceResponse`, `ProductResponse`, `PriceListCreate`, `PriceListUpdate`, `PriceListResponse`, `ProductMergeRequest`
 - [X] T005 [P] Create `app/schemas/customer.py` — `CustomerCreate`, `CustomerUpdate`, `CustomerListItem`, `CustomerResponse`, `TaxpayerRecipientCreate`, `TaxpayerRecipientUpdate`, `TaxpayerRecipientResponse`
 - [X] T006 [P] Create `app/schemas/supplier.py` — `SupplierCreate`, `SupplierUpdate`, `SupplierResponse`
-- [X] T007 [P] Create `app/schemas/core.py` — schemas for `Label`, `Employee`, `Store`, `Warehouse`, `PointSale`, `CashDrawer`, `ExchangeRate`, `Expense`, `PaymentMethodOption`, `Vehicle`, `VehicleOperator` (include computed `days_until_expiry` via `@model_validator`), `ProductionSite` — each as `*Create`, `*Update`, `*Response` (and `*ListItem` where list columns differ from full response)
+- [X] T007 [P] Create `app/schemas/core.py` — schemas for `Label`, `Employee`, `Facility`, `Warehouse`, `PointSale`, `CashDrawer`, `ExchangeRate`, `Expense`, `PaymentMethodOption`, `Vehicle`, `VehicleOperator` (include computed `days_until_expiry` via `@model_validator`) — each as `*Create`, `*Update`, `*Response` (and `*ListItem` where list columns differ from full response)
 
 **Checkpoint**: All schemas defined — resource services and endpoints can now be implemented in parallel.
 
@@ -118,22 +118,22 @@
 
 ---
 
-## Phase 6: Stores, Warehouses, Points of Sale & Cash Drawers (US1–US5 — Priority P1)
+## Phase 6: Facilities, Warehouses, Points of Sale & Cash Drawers (US1–US5 — Priority P1)
 
-**Goal**: Store-domain hierarchy resources. All four can be implemented in parallel once schemas exist.
+**Goal**: Facility-domain hierarchy resources. All four can be implemented in parallel once schemas exist.
 
-**Independent Test**: `GET /api/v1/stores`, `/warehouses`, `/points-of-sale`, `/cash-drawers` each return paginated lists.
+**Independent Test**: `GET /api/v1/facilities`, `/warehouses`, `/points-of-sale`, `/cash-drawers` each return paginated lists.
 
-### Stores (US1–US5)
+### Facilities (US1–US5)
 
-- [X] T034 [P] [US1] Create `app/services/store_service.py` — `list_stores`, `get_store`, `create_store`, `update_store`, `delete_store`
-- [X] T035 [P] [US1] Create `app/api/v1/endpoints/stores.py` — full CRUD
-- [X] T036 [P] [US1] Register `stores` router in `app/api/v1/router.py`
+- [X] T034 [P] [US1] Create `app/services/facility_service.py` — `list_facilities`, `get_facility`, `create_facility`, `update_facility`, `delete_facility`
+- [X] T035 [P] [US1] Create `app/api/v1/endpoints/facilities.py` — full CRUD
+- [X] T036 [P] [US1] Register `facilities` router in `app/api/v1/router.py`
 
 ### Warehouses (US1–US5)
 
-- [X] T037 [P] [US1] Create `app/services/warehouse_service.py` — `list_warehouses(store, skip, limit)`, `get_warehouse`, `create_warehouse`, `update_warehouse`, `delete_warehouse`
-- [X] T038 [P] [US1] Create `app/api/v1/endpoints/warehouses.py` — full CRUD; optional `store` filter
+- [X] T037 [P] [US1] Create `app/services/warehouse_service.py` — `list_warehouses(facility, skip, limit)`, `get_warehouse`, `create_warehouse`, `update_warehouse`, `delete_warehouse`
+- [X] T038 [P] [US1] Create `app/api/v1/endpoints/warehouses.py` — full CRUD; optional `facility` filter
 - [X] T039 [P] [US1] Register `warehouses` router in `app/api/v1/router.py`
 
 ### Points of Sale (US1–US5)
@@ -148,7 +148,7 @@
 - [X] T044 [P] [US1] Create `app/api/v1/endpoints/cash_drawers.py` — full CRUD
 - [X] T045 [P] [US1] Register `cash_drawers` router in `app/api/v1/router.py`
 
-**Checkpoint**: Store-domain hierarchy fully accessible.
+**Checkpoint**: Facility-domain hierarchy fully accessible.
 
 ---
 
@@ -172,17 +172,17 @@
 
 ### Payment Method Options (US1–US5)
 
-- [X] T052 [P] [US1] Create `app/services/payment_method_option_service.py` — `list_payment_method_options(store, skip, limit)`, `get_payment_method_option`, `create_payment_method_option`, `update_payment_method_option`, `delete_payment_method_option`
-- [X] T053 [P] [US1] Create `app/api/v1/endpoints/payment_method_options.py` — full CRUD; optional `store` filter
+- [X] T052 [P] [US1] Create `app/services/payment_method_option_service.py` — `list_payment_method_options(facility, skip, limit)`, `get_payment_method_option`, `create_payment_method_option`, `update_payment_method_option`, `delete_payment_method_option`
+- [X] T053 [P] [US1] Create `app/api/v1/endpoints/payment_method_options.py` — full CRUD; optional `facility` filter
 - [X] T054 [P] [US1] Register `payment_method_options` router in `app/api/v1/router.py` with prefix `/payment-method-options`
 
 **Checkpoint**: Financial catalog resources live.
 
 ---
 
-## Phase 8: Vehicles, Vehicle Operators & Production Sites (US1–US5 — Priority P1/P3)
+## Phase 8: Vehicles & Vehicle Operators (US1–US5 — Priority P1)
 
-**Goal**: Fleet and manufacturing resources. Vehicle operators require the computed `days_until_expiry` field.
+**Goal**: Fleet resources. Vehicle operators require the computed `days_until_expiry` field.
 
 **Independent Test**: `quickstart.md` Scenario 9 (vehicle operator with past expiry returns negative `days_until_expiry`).
 
@@ -198,20 +198,14 @@
 - [X] T059 [P] [US1] Create `app/api/v1/endpoints/vehicle_operators.py` — full CRUD; response includes computed `days_until_expiry` (from `VehicleOperatorResponse` schema validator)
 - [X] T060 [P] [US1] Register `vehicle_operators` router in `app/api/v1/router.py` with prefix `/vehicle-operators`
 
-### Production Sites (US1–US5)
-
-- [X] T061 [P] [US1] Create `app/services/production_site_service.py` — `list_production_sites(store, skip, limit)`, `get_production_site`, `create_production_site`, `update_production_site`, `delete_production_site`
-- [X] T062 [P] [US1] Create `app/api/v1/endpoints/production_sites.py` — full CRUD; optional `store` filter
-- [X] T063 [P] [US1] Register `production_sites` router in `app/api/v1/router.py` with prefix `/production-sites`
-
-**Checkpoint**: All 17 resources implemented. Run quickstart.md Scenario 9.
+**Checkpoint**: All 16 resources implemented. Run quickstart.md Scenario 9.
 
 ---
 
 ## Phase 9: Polish & Cross-Cutting Concerns
 
 - [X] T064 Run `uv run ruff check app/` and fix all violations (E, F, I, UP rules; 100-char line limit)
-- [X] T065 Update `CHANGELOG.md` `[Unreleased]` section — add `Added` entries for all 17 new resource endpoints
+- [X] T065 Update `CHANGELOG.md` `[Unreleased]` section — add `Added` entries for all 16 new resource endpoints
 - [X] T066 Run quickstart.md Scenarios 1–10 end-to-end and confirm all expected HTTP codes match
 
 ---
@@ -224,10 +218,10 @@
 
 - [X] T067 [US1] Add `supplier: int | None = Query(None)` param to `list_products` in `app/services/product_service.py` and expose it in `GET /products` handler in `app/api/v1/endpoints/products.py` — append `where(Product.supplier == supplier)` when not None
 - [X] T068 [US1] Add `price_list: int | None` and `salesperson: int | None` params to `list_customers` in `app/services/customer_service.py` and expose them in `GET /customers` handler in `app/api/v1/endpoints/customers.py`
-- [X] T069 [P] [US1] Add `store: int | None` and `warehouse: int | None` params to `list_point_sales` in `app/services/point_sale_service.py` and expose them in `GET /points-of-sale` handler in `app/api/v1/endpoints/points_of_sale.py`
-- [X] T070 [P] [US1] Add `store: int | None` param to `list_cash_drawers` in `app/services/cash_drawer_service.py` and expose it in `GET /cash-drawers` handler in `app/api/v1/endpoints/cash_drawers.py`
+- [X] T069 [P] [US1] Add `facility: int | None` and `warehouse: int | None` params to `list_point_sales` in `app/services/point_sale_service.py` and expose them in `GET /points-of-sale` handler in `app/api/v1/endpoints/points_of_sale.py`
+- [X] T070 [P] [US1] Add `facility: int | None` param to `list_cash_drawers` in `app/services/cash_drawer_service.py` and expose it in `GET /cash-drawers` handler in `app/api/v1/endpoints/cash_drawers.py`
 - [X] T071 [P] [US1] Add `employee: int | None` param (filters `VehicleOperator.driver`) to `list_vehicle_operators` in `app/services/vehicle_operator_service.py` and expose it in `GET /vehicle-operators` handler in `app/api/v1/endpoints/vehicle_operators.py`
-- [X] T072 [US1] Write or extend test coverage for FK filter params — update `tests/api/test_products.py` (supplier filter), `tests/api/test_customers.py` (price_list + salesperson), and add `tests/api/test_stores.py` coverage for POS store/warehouse filter and cash-drawer store filter, and `tests/api/test_fleet.py` for employee filter on vehicle-operators; each test must cover: filter param passed (results narrowed via mock), filter omitted (all results returned)
+- [X] T072 [US1] Write or extend test coverage for FK filter params — update `tests/api/test_products.py` (supplier filter), `tests/api/test_customers.py` (price_list + salesperson), and add `tests/api/test_facilities.py` coverage for POS facility/warehouse filter and cash-drawer facility filter, and `tests/api/test_fleet.py` for employee filter on vehicle-operators; each test must cover: filter param passed (results narrowed via mock), filter omitted (all results returned)
 
 **Checkpoint**: All 5 FK filters live; Scenarios 11–12 pass.
 
@@ -304,9 +298,9 @@ Phase 1 (Setup)
         └─► Phase 3 (Products + PriceLists) — schemas must exist first
         └─► Phase 4 (Customers + Labels + TaxpayerRecipients) — schemas must exist first
         └─► Phase 5 (Suppliers + Employees) — schemas must exist first
-        └─► Phase 6 (Stores + Warehouses + POS + CashDrawers) — schemas must exist first
+        └─► Phase 6 (Facilities + Warehouses + POS + CashDrawers) — schemas must exist first
         └─► Phase 7 (ExchangeRates + Expenses + PMO) — schemas must exist first
-        └─► Phase 8 (Vehicles + VehicleOperators + ProductionSites) — schemas must exist first
+        └─► Phase 8 (Vehicles + VehicleOperators) — schemas must exist first
               └─► Phase 9 (Polish) — all resources must be implemented
 ```
 
@@ -351,7 +345,7 @@ T017, T018 can run in parallel once T016 is done
 "employee_service.py" [T031]
 
 # Phase 6 batch:
-"store_service.py" [T034]
+"facility_service.py" [T034]
 "warehouse_service.py" [T037]
 "point_sale_service.py" [T040]
 "cash_drawer_service.py" [T043]
@@ -364,7 +358,6 @@ T017, T018 can run in parallel once T016 is done
 # Phase 8 batch:
 "vehicle_service.py" [T055]
 "vehicle_operator_service.py" [T058]
-"production_site_service.py" [T061]
 ```
 
 ---
@@ -391,7 +384,7 @@ T017, T018 can run in parallel once T016 is done
 After Phase 1+2 complete:
 - Dev A: Phase 3 (Products + PriceLists)
 - Dev B: Phases 4+5 (Customer domain + Supplier + Employee)
-- Dev C: Phases 6+7+8 (Store hierarchy + Financial + Fleet)
+- Dev C: Phases 6+7+8 (Facility hierarchy + Financial + Fleet)
 
 ---
 

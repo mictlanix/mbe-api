@@ -12,7 +12,7 @@ class SalesQuote(Base):
     __tablename__ = "sales_quote"
 
     sales_quote_id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    store: Mapped[int] = mapped_column(Integer, ForeignKey("store.store_id"))
+    facility: Mapped[int] = mapped_column(Integer, ForeignKey("facility.facility_id"))
     serial: Mapped[int | None] = mapped_column(Integer)
     date: Mapped[datetime] = mapped_column(DateTime)
     salesperson: Mapped[int] = mapped_column(Integer, ForeignKey("employee.employee_id"))
@@ -55,7 +55,7 @@ class SalesOrder(Base):
     __tablename__ = "sales_order"
 
     sales_order_id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    store: Mapped[int] = mapped_column(Integer, ForeignKey("store.store_id"))
+    facility: Mapped[int] = mapped_column(Integer, ForeignKey("facility.facility_id"))
     serial: Mapped[int | None] = mapped_column(Integer)
     point_sale: Mapped[int] = mapped_column(Integer, ForeignKey("point_sale.point_sale_id"))
     salesperson: Mapped[int] = mapped_column(Integer, ForeignKey("employee.employee_id"))
@@ -127,7 +127,7 @@ class CustomerPayment(Base):
     )
     reference: Mapped[str | None] = mapped_column(String(50))
     customer: Mapped[int] = mapped_column(Integer, ForeignKey("customer.customer_id"))
-    store: Mapped[int] = mapped_column(Integer, ForeignKey("store.store_id"))
+    facility: Mapped[int] = mapped_column(Integer, ForeignKey("facility.facility_id"))
     serial: Mapped[int] = mapped_column(Integer)
     creator: Mapped[int] = mapped_column(Integer, ForeignKey("employee.employee_id"))
     updater: Mapped[int] = mapped_column(Integer, ForeignKey("employee.employee_id"))
@@ -167,7 +167,7 @@ class CustomerRefund(Base):
     modification_time: Mapped[datetime] = mapped_column(DateTime)
     completed: Mapped[bool] = mapped_column(Boolean)
     cancelled: Mapped[bool] = mapped_column(Boolean)
-    store: Mapped[int] = mapped_column(Integer, ForeignKey("store.store_id"))
+    facility: Mapped[int] = mapped_column(Integer, ForeignKey("facility.facility_id"))
     serial: Mapped[int | None] = mapped_column(Integer)
     date: Mapped[datetime | None] = mapped_column(DateTime)
     currency: Mapped[CurrencyCode] = mapped_column(Integer)

@@ -1,4 +1,4 @@
-"""Tests for /vehicles, /vehicle-operators, and /production-sites endpoints."""
+"""Tests for /vehicles and /vehicle-operators endpoints."""
 
 import datetime
 from collections.abc import Generator
@@ -26,7 +26,7 @@ def _clear_overrides() -> Generator[None, None, None]:
 
 def _auth() -> None:
     app.dependency_overrides[get_current_user] = lambda: CurrentUser(
-        user_id="tester", session_version=1, administrator=True, store_id=None
+        user_id="tester", session_version=1, administrator=True, facility_id=None
     )
 
     async def _noop_db():
@@ -82,32 +82,6 @@ def _vehicle_operator(vo_id: int = 1) -> SimpleNamespace:
         creator=_employee(0),
         updater=_employee(0),
         active=True,
-    )
-
-
-def _store_summary(store_id: int = 1) -> SimpleNamespace:
-    return SimpleNamespace(
-        store_id=store_id,
-        code="S1",
-        name="Main Store",
-        location="06000",
-        address=1,
-        taxpayer="RFC123456789A",
-        logo="logo.png",
-        receipt_message=None,
-        default_batch=None,
-        disabled=None,
-    )
-
-
-def _production_site(ps_id: int = 1) -> SimpleNamespace:
-    return SimpleNamespace(
-        production_site_id=ps_id,
-        store=_store_summary(),
-        code="KIT1",
-        name="Kitchen",
-        comment=None,
-        disabled=None,
     )
 
 
@@ -383,134 +357,6 @@ async def test_delete_vehicle_operator_returns_404() -> None:
 async def test_list_vehicle_operators_requires_auth() -> None:
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
         r = await c.get("/api/v1/vehicle-operators")
-    assert r.status_code == 401
-
-
-# ── Production Site tests ─────────────────────────────────────────────────────
-
-
-@pytest.mark.asyncio
-async def test_list_production_sites_returns_200() -> None:
-    _auth()
-    with patch(
-        "app.services.production_site_service.list_production_sites",
-        new=AsyncMock(return_value=([_production_site()], 1)),
-    ):
-        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
-            r = await c.get("/api/v1/production-sites")
-    assert r.status_code == 200
-    assert r.json()["total"] == 1
-    assert r.json()["items"][0]["code"] == "KIT1"
-
-
-@pytest.mark.asyncio
-async def test_get_production_site_returns_200() -> None:
-    _auth()
-    with patch(
-        "app.services.production_site_service.get_production_site",
-        new=AsyncMock(return_value=_production_site()),
-    ):
-        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
-            r = await c.get("/api/v1/production-sites/1")
-    assert r.status_code == 200
-    assert r.json()["production_site_id"] == 1
-
-
-@pytest.mark.asyncio
-async def test_get_production_site_returns_404() -> None:
-    _auth()
-    with patch(
-        "app.services.production_site_service.get_production_site",
-        new=AsyncMock(return_value=None),
-    ):
-        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
-            r = await c.get("/api/v1/production-sites/999")
-    assert r.status_code == 404
-
-
-@pytest.mark.asyncio
-async def test_create_production_site_returns_201() -> None:
-    _auth()
-    with patch(
-        "app.services.production_site_service.create_production_site",
-        new=AsyncMock(return_value=_production_site()),
-    ):
-        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
-            r = await c.post(
-                "/api/v1/production-sites",
-                json={"store": 1, "code": "KIT1", "name": "Kitchen"},
-            )
-    assert r.status_code == 201
-    assert r.json()["code"] == "KIT1"
-
-
-@pytest.mark.asyncio
-async def test_update_production_site_returns_200() -> None:
-    _auth()
-    updated = _production_site()
-    updated.name = "Bakery"
-    with (
-        patch(
-            "app.services.production_site_service.get_production_site",
-            new=AsyncMock(return_value=_production_site()),
-        ),
-        patch(
-            "app.services.production_site_service.update_production_site",
-            new=AsyncMock(return_value=updated),
-        ),
-    ):
-        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
-            r = await c.put("/api/v1/production-sites/1", json={"name": "Bakery"})
-    assert r.status_code == 200
-    assert r.json()["name"] == "Bakery"
-
-
-@pytest.mark.asyncio
-async def test_update_production_site_returns_404() -> None:
-    _auth()
-    with patch(
-        "app.services.production_site_service.get_production_site",
-        new=AsyncMock(return_value=None),
-    ):
-        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
-            r = await c.put("/api/v1/production-sites/999", json={"name": "X"})
-    assert r.status_code == 404
-
-
-@pytest.mark.asyncio
-async def test_delete_production_site_returns_204() -> None:
-    _auth()
-    with (
-        patch(
-            "app.services.production_site_service.get_production_site",
-            new=AsyncMock(return_value=_production_site()),
-        ),
-        patch(
-            "app.services.production_site_service.delete_production_site",
-            new=AsyncMock(return_value=None),
-        ),
-    ):
-        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
-            r = await c.delete("/api/v1/production-sites/1")
-    assert r.status_code == 204
-
-
-@pytest.mark.asyncio
-async def test_delete_production_site_returns_404() -> None:
-    _auth()
-    with patch(
-        "app.services.production_site_service.get_production_site",
-        new=AsyncMock(return_value=None),
-    ):
-        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
-            r = await c.delete("/api/v1/production-sites/999")
-    assert r.status_code == 404
-
-
-@pytest.mark.asyncio
-async def test_list_production_sites_requires_auth() -> None:
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
-        r = await c.get("/api/v1/production-sites")
     assert r.status_code == 401
 
 

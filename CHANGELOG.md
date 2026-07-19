@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Changed
+- **Breaking**: `store` renamed to `facility` throughout — table `store` → `facility`, PK `store_id` → `facility_id`, every FK column named `store` on other tables (`cash_drawer`, `customer_payment`, `customer_refund`, `delivery_order`, `expense_voucher`, `fiscal_document`, `inventory_issue`, `inventory_receipt`, `inventory_transfer`, `payment_method_option`, `point_sale`, `sales_order`, `sales_quote`, `special_receipt`, `user_settings`, `warehouse`) → `facility`; API routes `/stores` → `/facilities`; embedded `store` JSON fields in responses → `facility`
+- `facility` gains a new `type` column — `FacilityType` int enum (`0` = store, `1` = production_site, default `0`)
+
+### Removed
+- `production_site` entity removed — production sites are now `facility` rows with `type = 1` (`PRODUCTION_SITE`); the `/production-sites` endpoints and `ProductionSites` (107) `SystemObject` no longer exist
+
 ### Added
 - `GET /api/v1/products/labels/facets` — returns `[{label_id, count}, ...]` for every label carried by at least one product matching the same filters as `GET /api/v1/products` (`search`, `label`, `deactivated`, `stockable`, `salable`, `purchasable`, `supplier`; no `skip`/`limit`), so clients can grey out labels that would narrow the current result set to zero (#78)
 - CRUD endpoints for per-product prices under `/api/v1/product-prices` (list with `product`/`price_list` filters, create, get, update, delete), gated by `SystemObject.PRICING`; `app/schemas/product_price.py` and `app/services/product_price_service.py`

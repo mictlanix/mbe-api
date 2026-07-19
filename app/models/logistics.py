@@ -15,7 +15,7 @@ class DeliveryOrder(Base):
     updater: Mapped[int] = mapped_column(Integer, ForeignKey("employee.employee_id"))
     creation_time: Mapped[datetime] = mapped_column(DateTime)
     modification_time: Mapped[datetime] = mapped_column(DateTime)
-    store: Mapped[int] = mapped_column(Integer, ForeignKey("store.store_id"))
+    facility: Mapped[int] = mapped_column(Integer, ForeignKey("facility.facility_id"))
     serial: Mapped[int] = mapped_column(Integer)
     customer: Mapped[int] = mapped_column(Integer, ForeignKey("customer.customer_id"))
     ship_to: Mapped[int | None] = mapped_column(Integer, ForeignKey("address.address_id"))

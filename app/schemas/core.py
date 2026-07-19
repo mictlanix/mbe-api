@@ -4,6 +4,7 @@ from decimal import Decimal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from app.enums import FacilityType
 from app.schemas.sat_catalog import SatCatalogResponse
 
 # ── Label ─────────────────────────────────────────────────────────────────────
@@ -80,12 +81,13 @@ class EmployeeResponse(BaseModel):
     disabled: bool | None
 
 
-# ── Store ─────────────────────────────────────────────────────────────────────
+# ── Facility ──────────────────────────────────────────────────────────────────
 
 
-class StoreCreate(BaseModel):
+class FacilityCreate(BaseModel):
     code: str
     name: str
+    type: FacilityType = FacilityType.STORE
     location: str
     address: int
     taxpayer: str
@@ -95,9 +97,10 @@ class StoreCreate(BaseModel):
     disabled: bool | None = None
 
 
-class StoreUpdate(BaseModel):
+class FacilityUpdate(BaseModel):
     code: str | None = None
     name: str | None = None
+    type: FacilityType | None = None
     location: str | None = None
     address: int | None = None
     taxpayer: str | None = None
@@ -107,14 +110,15 @@ class StoreUpdate(BaseModel):
     disabled: bool | None = None
 
 
-class StoreSummary(BaseModel):
-    """Flat Store representation used when embedded as another resource's FK."""
+class FacilitySummary(BaseModel):
+    """Flat Facility representation used when embedded as another resource's FK."""
 
     model_config = ConfigDict(from_attributes=True)
 
-    store_id: int
+    facility_id: int
     code: str
     name: str
+    type: FacilityType
     location: str
     address: int
     taxpayer: str
@@ -124,12 +128,13 @@ class StoreSummary(BaseModel):
     disabled: bool | None
 
 
-class StoreResponse(BaseModel):
+class FacilityResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
-    store_id: int
+    facility_id: int
     code: str
     name: str
+    type: FacilityType
     location: SatCatalogResponse
     address: int
     taxpayer: str
@@ -143,7 +148,7 @@ class StoreResponse(BaseModel):
 
 
 class WarehouseCreate(BaseModel):
-    store: int
+    facility: int
     code: str
     name: str
     comment: str | None = None
@@ -151,7 +156,7 @@ class WarehouseCreate(BaseModel):
 
 
 class WarehouseUpdate(BaseModel):
-    store: int | None = None
+    facility: int | None = None
     code: str | None = None
     name: str | None = None
     comment: str | None = None
@@ -164,7 +169,7 @@ class WarehouseSummary(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     warehouse_id: int
-    store: int
+    facility: int
     code: str
     name: str
     comment: str | None
@@ -175,7 +180,7 @@ class WarehouseResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     warehouse_id: int
-    store: StoreSummary
+    facility: FacilitySummary
     code: str
     name: str
     comment: str | None
@@ -186,7 +191,7 @@ class WarehouseResponse(BaseModel):
 
 
 class PointSaleCreate(BaseModel):
-    store: int
+    facility: int
     code: str
     name: str
     warehouse: int
@@ -195,7 +200,7 @@ class PointSaleCreate(BaseModel):
 
 
 class PointSaleUpdate(BaseModel):
-    store: int | None = None
+    facility: int | None = None
     code: str | None = None
     name: str | None = None
     warehouse: int | None = None
@@ -207,7 +212,7 @@ class PointSaleResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     point_sale_id: int
-    store: StoreSummary
+    facility: FacilitySummary
     code: str
     name: str
     warehouse: WarehouseSummary
@@ -219,7 +224,7 @@ class PointSaleResponse(BaseModel):
 
 
 class CashDrawerCreate(BaseModel):
-    store: int
+    facility: int
     code: str
     name: str
     comment: str | None = None
@@ -227,7 +232,7 @@ class CashDrawerCreate(BaseModel):
 
 
 class CashDrawerUpdate(BaseModel):
-    store: int | None = None
+    facility: int | None = None
     code: str | None = None
     name: str | None = None
     comment: str | None = None
@@ -238,7 +243,7 @@ class CashDrawerResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     cash_drawer_id: int
-    store: StoreSummary
+    facility: FacilitySummary
     code: str
     name: str
     comment: str | None
@@ -297,7 +302,7 @@ class ExpenseResponse(BaseModel):
 
 
 class PaymentMethodOptionCreate(BaseModel):
-    store: int
+    facility: int
     warehouse: int | None = None
     name: str
     number_of_payments: int = 1
@@ -308,7 +313,7 @@ class PaymentMethodOptionCreate(BaseModel):
 
 
 class PaymentMethodOptionUpdate(BaseModel):
-    store: int | None = None
+    facility: int | None = None
     warehouse: int | None = None
     name: str | None = None
     number_of_payments: int | None = None
@@ -322,7 +327,7 @@ class PaymentMethodOptionResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     payment_method_option_id: int
-    store: StoreSummary
+    facility: FacilitySummary
     warehouse: WarehouseSummary | None
     name: str
     number_of_payments: int
@@ -406,33 +411,3 @@ class VehicleOperatorResponse(BaseModel):
     def compute_days_until_expiry(self) -> "VehicleOperatorResponse":
         self.days_until_expiry = (self.expiration_date - dt.date.today()).days
         return self
-
-
-# ── Production Site ───────────────────────────────────────────────────────────
-
-
-class ProductionSiteCreate(BaseModel):
-    store: int
-    code: str
-    name: str
-    comment: str | None = None
-    disabled: bool | None = None
-
-
-class ProductionSiteUpdate(BaseModel):
-    store: int | None = None
-    code: str | None = None
-    name: str | None = None
-    comment: str | None = None
-    disabled: bool | None = None
-
-
-class ProductionSiteResponse(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-
-    production_site_id: int
-    store: StoreSummary
-    code: str
-    name: str
-    comment: str | None
-    disabled: bool | None

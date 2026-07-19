@@ -12,13 +12,15 @@ router = APIRouter()
 
 @router.get("", response_model=ListResponse[WarehouseResponse])
 async def list_warehouses(
-    store: int | None = Query(None),
+    facility: int | None = Query(None),
     skip: int = Query(0, ge=0),
     limit: int = Query(20, ge=1, le=100),
     _: CurrentUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> ListResponse[WarehouseResponse]:
-    items, total = await warehouse_service.list_warehouses(db, store=store, skip=skip, limit=limit)
+    items, total = await warehouse_service.list_warehouses(
+        db, facility=facility, skip=skip, limit=limit
+    )
     return ListResponse(items=list(items), total=total)
 
 

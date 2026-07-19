@@ -68,7 +68,7 @@ class FiscalDocument(Base):
     recipient_name: Mapped[str | None] = mapped_column(String(250))
     recipient_address: Mapped[int | None] = mapped_column(Integer, ForeignKey("address.address_id"))
     type: Mapped[int] = mapped_column(Integer)
-    store: Mapped[int] = mapped_column(Integer, ForeignKey("store.store_id"))
+    facility: Mapped[int] = mapped_column(Integer, ForeignKey("facility.facility_id"))
     batch: Mapped[str | None] = mapped_column(String(10))
     serial: Mapped[int | None] = mapped_column(Integer)
     issued: Mapped[datetime | None] = mapped_column(DateTime)

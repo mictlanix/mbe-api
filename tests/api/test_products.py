@@ -23,7 +23,7 @@ def _clear_overrides() -> Generator[None, None, None]:
 
 def _auth() -> None:
     app.dependency_overrides[get_current_user] = lambda: CurrentUser(
-        user_id="tester", session_version=1, administrator=True, store_id=None
+        user_id="tester", session_version=1, administrator=True, facility_id=None
     )
 
     async def _noop_db():

@@ -24,7 +24,7 @@ Key SAT catalog tables: `sat_cfdi_usage`, `sat_tax_regime`, `sat_product_service
 **SystemObject**: `Taxpayers` (24)
 
 ### Purpose
-Configure the company's RFC(s) used to issue CFDI documents. Each store is linked to a taxpayer issuer.
+Configure the company's RFC(s) used to issue CFDI documents. Each facility is linked to a taxpayer issuer.
 
 ### List View
 - Columns: RFC, name, tax regime, PAC provider, active certificate status
@@ -84,17 +84,17 @@ View, generate, stamp, download, and cancel CFDI electronic invoices. Documents 
 
 ### Create Flow
 1. Select document type (`FiscalDocumentType`: `I`=Ingreso, `E`=Egreso, `P`=Pago, etc.)
-2. Select issuer (from store's taxpayer): system finds matching `TaxpayerBatch` for the type; error if none found
+2. Select issuer (from facility's taxpayer): system finds matching `TaxpayerBatch` for the type; error if none found
 3. Select customer and recipient RFC (`TaxpayerRecipient`): auto-fills `TaxpayerRegime`, `TaxpayerPostalCode`
-   - If recipient is the general public RFC (`TaxpayerGeneralReceiptId`): `TaxpayerPostalCode` = store's location postal code
+   - If recipient is the general public RFC (`TaxpayerGeneralReceiptId`): `TaxpayerPostalCode` = facility's location postal code
 4. Document is created with `Batch` from the matched `TaxpayerBatch`
 
 ### Header Fields (`fiscal_document`)
 
 | Field | Column | Notes |
 |-------|--------|-------|
-| Store | `store` | FK → `store` |
-| Issuer | `issuer` | FK → `taxpayer_issuer` — auto from store |
+| Facility | `facility` | FK → `facility` |
+| Issuer | `issuer` | FK → `taxpayer_issuer` — auto from facility |
 | Issuer Regime | `issuer_regime` | Auto from taxpayer |
 | Customer | `customer` | FK → `customer` |
 | Recipient RFC | `recipient` | FK → `taxpayer_recipient` |
@@ -107,7 +107,7 @@ View, generate, stamp, download, and cancel CFDI electronic invoices. Documents 
 | Serial | `serial` | Auto-incremented |
 | Version | `version` | CFDI version (e.g. `4.0`) |
 | Issued Date | `issued` | Stamping timestamp |
-| Issued At | `issued_at` | FK → `address` — store's address |
+| Issued At | `issued_at` | FK → `address` — facility's address |
 | Payment Method | `payment_method` | SAT code: `PUE` (single) or `PPD` (installments) |
 | Payment Terms | `payment_terms` | Matches sales order |
 | Payment Reference | `payment_reference` | |

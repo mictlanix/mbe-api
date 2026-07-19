@@ -22,9 +22,9 @@ Body: `UserResponse` (existing schema, `app/schemas/user.py`) — same shape as 
   "disabled": false,
   "session_version": 3,
   "settings": {
-    "store_id": 1,
-    "store_code": "CMZ",
-    "store_name": "CASA MAESTRA ZUMPANGO",
+    "facility_id": 1,
+    "facility_code": "CMZ",
+    "facility_name": "CASA MAESTRA ZUMPANGO",
     "point_sale_id": 2,
     "point_sale_code": "01",
     "point_sale_name": "PV ZUMPANGO",
@@ -47,7 +47,7 @@ Body: `UserResponse` (existing schema, `app/schemas/user.py`) — same shape as 
 
 `settings` may be `null`; `privileges` may be `[]`.
 
-The `*_code` / `*_name` fields are resolved from the referenced store, point of sale, and
+The `*_code` / `*_name` fields are resolved from the referenced facility, point of sale, and
 cash drawer. They require no catalog-read privileges, since `/auth/me` returns the caller's
 own profile. When a `*_id` is `null`, its `*_code` and `*_name` are `null` too.
 

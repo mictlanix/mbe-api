@@ -26,8 +26,8 @@ async def login(
             detail="Invalid username or password",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    store_id = user.settings.store_id if user.settings else None
-    token = create_access_token(user.user_id, user.session_version, user.administrator, store_id)
+    facility_id = user.settings.facility_id if user.settings else None
+    token = create_access_token(user.user_id, user.session_version, user.administrator, facility_id)
     return TokenResponse(access_token=token)
 
 

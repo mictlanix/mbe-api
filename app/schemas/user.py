@@ -24,9 +24,9 @@ class PrivilegeUpdate(BaseModel):
 class UserSettingsResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
-    store_id: int | None
-    store_code: str | None = None
-    store_name: str | None = None
+    facility_id: int | None
+    facility_code: str | None = None
+    facility_name: str | None = None
     point_sale_id: int | None
     point_sale_code: str | None = None
     point_sale_name: str | None = None
@@ -36,7 +36,7 @@ class UserSettingsResponse(BaseModel):
 
 
 class UserSettingsUpdate(BaseModel):
-    store_id: int | None = None
+    facility_id: int | None = None
     point_sale_id: int | None = None
     cash_drawer_id: int | None = None
 

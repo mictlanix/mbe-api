@@ -32,7 +32,7 @@ CREATE TABLE `abc_classification` (
   `sales` decimal(65,2) DEFAULT NULL,
   `percentage_sales` decimal(65,6) DEFAULT NULL,
   `percentage_sales_accumulation` decimal(65,6) DEFAULT NULL,
-  `sales_by_store` decimal(65,2) DEFAULT NULL,
+  `sales_by_facility` decimal(65,2) DEFAULT NULL,
   `ABC` varchar(2) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci DEFAULT NULL,
   `service_level` decimal(3,2) DEFAULT NULL,
   `z_value` decimal(4,3) DEFAULT NULL,
@@ -132,15 +132,15 @@ DROP TABLE IF EXISTS `cash_drawer`;
 /*!50503 SET character_set_client = utf8mb4 */;
 CREATE TABLE `cash_drawer` (
   `cash_drawer_id` int(11) NOT NULL AUTO_INCREMENT,
-  `store` int(11) NOT NULL DEFAULT 1,
+  `facility` int(11) NOT NULL DEFAULT 1,
   `code` varchar(25) NOT NULL,
   `name` varchar(250) NOT NULL,
   `comment` varchar(500) DEFAULT NULL,
   `disabled` tinyint(1) DEFAULT 0,
   PRIMARY KEY (`cash_drawer_id`),
   UNIQUE KEY `code_UNIQUE` (`code`),
-  KEY `cash_drawer_store_fk_idx` (`store`),
-  CONSTRAINT `cash_drawer_store_fk` FOREIGN KEY (`store`) REFERENCES `store` (`store_id`) ON DELETE NO ACTION ON UPDATE NO ACTION
+  KEY `cash_drawer_facility_fk_idx` (`facility`),
+  CONSTRAINT `cash_drawer_facility_fk` FOREIGN KEY (`facility`) REFERENCES `facility` (`facility_id`) ON DELETE NO ACTION ON UPDATE NO ACTION
 ) ENGINE=InnoDB AUTO_INCREMENT=21 DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
@@ -444,7 +444,7 @@ CREATE TABLE `customer_payment` (
   `cash_session` int(11) DEFAULT NULL,
   `reference` varchar(50) DEFAULT NULL,
   `customer` int(11) NOT NULL,
-  `store` int(11) NOT NULL,
+  `facility` int(11) NOT NULL,
   `serial` int(11) NOT NULL,
   `creator` int(11) NOT NULL,
   `updater` int(11) NOT NULL,
@@ -456,7 +456,7 @@ CREATE TABLE `customer_payment` (
   PRIMARY KEY (`customer_payment_id`),
   KEY `customer_payment_cash_session_fk_idx` (`cash_session`),
   KEY `customer_payment_customer_idx` (`customer`),
-  KEY `customer_payment_store_fk_idx` (`store`),
+  KEY `customer_payment_facility_fk_idx` (`facility`),
   KEY `customer_payment_creator_fk_idx` (`creator`),
   KEY `customer_payment_updater_fk_idx` (`updater`),
   KEY `customer_payment_charge_fk` (`payment_charge`),
@@ -465,7 +465,7 @@ CREATE TABLE `customer_payment` (
   CONSTRAINT `customer_payment_charge_fk` FOREIGN KEY (`payment_charge`) REFERENCES `payment_method_option` (`payment_method_option_id`) ON DELETE NO ACTION ON UPDATE NO ACTION,
   CONSTRAINT `customer_payment_creator_fk` FOREIGN KEY (`creator`) REFERENCES `employee` (`employee_id`) ON DELETE NO ACTION ON UPDATE NO ACTION,
   CONSTRAINT `customer_payment_customer` FOREIGN KEY (`customer`) REFERENCES `customer` (`customer_id`) ON DELETE NO ACTION ON UPDATE NO ACTION,
-  CONSTRAINT `customer_payment_store_fk` FOREIGN KEY (`store`) REFERENCES `store` (`store_id`) ON DELETE NO ACTION ON UPDATE NO ACTION,
+  CONSTRAINT `customer_payment_facility_fk` FOREIGN KEY (`facility`) REFERENCES `facility` (`facility_id`) ON DELETE NO ACTION ON UPDATE NO ACTION,
   CONSTRAINT `customer_payment_updater_fk` FOREIGN KEY (`updater`) REFERENCES `employee` (`employee_id`) ON DELETE NO ACTION ON UPDATE NO ACTION,
   CONSTRAINT `customer_payment_verifier_fk` FOREIGN KEY (`verifier`) REFERENCES `employee` (`employee_id`) ON DELETE NO ACTION ON UPDATE NO ACTION
 ) ENGINE=InnoDB AUTO_INCREMENT=290407 DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_unicode_ci;
@@ -489,7 +489,7 @@ CREATE TABLE `customer_refund` (
   `modification_time` datetime NOT NULL,
   `completed` tinyint(1) NOT NULL,
   `cancelled` tinyint(1) NOT NULL,
-  `store` int(11) NOT NULL,
+  `facility` int(11) NOT NULL,
   `serial` int(11) DEFAULT NULL,
   `date` datetime DEFAULT NULL,
   `currency` int(11) NOT NULL,
@@ -500,12 +500,12 @@ CREATE TABLE `customer_refund` (
   KEY `customer_refund_updater_idx` (`updater`),
   KEY `customer_refund_sales_person_idx` (`sales_person`),
   KEY `customer_refund_customer_idx` (`customer`),
-  KEY `customer_refund_store_idx` (`store`),
+  KEY `customer_refund_facility_idx` (`facility`),
   CONSTRAINT `customer_refund_creator_fk` FOREIGN KEY (`creator`) REFERENCES `employee` (`employee_id`) ON DELETE NO ACTION ON UPDATE NO ACTION,
   CONSTRAINT `customer_refund_customer_fk` FOREIGN KEY (`customer`) REFERENCES `customer` (`customer_id`) ON DELETE NO ACTION ON UPDATE NO ACTION,
   CONSTRAINT `customer_refund_sales_order_fk` FOREIGN KEY (`sales_order`) REFERENCES `sales_order` (`sales_order_id`) ON DELETE NO ACTION ON UPDATE NO ACTION,
   CONSTRAINT `customer_refund_sales_person_fk` FOREIGN KEY (`sales_person`) REFERENCES `employee` (`employee_id`) ON DELETE NO ACTION ON UPDATE NO ACTION,
-  CONSTRAINT `customer_refund_store_fk` FOREIGN KEY (`store`) REFERENCES `store` (`store_id`) ON DELETE NO ACTION ON UPDATE NO ACTION,
+  CONSTRAINT `customer_refund_facility_fk` FOREIGN KEY (`facility`) REFERENCES `facility` (`facility_id`) ON DELETE NO ACTION ON UPDATE NO ACTION,
   CONSTRAINT `customer_refund_updater_fk` FOREIGN KEY (`updater`) REFERENCES `employee` (`employee_id`) ON DELETE NO ACTION ON UPDATE NO ACTION
 ) ENGINE=InnoDB AUTO_INCREMENT=9194 DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
@@ -629,7 +629,7 @@ CREATE TABLE `delivery_order` (
   `updater` int(11) NOT NULL,
   `creation_time` datetime NOT NULL,
   `modification_time` datetime NOT NULL,
-  `store` int(11) NOT NULL,
+  `facility` int(11) NOT NULL,
   `serial` int(11) NOT NULL,
   `customer` int(11) NOT NULL,
   `ship_to` int(11) DEFAULT NULL,
@@ -645,7 +645,7 @@ CREATE TABLE `delivery_order` (
   PRIMARY KEY (`delivery_order_id`),
   KEY `FK_delivery_order_employee` (`creator`),
   KEY `FK_delivery_order_employee_2` (`updater`),
-  KEY `FK_delivery_order_store` (`store`),
+  KEY `FK_delivery_order_facility` (`facility`),
   KEY `FK_delivery_order_customer` (`customer`),
   KEY `FK_delivery_order_contact` (`contact`),
   KEY `FK_delivery_order_address` (`ship_to`),
@@ -654,7 +654,7 @@ CREATE TABLE `delivery_order` (
   CONSTRAINT `FK_delivery_order_customer` FOREIGN KEY (`customer`) REFERENCES `customer` (`customer_id`) ON DELETE NO ACTION ON UPDATE NO ACTION,
   CONSTRAINT `FK_delivery_order_employee` FOREIGN KEY (`creator`) REFERENCES `employee` (`employee_id`) ON DELETE NO ACTION ON UPDATE NO ACTION,
   CONSTRAINT `FK_delivery_order_employee_2` FOREIGN KEY (`updater`) REFERENCES `employee` (`employee_id`) ON DELETE NO ACTION ON UPDATE NO ACTION,
-  CONSTRAINT `FK_delivery_order_store` FOREIGN KEY (`store`) REFERENCES `store` (`store_id`) ON DELETE NO ACTION ON UPDATE NO ACTION
+  CONSTRAINT `FK_delivery_order_facility` FOREIGN KEY (`facility`) REFERENCES `facility` (`facility_id`) ON DELETE NO ACTION ON UPDATE NO ACTION
 ) ENGINE=InnoDB AUTO_INCREMENT=26765 DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
@@ -760,7 +760,7 @@ CREATE TABLE `expense_voucher` (
   `expense_voucher_id` int(11) NOT NULL AUTO_INCREMENT,
   `creator` int(11) NOT NULL DEFAULT 0,
   `updater` int(11) NOT NULL DEFAULT 0,
-  `store` int(11) NOT NULL DEFAULT 0,
+  `facility` int(11) NOT NULL DEFAULT 0,
   `cash_session` int(11) NOT NULL DEFAULT 0,
   `comment` varchar(500) DEFAULT NULL,
   `date` datetime NOT NULL DEFAULT current_timestamp(),
@@ -769,14 +769,14 @@ CREATE TABLE `expense_voucher` (
   `completed` tinyint(1) DEFAULT 0,
   `cancelled` tinyint(1) DEFAULT 0,
   PRIMARY KEY (`expense_voucher_id`),
-  KEY `FK_expense_voucher_store` (`store`),
+  KEY `FK_expense_voucher_facility` (`facility`),
   KEY `FK_expense_voucher_employee` (`creator`),
   KEY `FK_expense_voucher_employee_2` (`updater`),
   KEY `FK_expense_voucher_cash_session` (`cash_session`),
   CONSTRAINT `FK_expense_voucher_cash_session` FOREIGN KEY (`cash_session`) REFERENCES `cash_session` (`cash_session_id`),
   CONSTRAINT `FK_expense_voucher_employee` FOREIGN KEY (`creator`) REFERENCES `employee` (`employee_id`),
   CONSTRAINT `FK_expense_voucher_employee_2` FOREIGN KEY (`updater`) REFERENCES `employee` (`employee_id`),
-  CONSTRAINT `FK_expense_voucher_store` FOREIGN KEY (`store`) REFERENCES `store` (`store_id`)
+  CONSTRAINT `FK_expense_voucher_facility` FOREIGN KEY (`facility`) REFERENCES `facility` (`facility_id`)
 ) ENGINE=InnoDB AUTO_INCREMENT=20664 DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
@@ -839,7 +839,7 @@ CREATE TABLE `fiscal_document` (
   `recipient_name` varchar(250) DEFAULT NULL,
   `recipient_address` int(11) DEFAULT NULL,
   `type` int(11) NOT NULL,
-  `store` int(11) NOT NULL,
+  `facility` int(11) NOT NULL,
   `batch` varchar(10) DEFAULT NULL,
   `serial` int(11) DEFAULT NULL,
   `issued` datetime DEFAULT NULL,
@@ -885,7 +885,7 @@ CREATE TABLE `fiscal_document` (
   KEY `fiscal_document_taxpayer_fk_idx` (`issuer`),
   KEY `fiscal_document_recipient_address_fk_idx` (`recipient_address`),
   KEY `fiscal_document_issued_from_fk_idx` (`issuer_address`),
-  KEY `fiscal_document_store_fk_idx` (`store`),
+  KEY `fiscal_document_facility_fk_idx` (`facility`),
   KEY `fiscal_document_issued_at_fk_idx` (`issued_at`),
   KEY `fiscal_document_issuer_regime_idx` (`issuer_regime`),
   KEY `fiscal_document_usage_idx` (`usage`),
@@ -896,7 +896,7 @@ CREATE TABLE `fiscal_document` (
   CONSTRAINT `fiscal_document_issuer_fk` FOREIGN KEY (`issuer`) REFERENCES `taxpayer_issuer` (`taxpayer_issuer_id`) ON DELETE NO ACTION ON UPDATE NO ACTION,
   CONSTRAINT `fiscal_document_issuer_regime_fk` FOREIGN KEY (`issuer_regime`) REFERENCES `sat_tax_regime` (`sat_tax_regime_id`) ON DELETE NO ACTION ON UPDATE NO ACTION,
   CONSTRAINT `fiscal_document_recipient_address_fk` FOREIGN KEY (`recipient_address`) REFERENCES `address` (`address_id`) ON DELETE NO ACTION ON UPDATE NO ACTION,
-  CONSTRAINT `fiscal_document_store_fk` FOREIGN KEY (`store`) REFERENCES `store` (`store_id`) ON DELETE NO ACTION ON UPDATE NO ACTION,
+  CONSTRAINT `fiscal_document_facility_fk` FOREIGN KEY (`facility`) REFERENCES `facility` (`facility_id`) ON DELETE NO ACTION ON UPDATE NO ACTION,
   CONSTRAINT `fiscal_document_updater_fk` FOREIGN KEY (`updater`) REFERENCES `employee` (`employee_id`) ON DELETE NO ACTION ON UPDATE NO ACTION,
   CONSTRAINT `fiscal_document_usage_fk` FOREIGN KEY (`usage`) REFERENCES `sat_cfdi_usage` (`sat_cfdi_usage_id`) ON DELETE NO ACTION ON UPDATE NO ACTION
 ) ENGINE=InnoDB AUTO_INCREMENT=62177 DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_unicode_ci;
@@ -1009,7 +1009,7 @@ DROP TABLE IF EXISTS `inventory_issue`;
 /*!50503 SET character_set_client = utf8mb4 */;
 CREATE TABLE `inventory_issue` (
   `inventory_issue_id` int(11) NOT NULL AUTO_INCREMENT,
-  `store` int(11) NOT NULL,
+  `facility` int(11) NOT NULL,
   `serial` int(11) DEFAULT NULL,
   `creation_time` datetime NOT NULL,
   `modification_time` datetime NOT NULL,
@@ -1021,15 +1021,15 @@ CREATE TABLE `inventory_issue` (
   `comment` varchar(500) DEFAULT NULL,
   `supplier_return` int(11) DEFAULT NULL,
   PRIMARY KEY (`inventory_issue_id`),
-  UNIQUE KEY `inventory_issue_store_serial_idx` (`store`,`serial`),
+  UNIQUE KEY `inventory_issue_facility_serial_idx` (`facility`,`serial`),
   KEY `inventory_issue_employee_creator_idx` (`creator`),
   KEY `inventory_issue_employee_updater_idx` (`updater`),
   KEY `inventory_issue_warehouse_idx` (`warehouse`),
   KEY `inventory_issue_supplier_return_idx` (`supplier_return`),
-  KEY `inventory_issue_store_idx` (`store`),
+  KEY `inventory_issue_facility_idx` (`facility`),
   CONSTRAINT `inventory_issue_employee_creator_fk` FOREIGN KEY (`creator`) REFERENCES `employee` (`employee_id`) ON DELETE NO ACTION ON UPDATE NO ACTION,
   CONSTRAINT `inventory_issue_employee_updater_fk` FOREIGN KEY (`updater`) REFERENCES `employee` (`employee_id`) ON DELETE NO ACTION ON UPDATE NO ACTION,
-  CONSTRAINT `inventory_issue_store_fk` FOREIGN KEY (`store`) REFERENCES `store` (`store_id`) ON DELETE NO ACTION ON UPDATE NO ACTION,
+  CONSTRAINT `inventory_issue_facility_fk` FOREIGN KEY (`facility`) REFERENCES `facility` (`facility_id`) ON DELETE NO ACTION ON UPDATE NO ACTION,
   CONSTRAINT `inventory_issue_supplier_return_fk` FOREIGN KEY (`supplier_return`) REFERENCES `supplier_return` (`supplier_return_id`) ON DELETE NO ACTION ON UPDATE NO ACTION,
   CONSTRAINT `inventory_issue_warehouse_fk` FOREIGN KEY (`warehouse`) REFERENCES `warehouse` (`warehouse_id`) ON DELETE NO ACTION ON UPDATE NO ACTION
 ) ENGINE=InnoDB AUTO_INCREMENT=9357 DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_unicode_ci;
@@ -1066,7 +1066,7 @@ DROP TABLE IF EXISTS `inventory_receipt`;
 /*!50503 SET character_set_client = utf8mb4 */;
 CREATE TABLE `inventory_receipt` (
   `inventory_receipt_id` int(11) NOT NULL AUTO_INCREMENT,
-  `store` int(11) NOT NULL,
+  `facility` int(11) NOT NULL,
   `serial` int(11) DEFAULT NULL,
   `creation_time` datetime NOT NULL,
   `modification_time` datetime NOT NULL,
@@ -1078,15 +1078,15 @@ CREATE TABLE `inventory_receipt` (
   `cancelled` tinyint(1) NOT NULL DEFAULT 0,
   `comment` varchar(500) DEFAULT NULL,
   PRIMARY KEY (`inventory_receipt_id`),
-  UNIQUE KEY `inventory_receipt_store_serial_idx` (`store`,`serial`),
+  UNIQUE KEY `inventory_receipt_facility_serial_idx` (`facility`,`serial`),
   KEY `inventory_receipt_warehouse_idx` (`warehouse`),
   KEY `inventory_receipt_purchase_order_idx` (`purchase_order`),
   KEY `inventory_receipt_creator_idx` (`creator`),
   KEY `inventory_receipt_updater_idx` (`updater`),
-  KEY `inventory_receipt_store_idx` (`store`),
+  KEY `inventory_receipt_facility_idx` (`facility`),
   CONSTRAINT `inventory_receipt_creator_fk` FOREIGN KEY (`creator`) REFERENCES `employee` (`employee_id`) ON DELETE NO ACTION ON UPDATE NO ACTION,
   CONSTRAINT `inventory_receipt_purchase_order_fk` FOREIGN KEY (`purchase_order`) REFERENCES `purchase_order` (`purchase_order_id`) ON DELETE NO ACTION ON UPDATE NO ACTION,
-  CONSTRAINT `inventory_receipt_store_fk` FOREIGN KEY (`store`) REFERENCES `store` (`store_id`) ON DELETE NO ACTION ON UPDATE NO ACTION,
+  CONSTRAINT `inventory_receipt_facility_fk` FOREIGN KEY (`facility`) REFERENCES `facility` (`facility_id`) ON DELETE NO ACTION ON UPDATE NO ACTION,
   CONSTRAINT `inventory_receipt_updater_fk` FOREIGN KEY (`updater`) REFERENCES `employee` (`employee_id`) ON DELETE NO ACTION ON UPDATE NO ACTION,
   CONSTRAINT `inventory_receipt_warehouse_fk` FOREIGN KEY (`warehouse`) REFERENCES `warehouse` (`warehouse_id`) ON DELETE NO ACTION ON UPDATE NO ACTION
 ) ENGINE=InnoDB AUTO_INCREMENT=30627 DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_unicode_ci;
@@ -1127,7 +1127,7 @@ DROP TABLE IF EXISTS `inventory_transfer`;
 /*!50503 SET character_set_client = utf8mb4 */;
 CREATE TABLE `inventory_transfer` (
   `inventory_transfer_id` int(11) NOT NULL AUTO_INCREMENT,
-  `store` int(11) NOT NULL,
+  `facility` int(11) NOT NULL,
   `serial` int(11) DEFAULT NULL,
   `creation_time` datetime NOT NULL,
   `modification_time` datetime NOT NULL,
@@ -1139,15 +1139,15 @@ CREATE TABLE `inventory_transfer` (
   `cancelled` tinyint(1) NOT NULL DEFAULT 0,
   `comment` varchar(500) DEFAULT NULL,
   PRIMARY KEY (`inventory_transfer_id`),
-  UNIQUE KEY `inventory_transfer_store_serial_idx` (`store`,`serial`),
+  UNIQUE KEY `inventory_transfer_facility_serial_idx` (`facility`,`serial`),
   KEY `inventory_transfer_from_idx` (`warehouse`),
   KEY `inventory_transfer_to_idx` (`warehouse_to`),
   KEY `inventory_transfer_creator_idx` (`creator`),
   KEY `inventory_transfer_updater_idx` (`updater`),
-  KEY `inventory_transfer_store_idx` (`store`),
+  KEY `inventory_transfer_facility_idx` (`facility`),
   CONSTRAINT `inventory_transfer_creator_fk` FOREIGN KEY (`creator`) REFERENCES `employee` (`employee_id`) ON DELETE NO ACTION ON UPDATE NO ACTION,
   CONSTRAINT `inventory_transfer_from_fk` FOREIGN KEY (`warehouse`) REFERENCES `warehouse` (`warehouse_id`) ON DELETE NO ACTION ON UPDATE NO ACTION,
-  CONSTRAINT `inventory_transfer_store_fk` FOREIGN KEY (`store`) REFERENCES `store` (`store_id`) ON DELETE NO ACTION ON UPDATE NO ACTION,
+  CONSTRAINT `inventory_transfer_facility_fk` FOREIGN KEY (`facility`) REFERENCES `facility` (`facility_id`) ON DELETE NO ACTION ON UPDATE NO ACTION,
   CONSTRAINT `inventory_transfer_to_fk` FOREIGN KEY (`warehouse_to`) REFERENCES `warehouse` (`warehouse_id`) ON DELETE NO ACTION ON UPDATE NO ACTION,
   CONSTRAINT `inventory_transfer_updater_fk` FOREIGN KEY (`updater`) REFERENCES `employee` (`employee_id`) ON DELETE NO ACTION ON UPDATE NO ACTION
 ) ENGINE=InnoDB AUTO_INCREMENT=19258 DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_unicode_ci;
@@ -1296,7 +1296,7 @@ DROP TABLE IF EXISTS `payment_method_option`;
 CREATE TABLE `payment_method_option` (
   `payment_method_option_id` int(11) NOT NULL AUTO_INCREMENT,
   `warehouse` int(11) DEFAULT NULL,
-  `store` int(11) NOT NULL,
+  `facility` int(11) NOT NULL,
   `name` varchar(50) NOT NULL,
   `number_of_payments` tinyint(4) NOT NULL DEFAULT 1,
   `display_on_ticket` tinyint(1) NOT NULL,
@@ -1304,8 +1304,8 @@ CREATE TABLE `payment_method_option` (
   `commission` decimal(10,3) NOT NULL,
   `enabled` tinyint(1) NOT NULL DEFAULT 1,
   PRIMARY KEY (`payment_method_option_id`),
-  KEY `FK_payment_method_charge_store` (`store`),
-  CONSTRAINT `FK_payment_method_charge_store` FOREIGN KEY (`store`) REFERENCES `store` (`store_id`)
+  KEY `FK_payment_method_charge_facility` (`facility`),
+  CONSTRAINT `FK_payment_method_charge_facility` FOREIGN KEY (`facility`) REFERENCES `facility` (`facility_id`)
 ) ENGINE=InnoDB AUTO_INCREMENT=50 DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
@@ -1357,7 +1357,7 @@ DROP TABLE IF EXISTS `point_sale`;
 /*!50503 SET character_set_client = utf8mb4 */;
 CREATE TABLE `point_sale` (
   `point_sale_id` int(11) NOT NULL AUTO_INCREMENT,
-  `store` int(11) NOT NULL DEFAULT 1,
+  `facility` int(11) NOT NULL DEFAULT 1,
   `code` varchar(25) NOT NULL,
   `name` varchar(250) NOT NULL,
   `warehouse` int(11) NOT NULL,
@@ -1365,9 +1365,9 @@ CREATE TABLE `point_sale` (
   `disabled` tinyint(1) DEFAULT 0,
   PRIMARY KEY (`point_sale_id`),
   UNIQUE KEY `code_UNIQUE` (`code`),
-  KEY `point_sale_store_fk_idx` (`store`),
+  KEY `point_sale_facility_fk_idx` (`facility`),
   KEY `point_sale_warehouse_fk_idx` (`warehouse`),
-  CONSTRAINT `point_sale_store_fk` FOREIGN KEY (`store`) REFERENCES `store` (`store_id`) ON DELETE NO ACTION ON UPDATE NO ACTION,
+  CONSTRAINT `point_sale_facility_fk` FOREIGN KEY (`facility`) REFERENCES `facility` (`facility_id`) ON DELETE NO ACTION ON UPDATE NO ACTION,
   CONSTRAINT `point_sale_warehouse_fk` FOREIGN KEY (`warehouse`) REFERENCES `warehouse` (`warehouse_id`) ON DELETE NO ACTION ON UPDATE NO ACTION
 ) ENGINE=InnoDB AUTO_INCREMENT=28 DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
@@ -1509,27 +1509,6 @@ CREATE TABLE `product_price` (
   CONSTRAINT `product_price_list_fk` FOREIGN KEY (`list`) REFERENCES `price_list` (`price_list_id`) ON DELETE NO ACTION ON UPDATE NO ACTION,
   CONSTRAINT `product_price_product_fk` FOREIGN KEY (`product`) REFERENCES `product` (`product_id`) ON DELETE NO ACTION ON UPDATE NO ACTION
 ) ENGINE=InnoDB AUTO_INCREMENT=116132 DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_unicode_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
-
---
--- Table structure for table `production_site`
---
-
-DROP TABLE IF EXISTS `production_site`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!50503 SET character_set_client = utf8mb4 */;
-CREATE TABLE `production_site` (
-  `production_site_id` int(11) NOT NULL AUTO_INCREMENT,
-  `store` int(11) NOT NULL,
-  `code` varchar(25) NOT NULL,
-  `name` varchar(250) NOT NULL,
-  `comment` varchar(500) DEFAULT NULL,
-  `disabled` tinyint(4) DEFAULT 0,
-  PRIMARY KEY (`production_site_id`) USING BTREE,
-  UNIQUE KEY `code_UNIQUE` (`code`) USING BTREE,
-  KEY `production_site_store_fk_idx` (`store`) USING BTREE,
-  CONSTRAINT `production_site_store_fk` FOREIGN KEY (`store`) REFERENCES `store` (`store_id`) ON DELETE NO ACTION ON UPDATE NO ACTION
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -1687,7 +1666,7 @@ DROP TABLE IF EXISTS `sales_order`;
 /*!50503 SET character_set_client = utf8mb4 */;
 CREATE TABLE `sales_order` (
   `sales_order_id` int(11) NOT NULL AUTO_INCREMENT,
-  `store` int(11) NOT NULL,
+  `facility` int(11) NOT NULL,
   `serial` int(11) DEFAULT NULL,
   `point_sale` int(11) NOT NULL,
   `salesperson` int(11) NOT NULL,
@@ -1719,11 +1698,11 @@ CREATE TABLE `sales_order` (
   `priority` tinyint(3) NOT NULL DEFAULT 1,
   `partial_deliveries` tinyint(2) DEFAULT NULL,
   PRIMARY KEY (`sales_order_id`),
-  UNIQUE KEY `sales_order_store_serial_idx` (`store`,`serial`),
+  UNIQUE KEY `sales_order_facility_serial_idx` (`facility`,`serial`),
   KEY `sales_order_customer_fk_idx` (`customer`),
   KEY `sales_order_point_sale_fk_idx` (`point_sale`),
   KEY `sales_order_employed_fk_idx` (`salesperson`),
-  KEY `sales_order_store_fk_idx` (`store`),
+  KEY `sales_order_facility_fk_idx` (`facility`),
   KEY `sales_order_creator_fk_idx` (`creator`),
   KEY `sales_order_updater_fk_idx` (`updater`),
   KEY `sales_order_ship_to_fk_idx` (`ship_to`),
@@ -1738,7 +1717,7 @@ CREATE TABLE `sales_order` (
   CONSTRAINT `sales_order_employed_fk` FOREIGN KEY (`salesperson`) REFERENCES `employee` (`employee_id`) ON DELETE NO ACTION ON UPDATE NO ACTION,
   CONSTRAINT `sales_order_point_sale_fk` FOREIGN KEY (`point_sale`) REFERENCES `point_sale` (`point_sale_id`) ON DELETE NO ACTION ON UPDATE NO ACTION,
   CONSTRAINT `sales_order_ship_to_fk` FOREIGN KEY (`ship_to`) REFERENCES `address` (`address_id`) ON DELETE NO ACTION ON UPDATE NO ACTION,
-  CONSTRAINT `sales_order_store_fk` FOREIGN KEY (`store`) REFERENCES `store` (`store_id`) ON DELETE NO ACTION ON UPDATE NO ACTION,
+  CONSTRAINT `sales_order_facility_fk` FOREIGN KEY (`facility`) REFERENCES `facility` (`facility_id`) ON DELETE NO ACTION ON UPDATE NO ACTION,
   CONSTRAINT `sales_order_updater_fk` FOREIGN KEY (`updater`) REFERENCES `employee` (`employee_id`) ON DELETE NO ACTION ON UPDATE NO ACTION
 ) ENGINE=InnoDB AUTO_INCREMENT=332781 DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
@@ -1814,7 +1793,7 @@ DROP TABLE IF EXISTS `sales_quote`;
 /*!50503 SET character_set_client = utf8mb4 */;
 CREATE TABLE `sales_quote` (
   `sales_quote_id` int(11) NOT NULL AUTO_INCREMENT,
-  `store` int(11) NOT NULL,
+  `facility` int(11) NOT NULL,
   `serial` int(11) DEFAULT NULL,
   `date` datetime NOT NULL,
   `salesperson` int(11) NOT NULL,
@@ -1835,7 +1814,7 @@ CREATE TABLE `sales_quote` (
   PRIMARY KEY (`sales_quote_id`),
   KEY `sales_quote_customer_fk_idx` (`customer`),
   KEY `sales_quote_employed_fk_idx` (`salesperson`),
-  KEY `sales_quote_store_fk_idx` (`store`),
+  KEY `sales_quote_facility_fk_idx` (`facility`),
   KEY `sales_quote_creator_idx` (`creator`),
   KEY `sales_quote_updater_idx` (`updater`),
   KEY `sales_quote_ship_to_idx` (`ship_to`),
@@ -1845,7 +1824,7 @@ CREATE TABLE `sales_quote` (
   CONSTRAINT `sales_quote_customer_fk` FOREIGN KEY (`customer`) REFERENCES `customer` (`customer_id`) ON DELETE NO ACTION ON UPDATE NO ACTION,
   CONSTRAINT `sales_quote_employed_fk` FOREIGN KEY (`salesperson`) REFERENCES `employee` (`employee_id`) ON DELETE NO ACTION ON UPDATE NO ACTION,
   CONSTRAINT `sales_quote_ship_to_fk` FOREIGN KEY (`ship_to`) REFERENCES `address` (`address_id`) ON DELETE NO ACTION ON UPDATE NO ACTION,
-  CONSTRAINT `sales_quote_store_fk` FOREIGN KEY (`store`) REFERENCES `store` (`store_id`) ON DELETE NO ACTION ON UPDATE NO ACTION,
+  CONSTRAINT `sales_quote_facility_fk` FOREIGN KEY (`facility`) REFERENCES `facility` (`facility_id`) ON DELETE NO ACTION ON UPDATE NO ACTION,
   CONSTRAINT `sales_quote_updater_fk` FOREIGN KEY (`updater`) REFERENCES `employee` (`employee_id`) ON DELETE NO ACTION ON UPDATE NO ACTION
 ) ENGINE=InnoDB AUTO_INCREMENT=27724 DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
@@ -2033,7 +2012,7 @@ CREATE TABLE `special_receipt` (
   `creator` int(11) NOT NULL DEFAULT 0,
   `updater` int(11) NOT NULL DEFAULT 0,
   `salesperson` int(11) NOT NULL DEFAULT 0,
-  `store` int(11) NOT NULL DEFAULT 0,
+  `facility` int(11) NOT NULL DEFAULT 0,
   `serial` int(11) NOT NULL DEFAULT 0,
   `customer` varchar(100) DEFAULT '',
   `ship_to` varchar(100) DEFAULT '',
@@ -2046,24 +2025,24 @@ CREATE TABLE `special_receipt` (
   PRIMARY KEY (`special_receipt_id`),
   KEY `FK__employee` (`creator`),
   KEY `FK__employee_2` (`updater`),
-  KEY `FK__store` (`store`),
+  KEY `FK__facility` (`facility`),
   KEY `FK_special_receipt_employee` (`salesperson`),
   CONSTRAINT `FK__employee` FOREIGN KEY (`creator`) REFERENCES `employee` (`employee_id`),
   CONSTRAINT `FK__employee_2` FOREIGN KEY (`updater`) REFERENCES `employee` (`employee_id`),
-  CONSTRAINT `FK__store` FOREIGN KEY (`store`) REFERENCES `store` (`store_id`),
+  CONSTRAINT `FK__facility` FOREIGN KEY (`facility`) REFERENCES `facility` (`facility_id`),
   CONSTRAINT `FK_special_receipt_employee` FOREIGN KEY (`salesperson`) REFERENCES `employee` (`employee_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_spanish_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
--- Table structure for table `store`
+-- Table structure for table `facility`
 --
 
-DROP TABLE IF EXISTS `store`;
+DROP TABLE IF EXISTS `facility`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
-CREATE TABLE `store` (
-  `store_id` int(11) NOT NULL AUTO_INCREMENT,
+CREATE TABLE `facility` (
+  `facility_id` int(11) NOT NULL AUTO_INCREMENT,
   `code` varchar(25) NOT NULL,
   `name` varchar(250) NOT NULL,
   `location` varchar(5) NOT NULL,
@@ -2073,13 +2052,14 @@ CREATE TABLE `store` (
   `receipt_message` varchar(250) DEFAULT NULL,
   `default_batch` varchar(10) DEFAULT NULL,
   `disabled` tinyint(1) DEFAULT 0,
-  PRIMARY KEY (`store_id`),
-  KEY `store_address_idx` (`address`),
-  KEY `store_location_idx` (`location`),
-  KEY `store_taxpayer_idx` (`taxpayer`),
-  CONSTRAINT `store_address_fk` FOREIGN KEY (`address`) REFERENCES `address` (`address_id`) ON DELETE NO ACTION ON UPDATE NO ACTION,
-  CONSTRAINT `store_location_fk` FOREIGN KEY (`location`) REFERENCES `sat_postal_code` (`sat_postal_code_id`) ON DELETE NO ACTION ON UPDATE NO ACTION,
-  CONSTRAINT `store_taxpayer_fk` FOREIGN KEY (`taxpayer`) REFERENCES `taxpayer_issuer` (`taxpayer_issuer_id`) ON DELETE NO ACTION ON UPDATE NO ACTION
+  `type` int(11) NOT NULL DEFAULT 0,
+  PRIMARY KEY (`facility_id`),
+  KEY `facility_address_idx` (`address`),
+  KEY `facility_location_idx` (`location`),
+  KEY `facility_taxpayer_idx` (`taxpayer`),
+  CONSTRAINT `facility_address_fk` FOREIGN KEY (`address`) REFERENCES `address` (`address_id`) ON DELETE NO ACTION ON UPDATE NO ACTION,
+  CONSTRAINT `facility_location_fk` FOREIGN KEY (`location`) REFERENCES `sat_postal_code` (`sat_postal_code_id`) ON DELETE NO ACTION ON UPDATE NO ACTION,
+  CONSTRAINT `facility_taxpayer_fk` FOREIGN KEY (`taxpayer`) REFERENCES `taxpayer_issuer` (`taxpayer_issuer_id`) ON DELETE NO ACTION ON UPDATE NO ACTION
 ) ENGINE=InnoDB AUTO_INCREMENT=54 DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
@@ -2543,17 +2523,17 @@ DROP TABLE IF EXISTS `user_settings`;
 /*!50503 SET character_set_client = utf8mb4 */;
 CREATE TABLE `user_settings` (
   `user` varchar(20) NOT NULL,
-  `store` int(11) NOT NULL,
+  `facility` int(11) NOT NULL,
   `point_sale` int(11) DEFAULT NULL,
   `cash_drawer` int(11) DEFAULT NULL,
   PRIMARY KEY (`user`),
   KEY `user_settings_user_fk_idx` (`user`),
-  KEY `user_settings_store_fk_idx` (`store`),
+  KEY `user_settings_facility_fk_idx` (`facility`),
   KEY `user_settings_point_sale_fk_idx` (`point_sale`),
   KEY `user_settings_cash_drawer_fk_idx` (`cash_drawer`),
   CONSTRAINT `user_settings_cash_drawer_fk` FOREIGN KEY (`cash_drawer`) REFERENCES `cash_drawer` (`cash_drawer_id`) ON DELETE NO ACTION ON UPDATE NO ACTION,
   CONSTRAINT `user_settings_point_sale_fk` FOREIGN KEY (`point_sale`) REFERENCES `point_sale` (`point_sale_id`) ON DELETE NO ACTION ON UPDATE NO ACTION,
-  CONSTRAINT `user_settings_store_fk` FOREIGN KEY (`store`) REFERENCES `store` (`store_id`) ON DELETE NO ACTION ON UPDATE NO ACTION,
+  CONSTRAINT `user_settings_facility_fk` FOREIGN KEY (`facility`) REFERENCES `facility` (`facility_id`) ON DELETE NO ACTION ON UPDATE NO ACTION,
   CONSTRAINT `user_settings_user_fk` FOREIGN KEY (`user`) REFERENCES `user` (`user_id`) ON DELETE NO ACTION ON UPDATE NO ACTION
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
@@ -2649,15 +2629,15 @@ DROP TABLE IF EXISTS `warehouse`;
 /*!50503 SET character_set_client = utf8mb4 */;
 CREATE TABLE `warehouse` (
   `warehouse_id` int(11) NOT NULL AUTO_INCREMENT,
-  `store` int(11) NOT NULL,
+  `facility` int(11) NOT NULL,
   `code` varchar(25) NOT NULL,
   `name` varchar(250) NOT NULL,
   `comment` varchar(500) DEFAULT NULL,
   `disabled` tinyint(4) DEFAULT 0,
   PRIMARY KEY (`warehouse_id`),
   UNIQUE KEY `code_UNIQUE` (`code`),
-  KEY `warehouse_store_fk_idx` (`store`),
-  CONSTRAINT `warehouse_store_fk` FOREIGN KEY (`store`) REFERENCES `store` (`store_id`) ON DELETE NO ACTION ON UPDATE NO ACTION
+  KEY `warehouse_facility_fk_idx` (`facility`),
+  CONSTRAINT `warehouse_facility_fk` FOREIGN KEY (`facility`) REFERENCES `facility` (`facility_id`) ON DELETE NO ACTION ON UPDATE NO ACTION
 ) ENGINE=InnoDB AUTO_INCREMENT=19 DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 /*!40103 SET TIME_ZONE=@OLD_TIME_ZONE */;

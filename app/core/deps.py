@@ -18,7 +18,7 @@ class CurrentUser:
     user_id: str
     session_version: int
     administrator: bool
-    store_id: int | None
+    facility_id: int | None
 
 
 async def get_current_user(
@@ -50,7 +50,7 @@ async def get_current_user(
         user_id=user_id,
         session_version=user.session_version,
         administrator=user.administrator,
-        store_id=payload.get("store_id"),
+        facility_id=payload.get("facility_id"),
     )
 
 

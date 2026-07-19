@@ -8,7 +8,7 @@ from app.core.deps import CurrentUser, get_current_user
 from app.core.security import create_access_token
 from app.db.session import get_db
 from app.main import app
-from app.models.core import CashDrawer, PointSale, Store
+from app.models.core import CashDrawer, Facility, PointSale
 from app.models.user import User, UserSettings
 
 
@@ -37,8 +37,8 @@ def _make_settings(
     point_sale: PointSale | None = None,
     cash_drawer: CashDrawer | None = None,
 ) -> UserSettings:
-    settings = UserSettings(user_id=user_id, store_id=51)
-    settings.store = Store(store_id=51, code="CMZ", name="CASA MAESTRA ZUMPANGO")
+    settings = UserSettings(user_id=user_id, facility_id=51)
+    settings.facility = Facility(facility_id=51, code="CMZ", name="CASA MAESTRA ZUMPANGO")
     settings.point_sale = point_sale
     settings.cash_drawer = cash_drawer
     settings.point_sale_id = point_sale.point_sale_id if point_sale else None
@@ -76,7 +76,7 @@ async def test_auth_me_returns_own_profile_for_non_admin() -> None:
         user_id=user.user_id,
         session_version=user.session_version,
         administrator=False,
-        store_id=None,
+        facility_id=None,
     )
     app.dependency_overrides[get_db] = _db_override(user)
 
@@ -100,7 +100,7 @@ async def test_auth_me_returns_own_profile_for_admin() -> None:
         user_id=user.user_id,
         session_version=user.session_version,
         administrator=True,
-        store_id=1,
+        facility_id=1,
     )
     app.dependency_overrides[get_db] = _db_override(user)
 
@@ -120,7 +120,7 @@ async def test_auth_me_includes_location_names() -> None:
         cash_drawer=CashDrawer(cash_drawer_id=14, code="01", name="CC ZUMPANGO"),
     )
     app.dependency_overrides[get_current_user] = lambda: CurrentUser(
-        user_id=user.user_id, session_version=1, administrator=False, store_id=51
+        user_id=user.user_id, session_version=1, administrator=False, facility_id=51
     )
     app.dependency_overrides[get_db] = _db_override(user)
 
@@ -129,9 +129,9 @@ async def test_auth_me_includes_location_names() -> None:
 
     assert response.status_code == 200
     settings = response.json()["settings"]
-    assert settings["store_id"] == 51
-    assert settings["store_code"] == "CMZ"
-    assert settings["store_name"] == "CASA MAESTRA ZUMPANGO"
+    assert settings["facility_id"] == 51
+    assert settings["facility_code"] == "CMZ"
+    assert settings["facility_name"] == "CASA MAESTRA ZUMPANGO"
     assert settings["point_sale_id"] == 18
     assert settings["point_sale_code"] == "01"
     assert settings["point_sale_name"] == "PV ZUMPANGO"
@@ -145,7 +145,7 @@ async def test_auth_me_omits_names_for_unset_locations() -> None:
     user = _make_user(user_id="jdoe")
     user.settings = _make_settings(user_id="jdoe", point_sale=None, cash_drawer=None)
     app.dependency_overrides[get_current_user] = lambda: CurrentUser(
-        user_id=user.user_id, session_version=1, administrator=False, store_id=51
+        user_id=user.user_id, session_version=1, administrator=False, facility_id=51
     )
     app.dependency_overrides[get_db] = _db_override(user)
 
@@ -154,7 +154,7 @@ async def test_auth_me_omits_names_for_unset_locations() -> None:
 
     assert response.status_code == 200
     settings = response.json()["settings"]
-    assert settings["store_name"] == "CASA MAESTRA ZUMPANGO"
+    assert settings["facility_name"] == "CASA MAESTRA ZUMPANGO"
     assert settings["point_sale_id"] is None
     assert settings["point_sale_code"] is None
     assert settings["point_sale_name"] is None
@@ -175,7 +175,7 @@ async def test_auth_me_requires_authentication() -> None:
 async def test_auth_me_rejects_stale_session_version() -> None:
     stored_user = _make_user(user_id="jdoe", session_version=2)
     token = create_access_token(
-        user_id="jdoe", session_version=1, administrator=False, store_id=None
+        user_id="jdoe", session_version=1, administrator=False, facility_id=None
     )
     app.dependency_overrides[get_db] = _db_override(stored_user)
 
@@ -189,7 +189,7 @@ async def test_auth_me_rejects_stale_session_version() -> None:
 async def test_auth_me_rejects_disabled_user() -> None:
     stored_user = _make_user(user_id="jdoe", session_version=1, disabled=True)
     token = create_access_token(
-        user_id="jdoe", session_version=1, administrator=False, store_id=None
+        user_id="jdoe", session_version=1, administrator=False, facility_id=None
     )
     app.dependency_overrides[get_db] = _db_override(stored_user)
 

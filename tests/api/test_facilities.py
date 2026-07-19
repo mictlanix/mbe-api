@@ -1,4 +1,4 @@
-"""Tests for /stores, /warehouses, /points-of-sale, and /cash-drawers endpoints."""
+"""Tests for /facilities, /warehouses, /points-of-sale, and /cash-drawers endpoints."""
 
 from collections.abc import Generator
 from types import SimpleNamespace
@@ -22,7 +22,7 @@ def _clear_overrides() -> Generator[None, None, None]:
 
 def _auth() -> None:
     app.dependency_overrides[get_current_user] = lambda: CurrentUser(
-        user_id="tester", session_version=1, administrator=True, store_id=None
+        user_id="tester", session_version=1, administrator=True, facility_id=None
     )
 
     async def _noop_db():
@@ -34,12 +34,13 @@ def _auth() -> None:
 # ── Fake objects ──────────────────────────────────────────────────────────────
 
 
-def _store_summary(store_id: int = 1) -> SimpleNamespace:
-    """Flat Store shape (as embedded in Warehouse/PointSale/CashDrawer FK fields)."""
+def _facility_summary(facility_id: int = 1) -> SimpleNamespace:
+    """Flat Facility shape (as embedded in Warehouse/PointSale/CashDrawer FK fields)."""
     return SimpleNamespace(
-        store_id=store_id,
+        facility_id=facility_id,
         code="S1",
         name="Main Store",
+        type=0,
         location="06000",
         address=1,
         taxpayer="RFC123456789A",
@@ -50,9 +51,9 @@ def _store_summary(store_id: int = 1) -> SimpleNamespace:
     )
 
 
-def _store(store_id: int = 1) -> SimpleNamespace:
-    """Top-level Store shape (as returned by /stores) — location expanded to a SAT object."""
-    summary = _store_summary(store_id)
+def _facility(facility_id: int = 1) -> SimpleNamespace:
+    """Top-level Facility shape (as returned by /facilities) — location expanded to a SAT object."""
+    summary = _facility_summary(facility_id)
     summary.location = {"id": "06000", "description": "CDMX"}
     return summary
 
@@ -60,79 +61,81 @@ def _store(store_id: int = 1) -> SimpleNamespace:
 def _warehouse_summary(warehouse_id: int = 1) -> SimpleNamespace:
     """Flat Warehouse shape (as embedded in PointSale/PaymentMethodOption FK fields)."""
     return SimpleNamespace(
-        warehouse_id=warehouse_id, store=1, code="WH1", name="Main Warehouse",
+        warehouse_id=warehouse_id, facility=1, code="WH1", name="Main Warehouse",
         comment=None, disabled=None,
     )
 
 
 def _warehouse(warehouse_id: int = 1) -> SimpleNamespace:
-    """Top-level Warehouse shape (as returned by /warehouses) — store expanded."""
+    """Top-level Warehouse shape (as returned by /warehouses) — facility expanded."""
     w = _warehouse_summary(warehouse_id)
-    w.store = _store_summary()
+    w.facility = _facility_summary()
     return w
 
 
 def _pos(point_sale_id: int = 1) -> SimpleNamespace:
     return SimpleNamespace(
-        point_sale_id=point_sale_id, store=_store_summary(), code="POS1", name="Register 1",
+        point_sale_id=point_sale_id, facility=_facility_summary(), code="POS1", name="Register 1",
         warehouse=_warehouse_summary(), comment=None, disabled=None,
     )
 
 
 def _cash_drawer(cash_drawer_id: int = 1) -> SimpleNamespace:
     return SimpleNamespace(
-        cash_drawer_id=cash_drawer_id, store=_store_summary(), code="CD1", name="Drawer 1",
+        cash_drawer_id=cash_drawer_id, facility=_facility_summary(), code="CD1", name="Drawer 1",
         comment=None, disabled=None,
     )
 
 
-# ── Store tests ───────────────────────────────────────────────────────────────
+# ── Facility tests ────────────────────────────────────────────────────────────
 
 
 @pytest.mark.asyncio
-async def test_list_stores_returns_200() -> None:
+async def test_list_facilities_returns_200() -> None:
     _auth()
     with patch(
-        "app.services.store_service.list_stores",
-        new=AsyncMock(return_value=([_store()], 1)),
+        "app.services.facility_service.list_facilities",
+        new=AsyncMock(return_value=([_facility()], 1)),
     ):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
-            r = await c.get("/api/v1/stores")
+            r = await c.get("/api/v1/facilities")
     assert r.status_code == 200
     assert r.json()["total"] == 1
     assert r.json()["items"][0]["code"] == "S1"
 
 
 @pytest.mark.asyncio
-async def test_get_store_returns_200() -> None:
+async def test_get_facility_returns_200() -> None:
     _auth()
-    with patch("app.services.store_service.get_store", new=AsyncMock(return_value=_store())):
+    with patch(
+        "app.services.facility_service.get_facility", new=AsyncMock(return_value=_facility())
+    ):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
-            r = await c.get("/api/v1/stores/1")
+            r = await c.get("/api/v1/facilities/1")
     assert r.status_code == 200
-    assert r.json()["store_id"] == 1
+    assert r.json()["facility_id"] == 1
 
 
 @pytest.mark.asyncio
-async def test_get_store_returns_404() -> None:
+async def test_get_facility_returns_404() -> None:
     _auth()
-    with patch("app.services.store_service.get_store", new=AsyncMock(return_value=None)):
+    with patch("app.services.facility_service.get_facility", new=AsyncMock(return_value=None)):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
-            r = await c.get("/api/v1/stores/999")
+            r = await c.get("/api/v1/facilities/999")
     assert r.status_code == 404
 
 
 @pytest.mark.asyncio
-async def test_create_store_returns_201() -> None:
+async def test_create_facility_returns_201() -> None:
     _auth()
     with patch(
-        "app.services.store_service.create_store", new=AsyncMock(return_value=_store())
+        "app.services.facility_service.create_facility", new=AsyncMock(return_value=_facility())
     ):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
             r = await c.post(
-                "/api/v1/stores",
+                "/api/v1/facilities",
                 json={
-                    "code": "S1", "name": "Main Store", "location": "Downtown",
+                    "code": "S1", "name": "Main Store", "type": 0, "location": "Downtown",
                     "address": 1, "taxpayer": "RFC123456789A", "logo": "logo.png",
                 },
             )
@@ -141,56 +144,60 @@ async def test_create_store_returns_201() -> None:
 
 
 @pytest.mark.asyncio
-async def test_update_store_returns_200() -> None:
+async def test_update_facility_returns_200() -> None:
     _auth()
-    updated = _store()
+    updated = _facility()
     updated.name = "Branch Store"
     with (
-        patch("app.services.store_service.get_store", new=AsyncMock(return_value=_store())),
         patch(
-            "app.services.store_service.update_store", new=AsyncMock(return_value=updated)
+            "app.services.facility_service.get_facility", new=AsyncMock(return_value=_facility())
+        ),
+        patch(
+            "app.services.facility_service.update_facility", new=AsyncMock(return_value=updated)
         ),
     ):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
-            r = await c.put("/api/v1/stores/1", json={"name": "Branch Store"})
+            r = await c.put("/api/v1/facilities/1", json={"name": "Branch Store"})
     assert r.status_code == 200
     assert r.json()["name"] == "Branch Store"
 
 
 @pytest.mark.asyncio
-async def test_update_store_returns_404() -> None:
+async def test_update_facility_returns_404() -> None:
     _auth()
-    with patch("app.services.store_service.get_store", new=AsyncMock(return_value=None)):
+    with patch("app.services.facility_service.get_facility", new=AsyncMock(return_value=None)):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
-            r = await c.put("/api/v1/stores/999", json={"name": "X"})
+            r = await c.put("/api/v1/facilities/999", json={"name": "X"})
     assert r.status_code == 404
 
 
 @pytest.mark.asyncio
-async def test_delete_store_returns_204() -> None:
+async def test_delete_facility_returns_204() -> None:
     _auth()
     with (
-        patch("app.services.store_service.get_store", new=AsyncMock(return_value=_store())),
-        patch("app.services.store_service.delete_store", new=AsyncMock(return_value=None)),
+        patch(
+            "app.services.facility_service.get_facility", new=AsyncMock(return_value=_facility())
+        ),
+        patch("app.services.facility_service.delete_facility", new=AsyncMock(return_value=None)),
     ):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
-            r = await c.delete("/api/v1/stores/1")
+            r = await c.delete("/api/v1/facilities/1")
     assert r.status_code == 204
 
 
 @pytest.mark.asyncio
-async def test_delete_store_returns_404() -> None:
+async def test_delete_facility_returns_404() -> None:
     _auth()
-    with patch("app.services.store_service.get_store", new=AsyncMock(return_value=None)):
+    with patch("app.services.facility_service.get_facility", new=AsyncMock(return_value=None)):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
-            r = await c.delete("/api/v1/stores/999")
+            r = await c.delete("/api/v1/facilities/999")
     assert r.status_code == 404
 
 
 @pytest.mark.asyncio
-async def test_list_stores_requires_auth() -> None:
+async def test_list_facilities_requires_auth() -> None:
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
-        r = await c.get("/api/v1/stores")
+        r = await c.get("/api/v1/facilities")
     assert r.status_code == 401
 
 
@@ -242,7 +249,7 @@ async def test_create_warehouse_returns_201() -> None:
     ):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
             r = await c.post(
-                "/api/v1/warehouses", json={"store": 1, "code": "WH1", "name": "Main Warehouse"}
+                "/api/v1/warehouses", json={"facility": 1, "code": "WH1", "name": "Main Warehouse"}
             )
     assert r.status_code == 201
     assert r.json()["code"] == "WH1"
@@ -363,7 +370,7 @@ async def test_create_point_of_sale_returns_201() -> None:
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
             r = await c.post(
                 "/api/v1/points-of-sale",
-                json={"store": 1, "code": "POS1", "name": "Register 1", "warehouse": 1},
+                json={"facility": 1, "code": "POS1", "name": "Register 1", "warehouse": 1},
             )
     assert r.status_code == 201
     assert r.json()["code"] == "POS1"
@@ -487,7 +494,7 @@ async def test_create_cash_drawer_returns_201() -> None:
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
             r = await c.post(
                 "/api/v1/cash-drawers",
-                json={"store": 1, "code": "CD1", "name": "Drawer 1"},
+                json={"facility": 1, "code": "CD1", "name": "Drawer 1"},
             )
     assert r.status_code == 201
     assert r.json()["code"] == "CD1"
@@ -562,15 +569,15 @@ async def test_list_cash_drawers_requires_auth() -> None:
 
 
 @pytest.mark.asyncio
-async def test_list_points_of_sale_store_filter_passed_through() -> None:
+async def test_list_points_of_sale_facility_filter_passed_through() -> None:
     _auth()
     mock = AsyncMock(return_value=([_pos()], 1))
     with patch("app.services.point_sale_service.list_point_sales", new=mock):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
-            r = await c.get("/api/v1/points-of-sale?store=1")
+            r = await c.get("/api/v1/points-of-sale?facility=1")
     assert r.status_code == 200
     _, kwargs = mock.call_args
-    assert kwargs.get("store") == 1
+    assert kwargs.get("facility") == 1
 
 
 @pytest.mark.asyncio
@@ -594,20 +601,20 @@ async def test_list_points_of_sale_no_filters() -> None:
             r = await c.get("/api/v1/points-of-sale")
     assert r.status_code == 200
     _, kwargs = mock.call_args
-    assert kwargs.get("store") is None
+    assert kwargs.get("facility") is None
     assert kwargs.get("warehouse") is None
 
 
 @pytest.mark.asyncio
-async def test_list_cash_drawers_store_filter_passed_through() -> None:
+async def test_list_cash_drawers_facility_filter_passed_through() -> None:
     _auth()
     mock = AsyncMock(return_value=([_cash_drawer()], 1))
     with patch("app.services.cash_drawer_service.list_cash_drawers", new=mock):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
-            r = await c.get("/api/v1/cash-drawers?store=2")
+            r = await c.get("/api/v1/cash-drawers?facility=2")
     assert r.status_code == 200
     _, kwargs = mock.call_args
-    assert kwargs.get("store") == 2
+    assert kwargs.get("facility") == 2
 
 
 @pytest.mark.asyncio
@@ -619,4 +626,4 @@ async def test_list_cash_drawers_no_filter() -> None:
             r = await c.get("/api/v1/cash-drawers")
     assert r.status_code == 200
     _, kwargs = mock.call_args
-    assert kwargs.get("store") is None
+    assert kwargs.get("facility") is None

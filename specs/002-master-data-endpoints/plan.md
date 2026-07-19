@@ -6,12 +6,13 @@
 
 ## Summary
 
-Expose 17 master data catalog resources (products, price lists, customers, suppliers, employees,
-stores, warehouses, points of sale, cash drawers, labels, taxpayer recipients, exchange rates,
-expenses, payment method options, vehicles, vehicle operators, production sites) as authenticated
-REST endpoints under `/api/v1/`. Also expose 8 SAT catalog reference tables as read-only
+Expose 16 master data catalog resources (products, price lists, customers, suppliers, employees,
+facilities, warehouses, points of sale, cash drawers, labels, taxpayer recipients, exchange rates,
+expenses, payment method options, vehicles, vehicle operators) as authenticated
+REST endpoints under `/api/v1/`. Production sites are no longer a separate resource — they are
+`facility` rows with `type=1` (`PRODUCTION_SITE`). Also expose 8 SAT catalog reference tables as read-only
 endpoints under `/api/v1/sat/`. FK filters are added to 5 list endpoints (products by supplier,
-customers by price_list/salesperson, points-of-sale by store/warehouse, cash-drawers by store,
+customers by price_list/salesperson, points-of-sale by facility/warehouse, cash-drawers by facility,
 vehicle-operators by employee). All ORM models already exist; the work is schema definitions,
 service functions, route handlers, and router registration.
 
@@ -34,7 +35,7 @@ Pydantic v2, aiomysql (MariaDB)
 
 **Constraints**: All endpoints authenticated; product creation must be atomic (SC-005)
 
-**Scale/Scope**: 17 resources × 5 CRUD operations + 8 SAT catalogs × 2 read-only handlers + 5 FK filter additions = ~103 new route handlers
+**Scale/Scope**: 16 resources × 5 CRUD operations + 8 SAT catalogs × 2 read-only handlers + 5 FK filter additions = ~101 new route handlers
 
 ## Constitution Check
 
@@ -46,7 +47,7 @@ Pydantic v2, aiomysql (MariaDB)
 | II. Think Before Coding | ✅ PASS | All model discrepancies and config gaps resolved in research.md before writing code. |
 | III. Surgical Changes | ✅ PASS | Models are untouched. Only `app/core/config.py` (new fields), `app/api/v1/router.py` (new includes), and new files are changed. |
 | IV. Goal-Driven Execution | ✅ PASS | Each task in tasks.md has a verify step. |
-| V. Reuse Over Rebuild | ✅ PASS | All 17 SQLAlchemy models reused as-is. `get_current_user` dependency reused. Existing service pattern (list/get/create/update/delete) repeated. |
+| V. Reuse Over Rebuild | ✅ PASS | All 16 SQLAlchemy models reused as-is. `get_current_user` dependency reused. Existing service pattern (list/get/create/update/delete) repeated. |
 | VI. Async-First | ✅ PASS | All handlers are `async def`, all DB calls use `AsyncSession` + `await`. |
 | VII. Security by Default | ✅ PASS | All endpoints gated by `get_current_user`. Merge endpoint additionally checks `PRODUCTS_MERGE` privilege. |
 | VIII. Ruff Compliance | ✅ PASS | All new code linted before commit. |
@@ -74,7 +75,7 @@ app/
 │   └── config.py                        # ADD: 5 new settings fields
 ├── api/
 │   └── v1/
-│       ├── router.py                    # ADD: 17 new router.include_router() calls
+│       ├── router.py                    # ADD: 16 new router.include_router() calls
 │       └── endpoints/
 │           ├── products.py              # NEW: Product CRUD + merge
 │           ├── price_lists.py           # NEW: PriceList CRUD
@@ -86,22 +87,21 @@ app/
 │           ├── warehouses.py            # NEW: Warehouse CRUD
 │           ├── points_of_sale.py        # NEW: PointSale CRUD
 │           ├── cash_drawers.py          # NEW: CashDrawer CRUD
-│           ├── stores.py                # NEW: Store CRUD
+│           ├── facilities.py            # NEW: Facility CRUD
 │           ├── exchange_rates.py        # NEW: ExchangeRate CRUD
 │           ├── expenses.py              # NEW: Expense CRUD
 │           ├── payment_method_options.py # NEW: PaymentMethodOption CRUD
 │           ├── vehicles.py              # NEW: Vehicle CRUD
 │           ├── vehicle_operators.py     # NEW: VehicleOperator CRUD
-│           ├── production_sites.py      # NEW: ProductionSite CRUD
 │           └── sat_catalogs.py          # NEW: 8 SAT catalog read-only endpoints
 ├── schemas/
 │   ├── product.py                       # NEW: Product + PriceList + ProductPrice schemas
 │   ├── customer.py                      # NEW: Customer + TaxpayerRecipient schemas
 │   ├── supplier.py                      # NEW: Supplier schemas
-│   └── core.py                          # NEW: Employee, Store, Warehouse, PointSale,
+│   └── core.py                          # NEW: Employee, Facility, Warehouse, PointSale,
 │                                        #      CashDrawer, Label, ExchangeRate, Expense,
-│                                        #      PaymentMethodOption, Vehicle, VehicleOperator,
-│                                        #      ProductionSite schemas
+│                                        #      PaymentMethodOption, Vehicle, VehicleOperator
+│                                        #      schemas
 └── services/
     ├── product_service.py               # NEW: Product service (includes merge + price init)
     ├── price_list_service.py            # NEW: PriceList service
@@ -113,13 +113,12 @@ app/
     ├── warehouse_service.py             # NEW: Warehouse service
     ├── point_sale_service.py            # NEW: PointSale service
     ├── cash_drawer_service.py           # NEW: CashDrawer service
-    ├── store_service.py                 # NEW: Store service
+    ├── facility_service.py              # NEW: Facility service
     ├── exchange_rate_service.py         # NEW: ExchangeRate service
     ├── expense_service.py               # NEW: Expense service
     ├── payment_method_option_service.py # NEW: PaymentMethodOption service
     ├── vehicle_service.py               # NEW: Vehicle service
     ├── vehicle_operator_service.py      # NEW: VehicleOperator service
-    ├── production_site_service.py       # NEW: ProductionSite service
     └── sat_catalog_service.py           # NEW: SAT catalog list/get service (all 8 models)
 
 tests/

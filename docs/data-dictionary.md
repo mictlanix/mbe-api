@@ -50,12 +50,12 @@ Per-user, per-object (SystemObject enum) permission bits (read/write/etc.).
 | `privileges` | int(11) | NO | Bitmask: AllowRead, AllowCreate, AllowEdit, AllowDelete |
 
 ### `user_settings`
-Per-user default store/POS/cash drawer context.
+Per-user default facility/POS/cash drawer context.
 
 | Column | Type | Null | Description |
 |--------|------|------|-------------|
 | `user` | varchar(20) | NO | FK → `user.user_id` (PK) |
-| `store` | int(11) | NO | FK → `store.store_id` — default store |
+| `facility` | int(11) | NO | FK → `facility.facility_id` — default facility |
 | `point_sale` | int(11) | YES | FK → `point_sale.point_sale_id` — default POS terminal |
 | `cash_drawer` | int(11) | YES | FK → `cash_drawer.cash_drawer_id` — default drawer |
 
@@ -63,12 +63,12 @@ Per-user default store/POS/cash drawer context.
 
 ## 2. Core Reference
 
-### `store`
+### `facility`
 Top-level organizational unit (branch / location).
 
 | Column | Type | Null | Description |
 |--------|------|------|-------------|
-| `store_id` | int(11) | NO | PK |
+| `facility_id` | int(11) | NO | PK |
 | `code` | varchar(25) | NO | Short code |
 | `name` | varchar(250) | NO | Display name |
 | `location` | varchar(5) | NO | FK → `sat_postal_code` — SAT location code |
@@ -78,14 +78,15 @@ Top-level organizational unit (branch / location).
 | `receipt_message` | varchar(250) | YES | Printed on receipts |
 | `default_batch` | varchar(10) | YES | Default CFDI fiscal batch/folio series |
 | `disabled` | tinyint(1) | YES | Soft-delete |
+| `type` | int(11) | NO | `0` = store, `1` = production_site — merged from the former standalone `production_site` table |
 
 ### `warehouse`
-Physical storage location belonging to a store.
+Physical storage location belonging to a facility.
 
 | Column | Type | Null | Description |
 |--------|------|------|-------------|
 | `warehouse_id` | int(11) | NO | PK |
-| `store` | int(11) | NO | FK → `store.store_id` |
+| `facility` | int(11) | NO | FK → `facility.facility_id` |
 | `code` | varchar(25) | NO | Unique short code |
 | `name` | varchar(250) | NO | Display name |
 | `comment` | varchar(500) | YES | Notes |
@@ -97,7 +98,7 @@ Point-of-sale terminal configuration.
 | Column | Type | Null | Description |
 |--------|------|------|-------------|
 | `point_sale_id` | int(11) | NO | PK |
-| `store` | int(11) | NO | FK → `store.store_id` |
+| `facility` | int(11) | NO | FK → `facility.facility_id` |
 | `code` | varchar(25) | NO | Unique code |
 | `name` | varchar(250) | NO | Display name |
 | `warehouse` | int(11) | NO | FK → `warehouse` — stock source for POS sales |
@@ -110,7 +111,7 @@ Physical cash drawer device.
 | Column | Type | Null | Description |
 |--------|------|------|-------------|
 | `cash_drawer_id` | int(11) | NO | PK |
-| `store` | int(11) | NO | FK → `store.store_id` |
+| `facility` | int(11) | NO | FK → `facility.facility_id` |
 | `code` | varchar(25) | NO | Unique code |
 | `name` | varchar(250) | NO | Display name |
 | `comment` | varchar(500) | YES | Notes |
@@ -140,7 +141,7 @@ Denomination breakdown recorded at session close.
 | `type` | int(11) | NO | Enum: Bill, Coin, etc. |
 
 ### `address`
-Reusable address record (used by customers, suppliers, stores, fiscal docs).
+Reusable address record (used by customers, suppliers, facilities, fiscal docs).
 
 | Column | Type | Null | Description |
 |--------|------|------|-------------|
@@ -221,13 +222,13 @@ Expense category catalog.
 | `comment` | varchar(500) | YES | Notes |
 
 ### `payment_method_option`
-Configured payment method options per store (cash, card, transfer, etc.).
+Configured payment method options per facility (cash, card, transfer, etc.).
 
 | Column | Type | Null | Description |
 |--------|------|------|-------------|
 | `payment_method_option_id` | int(11) | NO | PK |
 | `warehouse` | int(11) | YES | Optional warehouse scope |
-| `store` | int(11) | NO | FK → `store.store_id` |
+| `facility` | int(11) | NO | FK → `facility.facility_id` |
 | `name` | varchar(50) | NO | Display label |
 | `number_of_payments` | tinyint(4) | NO | Installments (1 = single) |
 | `display_on_ticket` | tinyint(1) | NO | Show on printed receipt |
@@ -268,18 +269,6 @@ Mexican postal code catalog (neighborhood lookup).
 | `state` | varchar(50) | NO | State |
 | `city` | varchar(50) | YES | City |
 | `country` | varchar(50) | NO | Country |
-
-### `production_site`
-Manufacturing site / production line location.
-
-| Column | Type | Null | Description |
-|--------|------|------|-------------|
-| `production_site_id` | int(11) | NO | PK |
-| `store` | int(11) | NO | FK → `store.store_id` |
-| `code` | varchar(25) | NO | Unique code |
-| `name` | varchar(250) | NO | Display name |
-| `comment` | varchar(500) | YES | Notes |
-| `disabled` | tinyint(4) | YES | Soft-delete |
 
 ### `vehicle`
 Fleet vehicle record.
@@ -526,8 +515,8 @@ Customer quotation / presale document.
 | Column | Type | Null | Description |
 |--------|------|------|-------------|
 | `sales_quote_id` | int(11) | NO | PK |
-| `store` | int(11) | NO | FK → `store` |
-| `serial` | int(11) | YES | Sequential folio within store |
+| `facility` | int(11) | NO | FK → `facility` |
+| `serial` | int(11) | YES | Sequential folio within facility |
 | `date` | datetime | NO | Quote date |
 | `salesperson` | int(11) | NO | FK → `employee` |
 | `customer` | int(11) | NO | FK → `customer` |
@@ -571,8 +560,8 @@ Confirmed sales order (invoice source).
 | Column | Type | Null | Description |
 |--------|------|------|-------------|
 | `sales_order_id` | int(11) | NO | PK |
-| `store` | int(11) | NO | FK → `store` |
-| `serial` | int(11) | YES | Folio within store (unique with store) |
+| `facility` | int(11) | NO | FK → `facility` |
+| `serial` | int(11) | YES | Folio within facility (unique with facility) |
 | `point_sale` | int(11) | NO | FK → `point_sale` |
 | `salesperson` | int(11) | NO | FK → `employee` |
 | `customer` | int(11) | NO | FK → `customer` |
@@ -639,8 +628,8 @@ Payment received from a customer.
 | `cash_session` | int(11) | YES | FK → `cash_session` — session when received |
 | `reference` | varchar(50) | YES | Transfer/check reference number |
 | `customer` | int(11) | NO | FK → `customer` |
-| `store` | int(11) | NO | FK → `store` |
-| `serial` | int(11) | NO | Sequential folio within store |
+| `facility` | int(11) | NO | FK → `facility` |
+| `serial` | int(11) | NO | Sequential folio within facility |
 | `creator` | int(11) | NO | FK → `employee` |
 | `updater` | int(11) | NO | FK → `employee` |
 | `verifier` | int(11) | YES | FK → `employee` — verifying supervisor |
@@ -679,7 +668,7 @@ Customer return (devolution) header.
 | `modification_time` | datetime | NO | Last updated |
 | `completed` | tinyint(1) | NO | Finalized |
 | `cancelled` | tinyint(1) | NO | Cancelled |
-| `store` | int(11) | NO | FK → `store` |
+| `facility` | int(11) | NO | FK → `facility` |
 | `serial` | int(11) | YES | Folio |
 | `date` | datetime | YES | Refund date |
 | `currency` | int(11) | NO | Currency |
@@ -740,7 +729,7 @@ Goods received into a warehouse.
 | Column | Type | Null | Description |
 |--------|------|------|-------------|
 | `inventory_receipt_id` | int(11) | NO | PK |
-| `store` | int(11) | NO | FK → `store` |
+| `facility` | int(11) | NO | FK → `facility` |
 | `serial` | int(11) | YES | Folio |
 | `creation_time` | datetime | NO | Created at |
 | `modification_time` | datetime | NO | Last updated |
@@ -772,7 +761,7 @@ Goods issued out of a warehouse.
 | Column | Type | Null | Description |
 |--------|------|------|-------------|
 | `inventory_issue_id` | int(11) | NO | PK |
-| `store` | int(11) | NO | FK → `store` |
+| `facility` | int(11) | NO | FK → `facility` |
 | `serial` | int(11) | YES | Folio |
 | `creation_time` | datetime | NO | Created at |
 | `modification_time` | datetime | NO | Last updated |
@@ -802,7 +791,7 @@ Stock movement between two warehouses.
 | Column | Type | Null | Description |
 |--------|------|------|-------------|
 | `inventory_transfer_id` | int(11) | NO | PK |
-| `store` | int(11) | NO | FK → `store` |
+| `facility` | int(11) | NO | FK → `facility` |
 | `serial` | int(11) | YES | Folio |
 | `creation_time` | datetime | NO | Created at |
 | `modification_time` | datetime | NO | Last updated |
@@ -938,7 +927,7 @@ Petty cash / expense ticket issued from a cash session.
 | `expense_voucher_id` | int(11) | NO | PK |
 | `creator` | int(11) | NO | FK → `employee` |
 | `updater` | int(11) | NO | FK → `employee` |
-| `store` | int(11) | NO | FK → `store` |
+| `facility` | int(11) | NO | FK → `facility` |
 | `cash_session` | int(11) | NO | FK → `cash_session` |
 | `comment` | varchar(500) | YES | Notes |
 | `date` | datetime | NO | Expense date |
@@ -972,7 +961,7 @@ Delivery order (picking/shipping order for a customer).
 | `updater` | int(11) | NO | FK → `employee` |
 | `creation_time` | datetime | NO | Created at |
 | `modification_time` | datetime | NO | Last updated |
-| `store` | int(11) | NO | FK → `store` |
+| `facility` | int(11) | NO | FK → `facility` |
 | `serial` | int(11) | NO | Folio |
 | `customer` | int(11) | NO | FK → `customer` |
 | `ship_to` | int(11) | YES | FK → `address` |
@@ -1089,7 +1078,7 @@ CFDI electronic invoice header.
 | `recipient_name` | varchar(250) | YES | Recipient legal name |
 | `recipient_address` | int(11) | YES | FK → `address` |
 | `type` | int(11) | NO | CFDI type enum (I=Income, E=Expense, etc.) |
-| `store` | int(11) | NO | FK → `store` |
+| `facility` | int(11) | NO | FK → `facility` |
 | `batch` | varchar(10) | YES | Folio series |
 | `serial` | int(11) | YES | Sequential folio number |
 | `issued` | datetime | YES | Date/time stamped by PAC |

@@ -36,8 +36,8 @@ An authenticated API consumer needs to retrieve lists of master data records (pr
 6. **Given** products are tagged with labels #2 and #5 in various combinations, **When** `GET /api/v1/products?label=2&label=5` is called, **Then** only products carrying **both** label #2 **and** label #5 are returned; a product carrying only one of the two is excluded.
 6a. **Given** the same `search`/attribute/`label` filters accepted by `GET /api/v1/products`, **When** `GET /api/v1/products/labels/facets` is called, **Then** every label carried by at least one product in that filtered set is returned with a count of how many matching products carry it, so a UI can grey out labels that would narrow the current result set to zero.
 7. **Given** customers are assigned to a price list, **When** `GET /api/v1/customers?price_list=2` is called, **Then** only customers on price list #2 are returned.
-8. **Given** points of sale are associated with a store, **When** `GET /api/v1/points-of-sale?store=1` is called, **Then** only POS terminals belonging to store #1 are returned; adding `?warehouse=4` further filters to those assigned to warehouse #4.
-9. **Given** cash drawers are associated with a store, **When** `GET /api/v1/cash-drawers?store=1` is called, **Then** only cash drawers belonging to store #1 are returned.
+8. **Given** points of sale are associated with a facility, **When** `GET /api/v1/points-of-sale?facility=1` is called, **Then** only POS terminals belonging to facility #1 are returned; adding `?warehouse=4` further filters to those assigned to warehouse #4.
+9. **Given** cash drawers are associated with a facility, **When** `GET /api/v1/cash-drawers?facility=1` is called, **Then** only cash drawers belonging to facility #1 are returned.
 10. **Given** vehicle operators are linked to an employee, **When** `GET /api/v1/vehicle-operators?employee=7` is called, **Then** only operator records for employee #7 are returned.
 
 ---
@@ -143,7 +143,7 @@ An authenticated API consumer looks up valid SAT codes to populate dropdowns in 
 
 An authenticated API consumer reads a master data list or detail response and needs the full
 referenced record for each foreign-key field (e.g. a product's supplier, a customer's price list,
-a point of sale's store and warehouse) without issuing a follow-up lookup per ID.
+a point of sale's facility and warehouse) without issuing a follow-up lookup per ID.
 
 **Why this priority**: Reduces N+1 lookups for UI screens that render human-readable labels (a
 product's supplier name, a customer's price list name) instead of raw IDs. Not required for the
@@ -164,14 +164,14 @@ calling `GET /api/v1/products` and confirming the same shape appears on every li
    SAT catalog object (`{id, description}`); neither is a bare code.
 3. **Given** a customer, **When** its response is read, **Then** `price_list` is the full
    `PriceListResponse` object and `salesperson` is the full `EmployeeResponse` object (or `null`).
-4. **Given** a point of sale, **When** its response is read, **Then** `store` is the full
-   `StoreResponse`-shaped object and `warehouse` is the full `WarehouseResponse`-shaped object;
-   that embedded warehouse's own `store` field remains a plain integer ID (nesting stops after one
+4. **Given** a point of sale, **When** its response is read, **Then** `facility` is the full
+   `FacilityResponse`-shaped object and `warehouse` is the full `WarehouseResponse`-shaped object;
+   that embedded warehouse's own `facility` field remains a plain integer ID (nesting stops after one
    level — see FR-039).
 5. **Given** a `POST` or `PUT` request body for any resource, **When** the payload is submitted,
    **Then** FK fields are still supplied as plain IDs (unchanged request shape); only responses
    are expanded.
-6. **Given** a store, **When** its response is read, **Then** `location` (SAT postal code) is the
+6. **Given** a facility, **When** its response is read, **Then** `location` (SAT postal code) is the
    full SAT catalog object; `address` and `taxpayer` remain plain IDs because their target entities
    (`Address`, `TaxpayerIssuer`) have no read endpoint in this feature (out of scope per
    Assumptions).
@@ -190,8 +190,8 @@ calling `GET /api/v1/products` and confirming the same shape appears on every li
 - What happens when `GET /api/v1/products/labels/facets` is called with filters that match zero products? → Return `[]` with `200 OK`; no label can co-occur with an empty result set.
 - What happens when a client tries to create or update a SAT catalog record? → `405 Method Not Allowed`; SAT data is managed externally and loaded by migration only.
 - What happens when an FK field is nullable and unset (e.g. `product.supplier`, `payment_method_option.warehouse`)? → The field is `null` in the response, not an empty object.
-- What happens when an embedded FK object itself has FK fields (e.g. a point of sale's embedded `warehouse` has its own `store`)? → Expansion stops after one level; the embedded object's own FK fields remain plain IDs (see FR-039).
-- What happens to FK fields whose target entity has no read endpoint in this feature (`Store.address` → `Address`, `Store.taxpayer` → `TaxpayerIssuer`)? → They remain plain IDs; expanding them is out of scope until those entities get their own endpoints.
+- What happens when an embedded FK object itself has FK fields (e.g. a point of sale's embedded `warehouse` has its own `facility`)? → Expansion stops after one level; the embedded object's own FK fields remain plain IDs (see FR-039).
+- What happens to FK fields whose target entity has no read endpoint in this feature (`Facility.address` → `Address`, `Facility.taxpayer` → `TaxpayerIssuer`)? → They remain plain IDs; expanding them is out of scope until those entities get their own endpoints.
 
 ## Requirements *(mandatory)*
 
@@ -242,15 +242,15 @@ calling `GET /api/v1/products` and confirming the same shape appears on every li
 
 **Points of Sale (`/api/v1/points-of-sale`)**
 
-- **FR-018**: System MUST expose full CRUD for points of sale. The list endpoint MUST be filterable by `store` (store ID) and `warehouse` (warehouse ID).
+- **FR-018**: System MUST expose full CRUD for points of sale. The list endpoint MUST be filterable by `facility` (facility ID) and `warehouse` (warehouse ID).
 
 **Cash Drawers (`/api/v1/cash-drawers`)**
 
-- **FR-019**: System MUST expose full CRUD for cash drawers. The list endpoint MUST be filterable by `store` (store ID).
+- **FR-019**: System MUST expose full CRUD for cash drawers. The list endpoint MUST be filterable by `facility` (facility ID).
 
-**Stores (`/api/v1/stores`)**
+**Facilities (`/api/v1/facilities`)**
 
-- **FR-020**: System MUST expose full CRUD for stores.
+- **FR-020**: System MUST expose full CRUD for facilities. Each facility has an integer `type` (`FacilityType`: `0` = store, `1` = production_site; default `0`); production sites are no longer a separate entity/endpoint — they are facility rows with `type=1`.
 
 **Exchange Rates (`/api/v1/exchange-rates`)**
 
@@ -271,10 +271,6 @@ calling `GET /api/v1/products` and confirming the same shape appears on every li
 **Vehicle Operators (`/api/v1/vehicle-operators`)**
 
 - **FR-025**: System MUST expose full CRUD for vehicle operators. The list endpoint MUST be filterable by `employee` (employee/driver ID). The response MUST include an advisory flag when the license is within 30 days of expiry or already expired.
-
-**Production Sites (`/api/v1/production-sites`)**
-
-- **FR-026**: System MUST expose full CRUD for production sites.
 
 **General**
 
@@ -302,17 +298,17 @@ calling `GET /api/v1/products` and confirming the same shape appears on every li
   plain IDs (they are not expanded a second time). This applies to, among others: `Product.supplier`,
   `Product.unit_of_measurement`, `Product.key`, `ProductPrice.price_list`, `Customer.price_list`,
   `Customer.salesperson`, `TaxpayerRecipient.postal_code`, `TaxpayerRecipient.regime`,
-  `Store.location`, `Warehouse.store`, `PointSale.store`, `PointSale.warehouse`,
-  `CashDrawer.store`, `PaymentMethodOption.store`, `PaymentMethodOption.warehouse`,
-  `VehicleOperator.driver`, `VehicleOperator.creator`, `VehicleOperator.updater`,
-  `ProductionSite.store`. Nullable FK fields with no assigned value MUST serialize as `null`.
+  `Facility.location`, `Warehouse.facility`, `PointSale.facility`, `PointSale.warehouse`,
+  `CashDrawer.facility`, `PaymentMethodOption.facility`, `PaymentMethodOption.warehouse`,
+  `VehicleOperator.driver`, `VehicleOperator.creator`, `VehicleOperator.updater`.
+  Nullable FK fields with no assigned value MUST serialize as `null`.
   `Product.unit_of_measurement` is a documented exception: it expands to the full
   `sat_unit_of_measurement` record (`{id, name, description, symbol}`) rather than the generic
   `{id, description}` shape used elsewhere for SAT catalog FKs (e.g. `Product.key`,
-  `TaxpayerRecipient.postal_code`/`regime`, `Store.location`).
+  `TaxpayerRecipient.postal_code`/`regime`, `Facility.location`).
 - **FR-040**: `POST` and `PUT` request bodies are unaffected by FR-039 — FK fields are still
   submitted as plain IDs/strings. Only response serialization changes. FK fields whose target
-  entity has no read schema in this feature (`Store.address`, `Store.taxpayer`) remain plain IDs
+  entity has no read schema in this feature (`Facility.address`, `Facility.taxpayer`) remain plain IDs
   in responses too.
 
 ### Key Entities *(include if feature involves data)*
@@ -322,18 +318,17 @@ calling `GET /api/v1/products` and confirming the same shape appears on every li
 - **Customer**: Buyer entity with credit terms, zone, price list assignment, and an optional salesperson.
 - **Supplier**: Vendor entity with credit terms and zone.
 - **Employee**: Internal staff record; subset flagged as salespersons.
-- **Store**: Top-level branch; all warehouses, POS terminals, and cash drawers belong to a store.
-- **Warehouse**: Physical stock location within a store.
-- **PointSale**: POS terminal configuration tied to a store and warehouse.
-- **CashDrawer**: Physical cash drawer hardware tied to a store.
+- **Facility**: Top-level branch (a store or production site, distinguished by the integer `type`); all warehouses, POS terminals, and cash drawers belong to a facility. Production sites are no longer a separate entity — they are facility rows with `type=1` (`PRODUCTION_SITE`).
+- **Warehouse**: Physical stock location within a facility.
+- **PointSale**: POS terminal configuration tied to a facility and warehouse.
+- **CashDrawer**: Physical cash drawer hardware tied to a facility.
 - **Label**: Classification tag applied to products.
 - **TaxpayerRecipient**: RFC record for CFDI invoice recipients.
 - **ExchangeRate**: Daily currency conversion rate (base → target).
 - **Expense**: Category label for petty-cash vouchers.
-- **PaymentMethodOption**: Per-store payment method configuration including installments and commission.
+- **PaymentMethodOption**: Per-facility payment method configuration including installments and commission.
 - **Vehicle**: Fleet vehicle with load capacity.
 - **VehicleOperator**: Driver license record for an employee.
-- **ProductionSite**: Manufacturing line configuration within a store.
 - **SatCfdiUsage**: SAT CFDI usage codes (e.g., G01, P01) — read-only reference.
 - **SatCountry**: SAT country codes — read-only reference.
 - **SatCurrency**: SAT currency codes (MXN, USD, etc.) — read-only reference.
@@ -347,16 +342,16 @@ calling `GET /api/v1/products` and confirming the same shape appears on every li
 
 ### Measurable Outcomes
 
-- **SC-001**: All 17 master data resources respond to their `GET` list endpoint within 500 ms under normal load.
+- **SC-001**: All 16 master data resources respond to their `GET` list endpoint within 500 ms under normal load.
 - **SC-002**: All mandatory field validations (code uniqueness, bar code length, RFC length) return an error response before any data is persisted — zero silent data corruption.
 - **SC-003**: The product merge operation leaves zero orphan FK references to the deleted duplicate across all transactional tables.
 - **SC-004**: All endpoints return `401` for unauthenticated requests and never expose record data to unauthenticated callers.
 - **SC-005**: The product creation auto-default logic (`min_order_qty`, `stock_required`, `tax_rate`, `tax_included`, `price_type`, `photo`) executes atomically — either the product row is created with every default applied, or none of it is. (Per-product prices are no longer part of product creation; see `specs/004-price-management-service`.)
-- **SC-006**: All 5 FK filters (supplier, price_list, salesperson, store, warehouse, employee) narrow results correctly — a filter for a non-existent ID returns an empty list, never an error.
+- **SC-006**: All 5 FK filters (supplier, price_list, salesperson, facility, warehouse, employee) narrow results correctly — a filter for a non-existent ID returns an empty list, never an error.
 - **SC-009**: The `label` filter on `GET /api/v1/products` correctly narrows results whether one or multiple label IDs are supplied — with multiple values, only products carrying all of them are returned; a non-existent label ID (alone or combined with valid ones) yields an empty list, never an error.
 - **SC-010**: `GET /api/v1/products/labels/facets` returns exactly the labels carried by at least one product in the filtered set (same filters as `GET /api/v1/products`, AND semantics for `label`), each with an accurate co-occurrence count, in a single grouped query rather than paging through the full result set.
 - **SC-007**: All 8 SAT catalog list endpoints return results and respond to `GET /{id}` with `200` for known codes and `404` for unknown codes; no write operation succeeds on any SAT catalog.
-- **SC-008**: Every FK field covered by FR-039 is serialized as the full referenced object (or `null`) in both list and detail responses across all 17 resources, with no more than one level of nesting, while list endpoints still respond within 500 ms (SC-001) — related rows are batch-fetched, not queried per row.
+- **SC-008**: Every FK field covered by FR-039 is serialized as the full referenced object (or `null`) in both list and detail responses across all 16 resources, with no more than one level of nesting, while list endpoints still respond within 500 ms (SC-001) — related rows are batch-fetched, not queried per row.
 
 ## Assumptions
 
@@ -369,6 +364,6 @@ calling `GET /api/v1/products` and confirming the same shape appears on every li
 - Tests are optional per the project constitution; the plan will include tests if the implementer decides to include them.
 - Exchange rates are uniquely constrained by `(date, base, target)` pair; attempting to create a duplicate returns `409 Conflict`.
 - FK expansion (FR-039) is implemented by fetching related rows in the service layer and attaching them to the ORM instance before Pydantic serialization (no SQLAlchemy `relationship()` objects are added to models, consistent with the existing "hold the integer/string PK, no ORM relationship objects" convention for the raw FK columns themselves — the expansion happens at the response-schema/service boundary, not the mapped-column level).
-- `Store.address` (→ `Address`) and `Store.taxpayer` (→ `TaxpayerIssuer`) are not expanded because those entities have no read schema/endpoint in this feature (sub-panel entities, out of scope per the existing Assumptions above).
+- `Facility.address` (→ `Address`) and `Facility.taxpayer` (→ `TaxpayerIssuer`) are not expanded because those entities have no read schema/endpoint in this feature (sub-panel entities, out of scope per the existing Assumptions above).
 - Multi-label product search (FR-001a) uses AND (intersection) semantics rather than OR (union): a product must carry every requested label to match. This was a deliberate product decision, not a technical default — confirmed with the feature owner rather than assumed. Multiple values are passed as repeated `label` query parameters (`?label=2&label=5`), consistent with how list-valued query parameters are conventionally handled elsewhere in this API, rather than a comma-separated single value.
 - The label-facets endpoint (FR-001b) exists to support the mbe-ui faceted label filter (mbe-ui spec `009-label-filter-facets`, tracked externally per the repo-boundary rule — mbe-ui does not patch mbe-api directly). It deliberately returns `label_id` only, not label names: the client already holds names from `GET /api/v1/labels`.

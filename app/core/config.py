@@ -17,7 +17,7 @@ class Settings(BaseSettings):
     jwt_access_token_expire_minutes: int = 480  # 8 hours
     jwt_recovery_token_expire_hours: int = 24
 
-    # "Managed" = admin sets store/POS/drawer; "SelfService" = user selects after login
+    # "Managed" = admin sets facility/POS/drawer; "SelfService" = user selects after login
     user_settings_mode: str = "Managed"
 
     # Origins allowed to call this API from a browser (CORS). Defaults to "*"

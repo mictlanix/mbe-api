@@ -11,7 +11,7 @@ class InventoryReceipt(Base):
     __tablename__ = "inventory_receipt"
 
     inventory_receipt_id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    store: Mapped[int] = mapped_column(Integer, ForeignKey("store.store_id"))
+    facility: Mapped[int] = mapped_column(Integer, ForeignKey("facility.facility_id"))
     serial: Mapped[int | None] = mapped_column(Integer)
     creation_time: Mapped[datetime] = mapped_column(DateTime)
     modification_time: Mapped[datetime] = mapped_column(DateTime)
@@ -47,7 +47,7 @@ class InventoryIssue(Base):
     __tablename__ = "inventory_issue"
 
     inventory_issue_id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    store: Mapped[int] = mapped_column(Integer, ForeignKey("store.store_id"))
+    facility: Mapped[int] = mapped_column(Integer, ForeignKey("facility.facility_id"))
     serial: Mapped[int | None] = mapped_column(Integer)
     creation_time: Mapped[datetime] = mapped_column(DateTime)
     modification_time: Mapped[datetime] = mapped_column(DateTime)
@@ -77,7 +77,7 @@ class InventoryTransfer(Base):
     __tablename__ = "inventory_transfer"
 
     inventory_transfer_id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    store: Mapped[int] = mapped_column(Integer, ForeignKey("store.store_id"))
+    facility: Mapped[int] = mapped_column(Integer, ForeignKey("facility.facility_id"))
     serial: Mapped[int | None] = mapped_column(Integer)
     creation_time: Mapped[datetime] = mapped_column(DateTime)
     modification_time: Mapped[datetime] = mapped_column(DateTime)

@@ -280,7 +280,7 @@ Physical stock locations. Inventory receipts, issues, and transfers all specify 
 
 | Field | Column | Notes |
 |-------|--------|-------|
-| Store | `warehouse.store` | FK → `store` |
+| Facility | `warehouse.facility` | FK → `facility` |
 | Code | `warehouse.code` | Unique |
 | Name | `warehouse.name` | |
 | Notes | `warehouse.comment` | |
@@ -294,13 +294,13 @@ Physical stock locations. Inventory receipts, issues, and transfers all specify 
 **SystemObject**: `PointsOfSale` (9)
 
 ### Purpose
-POS terminal configurations. Each POS is tied to a store and a warehouse (stock source for POS sales).
+POS terminal configurations. Each POS is tied to a facility and a warehouse (stock source for POS sales).
 
 ### Form Fields
 
 | Field | Column | Notes |
 |-------|--------|-------|
-| Store | `point_sale.store` | FK → `store` |
+| Facility | `point_sale.facility` | FK → `facility` |
 | Code | `point_sale.code` | Unique |
 | Name | `point_sale.name` | |
 | Warehouse | `point_sale.warehouse` | FK → `warehouse` |
@@ -315,13 +315,13 @@ POS terminal configurations. Each POS is tied to a store and a warehouse (stock 
 **SystemObject**: `CashDrawers` (10)
 
 ### Purpose
-Physical cash drawer hardware tied to a store. Cashier sessions are opened per drawer.
+Physical cash drawer hardware tied to a facility. Cashier sessions are opened per drawer.
 
 ### Form Fields
 
 | Field | Column | Notes |
 |-------|--------|-------|
-| Store | `cash_drawer.store` | FK → `store` |
+| Facility | `cash_drawer.facility` | FK → `facility` |
 | Code | `cash_drawer.code` | Unique |
 | Name | `cash_drawer.name` | |
 | Notes | `cash_drawer.comment` | |
@@ -329,27 +329,28 @@ Physical cash drawer hardware tied to a store. Cashier sessions are opened per d
 
 ---
 
-## 11. Stores
+## 11. Facilities
 
-**Route**: `GET /stores`  
-**SystemObject**: `Stores` (29)
+**Route**: `GET /facilities`  
+**SystemObject**: `Facilities` (29)
 
 ### Purpose
-Top-level organizational unit (branch). All transactional data belongs to a store.
+Top-level organizational unit (branch or production site). All transactional data belongs to a facility.
 
 ### Form Fields
 
 | Field | Column | Notes |
 |-------|--------|-------|
-| Code | `store.code` | |
-| Name | `store.name` | |
-| SAT Location | `store.location` | FK → `sat_postal_code` |
-| Address | `store.address` | FK → `address` |
-| Taxpayer (RFC) | `store.taxpayer` | FK → `taxpayer_issuer` |
-| Logo | `store.logo` | Image path |
-| Receipt Message | `store.receipt_message` | Printed footer |
-| Default Batch | `store.default_batch` | CFDI folio series |
-| Disabled | `store.disabled` | |
+| Code | `facility.code` | |
+| Name | `facility.name` | |
+| SAT Location | `facility.location` | FK → `sat_postal_code` |
+| Address | `facility.address` | FK → `address` |
+| Taxpayer (RFC) | `facility.taxpayer` | FK → `taxpayer_issuer` |
+| Logo | `facility.logo` | Image path |
+| Receipt Message | `facility.receipt_message` | Printed footer |
+| Default Batch | `facility.default_batch` | CFDI folio series |
+| Type | `facility.type` | `0` = store, `1` = production_site (`FacilityType` enum) |
+| Disabled | `facility.disabled` | |
 
 ---
 
@@ -399,13 +400,13 @@ Expense category catalog used in expense vouchers (petty cash).
 **SystemObject**: `PaymentMethodOptions` (84)
 
 ### Purpose
-Configures accepted payment methods per store, including installment options and merchant commission rates.
+Configures accepted payment methods per facility, including installment options and merchant commission rates.
 
 ### Form Fields
 
 | Field | Column | Notes |
 |-------|--------|-------|
-| Store | `payment_method_option.store` | FK → `store` |
+| Facility | `payment_method_option.facility` | FK → `facility` |
 | Warehouse | `payment_method_option.warehouse` | Optional scope |
 | Name | `payment_method_option.name` | Display label |
 | Payment Method | `payment_method_option.payment_method` | Enum: Cash, Card, Transfer, etc. |
@@ -464,18 +465,4 @@ Driver license records for employees who operate fleet vehicles.
 
 ## 17. Production Sites
 
-**Route**: `GET /production-sites`  
-**SystemObject**: `ProductionSites` (107)
-
-### Purpose
-Manufacturing site / production line configuration.
-
-### Form Fields
-
-| Field | Column | Notes |
-|-------|--------|-------|
-| Store | `production_site.store` | FK → `store` |
-| Code | `production_site.code` | Unique |
-| Name | `production_site.name` | |
-| Notes | `production_site.comment` | |
-| Disabled | `production_site.disabled` | |
+Removed as a standalone entity. Production sites are now `facility` rows with `type = 1` (`PRODUCTION_SITE`); see [11. Facilities](#11-facilities). The `GET /production-sites` route and `ProductionSites` (107) `SystemObject` no longer exist.

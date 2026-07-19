@@ -28,18 +28,18 @@ bare ID (see spec.md FR-039/FR-040). Rules:
 - Request bodies (`Create`/`Update` schemas) are unchanged — FK fields are still submitted as
   plain IDs.
 - Nesting stops after one level: an embedded object's own FK fields stay as plain IDs. This means
-  two response shapes exist for `Store` and `Warehouse`, since both are themselves FK targets and
+  two response shapes exist for `Facility` and `Warehouse`, since both are themselves FK targets and
   also own FK fields of their own:
-  - `StoreResponse` (top-level `GET /stores`) — `location` expanded to the SAT postal code object.
-  - `StoreSummary` (embedded inside `Warehouse`/`PointSale`/`CashDrawer`/`PaymentMethodOption`/
-    `ProductionSite` responses) — same fields, but `location` stays a plain string.
-  - `WarehouseResponse` (top-level `GET /warehouses`) — `store` expanded to `StoreSummary`.
-  - `WarehouseSummary` (embedded inside `PointSale`/`PaymentMethodOption` responses) — `store`
+  - `FacilityResponse` (top-level `GET /facilities`) — `location` expanded to the SAT postal code object.
+  - `FacilitySummary` (embedded inside `Warehouse`/`PointSale`/`CashDrawer`/`PaymentMethodOption`
+    responses) — same fields, but `location` stays a plain string.
+  - `WarehouseResponse` (top-level `GET /warehouses`) — `facility` expanded to `FacilitySummary`.
+  - `WarehouseSummary` (embedded inside `PointSale`/`PaymentMethodOption` responses) — `facility`
     stays a plain integer.
 - All other FK targets (`Supplier`, `PriceList`, `Employee`, `Label`, SAT catalogs) have no FK
   fields of their own, so their existing single response schema is reused directly for embedding
   — no separate "summary" variant is needed for those.
-- `Store.address` and `Store.taxpayer` are not expanded (no read schema exists for `Address` /
+- `Facility.address` and `Facility.taxpayer` are not expanded (no read schema exists for `Address` /
   `TaxpayerIssuer` in this feature); they remain plain IDs in every response.
 
 ---
@@ -210,16 +210,17 @@ current field reference. `Product` no longer auto-provisions price rows on creat
 
 ---
 
-## 9. Store
+## 9. Facility
 
-**ORM class**: `Store` in `app/models/core.py`  
-**Table**: `store`
+**ORM class**: `Facility` in `app/models/core.py`  
+**Table**: `facility`
 
 | Python field | Column | Type |
 |--------------|--------|------|
-| `store_id` | `store_id` | `int` PK |
+| `facility_id` | `facility_id` | `int` PK |
 | `code` | `code` | `str` |
 | `name` | `name` | `str` |
+| `type` | `type` | `FacilityType` (IntEnum) `INT` NOT NULL; `0` = store \| `1` = production_site; default `0` |
 | `location` | `location` | `str` FK → `sat_postal_code`; **response**: expanded to `SatCatalogResponse` |
 | `address` | `address` | `int` FK → `address`; **not expanded** (no `Address` read schema) |
 | `taxpayer` | `taxpayer` | `str` FK → `taxpayer_issuer`; **not expanded** (no `TaxpayerIssuer` read schema) |
@@ -238,7 +239,7 @@ current field reference. `Product` no longer auto-provisions price rows on creat
 | Python field | Column | Type |
 |--------------|--------|------|
 | `warehouse_id` | `warehouse_id` | `int` PK |
-| `store` | `store` | `int` FK → `store`; **response**: expanded to `StoreSummary` (top-level `WarehouseResponse`) — stays a plain ID when this `Warehouse` is itself embedded in another response as `WarehouseSummary` |
+| `facility` | `facility` | `int` FK → `facility`; **response**: expanded to `FacilitySummary` (top-level `WarehouseResponse`) — stays a plain ID when this `Warehouse` is itself embedded in another response as `WarehouseSummary` |
 | `code` | `code` | `str` unique |
 | `name` | `name` | `str` |
 | `comment` | `comment` | `str \| None` |
@@ -254,7 +255,7 @@ current field reference. `Product` no longer auto-provisions price rows on creat
 | Python field | Column | Type |
 |--------------|--------|------|
 | `point_sale_id` | `point_sale_id` | `int` PK |
-| `store` | `store` | `int` FK → `store`; **response**: expanded to `StoreSummary` |
+| `facility` | `facility` | `int` FK → `facility`; **response**: expanded to `FacilitySummary` |
 | `code` | `code` | `str` unique |
 | `name` | `name` | `str` |
 | `warehouse` | `warehouse` | `int` FK → `warehouse`; **response**: expanded to `WarehouseSummary` |
@@ -271,7 +272,7 @@ current field reference. `Product` no longer auto-provisions price rows on creat
 | Python field | Column | Type |
 |--------------|--------|------|
 | `cash_drawer_id` | `cash_drawer_id` | `int` PK |
-| `store` | `store` | `int` FK → `store`; **response**: expanded to `StoreSummary` |
+| `facility` | `facility` | `int` FK → `facility`; **response**: expanded to `FacilitySummary` |
 | `code` | `code` | `str` unique |
 | `name` | `name` | `str` |
 | `comment` | `comment` | `str \| None` |
@@ -319,7 +320,7 @@ API schema, mapping to `expense` via alias.
 |--------------|--------|------|
 | `payment_method_option_id` | `payment_method_option_id` | `int` PK |
 | `warehouse` | `warehouse` | `int \| None` FK → `warehouse`; **response**: expanded to `WarehouseSummary \| None` |
-| `store` | `store` | `int` FK → `store`; **response**: expanded to `StoreSummary` |
+| `facility` | `facility` | `int` FK → `facility`; **response**: expanded to `FacilitySummary` |
 | `name` | `name` | `str` |
 | `number_of_payments` | `number_of_payments` | `int` |
 | `display_on_ticket` | `display_on_ticket` | `bool` |
@@ -370,22 +371,6 @@ API schema, mapping to `expense` via alias.
 
 ---
 
-## 18. ProductionSite
-
-**ORM class**: `ProductionSite` in `app/models/core.py`  
-**Table**: `production_site`
-
-| Python field | Column | Type |
-|--------------|--------|------|
-| `production_site_id` | `production_site_id` | `int` PK |
-| `store` | `store` | `int` FK → `store`; **response**: expanded to `StoreSummary` |
-| `code` | `code` | `str` unique |
-| `name` | `name` | `str` |
-| `comment` | `comment` | `str \| None` |
-| `disabled` | `disabled` | `int \| None` |
-
----
-
 ## Shared Schema: ListResponse
 
 A single generic wrapper in `app/schemas/core.py` (or `app/schemas/__init__.py`):
@@ -396,11 +381,11 @@ class ListResponse(BaseModel, Generic[T]):
     total: int
 ```
 
-Used by all 17 list endpoints.
+Used by all 16 list endpoints.
 
 ---
 
-## 19. SAT Catalog Models (read-only)
+## 18. SAT Catalog Models (read-only)
 
 All 8 SAT catalog models are in `app/models/sat_catalog.py`. Each has only a string primary key;
 no additional columns are mapped (the real tables may have more, but only the PK is needed for

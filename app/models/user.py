@@ -2,7 +2,7 @@ from sqlalchemy import Boolean, ForeignKey, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
-from app.models.core import CashDrawer, PointSale, Store
+from app.models.core import CashDrawer, Facility, PointSale
 
 
 class User(Base):
@@ -63,8 +63,10 @@ class UserSettings(Base):
     user_id: Mapped[str] = mapped_column(
         "user", String(20), ForeignKey("user.user_id"), primary_key=True
     )
-    # store is NOT NULL per schema — a user must belong to a store
-    store_id: Mapped[int] = mapped_column("store", Integer, ForeignKey("store.store_id"))
+    # facility is NOT NULL per schema — a user must belong to a facility
+    facility_id: Mapped[int] = mapped_column(
+        "facility", Integer, ForeignKey("facility.facility_id")
+    )
     point_sale_id: Mapped[int | None] = mapped_column(
         "point_sale", Integer, ForeignKey("point_sale.point_sale_id")
     )
@@ -74,17 +76,17 @@ class UserSettings(Base):
 
     user: Mapped["User"] = relationship(back_populates="settings")
     # Eager-loaded so /auth/me can expose location names without extra round-trips
-    store: Mapped["Store"] = relationship(lazy="joined")
+    facility: Mapped["Facility"] = relationship(lazy="joined")
     point_sale: Mapped["PointSale | None"] = relationship(lazy="joined")
     cash_drawer: Mapped["CashDrawer | None"] = relationship(lazy="joined")
 
     @property
-    def store_code(self) -> str | None:
-        return self.store.code if self.store else None
+    def facility_code(self) -> str | None:
+        return self.facility.code if self.facility else None
 
     @property
-    def store_name(self) -> str | None:
-        return self.store.name if self.store else None
+    def facility_name(self) -> str | None:
+        return self.facility.name if self.facility else None
 
     @property
     def point_sale_code(self) -> str | None:

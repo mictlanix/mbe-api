@@ -53,7 +53,7 @@ Customer quotations (presales). A quote can be converted to a sales order.
 
 | Field | Column | Notes |
 |-------|--------|-------|
-| Store | `sales_quote.store` | From user context |
+| Facility | `sales_quote.facility` | From user context |
 | Serial/Folio | `sales_quote.serial` | Auto-generated on create |
 | Date | `sales_quote.date` | Defaults to today |
 | Salesperson | `sales_quote.salesperson` | Auto from `customer.salesperson` if set, else current user |
@@ -148,12 +148,12 @@ Full sales order management for credit customers and pre-invoiced sales. Support
 ### List View
 - Default: shows orders where current user is creator, updater, or salesperson; non-cancelled
 - Search numeric: matches `Id` OR `Serial` (shows across all users)
-- Search text: matches `customer.Name` or `salesperson.Nickname`; scoped to current store
-- Wildcard `*` (admin only): shows all orders across users and stores
+- Search text: matches `customer.Name` or `salesperson.Nickname`; scoped to current facility
+- Wildcard `*` (admin only): shows all orders across users and facilities
 - Sort: open orders first, then descending by ID
 
 ### Create Defaults
-- Store: from `WebConfig.PointOfSale.Store`
+- Facility: from `WebConfig.PointOfSale.Store`
 - Customer: `WebConfig.DefaultCustomer`
 - Salesperson: current user's employee
 - Date: now; PromiseDate: `now + WebConfig.MaxDaysToDeliverStockables`; DueDate: now
@@ -164,8 +164,8 @@ Full sales order management for credit customers and pre-invoiced sales. Support
 
 | Field | Column | Notes |
 |-------|--------|-------|
-| Store | `sales_order.store` | |
-| Serial/Folio | `sales_order.serial` | Assigned on Confirm (MAX+1 for store) |
+| Facility | `sales_order.facility` | |
+| Serial/Folio | `sales_order.serial` | Assigned on Confirm (MAX+1 for facility) |
 | Point of Sale | `sales_order.point_sale` | FK → `point_sale` |
 | Salesperson | `sales_order.salesperson` | FK → `employee` (sales_person=1) |
 | Customer | `sales_order.customer` | FK → `customer` |
@@ -211,7 +211,7 @@ Full sales order management for credit customers and pre-invoiced sales. Support
 2. Checks credit expiry (advisory if `DeliveryOrderRequiresPaidOrCreditSalesOrder`)
 3. Aborts with `ZeroPriceError` view if any line has `price = 0`
 4. Runs stock and price validation messages per line (displayed as warnings)
-5. Assigns `Serial = MAX(serial FOR store) + 1`
+5. Assigns `Serial = MAX(serial FOR facility) + 1`
 6. Posts `InventoryHelpers.ChangeNotification` (negative quantity) for each stockable line with a warehouse
 7. Sets `IsCompleted = true`
 
@@ -249,7 +249,7 @@ Record and manage payments received from customers. The payments list is scoped 
 - Search scoped to current cash session's cashier; shows unpaid completed orders
 - Numeric search: matches SO ID or Serial (shows across all users)
 - Pattern search: matches customer name, customer.salesperson nickname, SO.salesperson nickname, or `customer_name` field
-- Wildcard `*`: shows all stores if user has `SearchCreditsFromAllStores.AllowRead`
+- Wildcard `*`: shows all facilities if user has `SearchCreditsFromAllStores.AllowRead`
 
 ### Form Fields (`customer_payment`)
 
@@ -262,7 +262,7 @@ Record and manage payments received from customers. The payments list is scoped 
 | Payment Option | `customer_payment.payment_charge` | FK → `payment_method_option` |
 | Reference | `customer_payment.reference` | Check/transfer reference |
 | Date | `customer_payment.date` | |
-| Store | `customer_payment.store` | |
+| Facility | `customer_payment.facility` | |
 | Cash Session | `customer_payment.cash_session` | Active session if POS payment |
 | Payment Type | `customer_payment.payment_type` | `Normal`, `CreditNote`, `COD` |
 
@@ -301,7 +301,7 @@ Process product returns from customers. Generates credit note or cash refund.
 | Original Sales Order | `customer_refund.sales_order` | FK → `sales_order` |
 | Customer | `customer_refund.customer` | Auto-filled from order |
 | Salesperson | `customer_refund.sales_person` | FK → `employee`; auto-filled from order |
-| Store | `customer_refund.store` | From user context |
+| Facility | `customer_refund.facility` | From user context |
 | Date | `customer_refund.date` | Set on Confirm |
 | Currency | `customer_refund.currency` | From original order |
 | Exchange Rate | `customer_refund.exchange_rate` | |
@@ -327,7 +327,7 @@ Process product returns from customers. Generates credit note or cash refund.
 4. Posts `InventoryHelpers.ChangeNotification` (positive quantity) for each stockable line → restores stock
 5. If `refund.Total ≥ order.Balance`: marks `sales_order.IsPaid = true`, sets `BalanceZeroedTime`
 6. If cashback (`refund.Total > order.Balance`): creates a `CreditNote` + associated `CustomerPayment` with `PaymentType.CreditNote`
-7. Sets `IsCompleted = true`, assigns `Serial = MAX(serial FOR store) + 1`
+7. Sets `IsCompleted = true`, assigns `Serial = MAX(serial FOR facility) + 1`
 
 ### Cancel Action
 - Blocked if `IsCompleted = true`
@@ -380,7 +380,7 @@ Supervisory queue to verify unverified customer payments — typically used when
 
 ### List View
 - Shows payments where `verifier IS NULL`
-- Filter by: store, date, payment method, amount range
+- Filter by: facility, date, payment method, amount range
 
 ### Actions
 - **Verify**: sets `verifier = current_employee_id`

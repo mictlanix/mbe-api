@@ -89,7 +89,7 @@ class ExpenseVoucher(Base):
     expense_voucher_id: Mapped[int] = mapped_column(Integer, primary_key=True)
     creator: Mapped[int] = mapped_column(Integer, ForeignKey("employee.employee_id"))
     updater: Mapped[int] = mapped_column(Integer, ForeignKey("employee.employee_id"))
-    store: Mapped[int] = mapped_column(Integer, ForeignKey("store.store_id"))
+    facility: Mapped[int] = mapped_column(Integer, ForeignKey("facility.facility_id"))
     cash_session: Mapped[int] = mapped_column(Integer, ForeignKey("cash_session.cash_session_id"))
     comment: Mapped[str | None] = mapped_column(String(500))
     date: Mapped[datetime] = mapped_column(DateTime)

@@ -316,12 +316,12 @@ Used by `InventoryHelpers.ChangeNotification` to classify every inventory ledger
 **File**: `Model/Constants/UserSettingsMode.cs`  
 **DB column**: `WebConfig.UserSettingsMode` (application config)
 
-Controls how each user's store/POS/drawer context is set.
+Controls how each user's facility/POS/drawer context is set.
 
 | Value | Name | Description |
 |-------|------|-------------|
-| 0 | SelfService | User selects their own store, POS, and cash drawer at login |
-| 1 | Managed | Administrator assigns store/POS/drawer to the user; user cannot change |
+| 0 | SelfService | User selects their own facility, POS, and cash drawer at login |
+| 1 | Managed | Administrator assigns facility/POS/drawer to the user; user cannot change |
 
 ---
 
@@ -365,7 +365,7 @@ Commented-out entries (31, 70, 76, 77, 78, 104, 105) are **disabled/unused** in 
 | 26 | SalesOrdersHistoric | Sales | Historical sales orders (read-only) |
 | 27 | CustomerRefundsHistoric | Sales | Historical refunds (read-only) |
 | 28 | SupplierReturnHistoric | Purchases | Historical supplier returns (read-only) |
-| 29 | Stores | Master Data | Store catalog |
+| 29 | Facilities | Master Data | Facility catalog |
 | 30 | SalesQuotes | Sales | Sales quotations |
 | 32 | Kardex | Reports | Product movement history report |
 | 33 | ReceivedPayments | Reports | Received payments report |
@@ -436,7 +436,6 @@ Commented-out entries (31, 70, 76, 77, 78, 104, 105) are **disabled/unused** in 
 | 102 | ExcludePriceRangeValidation | Sales | Bypass price range validation on SO lines |
 | 103 | IssuedLocationId | Fiscal | Set issued-location on fiscal documents |
 | 106 | Pricing | Master Data | Price management / pricing tool |
-| 107 | ProductionSites | Production | Production site catalog |
 | 108 | PaymentsVerification | Sales | Validate/verify received payments |
 | 109 | ReceivedPaymentsSummary | Reports | Received payments summary report |
 | 110 | CustomerRefundConfirm | Sales | Confirm customer refund (separate gate) |

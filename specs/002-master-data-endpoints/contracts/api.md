@@ -426,11 +426,11 @@ EmployeeResponse:
 
 **Prefix**: `/api/v1/warehouses`
 
-Standard CRUD. Filter by `store`.
+Standard CRUD. Filter by `facility`.
 
 ```
 WarehouseCreate / WarehouseUpdate:
-  store: int
+  facility: int
   code: str
   name: str
   comment: str | null
@@ -438,7 +438,7 @@ WarehouseCreate / WarehouseUpdate:
 
 WarehouseResponse:
   warehouse_id: int
-  store: int
+  facility: int
   code: str
   name: str
   comment: str | null
@@ -451,11 +451,11 @@ WarehouseResponse:
 
 **Prefix**: `/api/v1/points-of-sale`
 
-List filter params: `store` (int), `warehouse` (int), `skip`, `limit`.
+List filter params: `facility` (int), `warehouse` (int), `skip`, `limit`.
 
 ```
 PointSaleCreate / PointSaleUpdate:
-  store: int
+  facility: int
   code: str
   name: str
   warehouse: int
@@ -464,7 +464,7 @@ PointSaleCreate / PointSaleUpdate:
 
 PointSaleResponse:
   point_sale_id: int
-  store: int
+  facility: int
   code: str
   name: str
   warehouse: int
@@ -478,11 +478,11 @@ PointSaleResponse:
 
 **Prefix**: `/api/v1/cash-drawers`
 
-List filter params: `store` (int), `skip`, `limit`.
+List filter params: `facility` (int), `skip`, `limit`.
 
 ```
 CashDrawerCreate / CashDrawerUpdate:
-  store: int
+  facility: int
   code: str
   name: str
   comment: str | null
@@ -490,7 +490,7 @@ CashDrawerCreate / CashDrawerUpdate:
 
 CashDrawerResponse:
   cash_drawer_id: int
-  store: int
+  facility: int
   code: str
   name: str
   comment: str | null
@@ -499,14 +499,15 @@ CashDrawerResponse:
 
 ---
 
-## 11. Stores
+## 11. Facilities
 
-**Prefix**: `/api/v1/stores`
+**Prefix**: `/api/v1/facilities`
 
 ```
-StoreCreate / StoreUpdate:
+FacilityCreate / FacilityUpdate:
   code: str
   name: str
+  type: int               # FacilityType: 0 = store | 1 = production_site; defaults to 0
   location: str          # FK sat_postal_code
   address: int           # FK address
   taxpayer: str          # FK taxpayer_issuer
@@ -515,10 +516,11 @@ StoreCreate / StoreUpdate:
   default_batch: str | null
   disabled: bool | null
 
-StoreResponse:
-  store_id: int
+FacilityResponse:
+  facility_id: int
   code: str
   name: str
+  type: str
   location: str
   address: int
   taxpayer: str
@@ -576,11 +578,11 @@ ExpenseResponse:
 
 **Prefix**: `/api/v1/payment-method-options`
 
-Filter by `store`.
+Filter by `facility`.
 
 ```
 PaymentMethodOptionCreate / PaymentMethodOptionUpdate:
-  store: int
+  facility: int
   warehouse: int | null
   name: str
   number_of_payments: int
@@ -591,7 +593,7 @@ PaymentMethodOptionCreate / PaymentMethodOptionUpdate:
 
 PaymentMethodOptionResponse:
   payment_method_option_id: int
-  store: int
+  facility: int
   warehouse: int | null
   name: str
   number_of_payments: int
@@ -656,32 +658,7 @@ VehicleOperatorResponse:
 
 ---
 
-## 17. Production Sites
-
-**Prefix**: `/api/v1/production-sites`
-
-Filter by `store`.
-
-```
-ProductionSiteCreate / ProductionSiteUpdate:
-  store: int
-  code: str
-  name: str
-  comment: str | null
-  disabled: bool | null
-
-ProductionSiteResponse:
-  production_site_id: int
-  store: int
-  code: str
-  name: str
-  comment: str | null
-  disabled: bool | null
-```
-
----
-
-## 18–25. SAT Catalog Reference Data (Read-Only)
+## 17–24. SAT Catalog Reference Data (Read-Only)
 
 **Prefix**: `/api/v1/sat`
 
@@ -689,14 +666,14 @@ All 8 SAT catalogs follow the same pattern — list and get-by-id only. No write
 
 | # | Path prefix | ID field | ID type |
 |---|------------|----------|---------|
-| 18 | `/api/v1/sat/cfdi-usages` | `sat_cfdi_usage_id` | str(4) |
-| 19 | `/api/v1/sat/countries` | `sat_country_id` | str(3) |
-| 20 | `/api/v1/sat/currencies` | `sat_currency_id` | str(3) |
-| 21 | `/api/v1/sat/postal-codes` | `sat_postal_code_id` | str(5) |
-| 22 | `/api/v1/sat/product-services` | `sat_product_service_id` | str(8) |
-| 23 | `/api/v1/sat/reason-cancellations` | `sat_reason_cancellation_id` | str(2) |
-| 24 | `/api/v1/sat/tax-regimes` | `sat_tax_regime_id` | str(3) |
-| 25 | `/api/v1/sat/units-of-measurement` | `sat_unit_of_measurement_id` | str(3) |
+| 17 | `/api/v1/sat/cfdi-usages` | `sat_cfdi_usage_id` | str(4) |
+| 18 | `/api/v1/sat/countries` | `sat_country_id` | str(3) |
+| 19 | `/api/v1/sat/currencies` | `sat_currency_id` | str(3) |
+| 20 | `/api/v1/sat/postal-codes` | `sat_postal_code_id` | str(5) |
+| 21 | `/api/v1/sat/product-services` | `sat_product_service_id` | str(8) |
+| 22 | `/api/v1/sat/reason-cancellations` | `sat_reason_cancellation_id` | str(2) |
+| 23 | `/api/v1/sat/tax-regimes` | `sat_tax_regime_id` | str(3) |
+| 24 | `/api/v1/sat/units-of-measurement` | `sat_unit_of_measurement_id` | str(3) |
 
 **For each catalog:**
 

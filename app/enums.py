@@ -7,6 +7,11 @@ class CurrencyCode(IntEnum):
     EUR = 2
 
 
+class FacilityType(IntEnum):
+    STORE = 0
+    PRODUCTION_SITE = 1
+
+
 class AccessRight(IntFlag):
     NONE = 0
     CREATE = 1
@@ -45,7 +50,7 @@ class SystemObject(IntEnum):
     SALES_ORDERS_HISTORIC = 26
     CUSTOMER_REFUNDS_HISTORIC = 27
     SUPPLIER_RETURN_HISTORIC = 28
-    STORES = 29
+    FACILITIES = 29
     SALES_QUOTES = 30
     # 31 absent
     KARDEX = 32
@@ -120,7 +125,7 @@ class SystemObject(IntEnum):
     ISSUED_LOCATION_ID = 103
     # 104, 105 absent
     PRICING = 106
-    PRODUCTION_SITES = 107
+    # 107 absent
     PAYMENTS_VERIFICATION = 108
     RECEIVED_PAYMENTS_SUMMARY = 109
     CUSTOMER_REFUND_CONFIRM = 110

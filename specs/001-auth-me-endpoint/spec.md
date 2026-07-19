@@ -12,7 +12,7 @@
 
 ### User Story 1 - Authenticated user bootstraps their own session (Priority: P1)
 
-After logging in, any user (administrator or not) needs to retrieve their own profile — including their settings (default store/point-sale/cash-drawer) and privileges — so the client application can populate its role-based UI state.
+After logging in, any user (administrator or not) needs to retrieve their own profile — including their settings (default facility/point-sale/cash-drawer) and privileges — so the client application can populate its role-based UI state.
 
 **Why this priority**: This is the core problem described in the issue. Without it, non-admin users cannot complete session bootstrap at all, and the `001-user-authentication` feature in mbe-ui is blocked.
 
@@ -54,13 +54,13 @@ A request without a valid, active session must not return any profile data.
 
 - **FR-001**: System MUST provide an endpoint that returns the authenticated caller's own user profile.
 - **FR-002**: The endpoint MUST be accessible to any authenticated, non-disabled user with a currently valid session — administrator privilege MUST NOT be required.
-- **FR-003**: The response MUST contain the same information as the existing user profile representation: user_id, email, employee_id, administrator flag, disabled flag, session_version, settings (store/point-sale/cash-drawer defaults), and the full list of privileges.
+- **FR-003**: The response MUST contain the same information as the existing user profile representation: user_id, email, employee_id, administrator flag, disabled flag, session_version, settings (facility/point-sale/cash-drawer defaults), and the full list of privileges.
 - **FR-004**: The endpoint MUST reject requests with missing, invalid, expired, or session-version-mismatched credentials using the same rules as other authenticated endpoints (401 Unauthorized).
 - **FR-005**: The endpoint MUST only ever return the caller's own profile, determined from their authenticated identity — never another user's data, and never via a path or query parameter.
 
 ### Key Entities
 
-- **User Profile**: The caller's own account record — identity (user_id, email, employee_id), account flags (administrator, disabled), session_version, default operating context (settings: store/point-sale/cash-drawer), and access privileges.
+- **User Profile**: The caller's own account record — identity (user_id, email, employee_id), account flags (administrator, disabled), session_version, default operating context (settings: facility/point-sale/cash-drawer), and access privileges.
 
 ## Success Criteria *(mandatory)*
 

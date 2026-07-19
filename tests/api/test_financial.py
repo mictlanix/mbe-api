@@ -24,7 +24,7 @@ def _clear_overrides() -> Generator[None, None, None]:
 
 def _auth() -> None:
     app.dependency_overrides[get_current_user] = lambda: CurrentUser(
-        user_id="tester", session_version=1, administrator=True, store_id=None
+        user_id="tester", session_version=1, administrator=True, facility_id=None
     )
 
     async def _noop_db():
@@ -50,11 +50,12 @@ def _expense(expense_id: int = 1) -> SimpleNamespace:
     return SimpleNamespace(expense_id=expense_id, expense="Office Supplies", comment=None)
 
 
-def _store_summary(store_id: int = 1) -> SimpleNamespace:
+def _facility_summary(facility_id: int = 1) -> SimpleNamespace:
     return SimpleNamespace(
-        store_id=store_id,
+        facility_id=facility_id,
         code="S1",
         name="Main Store",
+        type=0,
         location="06000",
         address=1,
         taxpayer="RFC123456789A",
@@ -68,7 +69,7 @@ def _store_summary(store_id: int = 1) -> SimpleNamespace:
 def _pmo(pmo_id: int = 1) -> SimpleNamespace:
     return SimpleNamespace(
         payment_method_option_id=pmo_id,
-        store=_store_summary(),
+        facility=_facility_summary(),
         warehouse=None,
         name="Cash",
         number_of_payments=1,
@@ -388,7 +389,7 @@ async def test_create_payment_method_option_returns_201() -> None:
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
             r = await c.post(
                 "/api/v1/payment-method-options",
-                json={"store": 1, "name": "Cash", "payment_method": 0},
+                json={"facility": 1, "name": "Cash", "payment_method": 0},
             )
     assert r.status_code == 201
     assert r.json()["name"] == "Cash"

@@ -6,7 +6,7 @@
 
 ## Decision 1: ORM Model Reuse — No Changes Required
 
-**Decision**: All 17 SQLAlchemy models exist in `app/models/`. Zero schema changes needed.
+**Decision**: All 16 SQLAlchemy models exist in `app/models/`. Zero schema changes needed.
 
 **Model locations**:
 
@@ -19,7 +19,7 @@
 | TaxpayerRecipient | `TaxpayerRecipient` | `app/models/customer.py` |
 | Supplier | `Supplier` | `app/models/supplier.py` |
 | Employee | `Employee` | `app/models/core.py` |
-| Store | `Store` | `app/models/core.py` |
+| Facility | `Facility` | `app/models/core.py` |
 | Warehouse | `Warehouse` | `app/models/core.py` |
 | PointSale | `PointSale` | `app/models/core.py` |
 | CashDrawer | `CashDrawer` | `app/models/core.py` |
@@ -28,7 +28,6 @@
 | PaymentMethodOption | `PaymentMethodOption` | `app/models/core.py` |
 | Vehicle | `Vehicle` | `app/models/core.py` |
 | VehicleOperator | `VehicleOperator` | `app/models/core.py` |
-| ProductionSite | `ProductionSite` | `app/models/core.py` |
 
 **Rationale**: Constitution Principle V (Reuse Over Rebuild). Models are battle-tested against
 the real MariaDB schema.
@@ -99,13 +98,13 @@ master data would lock out regular users who legitimately manage catalogs.
 - `app/schemas/product.py` — Product, PriceList, ProductPrice (3 classes × ~4 schemas each)
 - `app/schemas/customer.py` — Customer, TaxpayerRecipient
 - `app/schemas/supplier.py` — Supplier
-- `app/schemas/core.py` — Employee, Store, Warehouse, PointSale, CashDrawer, Label,
-  ExchangeRate, Expense, PaymentMethodOption, Vehicle, VehicleOperator, ProductionSite
+- `app/schemas/core.py` — Employee, Facility, Warehouse, PointSale, CashDrawer, Label,
+  ExchangeRate, Expense, PaymentMethodOption, Vehicle, VehicleOperator
 
 **Rationale**: Follows the model file grouping. `core.py` is large but all those models are
 simple CRUD with no cross-references between them in schema space.
 
-**Alternatives considered**: One schema file per resource (17 files). **Rejected because**: the
+**Alternatives considered**: One schema file per resource (16 files). **Rejected because**: the
 simpler resources (Label, Expense, Vehicle) have 2–3 fields each; a dedicated file per resource
 is overkill for trivial entities.
 
@@ -152,15 +151,15 @@ not stored in the DB.
 **Decision**: All list endpoints return `{"items": [...], "total": N}` using a generic Pydantic
 model `ListResponse[T]` defined once in `app/schemas/__init__.py` (or inline in `app/schemas/core.py`).
 
-**Rationale**: All 17 list endpoints need the same wrapper. A single generic avoids 17 duplicate
-classes. This is the one abstraction justified by 17-fold reuse.
+**Rationale**: All 16 list endpoints need the same wrapper. A single generic avoids 16 duplicate
+classes. This is the one abstraction justified by 16-fold reuse.
 
 ---
 
 ## CHANGELOG Update
 
 **Decision**: `CHANGELOG.md` `[Unreleased]` section must be updated with an `Added` entry for
-all 17 resources before or at the PR.
+all 16 resources before or at the PR.
 
 ---
 
@@ -175,11 +174,11 @@ new abstraction. Five endpoints receive new filter params:
 |----------|-------------|-------------|
 | `GET /api/v1/products` | `supplier` | `Product.supplier` |
 | `GET /api/v1/customers` | `price_list`, `salesperson` | `Customer.price_list`, `Customer.salesperson` |
-| `GET /api/v1/points-of-sale` | `store`, `warehouse` | `PointSale.store`, `PointSale.warehouse` |
-| `GET /api/v1/cash-drawers` | `store` | `CashDrawer.store` |
+| `GET /api/v1/points-of-sale` | `facility`, `warehouse` | `PointSale.facility`, `PointSale.warehouse` |
+| `GET /api/v1/cash-drawers` | `facility` | `CashDrawer.facility` |
 | `GET /api/v1/vehicle-operators` | `employee` | `VehicleOperator.driver` |
 
-**Rationale**: Pattern is identical to the existing `label` filter on products and `store` filter
+**Rationale**: Pattern is identical to the existing `label` filter on products and `facility` filter
 on warehouses — `Query(None)` parameter, `where(Model.field == value)` clause added only when the
 param is not `None`. No new service abstraction needed.
 

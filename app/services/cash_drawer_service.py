@@ -3,7 +3,7 @@ from collections.abc import Sequence
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.core import CashDrawer, Store
+from app.models.core import CashDrawer, Facility
 from app.schemas.core import CashDrawerCreate, CashDrawerUpdate
 from app.services.fk_expansion import batch_fetch
 
@@ -11,23 +11,25 @@ from app.services.fk_expansion import batch_fetch
 async def _attach_relations(db: AsyncSession, cash_drawers: Sequence[CashDrawer]) -> None:
     if not cash_drawers:
         return
-    stores_by_id = await batch_fetch(db, Store, Store.store_id, (c.store for c in cash_drawers))
+    facilities_by_id = await batch_fetch(
+        db, Facility, Facility.facility_id, (c.facility for c in cash_drawers)
+    )
     for c in cash_drawers:
-        c.__dict__["store"] = stores_by_id.get(c.store)
+        c.__dict__["facility"] = facilities_by_id.get(c.facility)
 
 
 async def list_cash_drawers(
     db: AsyncSession,
     *,
-    store: int | None = None,
+    facility: int | None = None,
     skip: int = 0,
     limit: int = 20,
 ) -> tuple[Sequence[CashDrawer], int]:
     base = select(CashDrawer)
     count_q = select(func.count()).select_from(CashDrawer)
-    if store is not None:
-        base = base.where(CashDrawer.store == store)
-        count_q = count_q.where(CashDrawer.store == store)
+    if facility is not None:
+        base = base.where(CashDrawer.facility == facility)
+        count_q = count_q.where(CashDrawer.facility == facility)
     total: int = (await db.execute(count_q)).scalar_one()
     items = (await db.execute(base.offset(skip).limit(limit))).scalars().all()
     await _attach_relations(db, items)
@@ -44,7 +46,7 @@ async def get_cash_drawer(db: AsyncSession, cash_drawer_id: int) -> CashDrawer |
 
 async def create_cash_drawer(db: AsyncSession, data: CashDrawerCreate) -> CashDrawer:
     cd = CashDrawer(
-        store=data.store,
+        facility=data.facility,
         code=data.code,
         name=data.name,
         comment=data.comment,
@@ -60,8 +62,8 @@ async def create_cash_drawer(db: AsyncSession, data: CashDrawerCreate) -> CashDr
 async def update_cash_drawer(
     db: AsyncSession, cd: CashDrawer, data: CashDrawerUpdate
 ) -> CashDrawer:
-    if data.store is not None:
-        cd.store = data.store
+    if data.facility is not None:
+        cd.facility = data.facility
     if data.code is not None:
         cd.code = data.code
     if data.name is not None:

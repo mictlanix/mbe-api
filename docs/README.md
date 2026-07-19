@@ -29,10 +29,10 @@ This directory contains the reverse-engineered specifications for the Mictlanix 
 
 ## Key Domain Concepts
 
-- **Store**: Top-level org unit. All transactional data belongs to a store.
-- **Warehouse**: Physical stock location, belongs to a store.
-- **Point of Sale**: Terminal configuration (store + warehouse), used for POS transactions.
-- **Cash Drawer**: Hardware unit tied to a store; sessions opened per cashier shift.
+- **Facility**: Top-level org unit (store or production site). All transactional data belongs to a facility.
+- **Warehouse**: Physical stock location, belongs to a facility.
+- **Point of Sale**: Terminal configuration (facility + warehouse), used for POS transactions.
+- **Cash Drawer**: Hardware unit tied to a facility; sessions opened per cashier shift.
 - **Employee**: Internal staff. Sales persons, cashiers, creators/updaters of documents.
 - **Customer**: Buyer entity with credit terms and assigned price list.
 - **Supplier**: Vendor entity with credit terms.

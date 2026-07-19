@@ -5,7 +5,7 @@ from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Integer, Numeric, Sm
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
-from app.enums import CurrencyCode
+from app.enums import CurrencyCode, FacilityType
 
 
 class Address(Base):
@@ -66,12 +66,13 @@ class Employee(Base):
     disabled: Mapped[bool | None] = mapped_column(Boolean)
 
 
-class Store(Base):
-    __tablename__ = "store"
+class Facility(Base):
+    __tablename__ = "facility"
 
-    store_id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    facility_id: Mapped[int] = mapped_column(Integer, primary_key=True)
     code: Mapped[str] = mapped_column(String(25))
     name: Mapped[str] = mapped_column(String(250))
+    type: Mapped[FacilityType] = mapped_column(Integer)
     location: Mapped[str] = mapped_column(
         String(5), ForeignKey("sat_postal_code.sat_postal_code_id")
     )
@@ -89,7 +90,7 @@ class Warehouse(Base):
     __tablename__ = "warehouse"
 
     warehouse_id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    store: Mapped[int] = mapped_column(Integer, ForeignKey("store.store_id"))
+    facility: Mapped[int] = mapped_column(Integer, ForeignKey("facility.facility_id"))
     code: Mapped[str] = mapped_column(String(25))
     name: Mapped[str] = mapped_column(String(250))
     comment: Mapped[str | None] = mapped_column(String(500))
@@ -100,7 +101,7 @@ class PointSale(Base):
     __tablename__ = "point_sale"
 
     point_sale_id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    store: Mapped[int] = mapped_column(Integer, ForeignKey("store.store_id"))
+    facility: Mapped[int] = mapped_column(Integer, ForeignKey("facility.facility_id"))
     code: Mapped[str] = mapped_column(String(25))
     name: Mapped[str] = mapped_column(String(250))
     warehouse: Mapped[int] = mapped_column(Integer, ForeignKey("warehouse.warehouse_id"))
@@ -112,7 +113,7 @@ class CashDrawer(Base):
     __tablename__ = "cash_drawer"
 
     cash_drawer_id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    store: Mapped[int] = mapped_column(Integer, ForeignKey("store.store_id"))
+    facility: Mapped[int] = mapped_column(Integer, ForeignKey("facility.facility_id"))
     code: Mapped[str] = mapped_column(String(25))
     name: Mapped[str] = mapped_column(String(250))
     comment: Mapped[str | None] = mapped_column(String(500))
@@ -165,7 +166,7 @@ class PaymentMethodOption(Base):
 
     payment_method_option_id: Mapped[int] = mapped_column(Integer, primary_key=True)
     warehouse: Mapped[int | None] = mapped_column(Integer, ForeignKey("warehouse.warehouse_id"))
-    store: Mapped[int] = mapped_column(Integer, ForeignKey("store.store_id"))
+    facility: Mapped[int] = mapped_column(Integer, ForeignKey("facility.facility_id"))
     name: Mapped[str] = mapped_column(String(50))
     number_of_payments: Mapped[int] = mapped_column(SmallInteger)
     display_on_ticket: Mapped[bool] = mapped_column(Boolean)
@@ -203,17 +204,6 @@ class PostalCode(Base):
     state: Mapped[str] = mapped_column(String(50))
     city: Mapped[str | None] = mapped_column(String(50))
     country: Mapped[str] = mapped_column(String(50))
-
-
-class ProductionSite(Base):
-    __tablename__ = "production_site"
-
-    production_site_id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    store: Mapped[int] = mapped_column(Integer, ForeignKey("store.store_id"))
-    code: Mapped[str] = mapped_column(String(25))
-    name: Mapped[str] = mapped_column(String(250))
-    comment: Mapped[str | None] = mapped_column(String(500))
-    disabled: Mapped[int | None] = mapped_column(SmallInteger)
 
 
 class Vehicle(Base):

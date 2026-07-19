@@ -58,7 +58,7 @@ Triggered by entering a Sales Order ID into the "New" action:
    - Computes deliverable lines = `sales_order_detail` lines where `delivery=true` and `GetDeliverableQuantity() > 0`
    - `GetDeliverableQuantity()` = line quantity minus quantity already covered by existing delivery order details
    - If no deliverable lines remain, returns error `AlreadyFullyDelivered`
-3. `IsPickedUpInStore` is auto-detected: `true` if `ShipTo` address matches any store's address
+3. `IsPickedUpInStore` is auto-detected: `true` if `ShipTo` address matches any facility's address
 4. If `WebConfig.DeliveryOrderApprovalRequired = false`, `IsConfirmed` is set to `true` immediately on completion
 5. Sales Order's `DeliveryMode` is set to `PartialDeliveries` after first DO is created
 
@@ -66,14 +66,14 @@ Triggered by entering a Sales Order ID into the "New" action:
 
 | Field | Column | Notes |
 |-------|--------|-------|
-| Store | `delivery_order.store` | FK → `store` |
-| Serial/Folio | `delivery_order.serial` | Auto per store |
+| Facility | `delivery_order.facility` | FK → `facility` |
+| Serial/Folio | `delivery_order.serial` | Auto per facility |
 | Customer | `delivery_order.customer` | FK → `customer` |
 | Ship To | `delivery_order.ship_to` | FK → `address` — delivery address |
 | Contact | `delivery_order.contact` | FK → `contact` |
 | Scheduled Date | `delivery_order.date` | Must be ≥ NOW + `WebConfig.MinSpanHoursForDeliveries` |
 | Priority | `delivery_order.priority` | Integer (higher = more urgent) |
-| Is Picked Up In Store | `delivery_order.picked_up` | Auto-detected from ShipTo address |
+| Is Picked Up In Facility | `delivery_order.picked_up` | Auto-detected from ShipTo address |
 | Is Confirmed | `delivery_order.confirmed` | Approval flag |
 | Is Delivered | `delivery_order.delivered` | Set when all lines are fully sent |
 | Notes | `delivery_order.comment` | |
@@ -127,7 +127,7 @@ delivery_order WHERE:
   IsCancelled = false
   AND IsCompleted = true
   AND IsConfirmed = false (or null)
-  AND ShipTo IS NOT NULL   ← counter pickups (ShipTo = store address) are excluded
+  AND ShipTo IS NOT NULL   ← counter pickups (ShipTo = facility address) are excluded
 ```
 
 ### Actions per Order
@@ -138,7 +138,7 @@ delivery_order WHERE:
 ### Business Rules
 - If `WebConfig.DeliveryOrderApprovalRequired = false`, orders are auto-confirmed (`IsConfirmed = true`) when completed — this queue is empty.
 - Rejection does not cancel the DO; it blocks it from appearing in the For Delivery view until re-approved.
-- Counter pickup orders (ShipTo = store address) never go through this queue.
+- Counter pickup orders (ShipTo = facility address) never go through this queue.
 
 ---
 
@@ -155,8 +155,8 @@ Date-grouped view of delivery order lines pending loading onto an itinerary. Use
 Shows `delivery_order_detail` records where:
 - `delivery_order.IsCancelled = false`
 - `delivery_order.IsCompleted = true`
-- `delivery_order.ShipTo` is NOT a store pickup address
-- `delivery_order.store.IsDisabled = false`
+- `delivery_order.ShipTo` is NOT a facility pickup address
+- `delivery_order.facility.IsDisabled = false`
 
 ### Date Grouping
 The view is organized into tabs covering a sliding window of **4 days** (1 day back, today, 1 day ahead, 1 more day ahead) plus overflow buckets:

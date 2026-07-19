@@ -12,14 +12,14 @@ router = APIRouter()
 
 @router.get("", response_model=ListResponse[CashDrawerResponse])
 async def list_cash_drawers(
-    store: int | None = Query(None),
+    facility: int | None = Query(None),
     skip: int = Query(0, ge=0),
     limit: int = Query(20, ge=1, le=100),
     _: CurrentUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> ListResponse[CashDrawerResponse]:
     items, total = await cash_drawer_service.list_cash_drawers(
-        db, store=store, skip=skip, limit=limit
+        db, facility=facility, skip=skip, limit=limit
     )
     return ListResponse(items=list(items), total=total)
 

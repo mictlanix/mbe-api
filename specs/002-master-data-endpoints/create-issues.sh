@@ -146,7 +146,7 @@ Create \`app/schemas/supplier.py\` with \`SupplierCreate\`, \`SupplierUpdate\`, 
   "enhancement"
 
 create_issue \
-  "T007 Create core schemas (Employee, Store, Warehouse, PointSale, CashDrawer, Label, ExchangeRate, Expense, PaymentMethodOption, Vehicle, VehicleOperator, ProductionSite)" \
+  "T007 Create core schemas (Employee, Facility, Warehouse, PointSale, CashDrawer, Label, ExchangeRate, Expense, PaymentMethodOption, Vehicle, VehicleOperator)" \
   "**Phase**: 2 — Schema Definitions
 **Feature**: [$FEATURE]($SPEC_DIR/spec.md)
 **Contracts**: [$SPEC_DIR/contracts/api.md]($SPEC_DIR/contracts/api.md)
@@ -620,75 +620,75 @@ Register \`employees\` router with prefix \`/employees\` in \`app/api/v1/router.
 **File**: \`app/api/v1/router.py\`" \
   "enhancement"
 
-# ── Phase 6: Stores, Warehouses, POS, Cash Drawers ──────────────────────────
+# ── Phase 6: Facilities, Warehouses, POS, Cash Drawers ──────────────────────
 
 create_issue \
-  "T034 [US1] Create store_service.py" \
-  "**Phase**: 6 — Store Hierarchy
+  "T034 [US1] Create facility_service.py" \
+  "**Phase**: 6 — Facility Hierarchy
 **Story**: US1–US5
 **Feature**: [$FEATURE]($SPEC_DIR/spec.md)
 
 ## Task
 
-Create \`app/services/store_service.py\` with \`list_stores\`, \`get_store\`, \`create_store\`, \`update_store\`, \`delete_store\`.
+Create \`app/services/facility_service.py\` with \`list_facilities\`, \`get_facility\`, \`create_facility\`, \`update_facility\`, \`delete_facility\`.
 
-**File**: \`app/services/store_service.py\`" \
+**File**: \`app/services/facility_service.py\`" \
   "enhancement"
 
 create_issue \
-  "T035 [US1] Create stores endpoint" \
-  "**Phase**: 6 — Store Hierarchy
+  "T035 [US1] Create facilities endpoint" \
+  "**Phase**: 6 — Facility Hierarchy
 **Story**: US1–US5
 **Feature**: [$FEATURE]($SPEC_DIR/spec.md)
 
 ## Task
 
-Create \`app/api/v1/endpoints/stores.py\` with full CRUD for \`/stores\`.
+Create \`app/api/v1/endpoints/facilities.py\` with full CRUD for \`/facilities\`.
 
-**File**: \`app/api/v1/endpoints/stores.py\`" \
+**File**: \`app/api/v1/endpoints/facilities.py\`" \
   "enhancement"
 
 create_issue \
-  "T036 [US1] Register stores router in router.py" \
-  "**Phase**: 6 — Store Hierarchy
+  "T036 [US1] Register facilities router in router.py" \
+  "**Phase**: 6 — Facility Hierarchy
 **Feature**: [$FEATURE]($SPEC_DIR/spec.md)
 
 ## Task
 
-Register \`stores\` router with prefix \`/stores\` in \`app/api/v1/router.py\`.
+Register \`facilities\` router with prefix \`/facilities\` in \`app/api/v1/router.py\`.
 
 **File**: \`app/api/v1/router.py\`" \
   "enhancement"
 
 create_issue \
   "T037 [US1] Create warehouse_service.py" \
-  "**Phase**: 6 — Store Hierarchy
+  "**Phase**: 6 — Facility Hierarchy
 **Story**: US1–US5
 **Feature**: [$FEATURE]($SPEC_DIR/spec.md)
 
 ## Task
 
-Create \`app/services/warehouse_service.py\` with full CRUD. \`list_warehouses\` accepts optional \`store\` (int) filter.
+Create \`app/services/warehouse_service.py\` with full CRUD. \`list_warehouses\` accepts optional \`facility\` (int) filter.
 
 **File**: \`app/services/warehouse_service.py\`" \
   "enhancement"
 
 create_issue \
   "T038 [US1] Create warehouses endpoint" \
-  "**Phase**: 6 — Store Hierarchy
+  "**Phase**: 6 — Facility Hierarchy
 **Story**: US1–US5
 **Feature**: [$FEATURE]($SPEC_DIR/spec.md)
 
 ## Task
 
-Create \`app/api/v1/endpoints/warehouses.py\` with full CRUD for \`/warehouses\`. Expose optional \`store\` filter query param.
+Create \`app/api/v1/endpoints/warehouses.py\` with full CRUD for \`/warehouses\`. Expose optional \`facility\` filter query param.
 
 **File**: \`app/api/v1/endpoints/warehouses.py\`" \
   "enhancement"
 
 create_issue \
   "T039 [US1] Register warehouses router in router.py" \
-  "**Phase**: 6 — Store Hierarchy
+  "**Phase**: 6 — Facility Hierarchy
 **Feature**: [$FEATURE]($SPEC_DIR/spec.md)
 
 ## Task
@@ -700,7 +700,7 @@ Register \`warehouses\` router with prefix \`/warehouses\` in \`app/api/v1/route
 
 create_issue \
   "T040 [US1] Create point_sale_service.py" \
-  "**Phase**: 6 — Store Hierarchy
+  "**Phase**: 6 — Facility Hierarchy
 **Story**: US1–US5
 **Feature**: [$FEATURE]($SPEC_DIR/spec.md)
 
@@ -713,7 +713,7 @@ Create \`app/services/point_sale_service.py\` with full CRUD for PointSale recor
 
 create_issue \
   "T041 [US1] Create points_of_sale endpoint" \
-  "**Phase**: 6 — Store Hierarchy
+  "**Phase**: 6 — Facility Hierarchy
 **Story**: US1–US5
 **Feature**: [$FEATURE]($SPEC_DIR/spec.md)
 
@@ -726,7 +726,7 @@ Create \`app/api/v1/endpoints/points_of_sale.py\` with full CRUD for \`/points-o
 
 create_issue \
   "T042 [US1] Register points_of_sale router in router.py" \
-  "**Phase**: 6 — Store Hierarchy
+  "**Phase**: 6 — Facility Hierarchy
 **Feature**: [$FEATURE]($SPEC_DIR/spec.md)
 
 ## Task
@@ -738,7 +738,7 @@ Register \`points_of_sale\` router with prefix \`/points-of-sale\` in \`app/api/
 
 create_issue \
   "T043 [US1] Create cash_drawer_service.py" \
-  "**Phase**: 6 — Store Hierarchy
+  "**Phase**: 6 — Facility Hierarchy
 **Story**: US1–US5
 **Feature**: [$FEATURE]($SPEC_DIR/spec.md)
 
@@ -751,7 +751,7 @@ Create \`app/services/cash_drawer_service.py\` with full CRUD for CashDrawer rec
 
 create_issue \
   "T044 [US1] Create cash_drawers endpoint" \
-  "**Phase**: 6 — Store Hierarchy
+  "**Phase**: 6 — Facility Hierarchy
 **Story**: US1–US5
 **Feature**: [$FEATURE]($SPEC_DIR/spec.md)
 
@@ -764,7 +764,7 @@ Create \`app/api/v1/endpoints/cash_drawers.py\` with full CRUD for \`/cash-drawe
 
 create_issue \
   "T045 [US1] Register cash_drawers router in router.py" \
-  "**Phase**: 6 — Store Hierarchy
+  "**Phase**: 6 — Facility Hierarchy
 **Feature**: [$FEATURE]($SPEC_DIR/spec.md)
 
 ## Task
@@ -862,7 +862,7 @@ create_issue \
 
 ## Task
 
-Create \`app/services/payment_method_option_service.py\` with full CRUD. \`list_payment_method_options\` accepts optional \`store\` (int) filter.
+Create \`app/services/payment_method_option_service.py\` with full CRUD. \`list_payment_method_options\` accepts optional \`facility\` (int) filter.
 
 **File**: \`app/services/payment_method_option_service.py\`" \
   "enhancement"
@@ -892,7 +892,7 @@ Register \`payment_method_options\` router with prefix \`/payment-method-options
 **File**: \`app/api/v1/router.py\`" \
   "enhancement"
 
-# ── Phase 8: Vehicles, Vehicle Operators, Production Sites ──────────────────
+# ── Phase 8: Vehicles, Vehicle Operators ────────────────────────────────────
 
 create_issue \
   "T055 [US1] Create vehicle_service.py" \
@@ -970,43 +970,9 @@ Register \`vehicle_operators\` router with prefix \`/vehicle-operators\` in \`ap
 **File**: \`app/api/v1/router.py\`" \
   "enhancement"
 
-create_issue \
-  "T061 [US1] Create production_site_service.py" \
-  "**Phase**: 8 — Fleet & Manufacturing
-**Story**: US1–US5
-**Feature**: [$FEATURE]($SPEC_DIR/spec.md)
-
-## Task
-
-Create \`app/services/production_site_service.py\` with full CRUD. \`list_production_sites\` accepts optional \`store\` (int) filter.
-
-**File**: \`app/services/production_site_service.py\`" \
-  "enhancement"
-
-create_issue \
-  "T062 [US1] Create production_sites endpoint" \
-  "**Phase**: 8 — Fleet & Manufacturing
-**Story**: US1–US5
-**Feature**: [$FEATURE]($SPEC_DIR/spec.md)
-
-## Task
-
-Create \`app/api/v1/endpoints/production_sites.py\` with full CRUD for \`/production-sites\`.
-
-**File**: \`app/api/v1/endpoints/production_sites.py\`" \
-  "enhancement"
-
-create_issue \
-  "T063 [US1] Register production_sites router in router.py" \
-  "**Phase**: 8 — Fleet & Manufacturing
-**Feature**: [$FEATURE]($SPEC_DIR/spec.md)
-
-## Task
-
-Register \`production_sites\` router with prefix \`/production-sites\` in \`app/api/v1/router.py\`.
-
-**File**: \`app/api/v1/router.py\`" \
-  "enhancement"
+# Production sites are no longer a separate resource — they are `facility`
+# rows with `type=1` (PRODUCTION_SITE). T061–T063 (production_site_service,
+# production_sites endpoint, router registration) were removed.
 
 # ── Phase 9: Polish ──────────────────────────────────────────────────────────
 

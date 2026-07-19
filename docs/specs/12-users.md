@@ -114,7 +114,7 @@ Complete enum (integer value → name). Controls every module and sub-feature. V
 | 26 | `SalesOrdersHistoric` | Reports → Sales Orders Historic |
 | 27 | `CustomerRefundsHistoric` | Reports → Customer Refunds Historic |
 | 28 | `SupplierReturnHistoric` | Reports → Supplier Return Historic |
-| 29 | `Stores` | Master Data → Stores |
+| 29 | `Facilities` | Master Data → Facilities |
 | 30 | `SalesQuotes` | Sales → Sales Quotes |
 | 32 | `Kardex` | Reports → Kardex |
 | 33 | `ReceivedPayments` | Reports → Received Payments |
@@ -185,7 +185,6 @@ Complete enum (integer value → name). Controls every module and sub-feature. V
 | 102 | `ExcludePriceRangeValidation` | Sales → Skip Price Range Check (permission) |
 | 103 | `IssuedLocationId` | Fiscal → Override Issued Location |
 | 106 | `Pricing` | Master Data → Pricing (special access) |
-| 107 | `ProductionSites` | Master Data → Production Sites |
 | 108 | `PaymentsVerification` | Administration → Payments Verification |
 | 109 | `ReceivedPaymentsSummary` | Reports → Received Payments Summary |
 | 110 | `CustomerRefundConfirm` | Sales → Confirm Refund (action gate) |
@@ -193,7 +192,7 @@ Complete enum (integer value → name). Controls every module and sub-feature. V
 | 112 | `CommissionsBySalesPerson` | Reports → Commissions by Salesperson |
 | 113 | `DownloadCSVFiles` | Reports → Download CSV Files |
 
-> Values 31, 70, 76–78 are absent from the enum (gaps in the sequence). Do not assign values to these gaps in the Python migration.
+> Values 31, 70, 76–78, 107 are absent from the enum (gaps in the sequence). Do not assign values to these gaps in the Python migration.
 
 ---
 
@@ -203,7 +202,7 @@ Each user has a default operating context stored in `user_settings` (one-to-one 
 
 | Field | Column | Notes |
 |-------|--------|-------|
-| Store | `store` | FK → `store` — default store for transactions |
+| Facility | `facility` | FK → `facility` — default facility for transactions |
 | Point of Sale | `point_sale` | FK → `point_of_sale` — default POS terminal |
 | Cash Drawer | `cash_drawer` | FK → `cash_drawer` — default cash drawer |
 
@@ -211,8 +210,8 @@ Each user has a default operating context stored in `user_settings` (one-to-one 
 
 | Mode | Behavior |
 |------|----------|
-| `Managed` | Store/POS/drawer are set by the admin in the Edit screen and loaded into session at login. User cannot change them. |
-| `SelfService` | User selects their own store/POS/drawer from a self-service screen after login. |
+| `Managed` | Facility/POS/drawer are set by the admin in the Edit screen and loaded into session at login. User cannot change them. |
+| `SelfService` | User selects their own facility/POS/drawer from a self-service screen after login. |
 
 In `Managed` mode, `user_settings` is populated at login time from the stored `user_settings` record. In `SelfService` mode, the values are set interactively per session.
 
@@ -223,7 +222,7 @@ In `Managed` mode, `user_settings` is populated at login time from the stored `u
 ### Login
 1. Client sends `username` + `password` (plain text over HTTPS).
 2. API computes `SHA1(password)` and compares to `user.password`.
-3. If match and `disabled = 0`: issue JWT containing `user_id`, `session_version`, `administrator`, `store_id`.
+3. If match and `disabled = 0`: issue JWT containing `user_id`, `session_version`, `administrator`, `facility_id`.
 4. On each authenticated request, verify `session_version` in JWT matches `user.session_version` in DB. Mismatch = force logout.
 
 ### Session Invalidation
