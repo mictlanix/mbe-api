@@ -2,6 +2,7 @@ from decimal import Decimal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from app.enums import EntityStatus
 from app.schemas.core import EmployeeResponse
 from app.schemas.product import PriceListResponse
 from app.schemas.sat_catalog import SatCatalogResponse
@@ -47,6 +48,7 @@ class CustomerCreate(BaseModel):
     shipping: bool = False
     shipping_required_document: bool = False
     salesperson: int | None = None
+    status: EntityStatus = EntityStatus.ACTIVE
     comment: str | None = None
 
     @field_validator("code")
@@ -67,7 +69,7 @@ class CustomerUpdate(BaseModel):
     shipping: bool | None = None
     shipping_required_document: bool | None = None
     salesperson: int | None = None
-    disabled: bool | None = None
+    status: EntityStatus | None = None
     comment: str | None = None
 
 
@@ -82,7 +84,7 @@ class CustomerListItem(BaseModel):
     credit_days: int
     price_list: PriceListResponse
     salesperson: EmployeeResponse | None
-    disabled: bool | None
+    status: EntityStatus
 
 
 class CustomerResponse(BaseModel):
@@ -98,5 +100,5 @@ class CustomerResponse(BaseModel):
     shipping: bool
     shipping_required_document: bool
     salesperson: EmployeeResponse | None
-    disabled: bool | None
+    status: EntityStatus
     comment: str | None

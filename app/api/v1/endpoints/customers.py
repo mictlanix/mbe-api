@@ -4,6 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import settings
 from app.core.deps import CurrentUser, get_current_user
 from app.db.session import get_db
+from app.enums import EntityStatus
 from app.schemas import ListResponse
 from app.schemas.customer import CustomerCreate, CustomerListItem, CustomerResponse, CustomerUpdate
 from app.services import customer_service
@@ -14,7 +15,7 @@ router = APIRouter()
 @router.get("", response_model=ListResponse[CustomerListItem])
 async def list_customers(
     search: str | None = Query(None),
-    disabled: bool | None = Query(None),
+    status: EntityStatus | None = Query(None),
     price_list: int | None = Query(None),
     salesperson: int | None = Query(None),
     skip: int = Query(0, ge=0),
@@ -25,7 +26,7 @@ async def list_customers(
     items, total = await customer_service.list_customers(
         db,
         search=search,
-        disabled=disabled,
+        status=status,
         price_list=price_list,
         salesperson=salesperson,
         skip=skip,

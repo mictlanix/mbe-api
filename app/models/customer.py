@@ -4,6 +4,7 @@ from sqlalchemy import Boolean, Column, ForeignKey, Integer, Numeric, String, Ta
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
+from app.enums import EntityStatus
 
 # Junction tables
 customer_address = Table(
@@ -59,7 +60,9 @@ class Customer(Base):
     shipping: Mapped[bool] = mapped_column(Boolean)
     shipping_required_document: Mapped[bool] = mapped_column(Boolean)
     salesperson: Mapped[int | None] = mapped_column(Integer, ForeignKey("employee.employee_id"))
-    disabled: Mapped[bool | None] = mapped_column(Boolean)
+    status: Mapped[EntityStatus] = mapped_column(
+        Integer, default=EntityStatus.ACTIVE, server_default="0"
+    )
     creator: Mapped[int | None] = mapped_column(Integer, ForeignKey("employee.employee_id"))
 
 

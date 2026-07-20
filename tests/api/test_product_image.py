@@ -87,7 +87,7 @@ def _product(prod_id: int = 1, photo: str | None = None) -> SimpleNamespace:
         salable=False,
         invoiceable=False,
         stock_verification=False,
-        deactivated=False,
+        status=0,
         comment=None,
         prices=[],
     )

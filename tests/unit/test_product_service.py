@@ -12,7 +12,7 @@ def _no_filters() -> dict:
     return dict(
         search=None,
         label=None,
-        deactivated=None,
+        status=None,
         stockable=None,
         salable=None,
         purchasable=None,

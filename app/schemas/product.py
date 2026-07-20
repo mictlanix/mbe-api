@@ -3,6 +3,7 @@ from decimal import Decimal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from app.enums import EntityStatus
 from app.schemas.core import LabelResponse
 from app.schemas.sat_catalog import SatCatalogResponse, SatUnitOfMeasurementResponse
 from app.schemas.supplier import SupplierResponse
@@ -110,7 +111,7 @@ class ProductUpdate(BaseModel):
     salable: bool | None = None
     invoiceable: bool | None = None
     stock_required: bool | None = None
-    deactivated: bool | None = None
+    status: EntityStatus | None = None
     comment: str | None = None
     labels: list[int] | None = None
 
@@ -139,7 +140,7 @@ class ProductListItem(BaseModel):
     model: str | None
     unit_of_measurement: SatUnitOfMeasurementResponse
     tax_rate: Decimal
-    deactivated: bool
+    status: EntityStatus
 
 
 class ProductResponse(BaseModel):
@@ -169,7 +170,7 @@ class ProductResponse(BaseModel):
     salable: bool
     invoiceable: bool
     stock_required: bool = Field(alias="stock_verification")
-    deactivated: bool
+    status: EntityStatus
     comment: str | None
     labels: list[LabelResponse] = []
 

@@ -3,6 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.deps import CurrentUser, get_current_user
 from app.db.session import get_db
+from app.enums import EntityStatus
 from app.schemas import ListResponse
 from app.schemas.core import VehicleOperatorCreate, VehicleOperatorResponse, VehicleOperatorUpdate
 from app.services import vehicle_operator_service
@@ -14,13 +15,14 @@ router = APIRouter()
 async def list_vehicle_operators(
     search: str | None = Query(None),
     employee: int | None = Query(None),
+    status: EntityStatus | None = Query(None),
     skip: int = Query(0, ge=0),
     limit: int = Query(20, ge=1, le=100),
     _: CurrentUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> ListResponse[VehicleOperatorResponse]:
     items, total = await vehicle_operator_service.list_vehicle_operators(
-        db, search=search, employee=employee, skip=skip, limit=limit
+        db, search=search, employee=employee, status=status, skip=skip, limit=limit
     )
     return ListResponse(items=list(items), total=total)
 

@@ -5,7 +5,7 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security import create_recovery_token, sha1_hash, verify_password
-from app.enums import SystemObject
+from app.enums import EntityStatus, SystemObject
 from app.models.user import AccessPrivilege, User, UserSettings
 from app.schemas.user import UserCreate, UserSettingsUpdate, UserUpdate
 
@@ -17,6 +17,7 @@ async def get_user(db: AsyncSession, user_id: str) -> User | None:
 async def list_users(
     db: AsyncSession,
     search: str | None = None,
+    status: EntityStatus | None = None,
     skip: int = 0,
     limit: int = 20,
 ) -> tuple[Sequence[User], int]:
@@ -28,6 +29,10 @@ async def list_users(
         condition = or_(User.user_id.ilike(f"%{search}%"), User.email.ilike(f"%{search}%"))
         base = base.where(condition)
         count_q = count_q.where(condition)
+
+    if status is not None:
+        base = base.where(User.status == status)
+        count_q = count_q.where(User.status == status)
 
     total: int = (await db.execute(count_q)).scalar_one()
     users = (await db.execute(base.offset(skip).limit(limit))).scalars().all()
@@ -41,7 +46,7 @@ async def create_user(db: AsyncSession, data: UserCreate) -> User:
         email=data.email.lower(),
         employee_id=data.employee_id,
         administrator=data.administrator,
-        disabled=data.disabled,
+        status=data.status,
         session_version=0,
     )
     db.add(user)
@@ -64,8 +69,8 @@ async def update_user(db: AsyncSession, user: User, data: UserUpdate) -> User:
         user.employee_id = data.employee_id
     if data.administrator is not None:
         user.administrator = data.administrator
-    if data.disabled is not None:
-        user.disabled = data.disabled
+    if data.status is not None:
+        user.status = data.status
 
     if data.privileges is not None:
         existing = {p.system_object: p for p in user.privileges}
@@ -100,7 +105,7 @@ async def delete_user(db: AsyncSession, user: User) -> None:
 
 async def authenticate_user(db: AsyncSession, username: str, password: str) -> User | None:
     user = await db.get(User, username)
-    if user is None or user.disabled:
+    if user is None or user.status != EntityStatus.ACTIVE:
         return None
 
     if not verify_password(password, user.password):

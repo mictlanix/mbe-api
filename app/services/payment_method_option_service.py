@@ -3,6 +3,7 @@ from collections.abc import Sequence
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.enums import EntityStatus
 from app.models.core import Facility, PaymentMethodOption, Warehouse
 from app.schemas.core import PaymentMethodOptionCreate, PaymentMethodOptionUpdate
 from app.services.fk_expansion import batch_fetch
@@ -28,6 +29,7 @@ async def list_payment_method_options(
     db: AsyncSession,
     *,
     facility: int | None = None,
+    status: EntityStatus | None = None,
     skip: int = 0,
     limit: int = 20,
 ) -> tuple[Sequence[PaymentMethodOption], int]:
@@ -37,6 +39,9 @@ async def list_payment_method_options(
     if facility is not None:
         base = base.where(PaymentMethodOption.facility == facility)
         count_q = count_q.where(PaymentMethodOption.facility == facility)
+    if status is not None:
+        base = base.where(PaymentMethodOption.status == status)
+        count_q = count_q.where(PaymentMethodOption.status == status)
 
     total: int = (await db.execute(count_q)).scalar_one()
     items = (await db.execute(base.offset(skip).limit(limit))).scalars().all()
@@ -65,7 +70,7 @@ async def create_payment_method_option(
         display_on_ticket=data.display_on_ticket,
         payment_method=data.payment_method,
         commission=data.commission,
-        enabled=data.enabled,
+        status=data.status,
     )
     db.add(pmo)
     await db.commit()
@@ -91,8 +96,8 @@ async def update_payment_method_option(
         pmo.payment_method = data.payment_method
     if data.commission is not None:
         pmo.commission = data.commission
-    if data.enabled is not None:
-        pmo.enabled = data.enabled
+    if data.status is not None:
+        pmo.status = data.status
     await db.commit()
     await db.refresh(pmo)
     await _attach_relations(db, [pmo])

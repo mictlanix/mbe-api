@@ -4,7 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import settings
 from app.core.deps import CurrentUser, require_privilege
 from app.db.session import get_db
-from app.enums import AccessRight, SystemObject
+from app.enums import AccessRight, EntityStatus, SystemObject
 from app.schemas import ListResponse
 from app.schemas.product import (
     ProductCreate,
@@ -30,7 +30,7 @@ def _photo_url(filename: str | None) -> str | None:
 async def list_products(
     search: str | None = Query(None),
     label: list[int] | None = Query(None),
-    deactivated: bool | None = Query(None),
+    status: EntityStatus | None = Query(None),
     stockable: bool | None = Query(None),
     salable: bool | None = Query(None),
     purchasable: bool | None = Query(None),
@@ -44,7 +44,7 @@ async def list_products(
         db,
         search=search,
         label=label,
-        deactivated=deactivated,
+        status=status,
         stockable=stockable,
         salable=salable,
         purchasable=purchasable,
@@ -64,7 +64,7 @@ async def list_products(
 async def get_product_label_facets(
     search: str | None = Query(None),
     label: list[int] | None = Query(None),
-    deactivated: bool | None = Query(None),
+    status: EntityStatus | None = Query(None),
     stockable: bool | None = Query(None),
     salable: bool | None = Query(None),
     purchasable: bool | None = Query(None),
@@ -76,7 +76,7 @@ async def get_product_label_facets(
         db,
         search=search,
         label=label,
-        deactivated=deactivated,
+        status=status,
         stockable=stockable,
         salable=salable,
         purchasable=purchasable,

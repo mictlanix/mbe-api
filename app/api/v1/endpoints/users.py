@@ -3,6 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.deps import CurrentUser, require_admin
 from app.db.session import get_db
+from app.enums import EntityStatus
 from app.schemas.auth import RecoverPasswordAdminResponse
 from app.schemas.user import UserCreate, UserListResponse, UserResponse, UserUpdate
 from app.services import user_service
@@ -13,12 +14,15 @@ router = APIRouter()
 @router.get("", response_model=UserListResponse)
 async def list_users(
     search: str | None = Query(None, description="Search by username or email"),
+    status: EntityStatus | None = Query(None),
     skip: int = Query(0, ge=0),
     limit: int = Query(20, ge=1, le=100),
     _: CurrentUser = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ) -> UserListResponse:
-    users, total = await user_service.list_users(db, search=search, skip=skip, limit=limit)
+    users, total = await user_service.list_users(
+        db, search=search, status=status, skip=skip, limit=limit
+    )
     return UserListResponse(items=list(users), total=total)
 
 

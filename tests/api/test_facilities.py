@@ -47,7 +47,7 @@ def _facility_summary(facility_id: int = 1) -> SimpleNamespace:
         logo="logo.png",
         receipt_message=None,
         default_batch=None,
-        disabled=None,
+        status=0,
     )
 
 
@@ -62,7 +62,7 @@ def _warehouse_summary(warehouse_id: int = 1) -> SimpleNamespace:
     """Flat Warehouse shape (as embedded in PointSale/PaymentMethodOption FK fields)."""
     return SimpleNamespace(
         warehouse_id=warehouse_id, facility=1, code="WH1", name="Main Warehouse",
-        comment=None, disabled=None,
+        comment=None, status=0,
     )
 
 
@@ -76,14 +76,14 @@ def _warehouse(warehouse_id: int = 1) -> SimpleNamespace:
 def _pos(point_sale_id: int = 1) -> SimpleNamespace:
     return SimpleNamespace(
         point_sale_id=point_sale_id, facility=_facility_summary(), code="POS1", name="Register 1",
-        warehouse=_warehouse_summary(), comment=None, disabled=None,
+        warehouse=_warehouse_summary(), comment=None, status=0,
     )
 
 
 def _cash_drawer(cash_drawer_id: int = 1) -> SimpleNamespace:
     return SimpleNamespace(
         cash_drawer_id=cash_drawer_id, facility=_facility_summary(), code="CD1", name="Drawer 1",
-        comment=None, disabled=None,
+        comment=None, status=0,
     )
 
 
@@ -114,6 +114,7 @@ async def test_get_facility_returns_200() -> None:
             r = await c.get("/api/v1/facilities/1")
     assert r.status_code == 200
     assert r.json()["facility_id"] == 1
+    assert "disabled" not in r.json()
 
 
 @pytest.mark.asyncio
@@ -141,6 +142,7 @@ async def test_create_facility_returns_201() -> None:
             )
     assert r.status_code == 201
     assert r.json()["code"] == "S1"
+    assert r.json()["status"] == 0
 
 
 @pytest.mark.asyncio
@@ -199,6 +201,38 @@ async def test_list_facilities_requires_auth() -> None:
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
         r = await c.get("/api/v1/facilities")
     assert r.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_list_facilities_status_filter_passed_through() -> None:
+    _auth()
+    mock = AsyncMock(return_value=([_facility()], 1))
+    with patch("app.services.facility_service.list_facilities", new=mock):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+            r = await c.get("/api/v1/facilities?status=0")
+    assert r.status_code == 200
+    _, kwargs = mock.call_args
+    assert kwargs.get("status") == 0
+
+
+@pytest.mark.asyncio
+async def test_list_facilities_no_status_filter() -> None:
+    _auth()
+    mock = AsyncMock(return_value=([_facility()], 1))
+    with patch("app.services.facility_service.list_facilities", new=mock):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+            r = await c.get("/api/v1/facilities")
+    assert r.status_code == 200
+    _, kwargs = mock.call_args
+    assert kwargs.get("status") is None
+
+
+@pytest.mark.asyncio
+async def test_list_facilities_invalid_status_returns_422() -> None:
+    _auth()
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+        r = await c.get("/api/v1/facilities?status=9")
+    assert r.status_code == 422
 
 
 # ── Warehouse tests ───────────────────────────────────────────────────────────
@@ -320,6 +354,38 @@ async def test_list_warehouses_requires_auth() -> None:
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
         r = await c.get("/api/v1/warehouses")
     assert r.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_list_warehouses_status_filter_passed_through() -> None:
+    _auth()
+    mock = AsyncMock(return_value=([_warehouse()], 1))
+    with patch("app.services.warehouse_service.list_warehouses", new=mock):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+            r = await c.get("/api/v1/warehouses?status=1")
+    assert r.status_code == 200
+    _, kwargs = mock.call_args
+    assert kwargs.get("status") == 1
+
+
+@pytest.mark.asyncio
+async def test_list_warehouses_no_status_filter() -> None:
+    _auth()
+    mock = AsyncMock(return_value=([_warehouse()], 1))
+    with patch("app.services.warehouse_service.list_warehouses", new=mock):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+            r = await c.get("/api/v1/warehouses")
+    assert r.status_code == 200
+    _, kwargs = mock.call_args
+    assert kwargs.get("status") is None
+
+
+@pytest.mark.asyncio
+async def test_list_warehouses_invalid_status_returns_422() -> None:
+    _auth()
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+        r = await c.get("/api/v1/warehouses?status=9")
+    assert r.status_code == 422
 
 
 # ── Point of Sale tests ───────────────────────────────────────────────────────
@@ -603,6 +669,27 @@ async def test_list_points_of_sale_no_filters() -> None:
     _, kwargs = mock.call_args
     assert kwargs.get("facility") is None
     assert kwargs.get("warehouse") is None
+    assert kwargs.get("status") is None
+
+
+@pytest.mark.asyncio
+async def test_list_points_of_sale_status_filter_passed_through() -> None:
+    _auth()
+    mock = AsyncMock(return_value=([_pos()], 1))
+    with patch("app.services.point_sale_service.list_point_sales", new=mock):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+            r = await c.get("/api/v1/points-of-sale?status=0")
+    assert r.status_code == 200
+    _, kwargs = mock.call_args
+    assert kwargs.get("status") == 0
+
+
+@pytest.mark.asyncio
+async def test_list_points_of_sale_invalid_status_returns_422() -> None:
+    _auth()
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+        r = await c.get("/api/v1/points-of-sale?status=9")
+    assert r.status_code == 422
 
 
 @pytest.mark.asyncio
@@ -627,3 +714,24 @@ async def test_list_cash_drawers_no_filter() -> None:
     assert r.status_code == 200
     _, kwargs = mock.call_args
     assert kwargs.get("facility") is None
+    assert kwargs.get("status") is None
+
+
+@pytest.mark.asyncio
+async def test_list_cash_drawers_status_filter_passed_through() -> None:
+    _auth()
+    mock = AsyncMock(return_value=([_cash_drawer()], 1))
+    with patch("app.services.cash_drawer_service.list_cash_drawers", new=mock):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+            r = await c.get("/api/v1/cash-drawers?status=0")
+    assert r.status_code == 200
+    _, kwargs = mock.call_args
+    assert kwargs.get("status") == 0
+
+
+@pytest.mark.asyncio
+async def test_list_cash_drawers_invalid_status_returns_422() -> None:
+    _auth()
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+        r = await c.get("/api/v1/cash-drawers?status=9")
+    assert r.status_code == 422

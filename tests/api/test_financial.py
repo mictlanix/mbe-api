@@ -62,7 +62,7 @@ def _facility_summary(facility_id: int = 1) -> SimpleNamespace:
         logo="logo.png",
         receipt_message=None,
         default_batch=None,
-        disabled=None,
+        status=0,
     )
 
 
@@ -76,7 +76,7 @@ def _pmo(pmo_id: int = 1) -> SimpleNamespace:
         display_on_ticket=True,
         payment_method=0,
         commission=Decimal("0"),
-        enabled=True,
+        status=0,
     )
 
 
@@ -365,6 +365,7 @@ async def test_get_payment_method_option_returns_200() -> None:
             r = await c.get("/api/v1/payment-method-options/1")
     assert r.status_code == 200
     assert r.json()["payment_method_option_id"] == 1
+    assert "enabled" not in r.json()
 
 
 @pytest.mark.asyncio
@@ -393,6 +394,7 @@ async def test_create_payment_method_option_returns_201() -> None:
             )
     assert r.status_code == 201
     assert r.json()["name"] == "Cash"
+    assert r.json()["status"] == 0
 
 
 @pytest.mark.asyncio
@@ -463,3 +465,39 @@ async def test_list_payment_method_options_requires_auth() -> None:
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
         r = await c.get("/api/v1/payment-method-options")
     assert r.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_list_payment_method_options_status_filter_passed_through() -> None:
+    _auth()
+    mock = AsyncMock(return_value=([_pmo()], 1))
+    with patch(
+        "app.services.payment_method_option_service.list_payment_method_options", new=mock
+    ):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+            r = await c.get("/api/v1/payment-method-options?status=0")
+    assert r.status_code == 200
+    _, kwargs = mock.call_args
+    assert kwargs.get("status") == 0
+
+
+@pytest.mark.asyncio
+async def test_list_payment_method_options_no_status_filter() -> None:
+    _auth()
+    mock = AsyncMock(return_value=([_pmo()], 1))
+    with patch(
+        "app.services.payment_method_option_service.list_payment_method_options", new=mock
+    ):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+            r = await c.get("/api/v1/payment-method-options")
+    assert r.status_code == 200
+    _, kwargs = mock.call_args
+    assert kwargs.get("status") is None
+
+
+@pytest.mark.asyncio
+async def test_list_payment_method_options_invalid_status_returns_422() -> None:
+    _auth()
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+        r = await c.get("/api/v1/payment-method-options?status=9")
+    assert r.status_code == 422

@@ -4,7 +4,7 @@ from sqlalchemy import Boolean, Column, ForeignKey, Integer, Numeric, SmallInteg
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
-from app.enums import CurrencyCode
+from app.enums import CurrencyCode, EntityStatus
 
 # Junction table: product ↔ label (no extra columns)
 product_label = Table(
@@ -55,7 +55,9 @@ class Product(Base):
     key: Mapped[str | None] = mapped_column(
         String(8), ForeignKey("sat_product_service.sat_product_service_id")
     )
-    deactivated: Mapped[bool] = mapped_column(Boolean)
+    status: Mapped[EntityStatus] = mapped_column(
+        Integer, default=EntityStatus.ACTIVE, server_default="0"
+    )
     stock_verification: Mapped[bool] = mapped_column(Boolean)
 
 

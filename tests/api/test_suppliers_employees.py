@@ -58,12 +58,11 @@ def _employee(employee_id: int = 1) -> SimpleNamespace:
         birthday=datetime.date(1990, 1, 1),
         taxpayer_id=None,
         sales_person=False,
-        active=True,
+        status=0,
         personal_id=None,
         start_job_date=datetime.date(2020, 1, 1),
         enroll_number=None,
         comment=None,
-        disabled=None,
     )
 
 
@@ -217,6 +216,8 @@ async def test_get_employee_returns_200() -> None:
             r = await c.get("/api/v1/employees/1")
     assert r.status_code == 200
     assert r.json()["employee_id"] == 1
+    assert "active" not in r.json()
+    assert "disabled" not in r.json()
 
 
 @pytest.mark.asyncio
@@ -251,6 +252,7 @@ async def test_create_employee_returns_201() -> None:
             )
     assert r.status_code == 201
     assert r.json()["first_name"] == "John"
+    assert r.json()["status"] == 0
 
 
 @pytest.mark.asyncio
@@ -318,3 +320,54 @@ async def test_list_employees_requires_auth() -> None:
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
         r = await c.get("/api/v1/employees")
     assert r.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_list_employees_status_filter_passed_through() -> None:
+    _auth()
+    mock = AsyncMock(return_value=([_employee()], 1))
+    with patch("app.services.employee_service.list_employees", new=mock):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+            r = await c.get("/api/v1/employees?status=0")
+    assert r.status_code == 200
+    _, kwargs = mock.call_args
+    assert kwargs.get("status") == 0
+
+
+@pytest.mark.asyncio
+async def test_list_employees_no_status_filter() -> None:
+    _auth()
+    mock = AsyncMock(return_value=([_employee()], 1))
+    with patch("app.services.employee_service.list_employees", new=mock):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+            r = await c.get("/api/v1/employees")
+    assert r.status_code == 200
+    _, kwargs = mock.call_args
+    assert kwargs.get("status") is None
+
+
+@pytest.mark.asyncio
+async def test_list_employees_invalid_status_returns_422() -> None:
+    _auth()
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+        r = await c.get("/api/v1/employees?status=9")
+    assert r.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_create_employee_invalid_status_returns_422() -> None:
+    _auth()
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+        r = await c.post(
+            "/api/v1/employees",
+            json={
+                "first_name": "John",
+                "last_name": "Doe",
+                "nickname": "jdoe",
+                "gender": 1,
+                "birthday": "1990-01-01",
+                "start_job_date": "2020-01-01",
+                "status": 5,
+            },
+        )
+    assert r.status_code == 422

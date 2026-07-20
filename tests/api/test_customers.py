@@ -70,7 +70,7 @@ def _customer(cust_id: int = 1) -> SimpleNamespace:
         shipping=False,
         shipping_required_document=False,
         salesperson=None,
-        disabled=None,
+        status=0,
         comment=None,
     )
 
@@ -343,7 +343,10 @@ async def test_get_customer_returns_200() -> None:
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
             r = await c.get("/api/v1/customers/1")
     assert r.status_code == 200
-    assert r.json()["customer_id"] == 1
+    body = r.json()
+    assert body["customer_id"] == 1
+    assert body["status"] == 0
+    assert "disabled" not in body
 
 
 @pytest.mark.asyncio
@@ -475,3 +478,76 @@ async def test_list_customers_no_fk_filters() -> None:
     _, kwargs = mock.call_args
     assert kwargs.get("price_list") is None
     assert kwargs.get("salesperson") is None
+
+
+@pytest.mark.asyncio
+async def test_list_customers_status_filter_active() -> None:
+    _auth()
+    mock = AsyncMock(return_value=([_customer()], 1))
+    with patch("app.services.customer_service.list_customers", new=mock):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+            r = await c.get("/api/v1/customers?status=0")
+    assert r.status_code == 200
+    assert r.json()["total"] == 1
+    _, kwargs = mock.call_args
+    assert kwargs.get("status") == 0
+
+
+@pytest.mark.asyncio
+async def test_list_customers_status_filter_inactive() -> None:
+    _auth()
+    mock = AsyncMock(return_value=([], 0))
+    with patch("app.services.customer_service.list_customers", new=mock):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+            r = await c.get("/api/v1/customers?status=1")
+    assert r.status_code == 200
+    assert r.json()["total"] == 0
+    _, kwargs = mock.call_args
+    assert kwargs.get("status") == 1
+
+
+@pytest.mark.asyncio
+async def test_list_customers_no_status_filter() -> None:
+    _auth()
+    mock = AsyncMock(return_value=([_customer()], 1))
+    with patch("app.services.customer_service.list_customers", new=mock):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+            r = await c.get("/api/v1/customers")
+    assert r.status_code == 200
+    _, kwargs = mock.call_args
+    assert kwargs.get("status") is None
+
+
+@pytest.mark.asyncio
+async def test_list_customers_invalid_status_returns_422() -> None:
+    _auth()
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+        r = await c.get("/api/v1/customers?status=9")
+    assert r.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_create_customer_invalid_status_returns_422() -> None:
+    _auth()
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+        r = await c.post(
+            "/api/v1/customers",
+            json={"code": "CUST1", "name": "Acme Corp", "price_list": 1, "status": 5},
+        )
+    assert r.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_create_customer_without_status_defaults_to_active() -> None:
+    _auth()
+    with patch(
+        "app.services.customer_service.create_customer",
+        new=AsyncMock(return_value=_customer()),
+    ):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+            r = await c.post(
+                "/api/v1/customers",
+                json={"code": "CUST1", "name": "Acme Corp", "price_list": 1},
+            )
+    assert r.status_code == 201
+    assert r.json()["status"] == 0

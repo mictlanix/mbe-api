@@ -3,6 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.deps import CurrentUser, get_current_user
 from app.db.session import get_db
+from app.enums import EntityStatus
 from app.schemas import ListResponse
 from app.schemas.core import PointSaleCreate, PointSaleResponse, PointSaleUpdate
 from app.services import point_sale_service
@@ -14,13 +15,14 @@ router = APIRouter()
 async def list_points_of_sale(
     facility: int | None = Query(None),
     warehouse: int | None = Query(None),
+    status: EntityStatus | None = Query(None),
     skip: int = Query(0, ge=0),
     limit: int = Query(20, ge=1, le=100),
     _: CurrentUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> ListResponse[PointSaleResponse]:
     items, total = await point_sale_service.list_point_sales(
-        db, facility=facility, warehouse=warehouse, skip=skip, limit=limit
+        db, facility=facility, warehouse=warehouse, status=status, skip=skip, limit=limit
     )
     return ListResponse(items=list(items), total=total)
 

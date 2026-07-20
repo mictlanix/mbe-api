@@ -5,7 +5,7 @@ from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, LargeBinary, Nume
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
-from app.enums import CurrencyCode
+from app.enums import CurrencyCode, EntityStatus
 
 
 class TaxpayerIssuer(Base):
@@ -33,7 +33,9 @@ class TaxpayerCertificate(Base):
     key_password: Mapped[bytes] = mapped_column(LargeBinary)
     valid_from: Mapped[datetime] = mapped_column(DateTime)
     valid_to: Mapped[datetime] = mapped_column(DateTime)
-    active: Mapped[bool] = mapped_column(Boolean)
+    status: Mapped[EntityStatus] = mapped_column(
+        Integer, default=EntityStatus.ACTIVE, server_default="0"
+    )
 
 
 class TaxpayerBatch(Base):

@@ -12,6 +12,14 @@ class FacilityType(IntEnum):
     PRODUCTION_SITE = 1
 
 
+class EntityStatus(IntEnum):
+    """Unified lifecycle state shared by all status-bearing entities."""
+
+    ACTIVE = 0
+    INACTIVE = 1
+    ARCHIVED = 2
+
+
 class AccessRight(IntFlag):
     NONE = 0
     CREATE = 1

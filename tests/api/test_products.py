@@ -59,7 +59,7 @@ def _product_item(prod_id: int = 1, photo: str | None = None) -> SimpleNamespace
         model=None,
         unit_of_measurement=_unit_of_measurement(),
         tax_rate=Decimal("0.16"),
-        deactivated=False,
+        status=0,
     )
 
 
@@ -93,7 +93,7 @@ def _product(prod_id: int = 1) -> SimpleNamespace:
         salable=False,
         invoiceable=False,
         stock_verification=True,
-        deactivated=False,
+        status=0,
         comment=None,
         labels=[],
     )
@@ -259,9 +259,12 @@ async def test_get_product_returns_200() -> None:
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
             r = await c.get("/api/v1/products/1")
     assert r.status_code == 200
-    assert r.json()["code"] == "P001"
-    assert r.json()["stock_verification"] is True
-    assert "prices" not in r.json()
+    body = r.json()
+    assert body["code"] == "P001"
+    assert body["stock_verification"] is True
+    assert "prices" not in body
+    assert body["status"] == 0
+    assert "deactivated" not in body
 
 
 @pytest.mark.asyncio
@@ -486,6 +489,78 @@ async def test_list_products_no_label_filter() -> None:
     assert r.status_code == 200
     _, kwargs = mock.call_args
     assert kwargs.get("label") is None
+
+
+@pytest.mark.asyncio
+async def test_list_products_status_filter_active() -> None:
+    _auth()
+    mock = AsyncMock(return_value=([_product_item()], 1))
+    with patch("app.services.product_service.list_products", new=mock):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+            r = await c.get("/api/v1/products?status=0")
+    assert r.status_code == 200
+    assert r.json()["total"] == 1
+    _, kwargs = mock.call_args
+    assert kwargs.get("status") == 0
+
+
+@pytest.mark.asyncio
+async def test_list_products_status_filter_inactive() -> None:
+    _auth()
+    mock = AsyncMock(return_value=([], 0))
+    with patch("app.services.product_service.list_products", new=mock):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+            r = await c.get("/api/v1/products?status=1")
+    assert r.status_code == 200
+    assert r.json()["total"] == 0
+    _, kwargs = mock.call_args
+    assert kwargs.get("status") == 1
+
+
+@pytest.mark.asyncio
+async def test_list_products_no_status_filter() -> None:
+    _auth()
+    mock = AsyncMock(return_value=([_product_item()], 1))
+    with patch("app.services.product_service.list_products", new=mock):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+            r = await c.get("/api/v1/products")
+    assert r.status_code == 200
+    _, kwargs = mock.call_args
+    assert kwargs.get("status") is None
+
+
+@pytest.mark.asyncio
+async def test_list_products_invalid_status_returns_422() -> None:
+    _auth()
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+        r = await c.get("/api/v1/products?status=9")
+    assert r.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_update_product_invalid_status_returns_422() -> None:
+    _auth()
+    with patch(
+        "app.services.product_service.get_product", new=AsyncMock(return_value=_product())
+    ):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+            r = await c.put("/api/v1/products/1", json={"status": 5})
+    assert r.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_create_product_without_status_defaults_to_active() -> None:
+    _auth()
+    with patch(
+        "app.services.product_service.create_product", new=AsyncMock(return_value=_product())
+    ):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+            r = await c.post(
+                "/api/v1/products",
+                json={"code": "P001", "name": "Widget Alpha", "unit_of_measurement": "PCS"},
+            )
+    assert r.status_code == 201
+    assert r.json()["status"] == 0
 
 
 # ── Product label facets tests ───────────────────────────────────────────────

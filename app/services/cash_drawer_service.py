@@ -3,6 +3,7 @@ from collections.abc import Sequence
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.enums import EntityStatus
 from app.models.core import CashDrawer, Facility
 from app.schemas.core import CashDrawerCreate, CashDrawerUpdate
 from app.services.fk_expansion import batch_fetch
@@ -22,6 +23,7 @@ async def list_cash_drawers(
     db: AsyncSession,
     *,
     facility: int | None = None,
+    status: EntityStatus | None = None,
     skip: int = 0,
     limit: int = 20,
 ) -> tuple[Sequence[CashDrawer], int]:
@@ -30,6 +32,9 @@ async def list_cash_drawers(
     if facility is not None:
         base = base.where(CashDrawer.facility == facility)
         count_q = count_q.where(CashDrawer.facility == facility)
+    if status is not None:
+        base = base.where(CashDrawer.status == status)
+        count_q = count_q.where(CashDrawer.status == status)
     total: int = (await db.execute(count_q)).scalar_one()
     items = (await db.execute(base.offset(skip).limit(limit))).scalars().all()
     await _attach_relations(db, items)
@@ -50,7 +55,7 @@ async def create_cash_drawer(db: AsyncSession, data: CashDrawerCreate) -> CashDr
         code=data.code,
         name=data.name,
         comment=data.comment,
-        disabled=data.disabled,
+        status=data.status,
     )
     db.add(cd)
     await db.commit()
@@ -70,8 +75,8 @@ async def update_cash_drawer(
         cd.name = data.name
     if data.comment is not None:
         cd.comment = data.comment
-    if data.disabled is not None:
-        cd.disabled = data.disabled
+    if data.status is not None:
+        cd.status = data.status
     await db.commit()
     await db.refresh(cd)
     await _attach_relations(db, [cd])

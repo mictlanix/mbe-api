@@ -3,6 +3,7 @@ from collections.abc import Sequence
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.enums import EntityStatus
 from app.models.core import Facility, PointSale, Warehouse
 from app.schemas.core import PointSaleCreate, PointSaleUpdate
 from app.services.fk_expansion import batch_fetch
@@ -27,6 +28,7 @@ async def list_point_sales(
     *,
     facility: int | None = None,
     warehouse: int | None = None,
+    status: EntityStatus | None = None,
     skip: int = 0,
     limit: int = 20,
 ) -> tuple[Sequence[PointSale], int]:
@@ -38,6 +40,9 @@ async def list_point_sales(
     if warehouse is not None:
         base = base.where(PointSale.warehouse == warehouse)
         count_q = count_q.where(PointSale.warehouse == warehouse)
+    if status is not None:
+        base = base.where(PointSale.status == status)
+        count_q = count_q.where(PointSale.status == status)
     total: int = (await db.execute(count_q)).scalar_one()
     items = (await db.execute(base.offset(skip).limit(limit))).scalars().all()
     await _attach_relations(db, items)
@@ -59,7 +64,7 @@ async def create_point_sale(db: AsyncSession, data: PointSaleCreate) -> PointSal
         name=data.name,
         warehouse=data.warehouse,
         comment=data.comment,
-        disabled=data.disabled,
+        status=data.status,
     )
     db.add(ps)
     await db.commit()
@@ -79,8 +84,8 @@ async def update_point_sale(db: AsyncSession, ps: PointSale, data: PointSaleUpda
         ps.warehouse = data.warehouse
     if data.comment is not None:
         ps.comment = data.comment
-    if data.disabled is not None:
-        ps.disabled = data.disabled
+    if data.status is not None:
+        ps.status = data.status
     await db.commit()
     await db.refresh(ps)
     await _attach_relations(db, [ps])

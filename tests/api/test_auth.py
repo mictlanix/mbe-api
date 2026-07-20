@@ -1,12 +1,14 @@
 from collections.abc import AsyncGenerator
 from typing import Any
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from httpx import ASGITransport, AsyncClient
 
-from app.core.deps import CurrentUser, get_current_user
+from app.core.deps import CurrentUser, get_current_user, require_admin
 from app.core.security import create_access_token
 from app.db.session import get_db
+from app.enums import EntityStatus
 from app.main import app
 from app.models.core import CashDrawer, Facility, PointSale
 from app.models.user import User, UserSettings
@@ -16,7 +18,7 @@ def _make_user(
     user_id: str = "jdoe",
     administrator: bool = False,
     session_version: int = 1,
-    disabled: bool = False,
+    status: int = 0,
 ) -> User:
     user = User(
         user_id=user_id,
@@ -24,7 +26,7 @@ def _make_user(
         email=f"{user_id}@example.com",
         employee_id=None,
         administrator=administrator,
-        disabled=disabled,
+        status=status,
         session_version=session_version,
     )
     user.settings = None
@@ -87,7 +89,8 @@ async def test_auth_me_returns_own_profile_for_non_admin() -> None:
     body = response.json()
     assert body["user_id"] == "jdoe"
     assert body["administrator"] is False
-    assert body["disabled"] is False
+    assert body["status"] == 0
+    assert "disabled" not in body
     assert body["session_version"] == 1
     assert body["settings"] is None
     assert body["privileges"] == []
@@ -187,7 +190,77 @@ async def test_auth_me_rejects_stale_session_version() -> None:
 
 @pytest.mark.asyncio
 async def test_auth_me_rejects_disabled_user() -> None:
-    stored_user = _make_user(user_id="jdoe", session_version=1, disabled=True)
+    stored_user = _make_user(user_id="jdoe", session_version=1, status=1)
+    token = create_access_token(
+        user_id="jdoe", session_version=1, administrator=False, facility_id=None
+    )
+    app.dependency_overrides[get_db] = _db_override(stored_user)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.get("/api/v1/auth/me", headers={"Authorization": f"Bearer {token}"})
+
+    assert response.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_create_user_rejects_invalid_status() -> None:
+    app.dependency_overrides[require_admin] = lambda: CurrentUser(
+        user_id="admin", session_version=1, administrator=True, facility_id=None
+    )
+    app.dependency_overrides[get_db] = _db_override(None)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.post(
+            "/api/v1/users",
+            json={
+                "user_id": "newuser1",
+                "password": "secret",
+                "email": "new@example.com",
+                "status": 5,
+            },
+        )
+
+    assert response.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_list_users_filters_by_status() -> None:
+    app.dependency_overrides[require_admin] = lambda: CurrentUser(
+        user_id="admin", session_version=1, administrator=True, facility_id=None
+    )
+    app.dependency_overrides[get_db] = _db_override(None)
+    inactive = _make_user(user_id="jdoe", status=1)
+
+    with patch(
+        "app.services.user_service.list_users",
+        new=AsyncMock(return_value=([inactive], 1)),
+    ) as mock_list:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            response = await client.get("/api/v1/users?status=1")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["total"] == 1
+    assert body["items"][0]["status"] == 1
+    assert mock_list.await_args.kwargs["status"] == EntityStatus.INACTIVE
+
+
+@pytest.mark.asyncio
+async def test_list_users_rejects_invalid_status_filter() -> None:
+    app.dependency_overrides[require_admin] = lambda: CurrentUser(
+        user_id="admin", session_version=1, administrator=True, facility_id=None
+    )
+    app.dependency_overrides[get_db] = _db_override(None)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.get("/api/v1/users?status=9")
+
+    assert response.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_auth_me_rejects_archived_user() -> None:
+    stored_user = _make_user(user_id="jdoe", session_version=1, status=2)
     token = create_access_token(
         user_id="jdoe", session_version=1, administrator=False, facility_id=None
     )

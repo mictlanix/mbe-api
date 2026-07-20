@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security import decode_token
 from app.db.session import get_db
-from app.enums import AccessRight, SystemObject
+from app.enums import AccessRight, EntityStatus, SystemObject
 from app.models.user import AccessPrivilege, User
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login")
@@ -39,7 +39,7 @@ async def get_current_user(
         raise exc
 
     user = await db.get(User, user_id)
-    if user is None or user.disabled:
+    if user is None or user.status != EntityStatus.ACTIVE:
         raise exc
 
     # Validate session_version on every request to support immediate invalidation
