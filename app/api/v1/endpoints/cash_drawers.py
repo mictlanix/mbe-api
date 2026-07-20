@@ -1,4 +1,5 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import status as http_status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.deps import CurrentUser, get_current_user
@@ -26,7 +27,7 @@ async def list_cash_drawers(
     return ListResponse(items=list(items), total=total)
 
 
-@router.post("", response_model=CashDrawerResponse, status_code=status.HTTP_201_CREATED)
+@router.post("", response_model=CashDrawerResponse, status_code=http_status.HTTP_201_CREATED)
 async def create_cash_drawer(
     data: CashDrawerCreate,
     _: CurrentUser = Depends(get_current_user),
@@ -44,7 +45,9 @@ async def get_cash_drawer(
 ) -> CashDrawerResponse:
     cd = await cash_drawer_service.get_cash_drawer(db, cash_drawer_id)
     if cd is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Cash drawer not found")
+        raise HTTPException(
+            status_code=http_status.HTTP_404_NOT_FOUND, detail="Cash drawer not found"
+        )
     return CashDrawerResponse.model_validate(cd)
 
 
@@ -57,12 +60,14 @@ async def update_cash_drawer(
 ) -> CashDrawerResponse:
     cd = await cash_drawer_service.get_cash_drawer(db, cash_drawer_id)
     if cd is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Cash drawer not found")
+        raise HTTPException(
+            status_code=http_status.HTTP_404_NOT_FOUND, detail="Cash drawer not found"
+        )
     cd = await cash_drawer_service.update_cash_drawer(db, cd, data)
     return CashDrawerResponse.model_validate(cd)
 
 
-@router.delete("/{cash_drawer_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/{cash_drawer_id}", status_code=http_status.HTTP_204_NO_CONTENT)
 async def delete_cash_drawer(
     cash_drawer_id: int,
     _: CurrentUser = Depends(get_current_user),
@@ -70,5 +75,7 @@ async def delete_cash_drawer(
 ) -> None:
     cd = await cash_drawer_service.get_cash_drawer(db, cash_drawer_id)
     if cd is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Cash drawer not found")
+        raise HTTPException(
+            status_code=http_status.HTTP_404_NOT_FOUND, detail="Cash drawer not found"
+        )
     await cash_drawer_service.delete_cash_drawer(db, cd)

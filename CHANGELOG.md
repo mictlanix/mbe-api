@@ -13,7 +13,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 - `EntityStatus` int enum (`0` active / `1` inactive / `2` archived) in `app/enums.py`
-- First Alembic migration (`migrations/versions/`): adds the non-nullable `status` column to 13 tables, backfills it from the legacy flag(s) (restrictive flag wins for `employee`), then drops the legacy columns; fully reversible
+- SQL migration script `migrations/sql/005_unified_entity_status.sql` (+ rollback script): adds the non-nullable `status` column to 13 tables, backfills it from the legacy flag(s) (restrictive flag wins for `employee`), then drops the legacy columns
 
 ### Changed
 - **Breaking**: `store` renamed to `facility` throughout — table `store` → `facility`, PK `store_id` → `facility_id`, every FK column named `store` on other tables (`cash_drawer`, `customer_payment`, `customer_refund`, `delivery_order`, `expense_voucher`, `fiscal_document`, `inventory_issue`, `inventory_receipt`, `inventory_transfer`, `payment_method_option`, `point_sale`, `sales_order`, `sales_quote`, `special_receipt`, `user_settings`, `warehouse`) → `facility`; API routes `/stores` → `/facilities`; embedded `store` JSON fields in responses → `facility`

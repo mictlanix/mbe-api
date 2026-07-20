@@ -1,4 +1,5 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import status as http_status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.deps import CurrentUser, get_current_user
@@ -27,7 +28,7 @@ async def list_employees(
     return ListResponse(items=list(items), total=total)
 
 
-@router.post("", response_model=EmployeeResponse, status_code=status.HTTP_201_CREATED)
+@router.post("", response_model=EmployeeResponse, status_code=http_status.HTTP_201_CREATED)
 async def create_employee(
     data: EmployeeCreate,
     _: CurrentUser = Depends(get_current_user),
@@ -45,7 +46,7 @@ async def get_employee(
 ) -> EmployeeResponse:
     employee = await employee_service.get_employee(db, employee_id)
     if employee is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Employee not found")
+        raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail="Employee not found")
     return EmployeeResponse.model_validate(employee)
 
 
@@ -58,12 +59,12 @@ async def update_employee(
 ) -> EmployeeResponse:
     employee = await employee_service.get_employee(db, employee_id)
     if employee is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Employee not found")
+        raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail="Employee not found")
     employee = await employee_service.update_employee(db, employee, data)
     return EmployeeResponse.model_validate(employee)
 
 
-@router.delete("/{employee_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/{employee_id}", status_code=http_status.HTTP_204_NO_CONTENT)
 async def delete_employee(
     employee_id: int,
     _: CurrentUser = Depends(get_current_user),
@@ -71,5 +72,5 @@ async def delete_employee(
 ) -> None:
     employee = await employee_service.get_employee(db, employee_id)
     if employee is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Employee not found")
+        raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail="Employee not found")
     await employee_service.delete_employee(db, employee)

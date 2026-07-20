@@ -1,4 +1,5 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import status as http_status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.deps import CurrentUser, get_current_user
@@ -27,7 +28,7 @@ async def list_vehicle_operators(
     return ListResponse(items=list(items), total=total)
 
 
-@router.post("", response_model=VehicleOperatorResponse, status_code=status.HTTP_201_CREATED)
+@router.post("", response_model=VehicleOperatorResponse, status_code=http_status.HTTP_201_CREATED)
 async def create_vehicle_operator(
     data: VehicleOperatorCreate,
     _: CurrentUser = Depends(get_current_user),
@@ -46,7 +47,7 @@ async def get_vehicle_operator(
     vo = await vehicle_operator_service.get_vehicle_operator(db, vehicle_operator_id)
     if vo is None:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Vehicle operator not found"
+            status_code=http_status.HTTP_404_NOT_FOUND, detail="Vehicle operator not found"
         )
     return VehicleOperatorResponse.model_validate(vo)
 
@@ -61,13 +62,13 @@ async def update_vehicle_operator(
     vo = await vehicle_operator_service.get_vehicle_operator(db, vehicle_operator_id)
     if vo is None:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Vehicle operator not found"
+            status_code=http_status.HTTP_404_NOT_FOUND, detail="Vehicle operator not found"
         )
     vo = await vehicle_operator_service.update_vehicle_operator(db, vo, data)
     return VehicleOperatorResponse.model_validate(vo)
 
 
-@router.delete("/{vehicle_operator_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/{vehicle_operator_id}", status_code=http_status.HTTP_204_NO_CONTENT)
 async def delete_vehicle_operator(
     vehicle_operator_id: int,
     _: CurrentUser = Depends(get_current_user),
@@ -76,6 +77,6 @@ async def delete_vehicle_operator(
     vo = await vehicle_operator_service.get_vehicle_operator(db, vehicle_operator_id)
     if vo is None:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Vehicle operator not found"
+            status_code=http_status.HTTP_404_NOT_FOUND, detail="Vehicle operator not found"
         )
     await vehicle_operator_service.delete_vehicle_operator(db, vo)

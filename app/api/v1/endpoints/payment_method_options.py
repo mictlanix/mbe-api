@@ -1,4 +1,5 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import status as http_status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.deps import CurrentUser, get_current_user
@@ -30,7 +31,9 @@ async def list_payment_method_options(
     return ListResponse(items=list(items), total=total)
 
 
-@router.post("", response_model=PaymentMethodOptionResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "", response_model=PaymentMethodOptionResponse, status_code=http_status.HTTP_201_CREATED
+)
 async def create_payment_method_option(
     data: PaymentMethodOptionCreate,
     _: CurrentUser = Depends(get_current_user),
@@ -51,7 +54,7 @@ async def get_payment_method_option(
     )
     if pmo is None:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Payment method option not found"
+            status_code=http_status.HTTP_404_NOT_FOUND, detail="Payment method option not found"
         )
     return PaymentMethodOptionResponse.model_validate(pmo)
 
@@ -68,13 +71,13 @@ async def update_payment_method_option(
     )
     if pmo is None:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Payment method option not found"
+            status_code=http_status.HTTP_404_NOT_FOUND, detail="Payment method option not found"
         )
     pmo = await payment_method_option_service.update_payment_method_option(db, pmo, data)
     return PaymentMethodOptionResponse.model_validate(pmo)
 
 
-@router.delete("/{payment_method_option_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/{payment_method_option_id}", status_code=http_status.HTTP_204_NO_CONTENT)
 async def delete_payment_method_option(
     payment_method_option_id: int,
     _: CurrentUser = Depends(get_current_user),
@@ -85,6 +88,6 @@ async def delete_payment_method_option(
     )
     if pmo is None:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Payment method option not found"
+            status_code=http_status.HTTP_404_NOT_FOUND, detail="Payment method option not found"
         )
     await payment_method_option_service.delete_payment_method_option(db, pmo)

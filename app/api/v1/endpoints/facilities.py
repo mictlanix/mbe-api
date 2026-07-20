@@ -1,4 +1,5 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import status as http_status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.deps import CurrentUser, get_current_user
@@ -25,7 +26,7 @@ async def list_facilities(
     return ListResponse(items=list(items), total=total)
 
 
-@router.post("", response_model=FacilityResponse, status_code=status.HTTP_201_CREATED)
+@router.post("", response_model=FacilityResponse, status_code=http_status.HTTP_201_CREATED)
 async def create_facility(
     data: FacilityCreate,
     _: CurrentUser = Depends(get_current_user),
@@ -43,7 +44,7 @@ async def get_facility(
 ) -> FacilityResponse:
     facility = await facility_service.get_facility(db, facility_id)
     if facility is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Facility not found")
+        raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail="Facility not found")
     return FacilityResponse.model_validate(facility)
 
 
@@ -56,12 +57,12 @@ async def update_facility(
 ) -> FacilityResponse:
     facility = await facility_service.get_facility(db, facility_id)
     if facility is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Facility not found")
+        raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail="Facility not found")
     facility = await facility_service.update_facility(db, facility, data)
     return FacilityResponse.model_validate(facility)
 
 
-@router.delete("/{facility_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/{facility_id}", status_code=http_status.HTTP_204_NO_CONTENT)
 async def delete_facility(
     facility_id: int,
     _: CurrentUser = Depends(get_current_user),
@@ -69,5 +70,5 @@ async def delete_facility(
 ) -> None:
     facility = await facility_service.get_facility(db, facility_id)
     if facility is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Facility not found")
+        raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail="Facility not found")
     await facility_service.delete_facility(db, facility)

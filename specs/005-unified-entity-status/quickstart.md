@@ -38,16 +38,16 @@ print('OpenAPI OK')
 "
 ```
 
-## 4. Migration dry run (requires a MariaDB with current schema)
+## 4. Migration (SQL script, requires a MariaDB with current schema)
 
 ```bash
-uv run alembic upgrade head    # adds status, backfills, drops legacy columns on 13 tables
-uv run alembic downgrade base  # restores legacy columns and polarity
-uv run alembic upgrade head
+mysql <db> < migrations/sql/005_unified_entity_status.sql           # migrate
+mysql <db> < migrations/sql/005_unified_entity_status_rollback.sql  # roll back if needed
 ```
 
-Spot-check backfill (expected: rows previously disabled/deactivated/not-active → status=1,
-everything else → status=0):
+Executed against the real `mbe_demo` DB on 2026-07-19: 53,582 rows / 13 tables, zero mapping
+mismatches vs. a pre-migration snapshot. Spot-check backfill (expected: rows previously
+disabled/deactivated/not-active → status=1, everything else → status=0):
 
 ```sql
 SELECT status, COUNT(*) FROM customer GROUP BY status;

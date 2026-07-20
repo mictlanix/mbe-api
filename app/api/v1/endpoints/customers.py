@@ -1,4 +1,5 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import status as http_status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -35,7 +36,7 @@ async def list_customers(
     return ListResponse(items=list(items), total=total)
 
 
-@router.post("", response_model=CustomerResponse, status_code=status.HTTP_201_CREATED)
+@router.post("", response_model=CustomerResponse, status_code=http_status.HTTP_201_CREATED)
 async def create_customer(
     data: CustomerCreate,
     _: CurrentUser = Depends(get_current_user),
@@ -53,7 +54,7 @@ async def get_customer(
 ) -> CustomerResponse:
     customer = await customer_service.get_customer(db, customer_id)
     if customer is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Customer not found")
+        raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail="Customer not found")
     return CustomerResponse.model_validate(customer)
 
 
@@ -66,12 +67,12 @@ async def update_customer(
 ) -> CustomerResponse:
     customer = await customer_service.get_customer(db, customer_id)
     if customer is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Customer not found")
+        raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail="Customer not found")
     customer = await customer_service.update_customer(db, customer, data)
     return CustomerResponse.model_validate(customer)
 
 
-@router.delete("/{customer_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/{customer_id}", status_code=http_status.HTTP_204_NO_CONTENT)
 async def delete_customer(
     customer_id: int,
     _: CurrentUser = Depends(get_current_user),
@@ -79,5 +80,5 @@ async def delete_customer(
 ) -> None:
     customer = await customer_service.get_customer(db, customer_id)
     if customer is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Customer not found")
+        raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail="Customer not found")
     await customer_service.delete_customer(db, customer, settings.default_customer_id)

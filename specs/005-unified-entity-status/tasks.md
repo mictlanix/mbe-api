@@ -34,7 +34,7 @@ phases 2–3 land together before the suite can run green.
 - [X] T004 [P] Replace `Product.deactivated` with `status` in app/models/product.py
 - [X] T005 [P] Replace `TaxpayerCertificate.active` with `status` in app/models/fiscal.py
 - [X] T006 Replace in app/models/core.py: `Address.disabled`, `Employee.active`+`Employee.disabled` (both → one `status`), `Facility.disabled`, `Warehouse.disabled` (SmallInteger), `PointSale.disabled`, `CashDrawer.disabled`, `PaymentMethodOption.enabled`, `Vehicle.active`, `VehicleOperator.active` → `status`
-- [X] T007 Create first Alembic migration in migrations/versions/ (`down_revision = None`): per data-model.md tables — add `status` SMALLINT NOT NULL server_default '0', backfill via `UPDATE ... CASE` per polarity mapping, drop legacy column(s); reversible downgrade restoring legacy columns/polarity
+- [X] T007 Create SQL migration script migrations/sql/005_unified_entity_status.sql (+ rollback script): per data-model.md tables — add `status` SMALLINT NOT NULL DEFAULT 0, backfill via `UPDATE ... CASE` per polarity mapping, drop legacy column(s); rollback restores legacy columns/polarity. Executed against the real DB 2026-07-19 with zero mapping mismatches
 
 **Checkpoint**: Models compile (`uv run python -c "import app.models"`); migration file passes ruff.
 

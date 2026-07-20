@@ -68,13 +68,14 @@ replaces both `active` and `disabled`), `FacilityCreate/Update/Summary/Response`
 `CashDrawerCreate/Update/Response`, `PaymentMethodOptionCreate/Update/Response`,
 `VehicleCreate/Update/Response`, `VehicleOperatorCreate/Update/Response` (all core.py).
 
-## Migration (first Alembic revision, `down_revision = None`)
+## Migration (SQL script: `migrations/sql/005_unified_entity_status.sql`)
 
 Upgrade, per table above:
-1. `op.add_column(<table>, sa.Column('status', sa.SmallInteger(), nullable=False, server_default='0'))`
-2. `op.execute('UPDATE <table> SET status = <CASE per backfill column>')`
-3. `op.drop_column(<table>, <legacy column>)` (×2 for `employee`)
+1. `ALTER TABLE <table> ADD COLUMN status SMALLINT NOT NULL DEFAULT 0;`
+2. `UPDATE <table> SET status = <CASE per backfill column>;`
+3. `ALTER TABLE <table> DROP COLUMN <legacy column>;` (×2 for `employee`)
 
-Downgrade, per table: re-add legacy column(s) with original type/nullability, backfill
-(`status = 0` → "on" state; `status IN (1, 2)` → "off" state; employee: `active = (status = 0)`,
-`disabled = (status <> 0)`), drop `status`.
+Rollback (`005_unified_entity_status_rollback.sql`), per table: re-add legacy column(s) with
+original type/nullability, backfill (`status = 0` → "on" state; `status IN (1, 2)` → "off"
+state; employee: `active = (status = 0)`, `disabled = (status <> 0)`), drop `status`. Lossy by
+design for ARCHIVED and for the exact employee flag combination.

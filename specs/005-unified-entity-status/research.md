@@ -40,20 +40,24 @@ surface this feature exists to eliminate.
 **Alternatives considered**: Deprecation aliases via Pydantic `alias`/computed fields —
 rejected as speculative complexity (Constitution I).
 
-## Decision 3: Migration strategy (first Alembic revision)
+## Decision 3: Migration strategy (plain SQL script)
 
-**Decision**: One migration file with `down_revision = None` — `migrations/versions/` is
-currently empty, so this is the repo's first revision. Per table: `op.add_column("status",
-SMALLINT NOT NULL server_default "0")` → `op.execute(UPDATE ... SET status = CASE ...)` →
-`op.drop_column(<legacy>)`. Downgrade reverses: re-add legacy column(s), backfill from status
-(`INACTIVE`/`ARCHIVED` → "off" state), drop `status`.
+**Decision**: A plain MariaDB SQL script, `migrations/sql/005_unified_entity_status.sql`, with
+a companion rollback script `005_unified_entity_status_rollback.sql` (user decision — no
+Alembic). Per table: `ALTER TABLE ... ADD COLUMN status SMALLINT NOT NULL DEFAULT 0` →
+`UPDATE ... SET status = CASE ...` → `ALTER TABLE ... DROP COLUMN <legacy>`. The rollback
+script reverses: re-add legacy column(s), backfill from status (`INACTIVE`/`ARCHIVED` → "off"
+state), drop `status`.
 
 **Rationale**:
-- The async `migrations/env.py` already targets `Base.metadata`; nothing blocks a first revision.
-- `server_default="0"` makes the column addition safe on populated tables and matches the model
-  default (`EntityStatus.ACTIVE`), keeping future autogenerate diffs quiet.
-- Raw-SQL `UPDATE ... CASE` backfill avoids loading ORM models inside the migration (standard
-  Alembic practice; models will already describe the *new* shape).
+- User explicitly chose a reviewable SQL script over Alembic revisions.
+- `DEFAULT 0` makes the column addition safe on populated tables and matches the model default
+  (`EntityStatus.ACTIVE`).
+- MariaDB DDL is not transactional; the script is ordered so each table is migrated completely
+  before the next, making a mid-script failure recoverable per table.
+- Executed and verified against the real `mbe_demo` database on 2026-07-19: 53,582 rows across
+  13 tables, row-by-row comparison against a pre-migration snapshot showed zero mapping
+  mismatches.
 
 **Backfill mapping** (per legacy polarity):
 - `disabled`-polarity (user, customer, address, facility, warehouse, point_sale, cash_drawer,

@@ -10,18 +10,19 @@ Replace every boolean lifecycle flag (`disabled`, `active`, `deactivated`, `enab
 entities with one non-nullable integer `status` column backed by a shared
 `EntityStatus(IntEnum)` (`ACTIVE=0, INACTIVE=1, ARCHIVED=2`) in `app/enums.py`. All request/
 response schemas drop the legacy fields (hard breaking change), every API-exposed list endpoint
-gains a `?status` filter, login rejects non-ACTIVE users, and a single Alembic migration (the
-first in the repo) adds+backfills+drops columns per table. Fixes GitHub issues #80 and #81.
+gains a `?status` filter, login rejects non-ACTIVE users, and a plain SQL migration script
+(`migrations/sql/`) adds+backfills+drops columns per table. Fixes GitHub issues #80 and #81.
 
 ## Technical Context
 
 **Language/Version**: Python 3.12+
 
-**Primary Dependencies**: FastAPI, SQLAlchemy 2.0 async, Pydantic v2, Alembic (all existing —
-no new dependencies)
+**Primary Dependencies**: FastAPI, SQLAlchemy 2.0 async, Pydantic v2 (all existing — no new
+dependencies)
 
-**Storage**: MariaDB via aiomysql — 13 tables altered by one Alembic migration (add `status`
-SMALLINT NOT NULL DEFAULT 0, backfill, drop legacy columns). API exclusively owns the DB.
+**Storage**: MariaDB via aiomysql — 13 tables altered by one plain SQL migration script (add
+`status` SMALLINT NOT NULL DEFAULT 0, backfill, drop legacy columns). API exclusively owns
+the DB.
 
 **Testing**: pytest + pytest-asyncio + httpx `ASGITransport` (existing pattern in `tests/api/`)
 
@@ -56,7 +57,7 @@ schema files; 11 services; 11 endpoint modules; 1 migration; ~9 test files updat
 | III. Surgical Changes | ✅ | Every touched line replaces a legacy flag or adds the agreed `?status` filter. No adjacent refactors; the `int()` casts in warehouse service disappear only because the column they served is gone. |
 | IV. Goal-Driven Execution | ✅ | Success = quickstart.md scenarios pass: pytest green, grep gate finds no legacy fields, `?status` filters verified per endpoint. |
 | V. Reuse Over Rebuild | ✅ | Reuses `app/enums.py` IntEnum pattern (`CurrencyCode`), existing list/filter service pattern (`customer_service.list_customers`), existing test factories. New enum justified: no existing abstraction expresses lifecycle state. |
-| VI. Async-First | ✅ | No sync DB access introduced; migration runs through the existing async-aware `migrations/env.py`. |
+| VI. Async-First | ✅ | No sync DB access introduced; the migration is a plain SQL script run directly against MariaDB, outside the app. |
 | VII. Security by Default | ✅ | No new endpoints; existing auth gates untouched. Login gate is preserved and broadened: any non-ACTIVE status is rejected. |
 | VIII. Ruff Compliance | ✅ | `uv run ruff check app/ migrations/ tests/` gates completion. |
 
@@ -113,8 +114,9 @@ app/
     └── users.py facilities.py warehouses.py points_of_sale.py cash_drawers.py
         payment_method_options.py vehicles.py vehicle_operators.py   # add filter
 
-migrations/versions/
-└── xxxx_unified_entity_status.py   # first revision: add/backfill/drop per 13 tables
+migrations/sql/
+├── 005_unified_entity_status.sql            # add/backfill/drop per 13 tables
+└── 005_unified_entity_status_rollback.sql   # restores legacy columns/polarity
 
 tests/api/                       # update factories/assertions + new filter tests:
     test_auth.py test_products.py test_customers.py test_stores.py test_fleet.py
