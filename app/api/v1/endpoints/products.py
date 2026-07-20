@@ -1,10 +1,11 @@
-from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
+from fastapi import status as http_status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.deps import CurrentUser, require_privilege
 from app.db.session import get_db
-from app.enums import AccessRight, SystemObject
+from app.enums import AccessRight, EntityStatus, SystemObject
 from app.schemas import ListResponse
 from app.schemas.product import (
     ProductCreate,
@@ -30,7 +31,7 @@ def _photo_url(filename: str | None) -> str | None:
 async def list_products(
     search: str | None = Query(None),
     label: list[int] | None = Query(None),
-    deactivated: bool | None = Query(None),
+    status: EntityStatus | None = Query(None),
     stockable: bool | None = Query(None),
     salable: bool | None = Query(None),
     purchasable: bool | None = Query(None),
@@ -44,7 +45,7 @@ async def list_products(
         db,
         search=search,
         label=label,
-        deactivated=deactivated,
+        status=status,
         stockable=stockable,
         salable=salable,
         purchasable=purchasable,
@@ -64,7 +65,7 @@ async def list_products(
 async def get_product_label_facets(
     search: str | None = Query(None),
     label: list[int] | None = Query(None),
-    deactivated: bool | None = Query(None),
+    status: EntityStatus | None = Query(None),
     stockable: bool | None = Query(None),
     salable: bool | None = Query(None),
     purchasable: bool | None = Query(None),
@@ -76,7 +77,7 @@ async def get_product_label_facets(
         db,
         search=search,
         label=label,
-        deactivated=deactivated,
+        status=status,
         stockable=stockable,
         salable=salable,
         purchasable=purchasable,
@@ -85,7 +86,7 @@ async def get_product_label_facets(
     return [ProductLabelFacet(label_id=row.label_id, count=row.count) for row in rows]
 
 
-@router.post("", response_model=ProductResponse, status_code=status.HTTP_201_CREATED)
+@router.post("", response_model=ProductResponse, status_code=http_status.HTTP_201_CREATED)
 async def create_product(
     data: ProductCreate,
     _: CurrentUser = Depends(require_privilege(SystemObject.PRODUCTS, AccessRight.CREATE)),
@@ -97,7 +98,7 @@ async def create_product(
     return response
 
 
-@router.post("/merge", status_code=status.HTTP_204_NO_CONTENT)
+@router.post("/merge", status_code=http_status.HTTP_204_NO_CONTENT)
 async def merge_products(
     data: ProductMergeRequest,
     _: CurrentUser = Depends(require_privilege(SystemObject.PRODUCTS_MERGE, AccessRight.CREATE)),
@@ -115,12 +116,12 @@ async def upload_product_image(
 ) -> ProductResponse:
     product = await product_service.get_product(db, product_id)
     if product is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Product not found")
+        raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail="Product not found")
     content = await file.read()
     try:
         filename = await image_service.process_and_save_image(content, settings.images_dir)
     except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc))
+        raise HTTPException(status_code=http_status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc))
     product = await product_service.update_product(db, product, ProductUpdate(photo=filename))
     response = ProductResponse.model_validate(product)
     response.photo = _photo_url(product.photo)
@@ -135,7 +136,7 @@ async def get_product(
 ) -> ProductResponse:
     product = await product_service.get_product(db, product_id)
     if product is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Product not found")
+        raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail="Product not found")
     response = ProductResponse.model_validate(product)
     response.photo = _photo_url(product.photo)
     return response
@@ -150,14 +151,14 @@ async def update_product(
 ) -> ProductResponse:
     product = await product_service.get_product(db, product_id)
     if product is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Product not found")
+        raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail="Product not found")
     product = await product_service.update_product(db, product, data)
     response = ProductResponse.model_validate(product)
     response.photo = _photo_url(product.photo)
     return response
 
 
-@router.delete("/{product_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/{product_id}", status_code=http_status.HTTP_204_NO_CONTENT)
 async def delete_product(
     product_id: int,
     _: CurrentUser = Depends(require_privilege(SystemObject.PRODUCTS, AccessRight.DELETE)),
@@ -165,5 +166,5 @@ async def delete_product(
 ) -> None:
     product = await product_service.get_product(db, product_id)
     if product is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Product not found")
+        raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail="Product not found")
     await product_service.delete_product(db, product)

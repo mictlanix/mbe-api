@@ -3,12 +3,18 @@ from collections.abc import Sequence
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.enums import EntityStatus
 from app.models.core import Vehicle
 from app.schemas.core import VehicleCreate, VehicleUpdate
 
 
 async def list_vehicles(
-    db: AsyncSession, *, search: str | None = None, skip: int = 0, limit: int = 20
+    db: AsyncSession,
+    *,
+    search: str | None = None,
+    status: EntityStatus | None = None,
+    skip: int = 0,
+    limit: int = 20,
 ) -> tuple[Sequence[Vehicle], int]:
     base = select(Vehicle)
     count_q = select(func.count()).select_from(Vehicle)
@@ -22,6 +28,10 @@ async def list_vehicles(
         )
         base = base.where(condition)
         count_q = count_q.where(condition)
+
+    if status is not None:
+        base = base.where(Vehicle.status == status)
+        count_q = count_q.where(Vehicle.status == status)
 
     total: int = (await db.execute(count_q)).scalar_one()
     items = (await db.execute(base.offset(skip).limit(limit))).scalars().all()
@@ -38,7 +48,7 @@ async def create_vehicle(db: AsyncSession, data: VehicleCreate) -> Vehicle:
         name=data.name,
         nickname=data.nickname,
         tons_capacity=data.tons_capacity,
-        active=data.active,
+        status=data.status,
     )
     db.add(vehicle)
     await db.commit()
@@ -55,8 +65,8 @@ async def update_vehicle(db: AsyncSession, vehicle: Vehicle, data: VehicleUpdate
         vehicle.nickname = data.nickname
     if data.tons_capacity is not None:
         vehicle.tons_capacity = data.tons_capacity
-    if data.active is not None:
-        vehicle.active = data.active
+    if data.status is not None:
+        vehicle.status = data.status
     await db.commit()
     await db.refresh(vehicle)
     return vehicle

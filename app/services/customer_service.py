@@ -4,6 +4,7 @@ from fastapi import HTTPException, status
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.enums import EntityStatus
 from app.models.core import Employee
 from app.models.customer import Customer
 from app.models.product import PriceList
@@ -38,7 +39,7 @@ async def list_customers(
     db: AsyncSession,
     *,
     search: str | None = None,
-    disabled: bool | None = None,
+    status: EntityStatus | None = None,
     price_list: int | None = None,
     salesperson: int | None = None,
     skip: int = 0,
@@ -57,9 +58,9 @@ async def list_customers(
         base = base.where(condition)
         count_q = count_q.where(condition)
 
-    if disabled is not None:
-        base = base.where(Customer.disabled == disabled)
-        count_q = count_q.where(Customer.disabled == disabled)
+    if status is not None:
+        base = base.where(Customer.status == status)
+        count_q = count_q.where(Customer.status == status)
     if price_list is not None:
         base = base.where(Customer.price_list == price_list)
         count_q = count_q.where(Customer.price_list == price_list)
@@ -93,7 +94,7 @@ async def create_customer(db: AsyncSession, data: CustomerCreate) -> Customer:
         shipping_required_document=data.shipping_required_document,
         salesperson=data.salesperson,
         comment=data.comment,
-        disabled=False,
+        status=data.status,
     )
     db.add(customer)
     await db.commit()
@@ -121,8 +122,8 @@ async def update_customer(db: AsyncSession, customer: Customer, data: CustomerUp
         customer.shipping_required_document = data.shipping_required_document
     if data.salesperson is not None:
         customer.salesperson = data.salesperson
-    if data.disabled is not None:
-        customer.disabled = data.disabled
+    if data.status is not None:
+        customer.status = data.status
     if data.comment is not None:
         customer.comment = data.comment
     await db.commit()

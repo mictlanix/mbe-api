@@ -3,6 +3,7 @@ from collections.abc import Sequence
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.enums import EntityStatus
 from app.models.core import Employee
 from app.schemas.core import EmployeeCreate, EmployeeUpdate
 
@@ -11,7 +12,7 @@ async def list_employees(
     db: AsyncSession,
     *,
     search: str | None = None,
-    active: bool | None = None,
+    status: EntityStatus | None = None,
     sales_person: bool | None = None,
     skip: int = 0,
     limit: int = 20,
@@ -29,9 +30,9 @@ async def list_employees(
         base = base.where(condition)
         count_q = count_q.where(condition)
 
-    if active is not None:
-        base = base.where(Employee.active == active)
-        count_q = count_q.where(Employee.active == active)
+    if status is not None:
+        base = base.where(Employee.status == status)
+        count_q = count_q.where(Employee.status == status)
     if sales_person is not None:
         base = base.where(Employee.sales_person == sales_person)
         count_q = count_q.where(Employee.sales_person == sales_person)
@@ -54,12 +55,11 @@ async def create_employee(db: AsyncSession, data: EmployeeCreate) -> Employee:
         birthday=data.birthday,
         taxpayer_id=data.taxpayer_id,
         sales_person=data.sales_person,
-        active=data.active,
+        status=data.status,
         personal_id=data.personal_id,
         start_job_date=data.start_job_date,
         enroll_number=data.enroll_number,
         comment=data.comment,
-        disabled=False,
     )
     db.add(employee)
     await db.commit()
@@ -82,8 +82,8 @@ async def update_employee(db: AsyncSession, employee: Employee, data: EmployeeUp
         employee.taxpayer_id = data.taxpayer_id
     if data.sales_person is not None:
         employee.sales_person = data.sales_person
-    if data.active is not None:
-        employee.active = data.active
+    if data.status is not None:
+        employee.status = data.status
     if data.personal_id is not None:
         employee.personal_id = data.personal_id
     if data.start_job_date is not None:
@@ -92,8 +92,6 @@ async def update_employee(db: AsyncSession, employee: Employee, data: EmployeeUp
         employee.enroll_number = data.enroll_number
     if data.comment is not None:
         employee.comment = data.comment
-    if data.disabled is not None:
-        employee.disabled = data.disabled
     await db.commit()
     await db.refresh(employee)
     return employee

@@ -5,7 +5,7 @@ from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Integer, Numeric, Sm
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
-from app.enums import CurrencyCode, FacilityType
+from app.enums import CurrencyCode, EntityStatus, FacilityType
 
 
 class Address(Base):
@@ -26,7 +26,9 @@ class Address(Base):
     country: Mapped[str] = mapped_column(String(50))
     url_address: Mapped[str | None] = mapped_column(String(200))
     comment: Mapped[str | None] = mapped_column(String(500))
-    disabled: Mapped[bool | None] = mapped_column(Boolean)
+    status: Mapped[EntityStatus] = mapped_column(
+        Integer, default=EntityStatus.ACTIVE, server_default="0"
+    )
 
 
 class Contact(Base):
@@ -58,12 +60,13 @@ class Employee(Base):
     birthday: Mapped[date] = mapped_column(Date)
     taxpayer_id: Mapped[str | None] = mapped_column(String(13))
     sales_person: Mapped[bool] = mapped_column(Boolean)
-    active: Mapped[bool] = mapped_column(Boolean)
+    status: Mapped[EntityStatus] = mapped_column(
+        Integer, default=EntityStatus.ACTIVE, server_default="0"
+    )
     personal_id: Mapped[str | None] = mapped_column(String(18))
     start_job_date: Mapped[date] = mapped_column(Date)
     comment: Mapped[str | None] = mapped_column(String(500))
     enroll_number: Mapped[int | None] = mapped_column(Integer)
-    disabled: Mapped[bool | None] = mapped_column(Boolean)
 
 
 class Facility(Base):
@@ -83,7 +86,9 @@ class Facility(Base):
     logo: Mapped[str] = mapped_column(String(255))
     receipt_message: Mapped[str | None] = mapped_column(String(250))
     default_batch: Mapped[str | None] = mapped_column(String(10))
-    disabled: Mapped[bool | None] = mapped_column(Boolean)
+    status: Mapped[EntityStatus] = mapped_column(
+        Integer, default=EntityStatus.ACTIVE, server_default="0"
+    )
 
 
 class Warehouse(Base):
@@ -94,7 +99,9 @@ class Warehouse(Base):
     code: Mapped[str] = mapped_column(String(25))
     name: Mapped[str] = mapped_column(String(250))
     comment: Mapped[str | None] = mapped_column(String(500))
-    disabled: Mapped[int | None] = mapped_column(SmallInteger)
+    status: Mapped[EntityStatus] = mapped_column(
+        Integer, default=EntityStatus.ACTIVE, server_default="0"
+    )
 
 
 class PointSale(Base):
@@ -106,7 +113,9 @@ class PointSale(Base):
     name: Mapped[str] = mapped_column(String(250))
     warehouse: Mapped[int] = mapped_column(Integer, ForeignKey("warehouse.warehouse_id"))
     comment: Mapped[str | None] = mapped_column(String(500))
-    disabled: Mapped[bool | None] = mapped_column(Boolean)
+    status: Mapped[EntityStatus] = mapped_column(
+        Integer, default=EntityStatus.ACTIVE, server_default="0"
+    )
 
 
 class CashDrawer(Base):
@@ -117,7 +126,9 @@ class CashDrawer(Base):
     code: Mapped[str] = mapped_column(String(25))
     name: Mapped[str] = mapped_column(String(250))
     comment: Mapped[str | None] = mapped_column(String(500))
-    disabled: Mapped[bool | None] = mapped_column(Boolean)
+    status: Mapped[EntityStatus] = mapped_column(
+        Integer, default=EntityStatus.ACTIVE, server_default="0"
+    )
 
 
 class CashSession(Base):
@@ -172,7 +183,9 @@ class PaymentMethodOption(Base):
     display_on_ticket: Mapped[bool] = mapped_column(Boolean)
     payment_method: Mapped[int] = mapped_column(Integer)
     commission: Mapped[Decimal] = mapped_column(Numeric(10, 3))
-    enabled: Mapped[bool] = mapped_column(Boolean)
+    status: Mapped[EntityStatus] = mapped_column(
+        Integer, default=EntityStatus.ACTIVE, server_default="0"
+    )
 
 
 class BankAccount(Base):
@@ -214,7 +227,9 @@ class Vehicle(Base):
     name: Mapped[str] = mapped_column(String(50))
     nickname: Mapped[str] = mapped_column(String(30))
     tons_capacity: Mapped[int] = mapped_column(SmallInteger)
-    active: Mapped[bool] = mapped_column(Boolean)
+    status: Mapped[EntityStatus] = mapped_column(
+        Integer, default=EntityStatus.ACTIVE, server_default="0"
+    )
 
 
 class VehicleOperator(Base):
@@ -231,4 +246,6 @@ class VehicleOperator(Base):
     modification_time: Mapped[datetime] = mapped_column(DateTime)
     creator: Mapped[int] = mapped_column(Integer, ForeignKey("employee.employee_id"))
     updater: Mapped[int] = mapped_column(Integer, ForeignKey("employee.employee_id"))
-    active: Mapped[bool] = mapped_column(Boolean)
+    status: Mapped[EntityStatus] = mapped_column(
+        Integer, default=EntityStatus.ACTIVE, server_default="0"
+    )

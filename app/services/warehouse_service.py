@@ -3,6 +3,7 @@ from collections.abc import Sequence
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.enums import EntityStatus
 from app.models.core import Facility, Warehouse
 from app.schemas.core import WarehouseCreate, WarehouseUpdate
 from app.services.fk_expansion import batch_fetch
@@ -22,6 +23,7 @@ async def list_warehouses(
     db: AsyncSession,
     *,
     facility: int | None = None,
+    status: EntityStatus | None = None,
     skip: int = 0,
     limit: int = 20,
 ) -> tuple[Sequence[Warehouse], int]:
@@ -31,6 +33,9 @@ async def list_warehouses(
     if facility is not None:
         base = base.where(Warehouse.facility == facility)
         count_q = count_q.where(Warehouse.facility == facility)
+    if status is not None:
+        base = base.where(Warehouse.status == status)
+        count_q = count_q.where(Warehouse.status == status)
 
     total: int = (await db.execute(count_q)).scalar_one()
     items = (await db.execute(base.offset(skip).limit(limit))).scalars().all()
@@ -52,7 +57,7 @@ async def create_warehouse(db: AsyncSession, data: WarehouseCreate) -> Warehouse
         code=data.code,
         name=data.name,
         comment=data.comment,
-        disabled=int(data.disabled) if data.disabled is not None else None,
+        status=data.status,
     )
     db.add(warehouse)
     await db.commit()
@@ -72,8 +77,8 @@ async def update_warehouse(
         warehouse.name = data.name
     if data.comment is not None:
         warehouse.comment = data.comment
-    if data.disabled is not None:
-        warehouse.disabled = int(data.disabled)
+    if data.status is not None:
+        warehouse.status = data.status
     await db.commit()
     await db.refresh(warehouse)
     await _attach_relations(db, [warehouse])

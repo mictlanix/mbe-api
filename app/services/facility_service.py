@@ -3,6 +3,7 @@ from collections.abc import Sequence
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.enums import EntityStatus
 from app.models.core import Facility
 from app.models.sat_catalog import SatPostalCode
 from app.schemas.core import FacilityCreate, FacilityUpdate
@@ -23,10 +24,17 @@ async def _attach_relations(db: AsyncSession, facilities: Sequence[Facility]) ->
 
 
 async def list_facilities(
-    db: AsyncSession, *, skip: int = 0, limit: int = 20
+    db: AsyncSession, *, status: EntityStatus | None = None, skip: int = 0, limit: int = 20
 ) -> tuple[Sequence[Facility], int]:
-    total: int = (await db.execute(select(func.count()).select_from(Facility))).scalar_one()
-    items = (await db.execute(select(Facility).offset(skip).limit(limit))).scalars().all()
+    base = select(Facility)
+    count_q = select(func.count()).select_from(Facility)
+
+    if status is not None:
+        base = base.where(Facility.status == status)
+        count_q = count_q.where(Facility.status == status)
+
+    total: int = (await db.execute(count_q)).scalar_one()
+    items = (await db.execute(base.offset(skip).limit(limit))).scalars().all()
     await _attach_relations(db, items)
     return items, total
 
@@ -50,7 +58,7 @@ async def create_facility(db: AsyncSession, data: FacilityCreate) -> Facility:
         logo=data.logo,
         receipt_message=data.receipt_message,
         default_batch=data.default_batch,
-        disabled=data.disabled,
+        status=data.status,
     )
     db.add(facility)
     await db.commit()
@@ -78,8 +86,8 @@ async def update_facility(db: AsyncSession, facility: Facility, data: FacilityUp
         facility.receipt_message = data.receipt_message
     if data.default_batch is not None:
         facility.default_batch = data.default_batch
-    if data.disabled is not None:
-        facility.disabled = data.disabled
+    if data.status is not None:
+        facility.status = data.status
     await db.commit()
     await db.refresh(facility)
     await _attach_relations(db, [facility])

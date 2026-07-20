@@ -4,7 +4,7 @@ from decimal import Decimal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from app.enums import FacilityType
+from app.enums import EntityStatus, FacilityType
 from app.schemas.sat_catalog import SatCatalogResponse
 
 # ── Label ─────────────────────────────────────────────────────────────────────
@@ -39,7 +39,7 @@ class EmployeeCreate(BaseModel):
     birthday: dt.date
     taxpayer_id: str | None = None
     sales_person: bool = False
-    active: bool = True
+    status: EntityStatus = EntityStatus.ACTIVE
     personal_id: str | None = None
     start_job_date: dt.date
     enroll_number: int | None = None
@@ -54,12 +54,11 @@ class EmployeeUpdate(BaseModel):
     birthday: dt.date | None = None
     taxpayer_id: str | None = None
     sales_person: bool | None = None
-    active: bool | None = None
+    status: EntityStatus | None = None
     personal_id: str | None = None
     start_job_date: dt.date | None = None
     enroll_number: int | None = None
     comment: str | None = None
-    disabled: bool | None = None
 
 
 class EmployeeResponse(BaseModel):
@@ -73,12 +72,11 @@ class EmployeeResponse(BaseModel):
     birthday: dt.date
     taxpayer_id: str | None
     sales_person: bool
-    active: bool
+    status: EntityStatus
     personal_id: str | None
     start_job_date: dt.date
     enroll_number: int | None
     comment: str | None
-    disabled: bool | None
 
 
 # ── Facility ──────────────────────────────────────────────────────────────────
@@ -94,7 +92,7 @@ class FacilityCreate(BaseModel):
     logo: str
     receipt_message: str | None = None
     default_batch: str | None = None
-    disabled: bool | None = None
+    status: EntityStatus = EntityStatus.ACTIVE
 
 
 class FacilityUpdate(BaseModel):
@@ -107,7 +105,7 @@ class FacilityUpdate(BaseModel):
     logo: str | None = None
     receipt_message: str | None = None
     default_batch: str | None = None
-    disabled: bool | None = None
+    status: EntityStatus | None = None
 
 
 class FacilitySummary(BaseModel):
@@ -125,7 +123,7 @@ class FacilitySummary(BaseModel):
     logo: str
     receipt_message: str | None
     default_batch: str | None
-    disabled: bool | None
+    status: EntityStatus
 
 
 class FacilityResponse(BaseModel):
@@ -141,7 +139,7 @@ class FacilityResponse(BaseModel):
     logo: str
     receipt_message: str | None
     default_batch: str | None
-    disabled: bool | None
+    status: EntityStatus
 
 
 # ── Warehouse ─────────────────────────────────────────────────────────────────
@@ -152,7 +150,7 @@ class WarehouseCreate(BaseModel):
     code: str
     name: str
     comment: str | None = None
-    disabled: bool | None = None
+    status: EntityStatus = EntityStatus.ACTIVE
 
 
 class WarehouseUpdate(BaseModel):
@@ -160,7 +158,7 @@ class WarehouseUpdate(BaseModel):
     code: str | None = None
     name: str | None = None
     comment: str | None = None
-    disabled: bool | None = None
+    status: EntityStatus | None = None
 
 
 class WarehouseSummary(BaseModel):
@@ -173,7 +171,7 @@ class WarehouseSummary(BaseModel):
     code: str
     name: str
     comment: str | None
-    disabled: bool | None
+    status: EntityStatus
 
 
 class WarehouseResponse(BaseModel):
@@ -184,7 +182,7 @@ class WarehouseResponse(BaseModel):
     code: str
     name: str
     comment: str | None
-    disabled: bool | None
+    status: EntityStatus
 
 
 # ── Point of Sale ─────────────────────────────────────────────────────────────
@@ -196,7 +194,7 @@ class PointSaleCreate(BaseModel):
     name: str
     warehouse: int
     comment: str | None = None
-    disabled: bool | None = None
+    status: EntityStatus = EntityStatus.ACTIVE
 
 
 class PointSaleUpdate(BaseModel):
@@ -205,7 +203,7 @@ class PointSaleUpdate(BaseModel):
     name: str | None = None
     warehouse: int | None = None
     comment: str | None = None
-    disabled: bool | None = None
+    status: EntityStatus | None = None
 
 
 class PointSaleResponse(BaseModel):
@@ -217,7 +215,7 @@ class PointSaleResponse(BaseModel):
     name: str
     warehouse: WarehouseSummary
     comment: str | None
-    disabled: bool | None
+    status: EntityStatus
 
 
 # ── Cash Drawer ───────────────────────────────────────────────────────────────
@@ -228,7 +226,7 @@ class CashDrawerCreate(BaseModel):
     code: str
     name: str
     comment: str | None = None
-    disabled: bool | None = None
+    status: EntityStatus = EntityStatus.ACTIVE
 
 
 class CashDrawerUpdate(BaseModel):
@@ -236,7 +234,7 @@ class CashDrawerUpdate(BaseModel):
     code: str | None = None
     name: str | None = None
     comment: str | None = None
-    disabled: bool | None = None
+    status: EntityStatus | None = None
 
 
 class CashDrawerResponse(BaseModel):
@@ -247,7 +245,7 @@ class CashDrawerResponse(BaseModel):
     code: str
     name: str
     comment: str | None
-    disabled: bool | None
+    status: EntityStatus
 
 
 # ── Exchange Rate ─────────────────────────────────────────────────────────────
@@ -309,7 +307,7 @@ class PaymentMethodOptionCreate(BaseModel):
     display_on_ticket: bool = True
     payment_method: int
     commission: Decimal = Decimal("0")
-    enabled: bool = True
+    status: EntityStatus = EntityStatus.ACTIVE
 
 
 class PaymentMethodOptionUpdate(BaseModel):
@@ -320,7 +318,7 @@ class PaymentMethodOptionUpdate(BaseModel):
     display_on_ticket: bool | None = None
     payment_method: int | None = None
     commission: Decimal | None = None
-    enabled: bool | None = None
+    status: EntityStatus | None = None
 
 
 class PaymentMethodOptionResponse(BaseModel):
@@ -334,7 +332,7 @@ class PaymentMethodOptionResponse(BaseModel):
     display_on_ticket: bool
     payment_method: int
     commission: Decimal
-    enabled: bool
+    status: EntityStatus
 
 
 # ── Vehicle ───────────────────────────────────────────────────────────────────
@@ -345,7 +343,7 @@ class VehicleCreate(BaseModel):
     name: str
     nickname: str
     tons_capacity: int
-    active: bool = True
+    status: EntityStatus = EntityStatus.ACTIVE
 
 
 class VehicleUpdate(BaseModel):
@@ -353,7 +351,7 @@ class VehicleUpdate(BaseModel):
     name: str | None = None
     nickname: str | None = None
     tons_capacity: int | None = None
-    active: bool | None = None
+    status: EntityStatus | None = None
 
 
 class VehicleResponse(BaseModel):
@@ -364,7 +362,7 @@ class VehicleResponse(BaseModel):
     name: str
     nickname: str
     tons_capacity: int
-    active: bool
+    status: EntityStatus
 
 
 # ── Vehicle Operator ──────────────────────────────────────────────────────────
@@ -377,7 +375,7 @@ class VehicleOperatorCreate(BaseModel):
     issue_date: dt.date
     expiration_date: dt.date
     issuing_location: str
-    active: bool = True
+    status: EntityStatus = EntityStatus.ACTIVE
 
 
 class VehicleOperatorUpdate(BaseModel):
@@ -387,7 +385,7 @@ class VehicleOperatorUpdate(BaseModel):
     issue_date: dt.date | None = None
     expiration_date: dt.date | None = None
     issuing_location: str | None = None
-    active: bool | None = None
+    status: EntityStatus | None = None
 
 
 class VehicleOperatorResponse(BaseModel):
@@ -404,7 +402,7 @@ class VehicleOperatorResponse(BaseModel):
     modification_time: datetime
     creator: EmployeeResponse
     updater: EmployeeResponse
-    active: bool
+    status: EntityStatus
     days_until_expiry: int = 0
 
     @model_validator(mode="after")

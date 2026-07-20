@@ -7,6 +7,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Changed
+- **Breaking**: every boolean lifecycle flag is replaced by a single integer `status` field (`0` = active, `1` = inactive, `2` = archived, `EntityStatus` enum) across all status-bearing entities — users, customers, products, employees, facilities, warehouses, points of sale, cash drawers, payment method options, vehicles, vehicle operators (plus persistence-only addresses and taxpayer certificates). The legacy fields `disabled` (user/customer/facility/warehouse/point_sale/cash_drawer), `active` (employee/vehicle/vehicle_operator), `deactivated` (product), and `enabled` (payment_method_option) no longer exist in requests or responses; `Employee` in particular collapses its duplicate `active`+`disabled` pair into the one `status` field (#80, #81)
+- **Breaking**: lifecycle list filters are now uniform — `?status=<0|1|2>` on every status-bearing list endpoint (users, customers, products (both list variants incl. `labels/facets`), employees, facilities, warehouses, points-of-sale, cash-drawers, payment-method-options, vehicles, vehicle-operators), replacing the previous `?deactivated` (products), `?disabled` (customers), and `?active` (employees) parameters
+- Login is rejected for any user whose `status` is not active (`0`), preserving the former disabled-user rejection and extending it to archived users
+
+### Added
+- `EntityStatus` int enum (`0` active / `1` inactive / `2` archived) in `app/enums.py`
+- SQL migration script `migrations/sql/005_unified_entity_status.sql` (+ rollback script): adds the non-nullable `status` column to 13 tables, backfills it from the legacy flag(s) (restrictive flag wins for `employee`), then drops the legacy columns
+
+### Changed
 - **Breaking**: `store` renamed to `facility` throughout — table `store` → `facility`, PK `store_id` → `facility_id`, every FK column named `store` on other tables (`cash_drawer`, `customer_payment`, `customer_refund`, `delivery_order`, `expense_voucher`, `fiscal_document`, `inventory_issue`, `inventory_receipt`, `inventory_transfer`, `payment_method_option`, `point_sale`, `sales_order`, `sales_quote`, `special_receipt`, `user_settings`, `warehouse`) → `facility`; API routes `/stores` → `/facilities`; embedded `store` JSON fields in responses → `facility`
 - `facility` gains a new `type` column — `FacilityType` int enum (`0` = store, `1` = production_site, default `0`)
 

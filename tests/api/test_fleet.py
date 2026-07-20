@@ -45,7 +45,7 @@ def _vehicle(vehicle_id: int = 1) -> SimpleNamespace:
         name="Truck 1",
         nickname="Big One",
         tons_capacity=5,
-        active=True,
+        status=0,
     )
 
 
@@ -59,12 +59,11 @@ def _employee(employee_id: int = 1) -> SimpleNamespace:
         birthday=datetime.date(1990, 1, 1),
         taxpayer_id=None,
         sales_person=False,
-        active=True,
+        status=0,
         personal_id=None,
         start_job_date=datetime.date(2020, 1, 1),
         enroll_number=None,
         comment=None,
-        disabled=None,
     )
 
 
@@ -81,7 +80,7 @@ def _vehicle_operator(vo_id: int = 1) -> SimpleNamespace:
         modification_time=datetime.datetime(2024, 1, 1, 0, 0, 0),
         creator=_employee(0),
         updater=_employee(0),
-        active=True,
+        status=0,
     )
 
 
@@ -124,6 +123,7 @@ async def test_get_vehicle_returns_200() -> None:
             r = await c.get("/api/v1/vehicles/1")
     assert r.status_code == 200
     assert r.json()["vehicle_id"] == 1
+    assert "active" not in r.json()
 
 
 @pytest.mark.asyncio
@@ -155,6 +155,7 @@ async def test_create_vehicle_returns_201() -> None:
             )
     assert r.status_code == 201
     assert r.json()["license_plate"] == "ABC-123"
+    assert r.json()["status"] == 0
 
 
 @pytest.mark.asyncio
@@ -219,6 +220,38 @@ async def test_list_vehicles_requires_auth() -> None:
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
         r = await c.get("/api/v1/vehicles")
     assert r.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_list_vehicles_status_filter_passed_through() -> None:
+    _auth()
+    mock = AsyncMock(return_value=([_vehicle()], 1))
+    with patch("app.services.vehicle_service.list_vehicles", new=mock):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+            r = await c.get("/api/v1/vehicles?status=0")
+    assert r.status_code == 200
+    _, kwargs = mock.call_args
+    assert kwargs.get("status") == 0
+
+
+@pytest.mark.asyncio
+async def test_list_vehicles_no_status_filter() -> None:
+    _auth()
+    mock = AsyncMock(return_value=([_vehicle()], 1))
+    with patch("app.services.vehicle_service.list_vehicles", new=mock):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+            r = await c.get("/api/v1/vehicles")
+    assert r.status_code == 200
+    _, kwargs = mock.call_args
+    assert kwargs.get("status") is None
+
+
+@pytest.mark.asyncio
+async def test_list_vehicles_invalid_status_returns_422() -> None:
+    _auth()
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+        r = await c.get("/api/v1/vehicles?status=9")
+    assert r.status_code == 422
 
 
 # ── Vehicle Operator tests ────────────────────────────────────────────────────
@@ -319,7 +352,7 @@ async def test_update_vehicle_operator_returns_404() -> None:
         new=AsyncMock(return_value=None),
     ):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
-            r = await c.put("/api/v1/vehicle-operators/999", json={"active": False})
+            r = await c.put("/api/v1/vehicle-operators/999", json={"status": 1})
     assert r.status_code == 404
 
 
@@ -394,3 +427,35 @@ async def test_list_vehicle_operators_search_passed_through() -> None:
     assert r.status_code == 200
     _, kwargs = mock.call_args
     assert kwargs.get("search") == "jane"
+
+
+@pytest.mark.asyncio
+async def test_list_vehicle_operators_status_filter_passed_through() -> None:
+    _auth()
+    mock = AsyncMock(return_value=([_vehicle_operator()], 1))
+    with patch("app.services.vehicle_operator_service.list_vehicle_operators", new=mock):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+            r = await c.get("/api/v1/vehicle-operators?status=0")
+    assert r.status_code == 200
+    _, kwargs = mock.call_args
+    assert kwargs.get("status") == 0
+
+
+@pytest.mark.asyncio
+async def test_list_vehicle_operators_no_status_filter() -> None:
+    _auth()
+    mock = AsyncMock(return_value=([_vehicle_operator()], 1))
+    with patch("app.services.vehicle_operator_service.list_vehicle_operators", new=mock):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+            r = await c.get("/api/v1/vehicle-operators")
+    assert r.status_code == 200
+    _, kwargs = mock.call_args
+    assert kwargs.get("status") is None
+
+
+@pytest.mark.asyncio
+async def test_list_vehicle_operators_invalid_status_returns_422() -> None:
+    _auth()
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+        r = await c.get("/api/v1/vehicle-operators?status=9")
+    assert r.status_code == 422

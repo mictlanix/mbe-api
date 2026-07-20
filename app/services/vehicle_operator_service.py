@@ -4,6 +4,7 @@ from datetime import UTC, datetime
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.enums import EntityStatus
 from app.models.core import Employee, VehicleOperator
 from app.schemas.core import VehicleOperatorCreate, VehicleOperatorUpdate
 from app.services.fk_expansion import batch_fetch
@@ -25,6 +26,7 @@ async def list_vehicle_operators(
     *,
     search: str | None = None,
     employee: int | None = None,
+    status: EntityStatus | None = None,
     skip: int = 0,
     limit: int = 20,
 ) -> tuple[Sequence[VehicleOperator], int]:
@@ -46,6 +48,9 @@ async def list_vehicle_operators(
     if employee is not None:
         base = base.where(VehicleOperator.driver == employee)
         count_q = count_q.where(VehicleOperator.driver == employee)
+    if status is not None:
+        base = base.where(VehicleOperator.status == status)
+        count_q = count_q.where(VehicleOperator.status == status)
     total: int = (await db.execute(count_q)).scalar_one()
     items = (await db.execute(base.offset(skip).limit(limit))).scalars().all()
     await _attach_relations(db, items)
@@ -73,7 +78,7 @@ async def create_vehicle_operator(
         issue_date=data.issue_date,
         expiration_date=data.expiration_date,
         issuing_location=data.issuing_location,
-        active=data.active,
+        status=data.status,
         creation_time=now,
         modification_time=now,
         creator=creator_id,
@@ -101,8 +106,8 @@ async def update_vehicle_operator(
         vo.expiration_date = data.expiration_date
     if data.issuing_location is not None:
         vo.issuing_location = data.issuing_location
-    if data.active is not None:
-        vo.active = data.active
+    if data.status is not None:
+        vo.status = data.status
     vo.modification_time = datetime.now(tz=UTC).replace(tzinfo=None)
     vo.updater = updater_id
     await db.commit()

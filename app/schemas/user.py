@@ -2,6 +2,8 @@ import re
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from app.enums import EntityStatus
+
 _USERNAME_RE = re.compile(r"^[0-9a-zA-Z]+$")
 
 
@@ -47,7 +49,7 @@ class UserCreate(BaseModel):
     email: str
     employee_id: int | None = None
     administrator: bool = False
-    disabled: bool = False
+    status: EntityStatus = EntityStatus.ACTIVE
 
     @field_validator("user_id")
     @classmethod
@@ -61,7 +63,7 @@ class UserUpdate(BaseModel):
     email: str | None = None
     employee_id: int | None = None
     administrator: bool | None = None
-    disabled: bool | None = None
+    status: EntityStatus | None = None
     # Full privilege list — server upserts all provided entries
     privileges: list[PrivilegeUpdate] | None = None
     settings: UserSettingsUpdate | None = None
@@ -74,7 +76,7 @@ class UserListItem(BaseModel):
     email: str
     employee_id: int | None
     administrator: bool
-    disabled: bool
+    status: EntityStatus
 
 
 class UserListResponse(BaseModel):
@@ -89,7 +91,7 @@ class UserResponse(BaseModel):
     email: str
     employee_id: int | None
     administrator: bool
-    disabled: bool
+    status: EntityStatus
     session_version: int
     settings: UserSettingsResponse | None
     privileges: list[PrivilegeResponse]

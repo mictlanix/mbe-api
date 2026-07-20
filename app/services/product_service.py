@@ -6,6 +6,7 @@ from sqlalchemy import Row, Select, delete, func, insert, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings
+from app.enums import EntityStatus
 from app.models.core import Label
 from app.models.product import Product, product_label
 from app.models.sat_catalog import SatProductService, SatUnitOfMeasurement
@@ -21,7 +22,7 @@ def _apply_product_filters(
     *,
     search: str | None,
     label: list[int] | None,
-    deactivated: bool | None,
+    status: EntityStatus | None,
     stockable: bool | None,
     salable: bool | None,
     purchasable: bool | None,
@@ -48,8 +49,8 @@ def _apply_product_filters(
         )
         query = query.where(Product.product_id.in_(labeled_products))
 
-    if deactivated is not None:
-        query = query.where(Product.deactivated == deactivated)
+    if status is not None:
+        query = query.where(Product.status == status)
     if stockable is not None:
         query = query.where(Product.stockable == stockable)
     if salable is not None:
@@ -67,7 +68,7 @@ async def list_products(
     *,
     search: str | None = None,
     label: list[int] | None = None,
-    deactivated: bool | None = None,
+    status: EntityStatus | None = None,
     stockable: bool | None = None,
     salable: bool | None = None,
     purchasable: bool | None = None,
@@ -79,7 +80,7 @@ async def list_products(
         select(Product),
         search=search,
         label=label,
-        deactivated=deactivated,
+        status=status,
         stockable=stockable,
         salable=salable,
         purchasable=purchasable,
@@ -89,7 +90,7 @@ async def list_products(
         select(func.count()).select_from(Product),
         search=search,
         label=label,
-        deactivated=deactivated,
+        status=status,
         stockable=stockable,
         salable=salable,
         purchasable=purchasable,
@@ -107,7 +108,7 @@ async def get_label_facets(
     *,
     search: str | None = None,
     label: list[int] | None = None,
-    deactivated: bool | None = None,
+    status: EntityStatus | None = None,
     stockable: bool | None = None,
     salable: bool | None = None,
     purchasable: bool | None = None,
@@ -117,7 +118,7 @@ async def get_label_facets(
         select(Product.product_id),
         search=search,
         label=label,
-        deactivated=deactivated,
+        status=status,
         stockable=stockable,
         salable=salable,
         purchasable=purchasable,
@@ -267,7 +268,7 @@ async def create_product(db: AsyncSession, data: ProductCreate, settings: Settin
         salable=data.salable,
         invoiceable=data.invoiceable,
         stock_verification=data.stock_required if data.stock_required is not None else True,
-        deactivated=False,
+        status=EntityStatus.ACTIVE,
         comment=data.comment,
     )
     db.add(product)
@@ -331,8 +332,8 @@ async def update_product(db: AsyncSession, product: Product, data: ProductUpdate
         product.invoiceable = data.invoiceable
     if data.stock_required is not None:
         product.stock_verification = data.stock_required
-    if data.deactivated is not None:
-        product.deactivated = data.deactivated
+    if data.status is not None:
+        product.status = data.status
     if data.comment is not None:
         product.comment = data.comment
     if data.labels is not None:

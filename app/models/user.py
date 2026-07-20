@@ -2,6 +2,7 @@ from sqlalchemy import Boolean, ForeignKey, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
+from app.enums import EntityStatus
 from app.models.core import CashDrawer, Facility, PointSale
 
 
@@ -17,7 +18,9 @@ class User(Base):
     )
     # bit(1) in DB; SQLAlchemy Boolean maps correctly
     administrator: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
-    disabled: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
+    status: Mapped[EntityStatus] = mapped_column(
+        Integer, default=EntityStatus.ACTIVE, server_default="0"
+    )
     session_version: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
 
     privileges: Mapped[list["AccessPrivilege"]] = relationship(
