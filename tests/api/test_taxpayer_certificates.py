@@ -11,6 +11,7 @@ from httpx import ASGITransport, AsyncClient
 from app.core.deps import CurrentUser, get_current_user
 from app.db.session import get_db
 from app.main import app
+from app.services.csd_service import ParsedCsd
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
 
@@ -120,6 +121,64 @@ async def test_get_taxpayer_certificate_returns_404() -> None:
         async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as c:
             r = await c.get('/api/v1/taxpayer-certificates/UNKNOWN')
     assert r.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_upload_taxpayer_certificate_returns_201() -> None:
+    _auth()
+    parsed = ParsedCsd(
+        certificate_id='00001000000500003416',
+        taxpayer='RFC123456789A',
+        valid_from=datetime(2024, 1, 1),
+        valid_to=datetime(2028, 1, 1),
+    )
+    with (
+        patch('app.services.csd_service.parse_csd', new=AsyncMock(return_value=parsed)),
+        patch(
+            'app.services.taxpayer_certificate_service.create_taxpayer_certificate',
+            new=AsyncMock(return_value=_certificate()),
+        ) as create,
+    ):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as c:
+            r = await c.post(
+                '/api/v1/taxpayer-certificates',
+                data={'taxpayer': 'RFC123456789A', 'key_password': 'hunter2'},
+                files={'certificate': ('csd.cer', b'CERT'), 'key': ('csd.key', b'KEY')},
+            )
+    assert r.status_code == 201
+    assert r.json()['taxpayer_certificate_id'] == '00001000000500003416'
+    # the password reaches the service as bytes, and the raw uploads are stored verbatim
+    assert create.call_args.kwargs['key_password'] == b'hunter2'
+    assert create.call_args.kwargs['certificate_data'] == b'CERT'
+
+
+@pytest.mark.asyncio
+async def test_upload_taxpayer_certificate_rejects_an_invalid_csd() -> None:
+    _auth()
+    with patch(
+        'app.services.csd_service.parse_csd',
+        new=AsyncMock(side_effect=ValueError('Wrong password, or unreadable private key')),
+    ):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as c:
+            r = await c.post(
+                '/api/v1/taxpayer-certificates',
+                data={'taxpayer': 'RFC123456789A', 'key_password': 'wrong'},
+                files={'certificate': ('csd.cer', b'CERT'), 'key': ('csd.key', b'KEY')},
+            )
+    assert r.status_code == 422
+    assert 'Wrong password' in r.json()['detail']
+
+
+@pytest.mark.asyncio
+async def test_upload_taxpayer_certificate_rejects_a_short_rfc() -> None:
+    _auth()
+    async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as c:
+        r = await c.post(
+            '/api/v1/taxpayer-certificates',
+            data={'taxpayer': 'RFC123', 'key_password': 'hunter2'},
+            files={'certificate': ('csd.cer', b'CERT'), 'key': ('csd.key', b'KEY')},
+        )
+    assert r.status_code == 422
 
 
 @pytest.mark.asyncio
