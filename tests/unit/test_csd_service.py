@@ -2,11 +2,13 @@
 must all be rejected before anything is stored."""
 
 from datetime import UTC, datetime, timedelta
+from zoneinfo import ZoneInfo
 
 import pytest
 from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
+from cryptography.x509 import load_der_x509_certificate
 from cryptography.x509.oid import NameOID
 
 from app.services.csd_service import parse_csd
@@ -65,8 +67,24 @@ async def test_parses_number_rfc_and_validity_from_the_certificate() -> None:
 
     assert parsed.certificate_id == _CERTIFICATE_NUMBER
     assert parsed.taxpayer == _RFC
-    assert parsed.valid_from == datetime(2024, 1, 1)
-    assert parsed.valid_to == datetime(2028, 1, 1)
+    # The certificate says 2024-01-01T00:00Z; the column stores Mexico City local time,
+    # which since October 2022 is a fixed UTC-6.
+    assert parsed.valid_from == datetime(2023, 12, 31, 18, 0)
+    assert parsed.valid_to == datetime(2027, 12, 31, 18, 0)
+
+
+@pytest.mark.asyncio
+async def test_validity_is_converted_to_mexico_city_local_time() -> None:
+    """Matches the convention of every row the legacy system wrote (verified against
+    mbe_demo): storing UTC would put new certificates 6 hours off from the existing ones."""
+    certificate_data, key_data = _make_csd()
+
+    parsed = await parse_csd(certificate_data, key_data, _PASSWORD)
+
+    certificate = load_der_x509_certificate(certificate_data)
+    expected = certificate.not_valid_after_utc.astimezone(ZoneInfo('America/Mexico_City'))
+    assert parsed.valid_to == expected.replace(tzinfo=None)
+    assert parsed.valid_to != certificate.not_valid_after_utc.replace(tzinfo=None)
 
 
 @pytest.mark.asyncio
