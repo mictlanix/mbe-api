@@ -84,4 +84,41 @@ uv run ruff check --fix .
 
 # Type check (mypy strict)
 uv run mypy app
+
+# Format (ruff — single quotes; docstrings keep """)
+uv run ruff format app tests
+
+# Verify formatting without writing
+uv run ruff format --check app tests
+```
+
+### Pre-commit hook
+
+Formatting and lint are enforced on commit. Install once per clone:
+
+```bash
+uv run pre-commit install
+uv run pre-commit run --all-files   # optional: check the whole tree now
+```
+
+The hooks are scoped to `app/` and `tests/`, matching what the project lints by
+hand, and are pinned in `.pre-commit-config.yaml` to the same ruff version as the
+dev dependency group — bump both together.
+
+**If `pre-commit install` fails with "Cowardly refusing to install hooks with
+`core.hooksPath` set"**, you have a global hooks directory configured. Point this
+repo at its own hooks and write the hook by hand, preserving whatever your global
+directory provides:
+
+```bash
+git config --local core.hooksPath .git/hooks
+ln -sf "$(git config --global core.hooksPath)/commit-msg" .git/hooks/commit-msg  # if you have one
+cat > .git/hooks/pre-commit <<'HOOK'
+#!/usr/bin/env bash
+exec uv run pre-commit hook-impl \
+  --config=.pre-commit-config.yaml \
+  --hook-type=pre-commit \
+  --hook-dir "$(dirname "$0")" -- "$@"
+HOOK
+chmod +x .git/hooks/pre-commit
 ```
