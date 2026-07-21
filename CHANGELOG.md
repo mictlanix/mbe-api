@@ -7,6 +7,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
+- Read-only endpoints for taxpayer issuers under `/api/v1/taxpayer-issuers` (list with `search` on RFC or name, and get by RFC), with `regime` and `postal_code` expanded to SAT catalog objects; `Facility.taxpayer` is now resolvable and pickable by a client (#100)
+- Cross-FK validation on `POST`/`PUT /api/v1/points-of-sale`: a point of sale is rejected (`422`) when the referenced `warehouse` belongs to a different `facility`, including when only `facility` changes on update, and `404` when the warehouse does not exist (#102)
 - Optional free-text `search` query param on `GET /api/v1/facilities`, `GET /api/v1/warehouses`, `GET /api/v1/points-of-sale` and `GET /api/v1/cash-drawers` — case-insensitive substring match on the record's `code` or `name`, combinable with the existing facet params, matching the semantics already used by customers/employees/suppliers (#86, #87, #88, #89)
 - CRUD endpoints for addresses under `/api/v1/addresses` (list with `search`/`type`/`status` filters, create, get, update, delete), gated by `SystemObject.ADDRESSES` (11); `app/services/address_service.py`. `Facility.address` (and every other address FK) is now resolvable and pickable by a client (#90)
 - `AddressType` int enum (`0` other / `1` home / `2` work / `3` business / `4` fiscal) in `app/enums.py`; `Address.type` is typed with it instead of a bare `int`
@@ -15,6 +17,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `EntityStatus`, `FacilityType` and the corrected `AddressType` sections in `docs/constants.md`
 
 ### Changed
+- **Breaking**: `FacilityResponse.address` now returns the expanded address object instead of the bare `int` FK, matching how `location` is already expanded on the same model; `FacilitySummary.address` stays a raw `int`, keeping the embedded summary flat (#101)
 - **Breaking**: `FacilityCreate.logo` is now optional — a facility can be created without a logo and given one later via the upload endpoint (#91)
 - `FacilityResponse.logo` and `FacilitySummary.logo` now return a renderable URL (`{images_base_url}/images/{filename}`, or `/images/{filename}` when `images_base_url` is unset) instead of the bare stored filename, matching how `Product.photo` is already returned; `null` when the facility has no logo (#91)
 - `docs/data-dictionary.md` now documents the `status` column on all 13 status-bearing tables instead of the `disabled`/`active`/`deactivated`/`enabled` columns that migration 005 dropped (the `employee` pair collapses to a single row), plus the nullable `facility.logo`

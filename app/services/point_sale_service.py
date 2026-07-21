@@ -1,5 +1,6 @@
 from collections.abc import Sequence
 
+from fastapi import HTTPException, status
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -19,8 +20,11 @@ async def _attach_relations(db: AsyncSession, point_sales: Sequence[PointSale]) 
         db, Warehouse, Warehouse.warehouse_id, (p.warehouse for p in point_sales)
     )
     for p in point_sales:
-        p.__dict__['facility'] = facilities_by_id.get(p.facility)
-        p.__dict__['warehouse'] = warehouses_by_id.get(p.warehouse)
+        # Written under separate keys: `facility` and `warehouse` are mapped columns and these
+        # instances are shared through the session identity map, so overwriting them corrupts
+        # the raw FKs the update path validates against (cf. #95).
+        p.__dict__['facility_detail'] = facilities_by_id.get(p.facility)
+        p.__dict__['warehouse_detail'] = warehouses_by_id.get(p.warehouse)
 
 
 async def list_point_sales(
@@ -63,7 +67,20 @@ async def get_point_sale(db: AsyncSession, point_sale_id: int) -> PointSale | No
     return ps
 
 
+async def _validate_warehouse_facility(db: AsyncSession, facility: int, warehouse: int) -> None:
+    """Reject a warehouse that belongs to a facility other than the point of sale's."""
+    row = await db.get(Warehouse, warehouse)
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Warehouse not found')
+    if row.facility != facility:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=f'Warehouse {warehouse} does not belong to facility {facility}',
+        )
+
+
 async def create_point_sale(db: AsyncSession, data: PointSaleCreate) -> PointSale:
+    await _validate_warehouse_facility(db, data.facility, data.warehouse)
     ps = PointSale(
         facility=data.facility,
         code=data.code,
@@ -80,6 +97,12 @@ async def create_point_sale(db: AsyncSession, data: PointSaleCreate) -> PointSal
 
 
 async def update_point_sale(db: AsyncSession, ps: PointSale, data: PointSaleUpdate) -> PointSale:
+    if data.facility is not None or data.warehouse is not None:
+        await _validate_warehouse_facility(
+            db,
+            data.facility if data.facility is not None else ps.facility,
+            data.warehouse if data.warehouse is not None else ps.warehouse,
+        )
     if data.facility is not None:
         ps.facility = data.facility
     if data.code is not None:

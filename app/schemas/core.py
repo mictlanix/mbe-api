@@ -199,7 +199,7 @@ class FacilityResponse(BaseModel):
     location: SatCatalogResponse = Field(
         validation_alias=AliasChoices('location_detail', 'location')
     )
-    address: int
+    address: AddressResponse = Field(validation_alias=AliasChoices('address_detail', 'address'))
     taxpayer: str
     logo: str | None
     receipt_message: str | None
@@ -277,10 +277,12 @@ class PointSaleResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     point_sale_id: int
-    facility: FacilitySummary
+    facility: FacilitySummary = Field(validation_alias=AliasChoices('facility_detail', 'facility'))
     code: str
     name: str
-    warehouse: WarehouseSummary
+    warehouse: WarehouseSummary = Field(
+        validation_alias=AliasChoices('warehouse_detail', 'warehouse')
+    )
     comment: str | None
     status: EntityStatus
 
