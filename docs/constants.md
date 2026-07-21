@@ -25,8 +25,8 @@ Controls CRUD access for a user on a `SystemObjects` entry. Values are combined 
 
 ## AddressType
 
-**File**: `Model/Constants/AddressType.cs`  
-**DB column**: `address.address_type`
+**File**: `Model/Constants/AddressType.cs` — now `AddressType` in `app/enums.py`  
+**DB column**: `address.type`
 
 | Value | Name | Meaning |
 |-------|------|---------|
@@ -87,6 +87,36 @@ Controls CRUD access for a user on a `SystemObjects` entry. Values are combined 
 | 0 | ToBeDefined | Mode not yet set |
 | 1 | PickUp | Customer picks up at store |
 | 2 | PartialDeliveries | Fulfillment in multiple partial shipments |
+
+---
+
+## EntityStatus
+
+**File**: `app/enums.py` (no legacy C# counterpart)  
+**DB column**: `status` on every status-bearing table
+
+Unified lifecycle state. Replaces the legacy per-table boolean flags `disabled`,
+`active`, `deactivated` and `enabled`, which no longer exist.
+
+| Value | Name | Meaning |
+|-------|------|---------|
+| 0 | Active | In use; the default for new records |
+| 1 | Inactive | Withdrawn from use, still referenced by historic data |
+| 2 | Archived | Retained for the record only |
+
+Exposed as the `?status=<0\|1\|2>` filter on every list endpoint that carries it.
+
+---
+
+## FacilityType
+
+**File**: `app/enums.py` (no legacy C# counterpart)  
+**DB column**: `facility.type`
+
+| Value | Name | Meaning |
+|-------|------|---------|
+| 0 | Store | Retail/sales location — the former `store` table |
+| 1 | ProductionSite | Manufacturing location — the former `production_site` table |
 
 ---
 

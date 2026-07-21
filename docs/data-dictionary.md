@@ -37,7 +37,7 @@ System login account.
 | `employee` | int(11) | YES | Linked employee record |
 | `administrator` | bit(1) | NO | Full admin flag — bypasses all privilege checks |
 | `session_version` | int(11) | NO | Incremented to invalidate existing sessions |
-| `disabled` | tinyint(1) | NO | Soft-delete flag |
+| `status` | smallint(6) | NO | `EntityStatus` — `0` active, `1` inactive, `2` archived |
 
 ### `access_privilege`
 Per-user, per-object (SystemObject enum) permission bits (read/write/etc.).
@@ -74,10 +74,10 @@ Top-level organizational unit (branch / location).
 | `location` | varchar(5) | NO | FK → `sat_postal_code` — SAT location code |
 | `address` | int(11) | NO | FK → `address.address_id` |
 | `taxpayer` | varchar(13) | NO | FK → `taxpayer_issuer` — RFC of issuing entity |
-| `logo` | varchar(255) | NO | Path/URL to logo image |
+| `logo` | varchar(255) | YES | Filename of the uploaded logo image, served from `/images/` |
 | `receipt_message` | varchar(250) | YES | Printed on receipts |
 | `default_batch` | varchar(10) | YES | Default CFDI fiscal batch/folio series |
-| `disabled` | tinyint(1) | YES | Soft-delete |
+| `status` | smallint(6) | NO | `EntityStatus` — `0` active, `1` inactive, `2` archived |
 | `type` | int(11) | NO | `0` = store, `1` = production_site — merged from the former standalone `production_site` table |
 
 ### `warehouse`
@@ -90,7 +90,7 @@ Physical storage location belonging to a facility.
 | `code` | varchar(25) | NO | Unique short code |
 | `name` | varchar(250) | NO | Display name |
 | `comment` | varchar(500) | YES | Notes |
-| `disabled` | tinyint(4) | YES | Soft-delete |
+| `status` | smallint(6) | NO | `EntityStatus` — `0` active, `1` inactive, `2` archived |
 
 ### `point_sale`
 Point-of-sale terminal configuration.
@@ -103,7 +103,7 @@ Point-of-sale terminal configuration.
 | `name` | varchar(250) | NO | Display name |
 | `warehouse` | int(11) | NO | FK → `warehouse` — stock source for POS sales |
 | `comment` | varchar(500) | YES | Notes |
-| `disabled` | tinyint(1) | YES | Soft-delete |
+| `status` | smallint(6) | NO | `EntityStatus` — `0` active, `1` inactive, `2` archived |
 
 ### `cash_drawer`
 Physical cash drawer device.
@@ -115,7 +115,7 @@ Physical cash drawer device.
 | `code` | varchar(25) | NO | Unique code |
 | `name` | varchar(250) | NO | Display name |
 | `comment` | varchar(500) | YES | Notes |
-| `disabled` | tinyint(1) | YES | Soft-delete |
+| `status` | smallint(6) | NO | `EntityStatus` — `0` active, `1` inactive, `2` archived |
 
 ### `cash_session`
 A cashier's work shift on a given cash drawer.
@@ -147,7 +147,7 @@ Reusable address record (used by customers, suppliers, facilities, fiscal docs).
 |--------|------|------|-------------|
 | `address_id` | int(11) | NO | PK |
 | `nickname` | char(100) | YES | Friendly label (e.g. "Main Office") |
-| `type` | int(11) | NO | Enum: Fiscal, Shipping, etc. |
+| `type` | int(11) | NO | `AddressType` enum (see constants.md) |
 | `street` | varchar(150) | NO | Street name |
 | `exterior_number` | varchar(25) | NO | Exterior number |
 | `interior_number` | varchar(25) | YES | Interior number/suite |
@@ -160,7 +160,7 @@ Reusable address record (used by customers, suppliers, facilities, fiscal docs).
 | `country` | varchar(50) | NO | Country name |
 | `url_address` | varchar(200) | YES | Google Maps or similar URL |
 | `comment` | varchar(500) | YES | Notes |
-| `disabled` | tinyint(1) | YES | Soft-delete |
+| `status` | smallint(6) | NO | `EntityStatus` — `0` active, `1` inactive, `2` archived |
 
 ### `contact`
 Person contact record (shared between customers and suppliers).
@@ -194,12 +194,11 @@ Internal staff member.
 | `birthday` | date | NO | Date of birth |
 | `taxpayer_id` | varchar(13) | YES | RFC (Mexican tax ID) |
 | `sales_person` | tinyint(1) | NO | Whether this employee is a salesperson |
-| `active` | tinyint(1) | NO | Active employee flag |
+| `status` | smallint(6) | NO | `EntityStatus` — `0` active, `1` inactive, `2` archived (merged from the former `active`/`disabled` pair) |
 | `personal_id` | varchar(18) | YES | CURP or national ID |
 | `start_job_date` | date | NO | Hire date |
 | `comment` | varchar(500) | YES | Notes |
 | `enroll_number` | int(11) | YES | Biometric enrollment ID |
-| `disabled` | tinyint(1) | YES | Soft-delete |
 
 ### `exchange_rate`
 Daily currency exchange rates.
@@ -234,7 +233,7 @@ Configured payment method options per facility (cash, card, transfer, etc.).
 | `display_on_ticket` | tinyint(1) | NO | Show on printed receipt |
 | `payment_method` | int(11) | NO | Enum: Cash, Card, Transfer, Check, etc. |
 | `commission` | decimal(10,3) | NO | Surcharge rate applied to merchant |
-| `enabled` | tinyint(1) | NO | Active flag |
+| `status` | smallint(6) | NO | `EntityStatus` — `0` active, `1` inactive, `2` archived |
 
 ### `bank_account`
 Bank account for supplier payments.
@@ -280,7 +279,7 @@ Fleet vehicle record.
 | `name` | varchar(50) | NO | Vehicle description |
 | `nickname` | varchar(30) | NO | Short alias |
 | `tons_capacity` | tinyint(4) | NO | Load capacity in metric tons |
-| `active` | tinyint(1) | NO | Active flag |
+| `status` | smallint(6) | NO | `EntityStatus` — `0` active, `1` inactive, `2` archived |
 
 ### `vehicle_operator`
 Driver license record for an employee.
@@ -298,7 +297,7 @@ Driver license record for an employee.
 | `modification_time` | datetime | NO | Last updated |
 | `creator` | int(11) | NO | FK → `employee` |
 | `updater` | int(11) | NO | FK → `employee` |
-| `active` | tinyint(1) | NO | Active flag |
+| `status` | smallint(6) | NO | `EntityStatus` — `0` active, `1` inactive, `2` archived |
 
 ---
 
@@ -333,7 +332,7 @@ Product/SKU catalog.
 | `comment` | varchar(500) | YES | Notes |
 | `supplier` | int(11) | YES | FK → `supplier` — default supplier |
 | `key` | varchar(8) | YES | FK → `sat_product_service` — SAT product key |
-| `deactivated` | tinyint(1) | NO | Soft-delete flag |
+| `status` | smallint(6) | NO | `EntityStatus` — `0` active, `1` inactive, `2` archived |
 | `stock_verification` | tinyint(1) | NO | Require stock check before selling |
 
 ### `price_list`
@@ -386,7 +385,7 @@ Customer / buyer entity.
 | `shipping` | tinyint(1) | NO | Whether deliveries are enabled |
 | `shipping_required_document` | tinyint(1) | NO | Require delivery document |
 | `salesperson` | int(11) | YES | FK → `employee` — assigned sales rep |
-| `disabled` | tinyint(1) | YES | Soft-delete |
+| `status` | smallint(6) | NO | `EntityStatus` — `0` active, `1` inactive, `2` archived |
 | `creator` | int(11) | YES | FK → `employee` |
 
 ### `customer_address`
@@ -1045,7 +1044,7 @@ CSD certificate files for CFDI digital signing.
 | `key_password` | tinyblob | NO | Encrypted private key password |
 | `valid_from` | datetime | NO | Certificate validity start |
 | `valid_to` | datetime | NO | Certificate validity end |
-| `active` | tinyint(1) | NO | Currently active for signing |
+| `status` | smallint(6) | NO | `EntityStatus` — `0` = currently active for signing |
 
 ### `taxpayer_batch`
 Folio series (batch) configuration per taxpayer and document type.
