@@ -44,10 +44,14 @@ async def _attach_relations(db: AsyncSession, recipients: Sequence[TaxpayerRecip
         regimes_by_id = {r.sat_tax_regime_id: r for r in rows}
 
     for r in recipients:
+        # Written under a separate key: the mapped column is shared through the session
+        # identity map, so overwriting it corrupts every reader of the raw FK (#95, #104).
         postal_row = postal_codes_by_id.get(r.postal_code) if r.postal_code is not None else None
-        r.__dict__['postal_code'] = to_response(postal_row, postal_config) if postal_row else None
+        r.__dict__['postal_code_detail'] = (
+            to_response(postal_row, postal_config) if postal_row else None
+        )
         regime_row = regimes_by_id.get(r.regime) if r.regime is not None else None
-        r.__dict__['regime'] = to_response(regime_row, regime_config) if regime_row else None
+        r.__dict__['regime_detail'] = to_response(regime_row, regime_config) if regime_row else None
 
 
 async def list_taxpayer_recipients(

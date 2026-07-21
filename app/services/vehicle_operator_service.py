@@ -16,9 +16,11 @@ async def _attach_relations(db: AsyncSession, operators: Sequence[VehicleOperato
     employee_ids = {i for vo in operators for i in (vo.driver, vo.creator, vo.updater)}
     employees_by_id = await batch_fetch(db, Employee, Employee.employee_id, employee_ids)
     for vo in operators:
-        vo.__dict__['driver'] = employees_by_id.get(vo.driver)
-        vo.__dict__['creator'] = employees_by_id.get(vo.creator)
-        vo.__dict__['updater'] = employees_by_id.get(vo.updater)
+        # Written under a separate key: the mapped column is shared through the session
+        # identity map, so overwriting it corrupts every reader of the raw FK (#95, #104).
+        vo.__dict__['driver_detail'] = employees_by_id.get(vo.driver)
+        vo.__dict__['creator_detail'] = employees_by_id.get(vo.creator)
+        vo.__dict__['updater_detail'] = employees_by_id.get(vo.updater)
 
 
 async def list_vehicle_operators(

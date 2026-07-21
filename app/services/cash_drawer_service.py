@@ -16,7 +16,9 @@ async def _attach_relations(db: AsyncSession, cash_drawers: Sequence[CashDrawer]
         db, Facility, Facility.facility_id, (c.facility for c in cash_drawers)
     )
     for c in cash_drawers:
-        c.__dict__['facility'] = facilities_by_id.get(c.facility)
+        # Written under a separate key: the mapped column is shared through the session
+        # identity map, so overwriting it corrupts every reader of the raw FK (#95, #104).
+        c.__dict__['facility_detail'] = facilities_by_id.get(c.facility)
 
 
 async def list_cash_drawers(

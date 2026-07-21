@@ -1,6 +1,6 @@
 from decimal import Decimal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator
 
 from app.enums import EntityStatus
 from app.schemas.core import EmployeeResponse
@@ -31,8 +31,12 @@ class TaxpayerRecipientResponse(BaseModel):
     taxpayer_recipient_id: str
     name: str | None
     email: str
-    postal_code: SatCatalogResponse | None
-    regime: SatCatalogResponse | None
+    postal_code: SatCatalogResponse | None = Field(
+        validation_alias=AliasChoices('postal_code_detail', 'postal_code')
+    )
+    regime: SatCatalogResponse | None = Field(
+        validation_alias=AliasChoices('regime_detail', 'regime')
+    )
 
 
 # ── Customer ──────────────────────────────────────────────────────────────────
@@ -82,8 +86,12 @@ class CustomerListItem(BaseModel):
     zone: str | None
     credit_limit: Decimal
     credit_days: int
-    price_list: PriceListResponse
-    salesperson: EmployeeResponse | None
+    price_list: PriceListResponse = Field(
+        validation_alias=AliasChoices('price_list_detail', 'price_list')
+    )
+    salesperson: EmployeeResponse | None = Field(
+        validation_alias=AliasChoices('salesperson_detail', 'salesperson')
+    )
     status: EntityStatus
 
 
@@ -96,9 +104,13 @@ class CustomerResponse(BaseModel):
     zone: str | None
     credit_limit: Decimal
     credit_days: int
-    price_list: PriceListResponse
+    price_list: PriceListResponse = Field(
+        validation_alias=AliasChoices('price_list_detail', 'price_list')
+    )
     shipping: bool
     shipping_required_document: bool
-    salesperson: EmployeeResponse | None
+    salesperson: EmployeeResponse | None = Field(
+        validation_alias=AliasChoices('salesperson_detail', 'salesperson')
+    )
     status: EntityStatus
     comment: str | None

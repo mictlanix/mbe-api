@@ -310,7 +310,7 @@ class CashDrawerResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     cash_drawer_id: int
-    facility: FacilitySummary
+    facility: FacilitySummary = Field(validation_alias=AliasChoices('facility_detail', 'facility'))
     code: str
     name: str
     comment: str | None
@@ -394,8 +394,10 @@ class PaymentMethodOptionResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     payment_method_option_id: int
-    facility: FacilitySummary
-    warehouse: WarehouseSummary | None
+    facility: FacilitySummary = Field(validation_alias=AliasChoices('facility_detail', 'facility'))
+    warehouse: WarehouseSummary | None = Field(
+        validation_alias=AliasChoices('warehouse_detail', 'warehouse')
+    )
     name: str
     number_of_payments: int
     display_on_ticket: bool
@@ -461,7 +463,7 @@ class VehicleOperatorResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     vehicle_operator_id: int
-    driver: EmployeeResponse
+    driver: EmployeeResponse = Field(validation_alias=AliasChoices('driver_detail', 'driver'))
     license_type: str
     driver_license_number: str
     issue_date: dt.date
@@ -469,8 +471,8 @@ class VehicleOperatorResponse(BaseModel):
     issuing_location: str
     creation_time: datetime
     modification_time: datetime
-    creator: EmployeeResponse
-    updater: EmployeeResponse
+    creator: EmployeeResponse = Field(validation_alias=AliasChoices('creator_detail', 'creator'))
+    updater: EmployeeResponse = Field(validation_alias=AliasChoices('updater_detail', 'updater'))
     status: EntityStatus
     days_until_expiry: int = 0
 

@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Fixed
+- FK expansion no longer overwrites the mapped column it expands, in the seven services that still did — cash drawers, payment method options, customers, vehicle operators, products, product prices and taxpayer recipients. The resolved object now lands on a `<column>_detail` key and the response field reads it through `AliasChoices`, so an instance shared through the session identity map keeps its raw FK for every other reader (#104, completing the fix #95 started). Response payloads are unchanged — verified by diffing the generated OpenAPI spec
+- `product_price_service._price_list_id`, a workaround that read the FK id back off an already-clobbered attribute (#75), is removed as no longer needed
+
 ### Added
 - CRUD endpoints for taxpayer issuers under `/api/v1/taxpayer-issuers` (list with `search` on RFC or name, create, get, update, delete), gated by `SystemObject.TAXPAYERS` (24) — previously unused; `regime` and `postal_code` are expanded to SAT catalog objects, so `Facility.taxpayer` is now resolvable and pickable by a client (#100)
 - `DELETE /api/v1/taxpayer-issuers/{rfc}` returns `409` when the issuer is still referenced by a facility, certificate, fiscal batch or fiscal document, instead of letting the FK violation surface as a `500`

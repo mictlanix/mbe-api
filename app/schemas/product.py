@@ -1,7 +1,7 @@
 import re
 from decimal import Decimal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator
 
 from app.enums import EntityStatus
 from app.schemas.core import LabelResponse
@@ -138,7 +138,9 @@ class ProductListItem(BaseModel):
     photo: str | None
     brand: str | None
     model: str | None
-    unit_of_measurement: SatUnitOfMeasurementResponse
+    unit_of_measurement: SatUnitOfMeasurementResponse = Field(
+        validation_alias=AliasChoices('unit_of_measurement_detail', 'unit_of_measurement')
+    )
     tax_rate: Decimal
     status: EntityStatus
 
@@ -155,14 +157,18 @@ class ProductResponse(BaseModel):
     model: str | None
     bar_code: str | None
     location: str | None
-    unit_of_measurement: SatUnitOfMeasurementResponse
-    key: SatCatalogResponse | None
+    unit_of_measurement: SatUnitOfMeasurementResponse = Field(
+        validation_alias=AliasChoices('unit_of_measurement_detail', 'unit_of_measurement')
+    )
+    key: SatCatalogResponse | None = Field(validation_alias=AliasChoices('key_detail', 'key'))
     tax_rate: Decimal
     tax_included: bool
     price_type: int
     currency: int
     min_order_qty: int
-    supplier: SupplierResponse | None
+    supplier: SupplierResponse | None = Field(
+        validation_alias=AliasChoices('supplier_detail', 'supplier')
+    )
     stockable: bool
     perishable: bool
     seriable: bool

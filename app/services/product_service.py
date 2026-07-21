@@ -181,8 +181,10 @@ async def _attach_unit_of_measurement(db: AsyncSession, products: Sequence[Produ
     )
     units_by_id = {u.sat_unit_of_measurement_id: u for u in units}
     for p in products:
+        # Written under a separate key: the mapped column is shared through the session
+        # identity map, so overwriting it corrupts every reader of the raw FK (#95, #104).
         unit_row = units_by_id.get(p.unit_of_measurement)
-        p.__dict__['unit_of_measurement'] = (
+        p.__dict__['unit_of_measurement_detail'] = (
             SatUnitOfMeasurementResponse(
                 id=unit_row.sat_unit_of_measurement_id,
                 name=unit_row.name,
@@ -228,9 +230,13 @@ async def _attach_product_relations(db: AsyncSession, products: Sequence[Product
         suppliers_by_id = {s.supplier_id: s for s in suppliers}
 
     for p in products:
+        # Written under a separate key: the mapped column is shared through the session
+        # identity map, so overwriting it corrupts every reader of the raw FK (#95, #104).
         key_row = keys_by_id.get(p.key) if p.key is not None else None
-        p.__dict__['key'] = to_response(key_row, key_config) if key_row else None
-        p.__dict__['supplier'] = suppliers_by_id.get(p.supplier) if p.supplier is not None else None
+        p.__dict__['key_detail'] = to_response(key_row, key_config) if key_row else None
+        p.__dict__['supplier_detail'] = (
+            suppliers_by_id.get(p.supplier) if p.supplier is not None else None
+        )
 
 
 async def get_product(db: AsyncSession, product_id: int) -> Product | None:
