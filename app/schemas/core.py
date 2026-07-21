@@ -2,10 +2,71 @@ import datetime as dt
 from datetime import datetime
 from decimal import Decimal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from app.enums import EntityStatus, FacilityType
+from app.enums import AddressType, EntityStatus, FacilityType
 from app.schemas.sat_catalog import SatCatalogResponse
+from app.services.image_service import image_url
+
+# ── Address ───────────────────────────────────────────────────────────────────
+
+
+class AddressCreate(BaseModel):
+    nickname: str | None = None
+    type: AddressType = AddressType.OTHER
+    street: str
+    exterior_number: str
+    interior_number: str | None = None
+    postal_code: str
+    neighborhood: str
+    locality: str | None = None
+    borough: str
+    state: str
+    city: str | None = None
+    country: str
+    url_address: str | None = None
+    comment: str | None = None
+    status: EntityStatus = EntityStatus.ACTIVE
+
+
+class AddressUpdate(BaseModel):
+    nickname: str | None = None
+    type: AddressType | None = None
+    street: str | None = None
+    exterior_number: str | None = None
+    interior_number: str | None = None
+    postal_code: str | None = None
+    neighborhood: str | None = None
+    locality: str | None = None
+    borough: str | None = None
+    state: str | None = None
+    city: str | None = None
+    country: str | None = None
+    url_address: str | None = None
+    comment: str | None = None
+    status: EntityStatus | None = None
+
+
+class AddressResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    address_id: int
+    nickname: str | None
+    type: AddressType
+    street: str
+    exterior_number: str
+    interior_number: str | None
+    postal_code: str
+    neighborhood: str
+    locality: str | None
+    borough: str
+    state: str
+    city: str | None
+    country: str
+    url_address: str | None
+    comment: str | None
+    status: EntityStatus
+
 
 # ── Label ─────────────────────────────────────────────────────────────────────
 
@@ -89,7 +150,7 @@ class FacilityCreate(BaseModel):
     location: str
     address: int
     taxpayer: str
-    logo: str
+    logo: str | None = None
     receipt_message: str | None = None
     default_batch: str | None = None
     status: EntityStatus = EntityStatus.ACTIVE
@@ -120,10 +181,12 @@ class FacilitySummary(BaseModel):
     location: str
     address: int
     taxpayer: str
-    logo: str
+    logo: str | None
     receipt_message: str | None
     default_batch: str | None
     status: EntityStatus
+
+    _resolve_logo = field_validator("logo")(image_url)
 
 
 class FacilityResponse(BaseModel):
@@ -136,10 +199,12 @@ class FacilityResponse(BaseModel):
     location: SatCatalogResponse
     address: int
     taxpayer: str
-    logo: str
+    logo: str | None
     receipt_message: str | None
     default_batch: str | None
     status: EntityStatus
+
+    _resolve_logo = field_validator("logo")(image_url)
 
 
 # ── Warehouse ─────────────────────────────────────────────────────────────────

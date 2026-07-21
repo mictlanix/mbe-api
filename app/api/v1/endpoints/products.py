@@ -21,10 +21,7 @@ router = APIRouter()
 
 
 def _photo_url(filename: str | None) -> str | None:
-    if filename is None:
-        return None
-    base = settings.images_base_url.rstrip("/")
-    return f"{base}/images/{filename}" if base else f"/images/{filename}"
+    return image_service.image_url(filename)
 
 
 @router.get("", response_model=ListResponse[ProductListItem])

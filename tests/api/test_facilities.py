@@ -1,11 +1,13 @@
 """Tests for /facilities, /warehouses, /points-of-sale, and /cash-drawers endpoints."""
 
+import io
 from collections.abc import Generator
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 import pytest
 from httpx import ASGITransport, AsyncClient
+from PIL import Image
 
 from app.core.deps import CurrentUser, get_current_user
 from app.db.session import get_db
@@ -29,6 +31,13 @@ def _auth() -> None:
         yield None
 
     app.dependency_overrides[get_db] = _noop_db
+
+
+def _make_png_bytes(width: int = 200, height: int = 100) -> bytes:
+    img = Image.new("RGB", (width, height), color=(255, 0, 0))
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    return buf.getvalue()
 
 
 # ── Fake objects ──────────────────────────────────────────────────────────────
@@ -216,6 +225,18 @@ async def test_list_facilities_status_filter_passed_through() -> None:
 
 
 @pytest.mark.asyncio
+async def test_list_facilities_search_passed_through() -> None:
+    _auth()
+    mock = AsyncMock(return_value=([_facility()], 1))
+    with patch("app.services.facility_service.list_facilities", new=mock):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+            r = await c.get("/api/v1/facilities?search=abc")
+    assert r.status_code == 200
+    _, kwargs = mock.call_args
+    assert kwargs.get("search") == "abc"
+
+
+@pytest.mark.asyncio
 async def test_list_facilities_no_status_filter() -> None:
     _auth()
     mock = AsyncMock(return_value=([_facility()], 1))
@@ -366,6 +387,18 @@ async def test_list_warehouses_status_filter_passed_through() -> None:
     assert r.status_code == 200
     _, kwargs = mock.call_args
     assert kwargs.get("status") == 1
+
+
+@pytest.mark.asyncio
+async def test_list_warehouses_search_passed_through() -> None:
+    _auth()
+    mock = AsyncMock(return_value=([_warehouse()], 1))
+    with patch("app.services.warehouse_service.list_warehouses", new=mock):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+            r = await c.get("/api/v1/warehouses?search=abc")
+    assert r.status_code == 200
+    _, kwargs = mock.call_args
+    assert kwargs.get("search") == "abc"
 
 
 @pytest.mark.asyncio
@@ -659,6 +692,18 @@ async def test_list_points_of_sale_warehouse_filter_passed_through() -> None:
 
 
 @pytest.mark.asyncio
+async def test_list_points_of_sale_search_passed_through() -> None:
+    _auth()
+    mock = AsyncMock(return_value=([_pos()], 1))
+    with patch("app.services.point_sale_service.list_point_sales", new=mock):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+            r = await c.get("/api/v1/points-of-sale?search=abc")
+    assert r.status_code == 200
+    _, kwargs = mock.call_args
+    assert kwargs.get("search") == "abc"
+
+
+@pytest.mark.asyncio
 async def test_list_points_of_sale_no_filters() -> None:
     _auth()
     mock = AsyncMock(return_value=([_pos()], 1))
@@ -705,6 +750,18 @@ async def test_list_cash_drawers_facility_filter_passed_through() -> None:
 
 
 @pytest.mark.asyncio
+async def test_list_cash_drawers_search_passed_through() -> None:
+    _auth()
+    mock = AsyncMock(return_value=([_cash_drawer()], 1))
+    with patch("app.services.cash_drawer_service.list_cash_drawers", new=mock):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+            r = await c.get("/api/v1/cash-drawers?search=abc")
+    assert r.status_code == 200
+    _, kwargs = mock.call_args
+    assert kwargs.get("search") == "abc"
+
+
+@pytest.mark.asyncio
 async def test_list_cash_drawers_no_filter() -> None:
     _auth()
     mock = AsyncMock(return_value=([_cash_drawer()], 1))
@@ -735,3 +792,77 @@ async def test_list_cash_drawers_invalid_status_returns_422() -> None:
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
         r = await c.get("/api/v1/cash-drawers?status=9")
     assert r.status_code == 422
+
+
+# ── Facility logo tests ───────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_upload_facility_logo_returns_200_with_resolved_url() -> None:
+    _auth()
+    expected_filename = "abc123.png"
+    updated = _facility()
+    updated.logo = expected_filename
+    with (
+        patch(
+            "app.services.facility_service.get_facility", new=AsyncMock(return_value=_facility())
+        ),
+        patch(
+            "app.services.image_service.process_and_save_image",
+            new=AsyncMock(return_value=expected_filename),
+        ),
+        patch(
+            "app.services.facility_service.update_facility", new=AsyncMock(return_value=updated)
+        ),
+    ):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+            r = await c.post(
+                "/api/v1/facilities/1/logo",
+                files={"file": ("logo.png", _make_png_bytes(), "image/png")},
+            )
+    assert r.status_code == 200
+    assert r.json()["logo"] == f"/images/{expected_filename}"
+
+
+@pytest.mark.asyncio
+async def test_upload_facility_logo_returns_404_when_facility_missing() -> None:
+    _auth()
+    with patch("app.services.facility_service.get_facility", new=AsyncMock(return_value=None)):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+            r = await c.post(
+                "/api/v1/facilities/999/logo",
+                files={"file": ("logo.png", _make_png_bytes(), "image/png")},
+            )
+    assert r.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_upload_facility_logo_returns_422_on_invalid_image() -> None:
+    _auth()
+    with (
+        patch(
+            "app.services.facility_service.get_facility", new=AsyncMock(return_value=_facility())
+        ),
+        patch(
+            "app.services.image_service.process_and_save_image",
+            side_effect=ValueError("boom"),
+        ),
+    ):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+            r = await c.post(
+                "/api/v1/facilities/1/logo",
+                files={"file": ("logo.png", _make_png_bytes(), "image/png")},
+            )
+    assert r.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_get_facility_with_no_logo_serializes_as_null() -> None:
+    _auth()
+    facility = _facility()
+    facility.logo = None
+    with patch("app.services.facility_service.get_facility", new=AsyncMock(return_value=facility)):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+            r = await c.get("/api/v1/facilities/1")
+    assert r.status_code == 200
+    assert r.json()["logo"] is None

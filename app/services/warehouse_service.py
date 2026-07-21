@@ -1,6 +1,6 @@
 from collections.abc import Sequence
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.enums import EntityStatus
@@ -22,6 +22,7 @@ async def _attach_relations(db: AsyncSession, warehouses: Sequence[Warehouse]) -
 async def list_warehouses(
     db: AsyncSession,
     *,
+    search: str | None = None,
     facility: int | None = None,
     status: EntityStatus | None = None,
     skip: int = 0,
@@ -29,6 +30,12 @@ async def list_warehouses(
 ) -> tuple[Sequence[Warehouse], int]:
     base = select(Warehouse)
     count_q = select(func.count()).select_from(Warehouse)
+
+    if search:
+        term = f"%{search}%"
+        condition = or_(Warehouse.code.ilike(term), Warehouse.name.ilike(term))
+        base = base.where(condition)
+        count_q = count_q.where(condition)
 
     if facility is not None:
         base = base.where(Warehouse.facility == facility)
