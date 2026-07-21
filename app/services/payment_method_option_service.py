@@ -19,8 +19,8 @@ async def _attach_relations(db: AsyncSession, options: Sequence[PaymentMethodOpt
         db, Warehouse, Warehouse.warehouse_id, (o.warehouse for o in options)
     )
     for o in options:
-        o.__dict__["facility"] = facilities_by_id.get(o.facility)
-        o.__dict__["warehouse"] = (
+        o.__dict__['facility'] = facilities_by_id.get(o.facility)
+        o.__dict__['warehouse'] = (
             warehouses_by_id.get(o.warehouse) if o.warehouse is not None else None
         )
 

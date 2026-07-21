@@ -26,7 +26,7 @@ async def list_users(
 
     if search:
         # Employee name search requires employee module join — scope: username + email only
-        condition = or_(User.user_id.ilike(f"%{search}%"), User.email.ilike(f"%{search}%"))
+        condition = or_(User.user_id.ilike(f'%{search}%'), User.email.ilike(f'%{search}%'))
         base = base.where(condition)
         count_q = count_q.where(condition)
 

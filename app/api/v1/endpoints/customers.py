@@ -13,7 +13,7 @@ from app.services import customer_service
 router = APIRouter()
 
 
-@router.get("", response_model=ListResponse[CustomerListItem])
+@router.get('', response_model=ListResponse[CustomerListItem])
 async def list_customers(
     search: str | None = Query(None),
     status: EntityStatus | None = Query(None),
@@ -36,7 +36,7 @@ async def list_customers(
     return ListResponse(items=list(items), total=total)
 
 
-@router.post("", response_model=CustomerResponse, status_code=http_status.HTTP_201_CREATED)
+@router.post('', response_model=CustomerResponse, status_code=http_status.HTTP_201_CREATED)
 async def create_customer(
     data: CustomerCreate,
     _: CurrentUser = Depends(get_current_user),
@@ -46,7 +46,7 @@ async def create_customer(
     return CustomerResponse.model_validate(customer)
 
 
-@router.get("/{customer_id}", response_model=CustomerResponse)
+@router.get('/{customer_id}', response_model=CustomerResponse)
 async def get_customer(
     customer_id: int,
     _: CurrentUser = Depends(get_current_user),
@@ -54,11 +54,11 @@ async def get_customer(
 ) -> CustomerResponse:
     customer = await customer_service.get_customer(db, customer_id)
     if customer is None:
-        raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail="Customer not found")
+        raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail='Customer not found')
     return CustomerResponse.model_validate(customer)
 
 
-@router.put("/{customer_id}", response_model=CustomerResponse)
+@router.put('/{customer_id}', response_model=CustomerResponse)
 async def update_customer(
     customer_id: int,
     data: CustomerUpdate,
@@ -67,12 +67,12 @@ async def update_customer(
 ) -> CustomerResponse:
     customer = await customer_service.get_customer(db, customer_id)
     if customer is None:
-        raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail="Customer not found")
+        raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail='Customer not found')
     customer = await customer_service.update_customer(db, customer, data)
     return CustomerResponse.model_validate(customer)
 
 
-@router.delete("/{customer_id}", status_code=http_status.HTTP_204_NO_CONTENT)
+@router.delete('/{customer_id}', status_code=http_status.HTTP_204_NO_CONTENT)
 async def delete_customer(
     customer_id: int,
     _: CurrentUser = Depends(get_current_user),
@@ -80,5 +80,5 @@ async def delete_customer(
 ) -> None:
     customer = await customer_service.get_customer(db, customer_id)
     if customer is None:
-        raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail="Customer not found")
+        raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail='Customer not found')
     await customer_service.delete_customer(db, customer, settings.default_customer_id)

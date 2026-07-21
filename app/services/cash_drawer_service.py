@@ -16,7 +16,7 @@ async def _attach_relations(db: AsyncSession, cash_drawers: Sequence[CashDrawer]
         db, Facility, Facility.facility_id, (c.facility for c in cash_drawers)
     )
     for c in cash_drawers:
-        c.__dict__["facility"] = facilities_by_id.get(c.facility)
+        c.__dict__['facility'] = facilities_by_id.get(c.facility)
 
 
 async def list_cash_drawers(
@@ -31,7 +31,7 @@ async def list_cash_drawers(
     base = select(CashDrawer)
     count_q = select(func.count()).select_from(CashDrawer)
     if search:
-        term = f"%{search}%"
+        term = f'%{search}%'
         condition = or_(CashDrawer.code.ilike(term), CashDrawer.name.ilike(term))
         base = base.where(condition)
         count_q = count_q.where(condition)

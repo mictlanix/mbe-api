@@ -10,7 +10,7 @@ from app.services import supplier_service
 router = APIRouter()
 
 
-@router.get("", response_model=ListResponse[SupplierResponse])
+@router.get('', response_model=ListResponse[SupplierResponse])
 async def list_suppliers(
     search: str | None = Query(None),
     skip: int = Query(0, ge=0),
@@ -22,7 +22,7 @@ async def list_suppliers(
     return ListResponse(items=list(items), total=total)
 
 
-@router.post("", response_model=SupplierResponse, status_code=status.HTTP_201_CREATED)
+@router.post('', response_model=SupplierResponse, status_code=status.HTTP_201_CREATED)
 async def create_supplier(
     data: SupplierCreate,
     _: CurrentUser = Depends(get_current_user),
@@ -32,7 +32,7 @@ async def create_supplier(
     return SupplierResponse.model_validate(supplier)
 
 
-@router.get("/{supplier_id}", response_model=SupplierResponse)
+@router.get('/{supplier_id}', response_model=SupplierResponse)
 async def get_supplier(
     supplier_id: int,
     _: CurrentUser = Depends(get_current_user),
@@ -40,11 +40,11 @@ async def get_supplier(
 ) -> SupplierResponse:
     supplier = await supplier_service.get_supplier(db, supplier_id)
     if supplier is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Supplier not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Supplier not found')
     return SupplierResponse.model_validate(supplier)
 
 
-@router.put("/{supplier_id}", response_model=SupplierResponse)
+@router.put('/{supplier_id}', response_model=SupplierResponse)
 async def update_supplier(
     supplier_id: int,
     data: SupplierUpdate,
@@ -53,12 +53,12 @@ async def update_supplier(
 ) -> SupplierResponse:
     supplier = await supplier_service.get_supplier(db, supplier_id)
     if supplier is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Supplier not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Supplier not found')
     supplier = await supplier_service.update_supplier(db, supplier, data)
     return SupplierResponse.model_validate(supplier)
 
 
-@router.delete("/{supplier_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete('/{supplier_id}', status_code=status.HTTP_204_NO_CONTENT)
 async def delete_supplier(
     supplier_id: int,
     _: CurrentUser = Depends(get_current_user),
@@ -66,5 +66,5 @@ async def delete_supplier(
 ) -> None:
     supplier = await supplier_service.get_supplier(db, supplier_id)
     if supplier is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Supplier not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Supplier not found')
     await supplier_service.delete_supplier(db, supplier)

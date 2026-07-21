@@ -21,7 +21,7 @@ async def list_addresses(
     count_q = select(func.count()).select_from(Address)
 
     if search:
-        term = f"%{search}%"
+        term = f'%{search}%'
         condition = or_(
             Address.nickname.ilike(term),
             Address.street.ilike(term),

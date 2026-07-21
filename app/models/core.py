@@ -9,7 +9,7 @@ from app.enums import AddressType, CurrencyCode, EntityStatus, FacilityType
 
 
 class Address(Base):
-    __tablename__ = "address"
+    __tablename__ = 'address'
 
     address_id: Mapped[int] = mapped_column(Integer, primary_key=True)
     nickname: Mapped[str | None] = mapped_column(String(100))
@@ -27,12 +27,12 @@ class Address(Base):
     url_address: Mapped[str | None] = mapped_column(String(200))
     comment: Mapped[str | None] = mapped_column(String(500))
     status: Mapped[EntityStatus] = mapped_column(
-        Integer, default=EntityStatus.ACTIVE, server_default="0"
+        Integer, default=EntityStatus.ACTIVE, server_default='0'
     )
 
 
 class Contact(Base):
-    __tablename__ = "contact"
+    __tablename__ = 'contact'
 
     contact_id: Mapped[int] = mapped_column(Integer, primary_key=True)
     name: Mapped[str] = mapped_column(String(250))
@@ -50,7 +50,7 @@ class Contact(Base):
 
 
 class Employee(Base):
-    __tablename__ = "employee"
+    __tablename__ = 'employee'
 
     employee_id: Mapped[int] = mapped_column(Integer, primary_key=True)
     first_name: Mapped[str] = mapped_column(String(100))
@@ -61,7 +61,7 @@ class Employee(Base):
     taxpayer_id: Mapped[str | None] = mapped_column(String(13))
     sales_person: Mapped[bool] = mapped_column(Boolean)
     status: Mapped[EntityStatus] = mapped_column(
-        Integer, default=EntityStatus.ACTIVE, server_default="0"
+        Integer, default=EntityStatus.ACTIVE, server_default='0'
     )
     personal_id: Mapped[str | None] = mapped_column(String(18))
     start_job_date: Mapped[date] = mapped_column(Date)
@@ -70,90 +70,90 @@ class Employee(Base):
 
 
 class Facility(Base):
-    __tablename__ = "facility"
+    __tablename__ = 'facility'
 
     facility_id: Mapped[int] = mapped_column(Integer, primary_key=True)
     code: Mapped[str] = mapped_column(String(25))
     name: Mapped[str] = mapped_column(String(250))
     type: Mapped[FacilityType] = mapped_column(Integer)
     location: Mapped[str] = mapped_column(
-        String(5), ForeignKey("sat_postal_code.sat_postal_code_id")
+        String(5), ForeignKey('sat_postal_code.sat_postal_code_id')
     )
-    address: Mapped[int] = mapped_column(Integer, ForeignKey("address.address_id"))
+    address: Mapped[int] = mapped_column(Integer, ForeignKey('address.address_id'))
     taxpayer: Mapped[str] = mapped_column(
-        String(13), ForeignKey("taxpayer_issuer.taxpayer_issuer_id")
+        String(13), ForeignKey('taxpayer_issuer.taxpayer_issuer_id')
     )
     logo: Mapped[str | None] = mapped_column(String(255))
     receipt_message: Mapped[str | None] = mapped_column(String(250))
     default_batch: Mapped[str | None] = mapped_column(String(10))
     status: Mapped[EntityStatus] = mapped_column(
-        Integer, default=EntityStatus.ACTIVE, server_default="0"
+        Integer, default=EntityStatus.ACTIVE, server_default='0'
     )
 
 
 class Warehouse(Base):
-    __tablename__ = "warehouse"
+    __tablename__ = 'warehouse'
 
     warehouse_id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    facility: Mapped[int] = mapped_column(Integer, ForeignKey("facility.facility_id"))
+    facility: Mapped[int] = mapped_column(Integer, ForeignKey('facility.facility_id'))
     code: Mapped[str] = mapped_column(String(25))
     name: Mapped[str] = mapped_column(String(250))
     comment: Mapped[str | None] = mapped_column(String(500))
     status: Mapped[EntityStatus] = mapped_column(
-        Integer, default=EntityStatus.ACTIVE, server_default="0"
+        Integer, default=EntityStatus.ACTIVE, server_default='0'
     )
 
 
 class PointSale(Base):
-    __tablename__ = "point_sale"
+    __tablename__ = 'point_sale'
 
     point_sale_id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    facility: Mapped[int] = mapped_column(Integer, ForeignKey("facility.facility_id"))
+    facility: Mapped[int] = mapped_column(Integer, ForeignKey('facility.facility_id'))
     code: Mapped[str] = mapped_column(String(25))
     name: Mapped[str] = mapped_column(String(250))
-    warehouse: Mapped[int] = mapped_column(Integer, ForeignKey("warehouse.warehouse_id"))
+    warehouse: Mapped[int] = mapped_column(Integer, ForeignKey('warehouse.warehouse_id'))
     comment: Mapped[str | None] = mapped_column(String(500))
     status: Mapped[EntityStatus] = mapped_column(
-        Integer, default=EntityStatus.ACTIVE, server_default="0"
+        Integer, default=EntityStatus.ACTIVE, server_default='0'
     )
 
 
 class CashDrawer(Base):
-    __tablename__ = "cash_drawer"
+    __tablename__ = 'cash_drawer'
 
     cash_drawer_id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    facility: Mapped[int] = mapped_column(Integer, ForeignKey("facility.facility_id"))
+    facility: Mapped[int] = mapped_column(Integer, ForeignKey('facility.facility_id'))
     code: Mapped[str] = mapped_column(String(25))
     name: Mapped[str] = mapped_column(String(250))
     comment: Mapped[str | None] = mapped_column(String(500))
     status: Mapped[EntityStatus] = mapped_column(
-        Integer, default=EntityStatus.ACTIVE, server_default="0"
+        Integer, default=EntityStatus.ACTIVE, server_default='0'
     )
 
 
 class CashSession(Base):
-    __tablename__ = "cash_session"
+    __tablename__ = 'cash_session'
 
     cash_session_id: Mapped[int] = mapped_column(Integer, primary_key=True)
     start: Mapped[datetime] = mapped_column(DateTime)
     end: Mapped[datetime | None] = mapped_column(DateTime)
-    cashier: Mapped[int] = mapped_column(Integer, ForeignKey("employee.employee_id"))
-    cash_drawer: Mapped[int] = mapped_column(Integer, ForeignKey("cash_drawer.cash_drawer_id"))
-    cash_supervisor: Mapped[int | None] = mapped_column(Integer, ForeignKey("employee.employee_id"))
+    cashier: Mapped[int] = mapped_column(Integer, ForeignKey('employee.employee_id'))
+    cash_drawer: Mapped[int] = mapped_column(Integer, ForeignKey('cash_drawer.cash_drawer_id'))
+    cash_supervisor: Mapped[int | None] = mapped_column(Integer, ForeignKey('employee.employee_id'))
 
 
 class CashCount(Base):
-    __tablename__ = "cash_count"
+    __tablename__ = 'cash_count'
 
     cash_count_id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    session: Mapped[int] = mapped_column(Integer, ForeignKey("cash_session.cash_session_id"))
+    session: Mapped[int] = mapped_column(Integer, ForeignKey('cash_session.cash_session_id'))
     denomination: Mapped[Decimal] = mapped_column(Numeric(18, 4))
     quantity: Mapped[int] = mapped_column(Integer)
     type: Mapped[int] = mapped_column(Integer)
 
 
 class ExchangeRate(Base):
-    __tablename__ = "exchange_rate"
+    __tablename__ = 'exchange_rate'
 
     exchange_rate_id: Mapped[int] = mapped_column(Integer, primary_key=True)
     date: Mapped[date] = mapped_column(Date)
@@ -165,7 +165,7 @@ class ExchangeRate(Base):
 class Expense(Base):
     """Expense category catalog (table name: expenses)."""
 
-    __tablename__ = "expenses"
+    __tablename__ = 'expenses'
 
     expense_id: Mapped[int] = mapped_column(Integer, primary_key=True)
     expense: Mapped[str] = mapped_column(String(100))
@@ -173,23 +173,23 @@ class Expense(Base):
 
 
 class PaymentMethodOption(Base):
-    __tablename__ = "payment_method_option"
+    __tablename__ = 'payment_method_option'
 
     payment_method_option_id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    warehouse: Mapped[int | None] = mapped_column(Integer, ForeignKey("warehouse.warehouse_id"))
-    facility: Mapped[int] = mapped_column(Integer, ForeignKey("facility.facility_id"))
+    warehouse: Mapped[int | None] = mapped_column(Integer, ForeignKey('warehouse.warehouse_id'))
+    facility: Mapped[int] = mapped_column(Integer, ForeignKey('facility.facility_id'))
     name: Mapped[str] = mapped_column(String(50))
     number_of_payments: Mapped[int] = mapped_column(SmallInteger)
     display_on_ticket: Mapped[bool] = mapped_column(Boolean)
     payment_method: Mapped[int] = mapped_column(Integer)
     commission: Mapped[Decimal] = mapped_column(Numeric(10, 3))
     status: Mapped[EntityStatus] = mapped_column(
-        Integer, default=EntityStatus.ACTIVE, server_default="0"
+        Integer, default=EntityStatus.ACTIVE, server_default='0'
     )
 
 
 class BankAccount(Base):
-    __tablename__ = "bank_account"
+    __tablename__ = 'bank_account'
 
     bank_account_id: Mapped[int] = mapped_column(Integer, primary_key=True)
     bank_name: Mapped[str] = mapped_column(String(250))
@@ -200,7 +200,7 @@ class BankAccount(Base):
 
 
 class Label(Base):
-    __tablename__ = "label"
+    __tablename__ = 'label'
 
     label_id: Mapped[int] = mapped_column(Integer, primary_key=True)
     name: Mapped[str] = mapped_column(String(250))
@@ -208,7 +208,7 @@ class Label(Base):
 
 
 class PostalCode(Base):
-    __tablename__ = "postal_code"
+    __tablename__ = 'postal_code'
 
     postal_code_id: Mapped[int] = mapped_column(Integer, primary_key=True)
     code: Mapped[int] = mapped_column(Integer)
@@ -220,7 +220,7 @@ class PostalCode(Base):
 
 
 class Vehicle(Base):
-    __tablename__ = "vehicle"
+    __tablename__ = 'vehicle'
 
     vehicle_id: Mapped[int] = mapped_column(Integer, primary_key=True)
     license_plate: Mapped[str] = mapped_column(String(8))
@@ -228,15 +228,15 @@ class Vehicle(Base):
     nickname: Mapped[str] = mapped_column(String(30))
     tons_capacity: Mapped[int] = mapped_column(SmallInteger)
     status: Mapped[EntityStatus] = mapped_column(
-        Integer, default=EntityStatus.ACTIVE, server_default="0"
+        Integer, default=EntityStatus.ACTIVE, server_default='0'
     )
 
 
 class VehicleOperator(Base):
-    __tablename__ = "vehicle_operator"
+    __tablename__ = 'vehicle_operator'
 
     vehicle_operator_id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    driver: Mapped[int] = mapped_column(Integer, ForeignKey("employee.employee_id"))
+    driver: Mapped[int] = mapped_column(Integer, ForeignKey('employee.employee_id'))
     license_type: Mapped[str] = mapped_column(String(3))
     driver_license_number: Mapped[str] = mapped_column(String(15))
     issue_date: Mapped[date] = mapped_column(Date)
@@ -244,8 +244,8 @@ class VehicleOperator(Base):
     issuing_location: Mapped[str] = mapped_column(String(30))
     creation_time: Mapped[datetime] = mapped_column(DateTime)
     modification_time: Mapped[datetime] = mapped_column(DateTime)
-    creator: Mapped[int] = mapped_column(Integer, ForeignKey("employee.employee_id"))
-    updater: Mapped[int] = mapped_column(Integer, ForeignKey("employee.employee_id"))
+    creator: Mapped[int] = mapped_column(Integer, ForeignKey('employee.employee_id'))
+    updater: Mapped[int] = mapped_column(Integer, ForeignKey('employee.employee_id'))
     status: Mapped[EntityStatus] = mapped_column(
-        Integer, default=EntityStatus.ACTIVE, server_default="0"
+        Integer, default=EntityStatus.ACTIVE, server_default='0'
     )

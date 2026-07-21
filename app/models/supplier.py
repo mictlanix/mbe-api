@@ -9,29 +9,29 @@ from app.enums import CurrencyCode
 
 # Junction tables
 supplier_address = Table(
-    "supplier_address",
+    'supplier_address',
     Base.metadata,
-    Column("supplier", Integer, ForeignKey("supplier.supplier_id"), primary_key=True),
-    Column("address", Integer, ForeignKey("address.address_id"), primary_key=True),
+    Column('supplier', Integer, ForeignKey('supplier.supplier_id'), primary_key=True),
+    Column('address', Integer, ForeignKey('address.address_id'), primary_key=True),
 )
 
 supplier_contact = Table(
-    "supplier_contact",
+    'supplier_contact',
     Base.metadata,
-    Column("supplier", Integer, ForeignKey("supplier.supplier_id"), primary_key=True),
-    Column("contact", Integer, ForeignKey("contact.contact_id"), primary_key=True),
+    Column('supplier', Integer, ForeignKey('supplier.supplier_id'), primary_key=True),
+    Column('contact', Integer, ForeignKey('contact.contact_id'), primary_key=True),
 )
 
 supplier_bank_account = Table(
-    "supplier_bank_account",
+    'supplier_bank_account',
     Base.metadata,
-    Column("supplier", Integer, ForeignKey("supplier.supplier_id"), primary_key=True),
-    Column("bank_account", Integer, ForeignKey("bank_account.bank_account_id"), primary_key=True),
+    Column('supplier', Integer, ForeignKey('supplier.supplier_id'), primary_key=True),
+    Column('bank_account', Integer, ForeignKey('bank_account.bank_account_id'), primary_key=True),
 )
 
 
 class Supplier(Base):
-    __tablename__ = "supplier"
+    __tablename__ = 'supplier'
 
     supplier_id: Mapped[int] = mapped_column(Integer, primary_key=True)
     code: Mapped[str] = mapped_column(String(25))
@@ -43,38 +43,38 @@ class Supplier(Base):
 
 
 class SupplierAgreement(Base):
-    __tablename__ = "supplier_agreement"
+    __tablename__ = 'supplier_agreement'
 
     supplier_agreement_id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    supplier: Mapped[int] = mapped_column(Integer, ForeignKey("supplier.supplier_id"))
+    supplier: Mapped[int] = mapped_column(Integer, ForeignKey('supplier.supplier_id'))
     start: Mapped[str] = mapped_column(String(10))  # date stored as string in MariaDB date type
     end: Mapped[str] = mapped_column(String(10))
     comment: Mapped[str | None] = mapped_column(String(500))
 
 
 class SupplierPayment(Base):
-    __tablename__ = "supplier_payment"
+    __tablename__ = 'supplier_payment'
 
     supplier_payment_id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    supplier: Mapped[int] = mapped_column(Integer, ForeignKey("supplier.supplier_id"))
+    supplier: Mapped[int] = mapped_column(Integer, ForeignKey('supplier.supplier_id'))
     amount: Mapped[Decimal] = mapped_column(Numeric(18, 4))
     method: Mapped[int] = mapped_column(Integer)
     date: Mapped[datetime] = mapped_column(DateTime)
     reference: Mapped[str | None] = mapped_column(String(50))
     comment: Mapped[str | None] = mapped_column(String(500))
-    creator: Mapped[int] = mapped_column(Integer, ForeignKey("employee.employee_id"))
+    creator: Mapped[int] = mapped_column(Integer, ForeignKey('employee.employee_id'))
 
 
 class SupplierReturn(Base):
-    __tablename__ = "supplier_return"
+    __tablename__ = 'supplier_return'
 
     supplier_return_id: Mapped[int] = mapped_column(Integer, primary_key=True)
     purchase_order: Mapped[int] = mapped_column(
-        Integer, ForeignKey("purchase_order.purchase_order_id")
+        Integer, ForeignKey('purchase_order.purchase_order_id')
     )
-    creator: Mapped[int] = mapped_column(Integer, ForeignKey("employee.employee_id"))
-    updater: Mapped[int] = mapped_column(Integer, ForeignKey("employee.employee_id"))
-    supplier: Mapped[int] = mapped_column(Integer, ForeignKey("supplier.supplier_id"))
+    creator: Mapped[int] = mapped_column(Integer, ForeignKey('employee.employee_id'))
+    updater: Mapped[int] = mapped_column(Integer, ForeignKey('employee.employee_id'))
+    supplier: Mapped[int] = mapped_column(Integer, ForeignKey('supplier.supplier_id'))
     creation_time: Mapped[datetime] = mapped_column(DateTime)
     modification_time: Mapped[datetime] = mapped_column(DateTime)
     completed: Mapped[bool] = mapped_column(Boolean)
@@ -82,17 +82,17 @@ class SupplierReturn(Base):
 
 
 class SupplierReturnDetail(Base):
-    __tablename__ = "supplier_return_detail"
+    __tablename__ = 'supplier_return_detail'
 
     supplier_return_detail_id: Mapped[int] = mapped_column(Integer, primary_key=True)
     supplier_return: Mapped[int] = mapped_column(
-        Integer, ForeignKey("supplier_return.supplier_return_id")
+        Integer, ForeignKey('supplier_return.supplier_return_id')
     )
     purchase_order_detail: Mapped[int] = mapped_column(
-        Integer, ForeignKey("purchase_order_detail.purchase_order_detail_id")
+        Integer, ForeignKey('purchase_order_detail.purchase_order_detail_id')
     )
-    product: Mapped[int] = mapped_column(Integer, ForeignKey("product.product_id"))
-    warehouse: Mapped[int | None] = mapped_column(Integer, ForeignKey("warehouse.warehouse_id"))
+    product: Mapped[int] = mapped_column(Integer, ForeignKey('product.product_id'))
+    warehouse: Mapped[int | None] = mapped_column(Integer, ForeignKey('warehouse.warehouse_id'))
     quantity: Mapped[Decimal] = mapped_column(Numeric(18, 4))
     price: Mapped[Decimal] = mapped_column(Numeric(18, 4))
     product_code: Mapped[str] = mapped_column(String(25))

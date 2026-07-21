@@ -20,7 +20,7 @@ async def list_vehicles(
     count_q = select(func.count()).select_from(Vehicle)
 
     if search:
-        term = f"%{search}%"
+        term = f'%{search}%'
         condition = or_(
             Vehicle.license_plate.ilike(term),
             Vehicle.name.ilike(term),

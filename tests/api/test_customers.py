@@ -23,7 +23,7 @@ def _clear_overrides() -> Generator[None, None, None]:
 
 def _auth() -> None:
     app.dependency_overrides[get_current_user] = lambda: CurrentUser(
-        user_id="tester", session_version=1, administrator=True, facility_id=None
+        user_id='tester', session_version=1, administrator=True, facility_id=None
     )
 
     async def _noop_db():
@@ -36,14 +36,14 @@ def _auth() -> None:
 
 
 def _label(label_id: int = 1) -> SimpleNamespace:
-    return SimpleNamespace(label_id=label_id, name="Tag A", comment=None)
+    return SimpleNamespace(label_id=label_id, name='Tag A', comment=None)
 
 
-def _taxpayer(rfc: str = "RFC123456789A") -> SimpleNamespace:
+def _taxpayer(rfc: str = 'RFC123456789A') -> SimpleNamespace:
     return SimpleNamespace(
         taxpayer_recipient_id=rfc,
-        name="Acme SA de CV",
-        email="acme@example.com",
+        name='Acme SA de CV',
+        email='acme@example.com',
         postal_code=None,
         regime=None,
     )
@@ -52,19 +52,19 @@ def _taxpayer(rfc: str = "RFC123456789A") -> SimpleNamespace:
 def _price_list(price_list_id: int = 1) -> SimpleNamespace:
     return SimpleNamespace(
         price_list_id=price_list_id,
-        name="General",
-        high_profit_margin=Decimal("0"),
-        low_profit_margin=Decimal("0"),
+        name='General',
+        high_profit_margin=Decimal('0'),
+        low_profit_margin=Decimal('0'),
     )
 
 
 def _customer(cust_id: int = 1) -> SimpleNamespace:
     return SimpleNamespace(
         customer_id=cust_id,
-        code="CUST1",
-        name="Acme Corp",
+        code='CUST1',
+        name='Acme Corp',
         zone=None,
-        credit_limit=Decimal("0"),
+        credit_limit=Decimal('0'),
         credit_days=0,
         price_list=_price_list(),
         shipping=False,
@@ -82,66 +82,66 @@ def _customer(cust_id: int = 1) -> SimpleNamespace:
 async def test_list_labels_returns_200() -> None:
     _auth()
     with patch(
-        "app.services.label_service.list_labels",
+        'app.services.label_service.list_labels',
         new=AsyncMock(return_value=([_label()], 1)),
     ):
-        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
-            r = await c.get("/api/v1/labels")
+        async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as c:
+            r = await c.get('/api/v1/labels')
     assert r.status_code == 200
-    assert r.json()["total"] == 1
-    assert r.json()["items"][0]["name"] == "Tag A"
+    assert r.json()['total'] == 1
+    assert r.json()['items'][0]['name'] == 'Tag A'
 
 
 @pytest.mark.asyncio
 async def test_get_label_returns_200() -> None:
     _auth()
-    with patch("app.services.label_service.get_label", new=AsyncMock(return_value=_label())):
-        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
-            r = await c.get("/api/v1/labels/1")
+    with patch('app.services.label_service.get_label', new=AsyncMock(return_value=_label())):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as c:
+            r = await c.get('/api/v1/labels/1')
     assert r.status_code == 200
-    assert r.json()["label_id"] == 1
+    assert r.json()['label_id'] == 1
 
 
 @pytest.mark.asyncio
 async def test_get_label_returns_404() -> None:
     _auth()
-    with patch("app.services.label_service.get_label", new=AsyncMock(return_value=None)):
-        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
-            r = await c.get("/api/v1/labels/999")
+    with patch('app.services.label_service.get_label', new=AsyncMock(return_value=None)):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as c:
+            r = await c.get('/api/v1/labels/999')
     assert r.status_code == 404
 
 
 @pytest.mark.asyncio
 async def test_create_label_returns_201() -> None:
     _auth()
-    with patch("app.services.label_service.create_label", new=AsyncMock(return_value=_label())):
-        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
-            r = await c.post("/api/v1/labels", json={"name": "Tag A"})
+    with patch('app.services.label_service.create_label', new=AsyncMock(return_value=_label())):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as c:
+            r = await c.post('/api/v1/labels', json={'name': 'Tag A'})
     assert r.status_code == 201
-    assert r.json()["name"] == "Tag A"
+    assert r.json()['name'] == 'Tag A'
 
 
 @pytest.mark.asyncio
 async def test_update_label_returns_200() -> None:
     _auth()
     updated = _label()
-    updated.name = "Tag B"
+    updated.name = 'Tag B'
     with (
-        patch("app.services.label_service.get_label", new=AsyncMock(return_value=_label())),
-        patch("app.services.label_service.update_label", new=AsyncMock(return_value=updated)),
+        patch('app.services.label_service.get_label', new=AsyncMock(return_value=_label())),
+        patch('app.services.label_service.update_label', new=AsyncMock(return_value=updated)),
     ):
-        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
-            r = await c.put("/api/v1/labels/1", json={"name": "Tag B"})
+        async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as c:
+            r = await c.put('/api/v1/labels/1', json={'name': 'Tag B'})
     assert r.status_code == 200
-    assert r.json()["name"] == "Tag B"
+    assert r.json()['name'] == 'Tag B'
 
 
 @pytest.mark.asyncio
 async def test_update_label_returns_404() -> None:
     _auth()
-    with patch("app.services.label_service.get_label", new=AsyncMock(return_value=None)):
-        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
-            r = await c.put("/api/v1/labels/999", json={"name": "X"})
+    with patch('app.services.label_service.get_label', new=AsyncMock(return_value=None)):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as c:
+            r = await c.put('/api/v1/labels/999', json={'name': 'X'})
     assert r.status_code == 404
 
 
@@ -149,27 +149,27 @@ async def test_update_label_returns_404() -> None:
 async def test_delete_label_returns_204() -> None:
     _auth()
     with (
-        patch("app.services.label_service.get_label", new=AsyncMock(return_value=_label())),
-        patch("app.services.label_service.delete_label", new=AsyncMock(return_value=None)),
+        patch('app.services.label_service.get_label', new=AsyncMock(return_value=_label())),
+        patch('app.services.label_service.delete_label', new=AsyncMock(return_value=None)),
     ):
-        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
-            r = await c.delete("/api/v1/labels/1")
+        async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as c:
+            r = await c.delete('/api/v1/labels/1')
     assert r.status_code == 204
 
 
 @pytest.mark.asyncio
 async def test_delete_label_returns_404() -> None:
     _auth()
-    with patch("app.services.label_service.get_label", new=AsyncMock(return_value=None)):
-        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
-            r = await c.delete("/api/v1/labels/999")
+    with patch('app.services.label_service.get_label', new=AsyncMock(return_value=None)):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as c:
+            r = await c.delete('/api/v1/labels/999')
     assert r.status_code == 404
 
 
 @pytest.mark.asyncio
 async def test_list_labels_requires_auth() -> None:
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
-        r = await c.get("/api/v1/labels")
+    async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as c:
+        r = await c.get('/api/v1/labels')
     assert r.status_code == 401
 
 
@@ -180,37 +180,37 @@ async def test_list_labels_requires_auth() -> None:
 async def test_list_taxpayer_recipients_returns_200() -> None:
     _auth()
     with patch(
-        "app.services.taxpayer_recipient_service.list_taxpayer_recipients",
+        'app.services.taxpayer_recipient_service.list_taxpayer_recipients',
         new=AsyncMock(return_value=([_taxpayer()], 1)),
     ):
-        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
-            r = await c.get("/api/v1/taxpayer-recipients")
+        async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as c:
+            r = await c.get('/api/v1/taxpayer-recipients')
     assert r.status_code == 200
-    assert r.json()["total"] == 1
+    assert r.json()['total'] == 1
 
 
 @pytest.mark.asyncio
 async def test_get_taxpayer_recipient_returns_200() -> None:
     _auth()
     with patch(
-        "app.services.taxpayer_recipient_service.get_taxpayer_recipient",
+        'app.services.taxpayer_recipient_service.get_taxpayer_recipient',
         new=AsyncMock(return_value=_taxpayer()),
     ):
-        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
-            r = await c.get("/api/v1/taxpayer-recipients/RFC123456789A")
+        async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as c:
+            r = await c.get('/api/v1/taxpayer-recipients/RFC123456789A')
     assert r.status_code == 200
-    assert r.json()["taxpayer_recipient_id"] == "RFC123456789A"
+    assert r.json()['taxpayer_recipient_id'] == 'RFC123456789A'
 
 
 @pytest.mark.asyncio
 async def test_get_taxpayer_recipient_returns_404() -> None:
     _auth()
     with patch(
-        "app.services.taxpayer_recipient_service.get_taxpayer_recipient",
+        'app.services.taxpayer_recipient_service.get_taxpayer_recipient',
         new=AsyncMock(return_value=None),
     ):
-        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
-            r = await c.get("/api/v1/taxpayer-recipients/RFCNOTFOUND")
+        async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as c:
+            r = await c.get('/api/v1/taxpayer-recipients/RFCNOTFOUND')
     assert r.status_code == 404
 
 
@@ -218,28 +218,28 @@ async def test_get_taxpayer_recipient_returns_404() -> None:
 async def test_create_taxpayer_recipient_returns_201() -> None:
     _auth()
     with patch(
-        "app.services.taxpayer_recipient_service.create_taxpayer_recipient",
+        'app.services.taxpayer_recipient_service.create_taxpayer_recipient',
         new=AsyncMock(return_value=_taxpayer()),
     ):
-        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as c:
             r = await c.post(
-                "/api/v1/taxpayer-recipients",
+                '/api/v1/taxpayer-recipients',
                 json={
-                    "taxpayer_recipient_id": "RFC123456789A",
-                    "email": "acme@example.com",
+                    'taxpayer_recipient_id': 'RFC123456789A',
+                    'email': 'acme@example.com',
                 },
             )
     assert r.status_code == 201
-    assert r.json()["taxpayer_recipient_id"] == "RFC123456789A"
+    assert r.json()['taxpayer_recipient_id'] == 'RFC123456789A'
 
 
 @pytest.mark.asyncio
 async def test_create_taxpayer_recipient_rejects_short_rfc() -> None:
     _auth()
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+    async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as c:
         r = await c.post(
-            "/api/v1/taxpayer-recipients",
-            json={"taxpayer_recipient_id": "SHORT", "email": "x@x.com"},
+            '/api/v1/taxpayer-recipients',
+            json={'taxpayer_recipient_id': 'SHORT', 'email': 'x@x.com'},
         )
     assert r.status_code == 422
 
@@ -248,34 +248,34 @@ async def test_create_taxpayer_recipient_rejects_short_rfc() -> None:
 async def test_update_taxpayer_recipient_returns_200() -> None:
     _auth()
     updated = _taxpayer()
-    updated.name = "Updated Name"
+    updated.name = 'Updated Name'
     with (
         patch(
-            "app.services.taxpayer_recipient_service.get_taxpayer_recipient",
+            'app.services.taxpayer_recipient_service.get_taxpayer_recipient',
             new=AsyncMock(return_value=_taxpayer()),
         ),
         patch(
-            "app.services.taxpayer_recipient_service.update_taxpayer_recipient",
+            'app.services.taxpayer_recipient_service.update_taxpayer_recipient',
             new=AsyncMock(return_value=updated),
         ),
     ):
-        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as c:
             r = await c.put(
-                "/api/v1/taxpayer-recipients/RFC123456789A", json={"name": "Updated Name"}
+                '/api/v1/taxpayer-recipients/RFC123456789A', json={'name': 'Updated Name'}
             )
     assert r.status_code == 200
-    assert r.json()["name"] == "Updated Name"
+    assert r.json()['name'] == 'Updated Name'
 
 
 @pytest.mark.asyncio
 async def test_update_taxpayer_recipient_returns_404() -> None:
     _auth()
     with patch(
-        "app.services.taxpayer_recipient_service.get_taxpayer_recipient",
+        'app.services.taxpayer_recipient_service.get_taxpayer_recipient',
         new=AsyncMock(return_value=None),
     ):
-        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
-            r = await c.put("/api/v1/taxpayer-recipients/NOTFOUND", json={"name": "X"})
+        async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as c:
+            r = await c.put('/api/v1/taxpayer-recipients/NOTFOUND', json={'name': 'X'})
     assert r.status_code == 404
 
 
@@ -284,16 +284,16 @@ async def test_delete_taxpayer_recipient_returns_204() -> None:
     _auth()
     with (
         patch(
-            "app.services.taxpayer_recipient_service.get_taxpayer_recipient",
+            'app.services.taxpayer_recipient_service.get_taxpayer_recipient',
             new=AsyncMock(return_value=_taxpayer()),
         ),
         patch(
-            "app.services.taxpayer_recipient_service.delete_taxpayer_recipient",
+            'app.services.taxpayer_recipient_service.delete_taxpayer_recipient',
             new=AsyncMock(return_value=None),
         ),
     ):
-        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
-            r = await c.delete("/api/v1/taxpayer-recipients/RFC123456789A")
+        async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as c:
+            r = await c.delete('/api/v1/taxpayer-recipients/RFC123456789A')
     assert r.status_code == 204
 
 
@@ -301,18 +301,18 @@ async def test_delete_taxpayer_recipient_returns_204() -> None:
 async def test_delete_taxpayer_recipient_returns_404() -> None:
     _auth()
     with patch(
-        "app.services.taxpayer_recipient_service.get_taxpayer_recipient",
+        'app.services.taxpayer_recipient_service.get_taxpayer_recipient',
         new=AsyncMock(return_value=None),
     ):
-        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
-            r = await c.delete("/api/v1/taxpayer-recipients/NOTFOUND")
+        async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as c:
+            r = await c.delete('/api/v1/taxpayer-recipients/NOTFOUND')
     assert r.status_code == 404
 
 
 @pytest.mark.asyncio
 async def test_list_taxpayer_recipients_requires_auth() -> None:
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
-        r = await c.get("/api/v1/taxpayer-recipients")
+    async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as c:
+        r = await c.get('/api/v1/taxpayer-recipients')
     assert r.status_code == 401
 
 
@@ -323,36 +323,36 @@ async def test_list_taxpayer_recipients_requires_auth() -> None:
 async def test_list_customers_returns_200() -> None:
     _auth()
     with patch(
-        "app.services.customer_service.list_customers",
+        'app.services.customer_service.list_customers',
         new=AsyncMock(return_value=([_customer()], 1)),
     ):
-        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
-            r = await c.get("/api/v1/customers")
+        async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as c:
+            r = await c.get('/api/v1/customers')
     assert r.status_code == 200
-    assert r.json()["total"] == 1
+    assert r.json()['total'] == 1
 
 
 @pytest.mark.asyncio
 async def test_get_customer_returns_200() -> None:
     _auth()
     with patch(
-        "app.services.customer_service.get_customer", new=AsyncMock(return_value=_customer())
+        'app.services.customer_service.get_customer', new=AsyncMock(return_value=_customer())
     ):
-        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
-            r = await c.get("/api/v1/customers/1")
+        async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as c:
+            r = await c.get('/api/v1/customers/1')
     assert r.status_code == 200
     body = r.json()
-    assert body["customer_id"] == 1
-    assert body["status"] == 0
-    assert "disabled" not in body
+    assert body['customer_id'] == 1
+    assert body['status'] == 0
+    assert 'disabled' not in body
 
 
 @pytest.mark.asyncio
 async def test_get_customer_returns_404() -> None:
     _auth()
-    with patch("app.services.customer_service.get_customer", new=AsyncMock(return_value=None)):
-        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
-            r = await c.get("/api/v1/customers/999")
+    with patch('app.services.customer_service.get_customer', new=AsyncMock(return_value=None)):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as c:
+            r = await c.get('/api/v1/customers/999')
     assert r.status_code == 404
 
 
@@ -360,45 +360,45 @@ async def test_get_customer_returns_404() -> None:
 async def test_create_customer_returns_201() -> None:
     _auth()
     with patch(
-        "app.services.customer_service.create_customer",
+        'app.services.customer_service.create_customer',
         new=AsyncMock(return_value=_customer()),
     ):
-        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as c:
             r = await c.post(
-                "/api/v1/customers",
-                json={"code": "CUST1", "name": "Acme Corp", "price_list": 1},
+                '/api/v1/customers',
+                json={'code': 'CUST1', 'name': 'Acme Corp', 'price_list': 1},
             )
     assert r.status_code == 201
-    assert r.json()["code"] == "CUST1"
+    assert r.json()['code'] == 'CUST1'
 
 
 @pytest.mark.asyncio
 async def test_update_customer_returns_200() -> None:
     _auth()
     updated = _customer()
-    updated.name = "Updated Corp"
+    updated.name = 'Updated Corp'
     with (
         patch(
-            "app.services.customer_service.get_customer",
+            'app.services.customer_service.get_customer',
             new=AsyncMock(return_value=_customer()),
         ),
         patch(
-            "app.services.customer_service.update_customer",
+            'app.services.customer_service.update_customer',
             new=AsyncMock(return_value=updated),
         ),
     ):
-        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
-            r = await c.put("/api/v1/customers/1", json={"name": "Updated Corp"})
+        async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as c:
+            r = await c.put('/api/v1/customers/1', json={'name': 'Updated Corp'})
     assert r.status_code == 200
-    assert r.json()["name"] == "Updated Corp"
+    assert r.json()['name'] == 'Updated Corp'
 
 
 @pytest.mark.asyncio
 async def test_update_customer_returns_404() -> None:
     _auth()
-    with patch("app.services.customer_service.get_customer", new=AsyncMock(return_value=None)):
-        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
-            r = await c.put("/api/v1/customers/999", json={"name": "X"})
+    with patch('app.services.customer_service.get_customer', new=AsyncMock(return_value=None)):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as c:
+            r = await c.put('/api/v1/customers/999', json={'name': 'X'})
     assert r.status_code == 404
 
 
@@ -407,29 +407,29 @@ async def test_delete_customer_returns_204() -> None:
     _auth()
     with (
         patch(
-            "app.services.customer_service.get_customer",
+            'app.services.customer_service.get_customer',
             new=AsyncMock(return_value=_customer()),
         ),
-        patch("app.services.customer_service.delete_customer", new=AsyncMock(return_value=None)),
+        patch('app.services.customer_service.delete_customer', new=AsyncMock(return_value=None)),
     ):
-        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
-            r = await c.delete("/api/v1/customers/1")
+        async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as c:
+            r = await c.delete('/api/v1/customers/1')
     assert r.status_code == 204
 
 
 @pytest.mark.asyncio
 async def test_delete_customer_returns_404() -> None:
     _auth()
-    with patch("app.services.customer_service.get_customer", new=AsyncMock(return_value=None)):
-        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
-            r = await c.delete("/api/v1/customers/999")
+    with patch('app.services.customer_service.get_customer', new=AsyncMock(return_value=None)):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as c:
+            r = await c.delete('/api/v1/customers/999')
     assert r.status_code == 404
 
 
 @pytest.mark.asyncio
 async def test_list_customers_requires_auth() -> None:
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
-        r = await c.get("/api/v1/customers")
+    async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as c:
+        r = await c.get('/api/v1/customers')
     assert r.status_code == 401
 
 
@@ -437,92 +437,92 @@ async def test_list_customers_requires_auth() -> None:
 async def test_list_customers_price_list_filter_passed_through() -> None:
     _auth()
     mock = AsyncMock(return_value=([_customer()], 1))
-    with patch("app.services.customer_service.list_customers", new=mock):
-        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
-            r = await c.get("/api/v1/customers?price_list=2")
+    with patch('app.services.customer_service.list_customers', new=mock):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as c:
+            r = await c.get('/api/v1/customers?price_list=2')
     assert r.status_code == 200
     _, kwargs = mock.call_args
-    assert kwargs.get("price_list") == 2
+    assert kwargs.get('price_list') == 2
 
 
 @pytest.mark.asyncio
 async def test_list_customers_salesperson_filter_passed_through() -> None:
     _auth()
     mock = AsyncMock(return_value=([_customer()], 1))
-    with patch("app.services.customer_service.list_customers", new=mock):
-        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
-            r = await c.get("/api/v1/customers?salesperson=5")
+    with patch('app.services.customer_service.list_customers', new=mock):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as c:
+            r = await c.get('/api/v1/customers?salesperson=5')
     assert r.status_code == 200
     _, kwargs = mock.call_args
-    assert kwargs.get("salesperson") == 5
+    assert kwargs.get('salesperson') == 5
 
 
 @pytest.mark.asyncio
 async def test_list_customers_no_fk_filters() -> None:
     _auth()
     mock = AsyncMock(return_value=([_customer()], 1))
-    with patch("app.services.customer_service.list_customers", new=mock):
-        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
-            r = await c.get("/api/v1/customers")
+    with patch('app.services.customer_service.list_customers', new=mock):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as c:
+            r = await c.get('/api/v1/customers')
     assert r.status_code == 200
     _, kwargs = mock.call_args
-    assert kwargs.get("price_list") is None
-    assert kwargs.get("salesperson") is None
+    assert kwargs.get('price_list') is None
+    assert kwargs.get('salesperson') is None
 
 
 @pytest.mark.asyncio
 async def test_list_customers_status_filter_active() -> None:
     _auth()
     mock = AsyncMock(return_value=([_customer()], 1))
-    with patch("app.services.customer_service.list_customers", new=mock):
-        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
-            r = await c.get("/api/v1/customers?status=0")
+    with patch('app.services.customer_service.list_customers', new=mock):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as c:
+            r = await c.get('/api/v1/customers?status=0')
     assert r.status_code == 200
-    assert r.json()["total"] == 1
+    assert r.json()['total'] == 1
     _, kwargs = mock.call_args
-    assert kwargs.get("status") == 0
+    assert kwargs.get('status') == 0
 
 
 @pytest.mark.asyncio
 async def test_list_customers_status_filter_inactive() -> None:
     _auth()
     mock = AsyncMock(return_value=([], 0))
-    with patch("app.services.customer_service.list_customers", new=mock):
-        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
-            r = await c.get("/api/v1/customers?status=1")
+    with patch('app.services.customer_service.list_customers', new=mock):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as c:
+            r = await c.get('/api/v1/customers?status=1')
     assert r.status_code == 200
-    assert r.json()["total"] == 0
+    assert r.json()['total'] == 0
     _, kwargs = mock.call_args
-    assert kwargs.get("status") == 1
+    assert kwargs.get('status') == 1
 
 
 @pytest.mark.asyncio
 async def test_list_customers_no_status_filter() -> None:
     _auth()
     mock = AsyncMock(return_value=([_customer()], 1))
-    with patch("app.services.customer_service.list_customers", new=mock):
-        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
-            r = await c.get("/api/v1/customers")
+    with patch('app.services.customer_service.list_customers', new=mock):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as c:
+            r = await c.get('/api/v1/customers')
     assert r.status_code == 200
     _, kwargs = mock.call_args
-    assert kwargs.get("status") is None
+    assert kwargs.get('status') is None
 
 
 @pytest.mark.asyncio
 async def test_list_customers_invalid_status_returns_422() -> None:
     _auth()
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
-        r = await c.get("/api/v1/customers?status=9")
+    async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as c:
+        r = await c.get('/api/v1/customers?status=9')
     assert r.status_code == 422
 
 
 @pytest.mark.asyncio
 async def test_create_customer_invalid_status_returns_422() -> None:
     _auth()
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+    async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as c:
         r = await c.post(
-            "/api/v1/customers",
-            json={"code": "CUST1", "name": "Acme Corp", "price_list": 1, "status": 5},
+            '/api/v1/customers',
+            json={'code': 'CUST1', 'name': 'Acme Corp', 'price_list': 1, 'status': 5},
         )
     assert r.status_code == 422
 
@@ -531,13 +531,13 @@ async def test_create_customer_invalid_status_returns_422() -> None:
 async def test_create_customer_without_status_defaults_to_active() -> None:
     _auth()
     with patch(
-        "app.services.customer_service.create_customer",
+        'app.services.customer_service.create_customer',
         new=AsyncMock(return_value=_customer()),
     ):
-        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as c:
             r = await c.post(
-                "/api/v1/customers",
-                json={"code": "CUST1", "name": "Acme Corp", "price_list": 1},
+                '/api/v1/customers',
+                json={'code': 'CUST1', 'name': 'Acme Corp', 'price_list': 1},
             )
     assert r.status_code == 201
-    assert r.json()["status"] == 0
+    assert r.json()['status'] == 0

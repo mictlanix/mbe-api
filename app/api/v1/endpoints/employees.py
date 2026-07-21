@@ -12,7 +12,7 @@ from app.services import employee_service
 router = APIRouter()
 
 
-@router.get("", response_model=ListResponse[EmployeeResponse])
+@router.get('', response_model=ListResponse[EmployeeResponse])
 async def list_employees(
     search: str | None = Query(None),
     status: EntityStatus | None = Query(None),
@@ -28,7 +28,7 @@ async def list_employees(
     return ListResponse(items=list(items), total=total)
 
 
-@router.post("", response_model=EmployeeResponse, status_code=http_status.HTTP_201_CREATED)
+@router.post('', response_model=EmployeeResponse, status_code=http_status.HTTP_201_CREATED)
 async def create_employee(
     data: EmployeeCreate,
     _: CurrentUser = Depends(get_current_user),
@@ -38,7 +38,7 @@ async def create_employee(
     return EmployeeResponse.model_validate(employee)
 
 
-@router.get("/{employee_id}", response_model=EmployeeResponse)
+@router.get('/{employee_id}', response_model=EmployeeResponse)
 async def get_employee(
     employee_id: int,
     _: CurrentUser = Depends(get_current_user),
@@ -46,11 +46,11 @@ async def get_employee(
 ) -> EmployeeResponse:
     employee = await employee_service.get_employee(db, employee_id)
     if employee is None:
-        raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail="Employee not found")
+        raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail='Employee not found')
     return EmployeeResponse.model_validate(employee)
 
 
-@router.put("/{employee_id}", response_model=EmployeeResponse)
+@router.put('/{employee_id}', response_model=EmployeeResponse)
 async def update_employee(
     employee_id: int,
     data: EmployeeUpdate,
@@ -59,12 +59,12 @@ async def update_employee(
 ) -> EmployeeResponse:
     employee = await employee_service.get_employee(db, employee_id)
     if employee is None:
-        raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail="Employee not found")
+        raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail='Employee not found')
     employee = await employee_service.update_employee(db, employee, data)
     return EmployeeResponse.model_validate(employee)
 
 
-@router.delete("/{employee_id}", status_code=http_status.HTTP_204_NO_CONTENT)
+@router.delete('/{employee_id}', status_code=http_status.HTTP_204_NO_CONTENT)
 async def delete_employee(
     employee_id: int,
     _: CurrentUser = Depends(get_current_user),
@@ -72,5 +72,5 @@ async def delete_employee(
 ) -> None:
     employee = await employee_service.get_employee(db, employee_id)
     if employee is None:
-        raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail="Employee not found")
+        raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail='Employee not found')
     await employee_service.delete_employee(db, employee)

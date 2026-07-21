@@ -13,7 +13,7 @@ from app.services import facility_service, image_service
 router = APIRouter()
 
 
-@router.get("", response_model=ListResponse[FacilityResponse])
+@router.get('', response_model=ListResponse[FacilityResponse])
 async def list_facilities(
     search: str | None = Query(None),
     status: EntityStatus | None = Query(None),
@@ -28,7 +28,7 @@ async def list_facilities(
     return ListResponse(items=list(items), total=total)
 
 
-@router.post("", response_model=FacilityResponse, status_code=http_status.HTTP_201_CREATED)
+@router.post('', response_model=FacilityResponse, status_code=http_status.HTTP_201_CREATED)
 async def create_facility(
     data: FacilityCreate,
     _: CurrentUser = Depends(require_privilege(SystemObject.FACILITIES, AccessRight.CREATE)),
@@ -38,7 +38,7 @@ async def create_facility(
     return FacilityResponse.model_validate(facility)
 
 
-@router.post("/{facility_id}/logo", response_model=FacilityResponse)
+@router.post('/{facility_id}/logo', response_model=FacilityResponse)
 async def upload_facility_logo(
     facility_id: int,
     file: UploadFile = File(...),
@@ -47,7 +47,7 @@ async def upload_facility_logo(
 ) -> FacilityResponse:
     facility = await facility_service.get_facility(db, facility_id)
     if facility is None:
-        raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail="Facility not found")
+        raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail='Facility not found')
     content = await file.read()
     try:
         filename = await image_service.process_and_save_image(content, settings.images_dir)
@@ -57,7 +57,7 @@ async def upload_facility_logo(
     return FacilityResponse.model_validate(facility)
 
 
-@router.get("/{facility_id}", response_model=FacilityResponse)
+@router.get('/{facility_id}', response_model=FacilityResponse)
 async def get_facility(
     facility_id: int,
     _: CurrentUser = Depends(require_privilege(SystemObject.FACILITIES, AccessRight.READ)),
@@ -65,11 +65,11 @@ async def get_facility(
 ) -> FacilityResponse:
     facility = await facility_service.get_facility(db, facility_id)
     if facility is None:
-        raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail="Facility not found")
+        raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail='Facility not found')
     return FacilityResponse.model_validate(facility)
 
 
-@router.put("/{facility_id}", response_model=FacilityResponse)
+@router.put('/{facility_id}', response_model=FacilityResponse)
 async def update_facility(
     facility_id: int,
     data: FacilityUpdate,
@@ -78,12 +78,12 @@ async def update_facility(
 ) -> FacilityResponse:
     facility = await facility_service.get_facility(db, facility_id)
     if facility is None:
-        raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail="Facility not found")
+        raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail='Facility not found')
     facility = await facility_service.update_facility(db, facility, data)
     return FacilityResponse.model_validate(facility)
 
 
-@router.delete("/{facility_id}", status_code=http_status.HTTP_204_NO_CONTENT)
+@router.delete('/{facility_id}', status_code=http_status.HTTP_204_NO_CONTENT)
 async def delete_facility(
     facility_id: int,
     _: CurrentUser = Depends(require_privilege(SystemObject.FACILITIES, AccessRight.DELETE)),
@@ -91,5 +91,5 @@ async def delete_facility(
 ) -> None:
     facility = await facility_service.get_facility(db, facility_id)
     if facility is None:
-        raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail="Facility not found")
+        raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail='Facility not found')
     await facility_service.delete_facility(db, facility)

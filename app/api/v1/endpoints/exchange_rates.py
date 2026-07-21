@@ -12,7 +12,7 @@ from app.services import exchange_rate_service
 router = APIRouter()
 
 
-@router.get("", response_model=ListResponse[ExchangeRateResponse])
+@router.get('', response_model=ListResponse[ExchangeRateResponse])
 async def list_exchange_rates(
     date_from: date | None = Query(None),
     date_to: date | None = Query(None),
@@ -29,7 +29,7 @@ async def list_exchange_rates(
     return ListResponse(items=list(items), total=total)
 
 
-@router.post("", response_model=ExchangeRateResponse, status_code=status.HTTP_201_CREATED)
+@router.post('', response_model=ExchangeRateResponse, status_code=status.HTTP_201_CREATED)
 async def create_exchange_rate(
     data: ExchangeRateCreate,
     _: CurrentUser = Depends(get_current_user),
@@ -39,7 +39,7 @@ async def create_exchange_rate(
     return ExchangeRateResponse.model_validate(er)
 
 
-@router.get("/{exchange_rate_id}", response_model=ExchangeRateResponse)
+@router.get('/{exchange_rate_id}', response_model=ExchangeRateResponse)
 async def get_exchange_rate(
     exchange_rate_id: int,
     _: CurrentUser = Depends(get_current_user),
@@ -47,11 +47,11 @@ async def get_exchange_rate(
 ) -> ExchangeRateResponse:
     er = await exchange_rate_service.get_exchange_rate(db, exchange_rate_id)
     if er is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Exchange rate not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Exchange rate not found')
     return ExchangeRateResponse.model_validate(er)
 
 
-@router.put("/{exchange_rate_id}", response_model=ExchangeRateResponse)
+@router.put('/{exchange_rate_id}', response_model=ExchangeRateResponse)
 async def update_exchange_rate(
     exchange_rate_id: int,
     data: ExchangeRateUpdate,
@@ -60,12 +60,12 @@ async def update_exchange_rate(
 ) -> ExchangeRateResponse:
     er = await exchange_rate_service.get_exchange_rate(db, exchange_rate_id)
     if er is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Exchange rate not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Exchange rate not found')
     er = await exchange_rate_service.update_exchange_rate(db, er, data)
     return ExchangeRateResponse.model_validate(er)
 
 
-@router.delete("/{exchange_rate_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete('/{exchange_rate_id}', status_code=status.HTTP_204_NO_CONTENT)
 async def delete_exchange_rate(
     exchange_rate_id: int,
     _: CurrentUser = Depends(get_current_user),
@@ -73,5 +73,5 @@ async def delete_exchange_rate(
 ) -> None:
     er = await exchange_rate_service.get_exchange_rate(db, exchange_rate_id)
     if er is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Exchange rate not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Exchange rate not found')
     await exchange_rate_service.delete_exchange_rate(db, er)

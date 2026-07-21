@@ -20,7 +20,7 @@ async def list_price_lists(
     count_q = select(func.count()).select_from(PriceList)
 
     if search:
-        term = f"%{search}%"
+        term = f'%{search}%'
         base = base.where(PriceList.name.ilike(term))
         count_q = count_q.where(PriceList.name.ilike(term))
 
@@ -68,7 +68,7 @@ async def delete_price_list(db: AsyncSession, pl: PriceList) -> None:
     if in_use > 0:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="Price list is assigned to one or more customers",
+            detail='Price list is assigned to one or more customers',
         )
     await db.delete(pl)
     await db.commit()

@@ -186,7 +186,7 @@ class FacilitySummary(BaseModel):
     default_batch: str | None
     status: EntityStatus
 
-    _resolve_logo = field_validator("logo")(image_url)
+    _resolve_logo = field_validator('logo')(image_url)
 
 
 class FacilityResponse(BaseModel):
@@ -197,7 +197,7 @@ class FacilityResponse(BaseModel):
     name: str
     type: FacilityType
     location: SatCatalogResponse = Field(
-        validation_alias=AliasChoices("location_detail", "location")
+        validation_alias=AliasChoices('location_detail', 'location')
     )
     address: int
     taxpayer: str
@@ -206,7 +206,7 @@ class FacilityResponse(BaseModel):
     default_batch: str | None
     status: EntityStatus
 
-    _resolve_logo = field_validator("logo")(image_url)
+    _resolve_logo = field_validator('logo')(image_url)
 
 
 # ── Warehouse ─────────────────────────────────────────────────────────────────
@@ -245,7 +245,7 @@ class WarehouseResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     warehouse_id: int
-    facility: FacilitySummary = Field(validation_alias=AliasChoices("facility_detail", "facility"))
+    facility: FacilitySummary = Field(validation_alias=AliasChoices('facility_detail', 'facility'))
     code: str
     name: str
     comment: str | None
@@ -346,7 +346,7 @@ class ExchangeRateResponse(BaseModel):
 
 
 class ExpenseCreate(BaseModel):
-    name: str = Field(alias="name")
+    name: str = Field(alias='name')
     comment: str | None = None
 
 
@@ -359,7 +359,7 @@ class ExpenseResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True, populate_by_name=True)
 
     expense_id: int
-    name: str = Field(alias="expense")
+    name: str = Field(alias='expense')
     comment: str | None
 
 
@@ -373,7 +373,7 @@ class PaymentMethodOptionCreate(BaseModel):
     number_of_payments: int = 1
     display_on_ticket: bool = True
     payment_method: int
-    commission: Decimal = Decimal("0")
+    commission: Decimal = Decimal('0')
     status: EntityStatus = EntityStatus.ACTIVE
 
 
@@ -472,7 +472,7 @@ class VehicleOperatorResponse(BaseModel):
     status: EntityStatus
     days_until_expiry: int = 0
 
-    @model_validator(mode="after")
-    def compute_days_until_expiry(self) -> "VehicleOperatorResponse":
+    @model_validator(mode='after')
+    def compute_days_until_expiry(self) -> 'VehicleOperatorResponse':
         self.days_until_expiry = (self.expiration_date - dt.date.today()).days
         return self

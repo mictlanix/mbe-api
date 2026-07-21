@@ -19,8 +19,8 @@ async def _attach_relations(db: AsyncSession, point_sales: Sequence[PointSale]) 
         db, Warehouse, Warehouse.warehouse_id, (p.warehouse for p in point_sales)
     )
     for p in point_sales:
-        p.__dict__["facility"] = facilities_by_id.get(p.facility)
-        p.__dict__["warehouse"] = warehouses_by_id.get(p.warehouse)
+        p.__dict__['facility'] = facilities_by_id.get(p.facility)
+        p.__dict__['warehouse'] = warehouses_by_id.get(p.warehouse)
 
 
 async def list_point_sales(
@@ -36,7 +36,7 @@ async def list_point_sales(
     base = select(PointSale)
     count_q = select(func.count()).select_from(PointSale)
     if search:
-        term = f"%{search}%"
+        term = f'%{search}%'
         condition = or_(PointSale.code.ilike(term), PointSale.name.ilike(term))
         base = base.where(condition)
         count_q = count_q.where(condition)

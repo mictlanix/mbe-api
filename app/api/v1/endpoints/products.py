@@ -24,7 +24,7 @@ def _photo_url(filename: str | None) -> str | None:
     return image_service.image_url(filename)
 
 
-@router.get("", response_model=ListResponse[ProductListItem])
+@router.get('', response_model=ListResponse[ProductListItem])
 async def list_products(
     search: str | None = Query(None),
     label: list[int] | None = Query(None),
@@ -58,7 +58,7 @@ async def list_products(
     return ListResponse(items=responses, total=total)
 
 
-@router.get("/labels/facets", response_model=list[ProductLabelFacet])
+@router.get('/labels/facets', response_model=list[ProductLabelFacet])
 async def get_product_label_facets(
     search: str | None = Query(None),
     label: list[int] | None = Query(None),
@@ -83,7 +83,7 @@ async def get_product_label_facets(
     return [ProductLabelFacet(label_id=row.label_id, count=row.count) for row in rows]
 
 
-@router.post("", response_model=ProductResponse, status_code=http_status.HTTP_201_CREATED)
+@router.post('', response_model=ProductResponse, status_code=http_status.HTTP_201_CREATED)
 async def create_product(
     data: ProductCreate,
     _: CurrentUser = Depends(require_privilege(SystemObject.PRODUCTS, AccessRight.CREATE)),
@@ -95,7 +95,7 @@ async def create_product(
     return response
 
 
-@router.post("/merge", status_code=http_status.HTTP_204_NO_CONTENT)
+@router.post('/merge', status_code=http_status.HTTP_204_NO_CONTENT)
 async def merge_products(
     data: ProductMergeRequest,
     _: CurrentUser = Depends(require_privilege(SystemObject.PRODUCTS_MERGE, AccessRight.CREATE)),
@@ -104,7 +104,7 @@ async def merge_products(
     await product_service.merge_products(db, data)
 
 
-@router.post("/{product_id}/image", response_model=ProductResponse)
+@router.post('/{product_id}/image', response_model=ProductResponse)
 async def upload_product_image(
     product_id: int,
     file: UploadFile = File(...),
@@ -113,7 +113,7 @@ async def upload_product_image(
 ) -> ProductResponse:
     product = await product_service.get_product(db, product_id)
     if product is None:
-        raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail="Product not found")
+        raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail='Product not found')
     content = await file.read()
     try:
         filename = await image_service.process_and_save_image(content, settings.images_dir)
@@ -125,7 +125,7 @@ async def upload_product_image(
     return response
 
 
-@router.get("/{product_id}", response_model=ProductResponse)
+@router.get('/{product_id}', response_model=ProductResponse)
 async def get_product(
     product_id: int,
     _: CurrentUser = Depends(require_privilege(SystemObject.PRODUCTS, AccessRight.READ)),
@@ -133,13 +133,13 @@ async def get_product(
 ) -> ProductResponse:
     product = await product_service.get_product(db, product_id)
     if product is None:
-        raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail="Product not found")
+        raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail='Product not found')
     response = ProductResponse.model_validate(product)
     response.photo = _photo_url(product.photo)
     return response
 
 
-@router.put("/{product_id}", response_model=ProductResponse)
+@router.put('/{product_id}', response_model=ProductResponse)
 async def update_product(
     product_id: int,
     data: ProductUpdate,
@@ -148,14 +148,14 @@ async def update_product(
 ) -> ProductResponse:
     product = await product_service.get_product(db, product_id)
     if product is None:
-        raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail="Product not found")
+        raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail='Product not found')
     product = await product_service.update_product(db, product, data)
     response = ProductResponse.model_validate(product)
     response.photo = _photo_url(product.photo)
     return response
 
 
-@router.delete("/{product_id}", status_code=http_status.HTTP_204_NO_CONTENT)
+@router.delete('/{product_id}', status_code=http_status.HTTP_204_NO_CONTENT)
 async def delete_product(
     product_id: int,
     _: CurrentUser = Depends(require_privilege(SystemObject.PRODUCTS, AccessRight.DELETE)),
@@ -163,5 +163,5 @@ async def delete_product(
 ) -> None:
     product = await product_service.get_product(db, product_id)
     if product is None:
-        raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail="Product not found")
+        raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail='Product not found')
     await product_service.delete_product(db, product)

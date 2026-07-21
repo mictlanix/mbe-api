@@ -29,7 +29,7 @@ def _make_list_handler(slug: str):
             total=total,
         )
 
-    handler.__name__ = f"list_{slug.replace('-', '_')}"
+    handler.__name__ = f'list_{slug.replace("-", "_")}'
     return handler
 
 
@@ -43,25 +43,25 @@ def _make_get_handler(slug: str):
     ) -> SatCatalogResponse:
         row = await sat_catalog_service.get_sat(db, config.model, id)
         if row is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Not found')
         return sat_catalog_service.to_response(row, config)
 
-    handler.__name__ = f"get_{slug.replace('-', '_')}"
+    handler.__name__ = f'get_{slug.replace("-", "_")}'
     return handler
 
 
 for _slug in SAT_CATALOG_MAP:
     router.add_api_route(
-        f"/{_slug}",
+        f'/{_slug}',
         _make_list_handler(_slug),
-        methods=["GET"],
+        methods=['GET'],
         response_model=ListResponse[SatCatalogResponse],
-        tags=["sat-catalogs"],
+        tags=['sat-catalogs'],
     )
     router.add_api_route(
-        f"/{_slug}/{{id}}",
+        f'/{_slug}/{{id}}',
         _make_get_handler(_slug),
-        methods=["GET"],
+        methods=['GET'],
         response_model=SatCatalogResponse,
-        tags=["sat-catalogs"],
+        tags=['sat-catalogs'],
     )

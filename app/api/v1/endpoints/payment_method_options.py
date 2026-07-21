@@ -16,7 +16,7 @@ from app.services import payment_method_option_service
 router = APIRouter()
 
 
-@router.get("", response_model=ListResponse[PaymentMethodOptionResponse])
+@router.get('', response_model=ListResponse[PaymentMethodOptionResponse])
 async def list_payment_method_options(
     facility: int | None = Query(None),
     status: EntityStatus | None = Query(None),
@@ -32,7 +32,7 @@ async def list_payment_method_options(
 
 
 @router.post(
-    "", response_model=PaymentMethodOptionResponse, status_code=http_status.HTTP_201_CREATED
+    '', response_model=PaymentMethodOptionResponse, status_code=http_status.HTTP_201_CREATED
 )
 async def create_payment_method_option(
     data: PaymentMethodOptionCreate,
@@ -43,7 +43,7 @@ async def create_payment_method_option(
     return PaymentMethodOptionResponse.model_validate(pmo)
 
 
-@router.get("/{payment_method_option_id}", response_model=PaymentMethodOptionResponse)
+@router.get('/{payment_method_option_id}', response_model=PaymentMethodOptionResponse)
 async def get_payment_method_option(
     payment_method_option_id: int,
     _: CurrentUser = Depends(get_current_user),
@@ -54,12 +54,12 @@ async def get_payment_method_option(
     )
     if pmo is None:
         raise HTTPException(
-            status_code=http_status.HTTP_404_NOT_FOUND, detail="Payment method option not found"
+            status_code=http_status.HTTP_404_NOT_FOUND, detail='Payment method option not found'
         )
     return PaymentMethodOptionResponse.model_validate(pmo)
 
 
-@router.put("/{payment_method_option_id}", response_model=PaymentMethodOptionResponse)
+@router.put('/{payment_method_option_id}', response_model=PaymentMethodOptionResponse)
 async def update_payment_method_option(
     payment_method_option_id: int,
     data: PaymentMethodOptionUpdate,
@@ -71,13 +71,13 @@ async def update_payment_method_option(
     )
     if pmo is None:
         raise HTTPException(
-            status_code=http_status.HTTP_404_NOT_FOUND, detail="Payment method option not found"
+            status_code=http_status.HTTP_404_NOT_FOUND, detail='Payment method option not found'
         )
     pmo = await payment_method_option_service.update_payment_method_option(db, pmo, data)
     return PaymentMethodOptionResponse.model_validate(pmo)
 
 
-@router.delete("/{payment_method_option_id}", status_code=http_status.HTTP_204_NO_CONTENT)
+@router.delete('/{payment_method_option_id}', status_code=http_status.HTTP_204_NO_CONTENT)
 async def delete_payment_method_option(
     payment_method_option_id: int,
     _: CurrentUser = Depends(get_current_user),
@@ -88,6 +88,6 @@ async def delete_payment_method_option(
     )
     if pmo is None:
         raise HTTPException(
-            status_code=http_status.HTTP_404_NOT_FOUND, detail="Payment method option not found"
+            status_code=http_status.HTTP_404_NOT_FOUND, detail='Payment method option not found'
         )
     await payment_method_option_service.delete_payment_method_option(db, pmo)

@@ -8,10 +8,10 @@ from app.db.base import Base
 
 
 class TranslationRequest(Base):
-    __tablename__ = "translation_request"
+    __tablename__ = 'translation_request'
 
     translation_request_id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    requester: Mapped[int] = mapped_column(Integer, ForeignKey("employee.employee_id"))
+    requester: Mapped[int] = mapped_column(Integer, ForeignKey('employee.employee_id'))
     date: Mapped[datetime] = mapped_column(DateTime)
     agency: Mapped[str] = mapped_column(String(256))
     document_name: Mapped[str] = mapped_column(String(128))
@@ -21,10 +21,10 @@ class TranslationRequest(Base):
 
 
 class Notarization(Base):
-    __tablename__ = "notarization"
+    __tablename__ = 'notarization'
 
     notarization_id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    requester: Mapped[int] = mapped_column(Integer, ForeignKey("employee.employee_id"))
+    requester: Mapped[int] = mapped_column(Integer, ForeignKey('employee.employee_id'))
     notary_office: Mapped[str] = mapped_column(String(256))
     date: Mapped[datetime] = mapped_column(DateTime)
     document_description: Mapped[str] = mapped_column(String(512))

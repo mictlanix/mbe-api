@@ -12,7 +12,7 @@ from app.services import point_sale_service
 router = APIRouter()
 
 
-@router.get("", response_model=ListResponse[PointSaleResponse])
+@router.get('', response_model=ListResponse[PointSaleResponse])
 async def list_points_of_sale(
     search: str | None = Query(None),
     facility: int | None = Query(None),
@@ -35,7 +35,7 @@ async def list_points_of_sale(
     return ListResponse(items=list(items), total=total)
 
 
-@router.post("", response_model=PointSaleResponse, status_code=http_status.HTTP_201_CREATED)
+@router.post('', response_model=PointSaleResponse, status_code=http_status.HTTP_201_CREATED)
 async def create_point_of_sale(
     data: PointSaleCreate,
     _: CurrentUser = Depends(require_privilege(SystemObject.POINTS_OF_SALE, AccessRight.CREATE)),
@@ -45,7 +45,7 @@ async def create_point_of_sale(
     return PointSaleResponse.model_validate(ps)
 
 
-@router.get("/{point_sale_id}", response_model=PointSaleResponse)
+@router.get('/{point_sale_id}', response_model=PointSaleResponse)
 async def get_point_of_sale(
     point_sale_id: int,
     _: CurrentUser = Depends(require_privilege(SystemObject.POINTS_OF_SALE, AccessRight.READ)),
@@ -54,12 +54,12 @@ async def get_point_of_sale(
     ps = await point_sale_service.get_point_sale(db, point_sale_id)
     if ps is None:
         raise HTTPException(
-            status_code=http_status.HTTP_404_NOT_FOUND, detail="Point of sale not found"
+            status_code=http_status.HTTP_404_NOT_FOUND, detail='Point of sale not found'
         )
     return PointSaleResponse.model_validate(ps)
 
 
-@router.put("/{point_sale_id}", response_model=PointSaleResponse)
+@router.put('/{point_sale_id}', response_model=PointSaleResponse)
 async def update_point_of_sale(
     point_sale_id: int,
     data: PointSaleUpdate,
@@ -69,13 +69,13 @@ async def update_point_of_sale(
     ps = await point_sale_service.get_point_sale(db, point_sale_id)
     if ps is None:
         raise HTTPException(
-            status_code=http_status.HTTP_404_NOT_FOUND, detail="Point of sale not found"
+            status_code=http_status.HTTP_404_NOT_FOUND, detail='Point of sale not found'
         )
     ps = await point_sale_service.update_point_sale(db, ps, data)
     return PointSaleResponse.model_validate(ps)
 
 
-@router.delete("/{point_sale_id}", status_code=http_status.HTTP_204_NO_CONTENT)
+@router.delete('/{point_sale_id}', status_code=http_status.HTTP_204_NO_CONTENT)
 async def delete_point_of_sale(
     point_sale_id: int,
     _: CurrentUser = Depends(require_privilege(SystemObject.POINTS_OF_SALE, AccessRight.DELETE)),
@@ -84,6 +84,6 @@ async def delete_point_of_sale(
     ps = await point_sale_service.get_point_sale(db, point_sale_id)
     if ps is None:
         raise HTTPException(
-            status_code=http_status.HTTP_404_NOT_FOUND, detail="Point of sale not found"
+            status_code=http_status.HTTP_404_NOT_FOUND, detail='Point of sale not found'
         )
     await point_sale_service.delete_point_sale(db, ps)

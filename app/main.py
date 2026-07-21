@@ -14,9 +14,9 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,
     allow_credentials=False,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=['*'],
+    allow_headers=['*'],
 )
 
 app.include_router(api_router, prefix=settings.api_v1_prefix)
-app.mount("/images", StaticFiles(directory=settings.images_dir, check_dir=False), name="images")
+app.mount('/images', StaticFiles(directory=settings.images_dir, check_dir=False), name='images')

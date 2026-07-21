@@ -9,24 +9,24 @@ from app.enums import CurrencyCode, EntityStatus
 
 
 class TaxpayerIssuer(Base):
-    __tablename__ = "taxpayer_issuer"
+    __tablename__ = 'taxpayer_issuer'
 
     taxpayer_issuer_id: Mapped[str] = mapped_column(String(13), primary_key=True)
     name: Mapped[str | None] = mapped_column(String(250))
-    regime: Mapped[str] = mapped_column(String(3), ForeignKey("sat_tax_regime.sat_tax_regime_id"))
+    regime: Mapped[str] = mapped_column(String(3), ForeignKey('sat_tax_regime.sat_tax_regime_id'))
     provider: Mapped[int] = mapped_column(Integer)
     comment: Mapped[str | None] = mapped_column(String(500))
     postal_code: Mapped[str | None] = mapped_column(
-        String(5), ForeignKey("sat_postal_code.sat_postal_code_id")
+        String(5), ForeignKey('sat_postal_code.sat_postal_code_id')
     )
 
 
 class TaxpayerCertificate(Base):
-    __tablename__ = "taxpayer_certificate"
+    __tablename__ = 'taxpayer_certificate'
 
     taxpayer_certificate_id: Mapped[str] = mapped_column(String(20), primary_key=True)
     taxpayer: Mapped[str] = mapped_column(
-        String(13), ForeignKey("taxpayer_issuer.taxpayer_issuer_id")
+        String(13), ForeignKey('taxpayer_issuer.taxpayer_issuer_id')
     )
     certificate_data: Mapped[bytes] = mapped_column(LargeBinary)
     key_data: Mapped[bytes] = mapped_column(LargeBinary)
@@ -34,16 +34,16 @@ class TaxpayerCertificate(Base):
     valid_from: Mapped[datetime] = mapped_column(DateTime)
     valid_to: Mapped[datetime] = mapped_column(DateTime)
     status: Mapped[EntityStatus] = mapped_column(
-        Integer, default=EntityStatus.ACTIVE, server_default="0"
+        Integer, default=EntityStatus.ACTIVE, server_default='0'
     )
 
 
 class TaxpayerBatch(Base):
-    __tablename__ = "taxpayer_batch"
+    __tablename__ = 'taxpayer_batch'
 
     taxpayer_batch_id: Mapped[int] = mapped_column(Integer, primary_key=True)
     taxpayer: Mapped[str] = mapped_column(
-        String(13), ForeignKey("taxpayer_issuer.taxpayer_issuer_id")
+        String(13), ForeignKey('taxpayer_issuer.taxpayer_issuer_id')
     )
     batch: Mapped[str] = mapped_column(String(10))
     type: Mapped[int] = mapped_column(Integer)
@@ -51,30 +51,30 @@ class TaxpayerBatch(Base):
 
 
 class FiscalDocument(Base):
-    __tablename__ = "fiscal_document"
+    __tablename__ = 'fiscal_document'
 
     fiscal_document_id: Mapped[int] = mapped_column(Integer, primary_key=True)
     creation_time: Mapped[datetime] = mapped_column(DateTime)
     modification_time: Mapped[datetime] = mapped_column(DateTime)
-    creator: Mapped[int] = mapped_column(Integer, ForeignKey("employee.employee_id"))
-    updater: Mapped[int] = mapped_column(Integer, ForeignKey("employee.employee_id"))
+    creator: Mapped[int] = mapped_column(Integer, ForeignKey('employee.employee_id'))
+    updater: Mapped[int] = mapped_column(Integer, ForeignKey('employee.employee_id'))
     issuer: Mapped[str] = mapped_column(
-        String(13), ForeignKey("taxpayer_issuer.taxpayer_issuer_id")
+        String(13), ForeignKey('taxpayer_issuer.taxpayer_issuer_id')
     )
     issuer_name: Mapped[str | None] = mapped_column(String(250))
     issuer_regime: Mapped[str | None] = mapped_column(String(3))
     issuer_regime_name: Mapped[str | None] = mapped_column(String(250))
-    issuer_address: Mapped[int | None] = mapped_column(Integer, ForeignKey("address.address_id"))
-    customer: Mapped[int] = mapped_column(Integer, ForeignKey("customer.customer_id"))
+    issuer_address: Mapped[int | None] = mapped_column(Integer, ForeignKey('address.address_id'))
+    customer: Mapped[int] = mapped_column(Integer, ForeignKey('customer.customer_id'))
     recipient: Mapped[str] = mapped_column(String(13))
     recipient_name: Mapped[str | None] = mapped_column(String(250))
-    recipient_address: Mapped[int | None] = mapped_column(Integer, ForeignKey("address.address_id"))
+    recipient_address: Mapped[int | None] = mapped_column(Integer, ForeignKey('address.address_id'))
     type: Mapped[int] = mapped_column(Integer)
-    facility: Mapped[int] = mapped_column(Integer, ForeignKey("facility.facility_id"))
+    facility: Mapped[int] = mapped_column(Integer, ForeignKey('facility.facility_id'))
     batch: Mapped[str | None] = mapped_column(String(10))
     serial: Mapped[int | None] = mapped_column(Integer)
     issued: Mapped[datetime | None] = mapped_column(DateTime)
-    issued_at: Mapped[int | None] = mapped_column(Integer, ForeignKey("address.address_id"))
+    issued_at: Mapped[int | None] = mapped_column(Integer, ForeignKey('address.address_id'))
     issued_location: Mapped[str] = mapped_column(String(250))
     # bit(1) in DB
     completed: Mapped[bool] = mapped_column(Boolean)
@@ -87,7 +87,7 @@ class FiscalDocument(Base):
     currency: Mapped[CurrencyCode] = mapped_column(Integer)
     payment_terms: Mapped[int] = mapped_column(Integer)
     usage: Mapped[str | None] = mapped_column(
-        String(3), ForeignKey("sat_cfdi_usage.sat_cfdi_usage_id")
+        String(3), ForeignKey('sat_cfdi_usage.sat_cfdi_usage_id')
     )
     comment: Mapped[str | None] = mapped_column(String(1000))
     stamped: Mapped[datetime | None] = mapped_column(DateTime)
@@ -107,21 +107,21 @@ class FiscalDocument(Base):
 
 
 class FiscalDocumentDetail(Base):
-    __tablename__ = "fiscal_document_detail"
+    __tablename__ = 'fiscal_document_detail'
 
     fiscal_document_detail_id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    document: Mapped[int] = mapped_column(Integer, ForeignKey("fiscal_document.fiscal_document_id"))
-    product: Mapped[int] = mapped_column(Integer, ForeignKey("product.product_id"))
+    document: Mapped[int] = mapped_column(Integer, ForeignKey('fiscal_document.fiscal_document_id'))
+    product: Mapped[int] = mapped_column(Integer, ForeignKey('product.product_id'))
     order_detail: Mapped[int | None] = mapped_column(
-        Integer, ForeignKey("sales_order_detail.sales_order_detail_id")
+        Integer, ForeignKey('sales_order_detail.sales_order_detail_id')
     )
     product_service: Mapped[str | None] = mapped_column(
-        String(8), ForeignKey("sat_product_service.sat_product_service_id")
+        String(8), ForeignKey('sat_product_service.sat_product_service_id')
     )
     product_code: Mapped[str | None] = mapped_column(String(35))
     product_name: Mapped[str] = mapped_column(String(1000))
     unit_of_measurement: Mapped[str | None] = mapped_column(
-        String(3), ForeignKey("sat_unit_of_measurement.sat_unit_of_measurement_id")
+        String(3), ForeignKey('sat_unit_of_measurement.sat_unit_of_measurement_id')
     )
     unit_of_measurement_name: Mapped[str | None] = mapped_column(String(128))
     quantity: Mapped[Decimal] = mapped_column(Numeric(18, 4))
@@ -135,11 +135,11 @@ class FiscalDocumentDetail(Base):
 
 
 class FiscalDocumentRelation(Base):
-    __tablename__ = "fiscal_document_relation"
+    __tablename__ = 'fiscal_document_relation'
 
     fiscal_document_relation_id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    document: Mapped[int] = mapped_column(Integer, ForeignKey("fiscal_document.fiscal_document_id"))
-    relation: Mapped[int] = mapped_column(Integer, ForeignKey("fiscal_document.fiscal_document_id"))
+    document: Mapped[int] = mapped_column(Integer, ForeignKey('fiscal_document.fiscal_document_id'))
+    relation: Mapped[int] = mapped_column(Integer, ForeignKey('fiscal_document.fiscal_document_id'))
     exchange_rate: Mapped[Decimal] = mapped_column(Numeric(8, 4))
     installment: Mapped[int] = mapped_column(Integer)
     previous_balance: Mapped[Decimal] = mapped_column(Numeric(18, 2))
@@ -150,9 +150,9 @@ class FiscalDocumentRelation(Base):
 class FiscalDocumentXml(Base):
     """Stored XML blob for a stamped CFDI (PK is also FK to fiscal_document)."""
 
-    __tablename__ = "fiscal_document_xml"
+    __tablename__ = 'fiscal_document_xml'
 
     fiscal_document_xml_id: Mapped[int] = mapped_column(
-        Integer, ForeignKey("fiscal_document.fiscal_document_id"), primary_key=True
+        Integer, ForeignKey('fiscal_document.fiscal_document_id'), primary_key=True
     )
     data: Mapped[str] = mapped_column(Text)

@@ -18,7 +18,7 @@ async def list_suppliers(
     count_q = select(func.count()).select_from(Supplier)
 
     if search:
-        term = f"%{search}%"
+        term = f'%{search}%'
         condition = or_(
             Supplier.code.ilike(term),
             Supplier.name.ilike(term),

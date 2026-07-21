@@ -18,7 +18,7 @@ async def _attach_relations(db: AsyncSession, warehouses: Sequence[Warehouse]) -
     for w in warehouses:
         # Separate key, not `facility`: see the note in facility_service._attach_relations —
         # clobbering the mapped FK breaks WarehouseSummary.facility for point-of-sale responses.
-        w.__dict__["facility_detail"] = facilities_by_id.get(w.facility)
+        w.__dict__['facility_detail'] = facilities_by_id.get(w.facility)
 
 
 async def list_warehouses(
@@ -34,7 +34,7 @@ async def list_warehouses(
     count_q = select(func.count()).select_from(Warehouse)
 
     if search:
-        term = f"%{search}%"
+        term = f'%{search}%'
         condition = or_(Warehouse.code.ilike(term), Warehouse.name.ilike(term))
         base = base.where(condition)
         count_q = count_q.where(condition)

@@ -29,7 +29,7 @@ def _apply_product_filters(
     supplier: int | None,
 ) -> Select[Any]:
     if search:
-        term = f"%{search}%"
+        term = f'%{search}%'
         query = query.where(
             or_(
                 Product.code.ilike(term),
@@ -42,10 +42,10 @@ def _apply_product_filters(
 
     if label:
         labeled_products = (
-            select(product_label.c["product"])
-            .where(product_label.c["label"].in_(label))
-            .group_by(product_label.c["product"])
-            .having(func.count(func.distinct(product_label.c["label"])) == len(label))
+            select(product_label.c['product'])
+            .where(product_label.c['label'].in_(label))
+            .group_by(product_label.c['product'])
+            .having(func.count(func.distinct(product_label.c['label'])) == len(label))
         )
         query = query.where(Product.product_id.in_(labeled_products))
 
@@ -126,11 +126,11 @@ async def get_label_facets(
     )
     facet_q = (
         select(
-            product_label.c["label"].label("label_id"),
-            func.count(func.distinct(product_label.c["product"])).label("count"),
+            product_label.c['label'].label('label_id'),
+            func.count(func.distinct(product_label.c['product'])).label('count'),
         )
-        .where(product_label.c["product"].in_(matching))
-        .group_by(product_label.c["label"])
+        .where(product_label.c['product'].in_(matching))
+        .group_by(product_label.c['label'])
     )
     return (await db.execute(facet_q)).all()
 
@@ -140,8 +140,8 @@ async def _get_labels(db: AsyncSession, product_id: int) -> list[Label]:
         (
             await db.execute(
                 select(Label)
-                .join(product_label, product_label.c["label"] == Label.label_id)
-                .where(product_label.c["product"] == product_id)
+                .join(product_label, product_label.c['label'] == Label.label_id)
+                .where(product_label.c['product'] == product_id)
             )
         )
         .scalars()
@@ -151,11 +151,11 @@ async def _get_labels(db: AsyncSession, product_id: int) -> list[Label]:
 
 
 async def _set_labels(db: AsyncSession, product_id: int, label_ids: list[int]) -> None:
-    await db.execute(delete(product_label).where(product_label.c["product"] == product_id))
+    await db.execute(delete(product_label).where(product_label.c['product'] == product_id))
     if label_ids:
         await db.execute(
             insert(product_label),
-            [{"product": product_id, "label": label_id} for label_id in label_ids],
+            [{'product': product_id, 'label': label_id} for label_id in label_ids],
         )
 
 
@@ -182,7 +182,7 @@ async def _attach_unit_of_measurement(db: AsyncSession, products: Sequence[Produ
     units_by_id = {u.sat_unit_of_measurement_id: u for u in units}
     for p in products:
         unit_row = units_by_id.get(p.unit_of_measurement)
-        p.__dict__["unit_of_measurement"] = (
+        p.__dict__['unit_of_measurement'] = (
             SatUnitOfMeasurementResponse(
                 id=unit_row.sat_unit_of_measurement_id,
                 name=unit_row.name,
@@ -199,7 +199,7 @@ async def _attach_product_relations(db: AsyncSession, products: Sequence[Product
     if not products:
         return
     await _attach_unit_of_measurement(db, products)
-    key_config = SAT_CATALOG_MAP["product-services"]
+    key_config = SAT_CATALOG_MAP['product-services']
 
     key_ids = {p.key for p in products if p.key is not None}
     keys_by_id: dict[str, SatProductService] = {}
@@ -229,15 +229,15 @@ async def _attach_product_relations(db: AsyncSession, products: Sequence[Product
 
     for p in products:
         key_row = keys_by_id.get(p.key) if p.key is not None else None
-        p.__dict__["key"] = to_response(key_row, key_config) if key_row else None
-        p.__dict__["supplier"] = suppliers_by_id.get(p.supplier) if p.supplier is not None else None
+        p.__dict__['key'] = to_response(key_row, key_config) if key_row else None
+        p.__dict__['supplier'] = suppliers_by_id.get(p.supplier) if p.supplier is not None else None
 
 
 async def get_product(db: AsyncSession, product_id: int) -> Product | None:
     product = await db.get(Product, product_id)
     if product is None:
         return None
-    product.__dict__["labels"] = await _get_labels(db, product_id)
+    product.__dict__['labels'] = await _get_labels(db, product_id)
     await _attach_product_relations(db, [product])
     return product
 
@@ -249,7 +249,7 @@ async def _check_code_unique(db: AsyncSession, code: str, exclude_id: int | None
     existing = (await db.execute(q)).scalar_one_or_none()
     if existing is not None:
         raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT, detail="Product code already exists"
+            status_code=status.HTTP_409_CONFLICT, detail='Product code already exists'
         )
 
 
@@ -293,7 +293,7 @@ async def create_product(db: AsyncSession, data: ProductCreate, settings: Settin
 
     await db.commit()
     await db.refresh(product)
-    product.__dict__["labels"] = await _get_labels(db, product.product_id)
+    product.__dict__['labels'] = await _get_labels(db, product.product_id)
     await _attach_product_relations(db, [product])
     return product
 
@@ -304,7 +304,7 @@ async def update_product(db: AsyncSession, product: Product, data: ProductUpdate
         product.code = data.code
     if data.name is not None:
         product.name = data.name
-    if "photo" in data.model_fields_set:
+    if 'photo' in data.model_fields_set:
         product.photo = data.photo
     if data.sku is not None:
         product.sku = data.sku
@@ -355,7 +355,7 @@ async def update_product(db: AsyncSession, product: Product, data: ProductUpdate
 
     await db.commit()
     await db.refresh(product)
-    product.__dict__["labels"] = await _get_labels(db, product.product_id)
+    product.__dict__['labels'] = await _get_labels(db, product.product_id)
     await _attach_product_relations(db, [product])
     return product
 
@@ -370,7 +370,7 @@ async def merge_products(db: AsyncSession, req: ProductMergeRequest) -> None:
     if req.product_id == req.duplicate_id:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Cannot merge a product with itself",
+            detail='Cannot merge a product with itself',
         )
 
     # Verify both products exist
@@ -378,11 +378,11 @@ async def merge_products(db: AsyncSession, req: ProductMergeRequest) -> None:
     duplicate = await db.get(Product, req.duplicate_id)
     if canonical is None:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Canonical product not found"
+            status_code=status.HTTP_404_NOT_FOUND, detail='Canonical product not found'
         )
     if duplicate is None:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Duplicate product not found"
+            status_code=status.HTTP_404_NOT_FOUND, detail='Duplicate product not found'
         )
 
     from sqlalchemy import text
@@ -390,17 +390,17 @@ async def merge_products(db: AsyncSession, req: ProductMergeRequest) -> None:
     # Remap FK references across all transactional tables using raw UPDATE statements.
     # We use text() because these tables may not all have ORM models defined yet.
     tables_and_columns: list[tuple[str, str]] = [
-        ("sales_order_detail", "product"),
-        ("purchase_order_detail", "product"),
-        ("inventory_receipt_detail", "product"),
-        ("inventory_issue_detail", "product"),
-        ("inventory_transfer_detail", "product"),
-        ("lot_serial_tracking", "product"),
+        ('sales_order_detail', 'product'),
+        ('purchase_order_detail', 'product'),
+        ('inventory_receipt_detail', 'product'),
+        ('inventory_issue_detail', 'product'),
+        ('inventory_transfer_detail', 'product'),
+        ('lot_serial_tracking', 'product'),
     ]
     for table, col in tables_and_columns:
         await db.execute(
-            text(f"UPDATE {table} SET {col} = :canonical WHERE {col} = :duplicate"),
-            {"canonical": req.product_id, "duplicate": req.duplicate_id},
+            text(f'UPDATE {table} SET {col} = :canonical WHERE {col} = :duplicate'),
+            {'canonical': req.product_id, 'duplicate': req.duplicate_id},
         )
 
     # product_price: remove duplicate's prices (canonical already has its own rows)
@@ -408,13 +408,13 @@ async def merge_products(db: AsyncSession, req: ProductMergeRequest) -> None:
 
     # product_label junction: remap, ignoring duplicates (ON DUPLICATE KEY approach via text)
     await db.execute(
-        text("UPDATE IGNORE product_label SET product = :canonical WHERE product = :duplicate"),
-        {"canonical": req.product_id, "duplicate": req.duplicate_id},
+        text('UPDATE IGNORE product_label SET product = :canonical WHERE product = :duplicate'),
+        {'canonical': req.product_id, 'duplicate': req.duplicate_id},
     )
     # delete any remaining (already existed on canonical side)
     await db.execute(
-        text("DELETE FROM product_label WHERE product = :duplicate"),
-        {"duplicate": req.duplicate_id},
+        text('DELETE FROM product_label WHERE product = :duplicate'),
+        {'duplicate': req.duplicate_id},
     )
 
     await db.delete(duplicate)

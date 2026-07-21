@@ -12,7 +12,7 @@ from app.services import warehouse_service
 router = APIRouter()
 
 
-@router.get("", response_model=ListResponse[WarehouseResponse])
+@router.get('', response_model=ListResponse[WarehouseResponse])
 async def list_warehouses(
     search: str | None = Query(None),
     facility: int | None = Query(None),
@@ -28,7 +28,7 @@ async def list_warehouses(
     return ListResponse(items=list(items), total=total)
 
 
-@router.post("", response_model=WarehouseResponse, status_code=http_status.HTTP_201_CREATED)
+@router.post('', response_model=WarehouseResponse, status_code=http_status.HTTP_201_CREATED)
 async def create_warehouse(
     data: WarehouseCreate,
     _: CurrentUser = Depends(require_privilege(SystemObject.WAREHOUSES, AccessRight.CREATE)),
@@ -38,7 +38,7 @@ async def create_warehouse(
     return WarehouseResponse.model_validate(warehouse)
 
 
-@router.get("/{warehouse_id}", response_model=WarehouseResponse)
+@router.get('/{warehouse_id}', response_model=WarehouseResponse)
 async def get_warehouse(
     warehouse_id: int,
     _: CurrentUser = Depends(require_privilege(SystemObject.WAREHOUSES, AccessRight.READ)),
@@ -47,12 +47,12 @@ async def get_warehouse(
     warehouse = await warehouse_service.get_warehouse(db, warehouse_id)
     if warehouse is None:
         raise HTTPException(
-            status_code=http_status.HTTP_404_NOT_FOUND, detail="Warehouse not found"
+            status_code=http_status.HTTP_404_NOT_FOUND, detail='Warehouse not found'
         )
     return WarehouseResponse.model_validate(warehouse)
 
 
-@router.put("/{warehouse_id}", response_model=WarehouseResponse)
+@router.put('/{warehouse_id}', response_model=WarehouseResponse)
 async def update_warehouse(
     warehouse_id: int,
     data: WarehouseUpdate,
@@ -62,13 +62,13 @@ async def update_warehouse(
     warehouse = await warehouse_service.get_warehouse(db, warehouse_id)
     if warehouse is None:
         raise HTTPException(
-            status_code=http_status.HTTP_404_NOT_FOUND, detail="Warehouse not found"
+            status_code=http_status.HTTP_404_NOT_FOUND, detail='Warehouse not found'
         )
     warehouse = await warehouse_service.update_warehouse(db, warehouse, data)
     return WarehouseResponse.model_validate(warehouse)
 
 
-@router.delete("/{warehouse_id}", status_code=http_status.HTTP_204_NO_CONTENT)
+@router.delete('/{warehouse_id}', status_code=http_status.HTTP_204_NO_CONTENT)
 async def delete_warehouse(
     warehouse_id: int,
     _: CurrentUser = Depends(require_privilege(SystemObject.WAREHOUSES, AccessRight.DELETE)),
@@ -77,6 +77,6 @@ async def delete_warehouse(
     warehouse = await warehouse_service.get_warehouse(db, warehouse_id)
     if warehouse is None:
         raise HTTPException(
-            status_code=http_status.HTTP_404_NOT_FOUND, detail="Warehouse not found"
+            status_code=http_status.HTTP_404_NOT_FOUND, detail='Warehouse not found'
         )
     await warehouse_service.delete_warehouse(db, warehouse)

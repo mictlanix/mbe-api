@@ -10,7 +10,7 @@ from app.services import expense_service
 router = APIRouter()
 
 
-@router.get("", response_model=ListResponse[ExpenseResponse])
+@router.get('', response_model=ListResponse[ExpenseResponse])
 async def list_expenses(
     search: str | None = Query(None),
     skip: int = Query(0, ge=0),
@@ -22,7 +22,7 @@ async def list_expenses(
     return ListResponse(items=list(items), total=total)
 
 
-@router.post("", response_model=ExpenseResponse, status_code=status.HTTP_201_CREATED)
+@router.post('', response_model=ExpenseResponse, status_code=status.HTTP_201_CREATED)
 async def create_expense(
     data: ExpenseCreate,
     _: CurrentUser = Depends(get_current_user),
@@ -32,7 +32,7 @@ async def create_expense(
     return ExpenseResponse.model_validate(expense)
 
 
-@router.get("/{expense_id}", response_model=ExpenseResponse)
+@router.get('/{expense_id}', response_model=ExpenseResponse)
 async def get_expense(
     expense_id: int,
     _: CurrentUser = Depends(get_current_user),
@@ -40,11 +40,11 @@ async def get_expense(
 ) -> ExpenseResponse:
     expense = await expense_service.get_expense(db, expense_id)
     if expense is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Expense not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Expense not found')
     return ExpenseResponse.model_validate(expense)
 
 
-@router.put("/{expense_id}", response_model=ExpenseResponse)
+@router.put('/{expense_id}', response_model=ExpenseResponse)
 async def update_expense(
     expense_id: int,
     data: ExpenseUpdate,
@@ -53,12 +53,12 @@ async def update_expense(
 ) -> ExpenseResponse:
     expense = await expense_service.get_expense(db, expense_id)
     if expense is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Expense not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Expense not found')
     expense = await expense_service.update_expense(db, expense, data)
     return ExpenseResponse.model_validate(expense)
 
 
-@router.delete("/{expense_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete('/{expense_id}', status_code=status.HTTP_204_NO_CONTENT)
 async def delete_expense(
     expense_id: int,
     _: CurrentUser = Depends(get_current_user),
@@ -66,5 +66,5 @@ async def delete_expense(
 ) -> None:
     expense = await expense_service.get_expense(db, expense_id)
     if expense is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Expense not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Expense not found')
     await expense_service.delete_expense(db, expense)

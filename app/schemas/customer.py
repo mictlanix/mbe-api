@@ -42,7 +42,7 @@ class CustomerCreate(BaseModel):
     code: str
     name: str
     zone: str | None = None
-    credit_limit: Decimal = Decimal("0")
+    credit_limit: Decimal = Decimal('0')
     credit_days: int = 0
     price_list: int
     shipping: bool = False
@@ -51,11 +51,11 @@ class CustomerCreate(BaseModel):
     status: EntityStatus = EntityStatus.ACTIVE
     comment: str | None = None
 
-    @field_validator("code")
+    @field_validator('code')
     @classmethod
     def validate_code(cls, v: str) -> str:
         if not v.strip():
-            raise ValueError("Code must not be blank")
+            raise ValueError('Code must not be blank')
         return v
 
 
