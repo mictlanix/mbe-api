@@ -7,6 +7,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Fixed
+- CSD upload stores `valid_from`/`valid_to` as Mexico City local time, matching the rows the legacy system wrote, instead of the UTC read off the certificate. Uploaded certificates were landing 6 hours ahead of every existing row in the same columns, so a certificate would have read as expiring 6 hours late. Found by running the parser against the real certificates in `mbe_demo`: certificate number, RFC and key/password validation reproduced the stored values exactly, the validity window did not
+- `tzdata` added as a dependency, so the timezone lookup does not depend on the host carrying a system tz database
 - FK expansion no longer overwrites the mapped column it expands, in the seven services that still did — cash drawers, payment method options, customers, vehicle operators, products, product prices and taxpayer recipients. The resolved object now lands on a `<column>_detail` key and the response field reads it through `AliasChoices`, so an instance shared through the session identity map keeps its raw FK for every other reader (#104, completing the fix #95 started). Response payloads are unchanged — verified by diffing the generated OpenAPI spec
 - `product_price_service._price_list_id`, a workaround that read the FK id back off an already-clobbered attribute (#75), is removed as no longer needed
 
