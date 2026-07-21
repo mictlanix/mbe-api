@@ -18,6 +18,7 @@ from app.api.v1.endpoints import (
     products,
     sat_catalogs,
     suppliers,
+    taxpayer_certificates,
     taxpayer_issuers,
     taxpayer_recipients,
     users,
@@ -37,6 +38,9 @@ api_router.include_router(customers.router, prefix='/customers', tags=['customer
 api_router.include_router(labels.router, prefix='/labels', tags=['labels'])
 api_router.include_router(
     taxpayer_issuers.router, prefix='/taxpayer-issuers', tags=['taxpayer-issuers']
+)
+api_router.include_router(
+    taxpayer_certificates.router, prefix='/taxpayer-certificates', tags=['taxpayer-certificates']
 )
 api_router.include_router(
     taxpayer_recipients.router, prefix='/taxpayer-recipients', tags=['taxpayer-recipients']

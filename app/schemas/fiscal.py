@@ -1,6 +1,8 @@
+from datetime import datetime
+
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field
 
-from app.enums import FiscalCertificationProvider
+from app.enums import EntityStatus, FiscalCertificationProvider
 from app.schemas.sat_catalog import SatCatalogResponse
 
 # ── Taxpayer Issuer ───────────────────────────────────────────────────────────
@@ -36,3 +38,19 @@ class TaxpayerIssuerResponse(BaseModel):
         validation_alias=AliasChoices('postal_code_detail', 'postal_code')
     )
     comment: str | None
+
+
+# ── Taxpayer Certificate ──────────────────────────────────────────────────────
+
+
+class TaxpayerCertificateResponse(BaseModel):
+    """Metadata only. `certificate_data`, `key_data` and `key_password` hold the uploaded
+    CSD binaries and its raw password, and are never returned by the API."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    taxpayer_certificate_id: str
+    taxpayer: str
+    valid_from: datetime
+    valid_to: datetime
+    status: EntityStatus
