@@ -4,7 +4,7 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.enums import EntityStatus
-from app.models.core import Facility
+from app.models.core import Address, Facility
 from app.models.sat_catalog import SatPostalCode
 from app.schemas.core import FacilityCreate, FacilityUpdate
 from app.services.fk_expansion import batch_fetch
@@ -18,6 +18,9 @@ async def _attach_relations(db: AsyncSession, facilities: Sequence[Facility]) ->
     postal_codes_by_id = await batch_fetch(
         db, SatPostalCode, SatPostalCode.sat_postal_code_id, (f.location for f in facilities)
     )
+    addresses_by_id = await batch_fetch(
+        db, Address, Address.address_id, (f.address for f in facilities)
+    )
     for f in facilities:
         postal_row = postal_codes_by_id.get(f.location)
         # Written under a separate key: `location` is a mapped column and these instances are
@@ -26,6 +29,7 @@ async def _attach_relations(db: AsyncSession, facilities: Sequence[Facility]) ->
         f.__dict__['location_detail'] = (
             to_response(postal_row, postal_config) if postal_row else None
         )
+        f.__dict__['address_detail'] = addresses_by_id.get(f.address)
 
 
 async def list_facilities(

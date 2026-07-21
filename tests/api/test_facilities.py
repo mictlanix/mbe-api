@@ -60,10 +60,32 @@ def _facility_summary(facility_id: int = 1) -> SimpleNamespace:
     )
 
 
+def _address(address_id: int = 1) -> SimpleNamespace:
+    return SimpleNamespace(
+        address_id=address_id,
+        nickname=None,
+        type=0,
+        street='Reforma',
+        exterior_number='100',
+        interior_number=None,
+        postal_code='06000',
+        neighborhood='Centro',
+        locality=None,
+        borough='Cuauhtemoc',
+        state='CDMX',
+        city=None,
+        country='MEX',
+        url_address=None,
+        comment=None,
+        status=0,
+    )
+
+
 def _facility(facility_id: int = 1) -> SimpleNamespace:
-    """Top-level Facility shape (as returned by /facilities) — location expanded to a SAT object."""
+    """Top-level Facility shape (as returned by /facilities) — location and address expanded."""
     summary = _facility_summary(facility_id)
     summary.location = {'id': '06000', 'description': 'CDMX'}
+    summary.address = _address()
     return summary
 
 

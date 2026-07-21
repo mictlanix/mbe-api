@@ -7,8 +7,8 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from app.enums import EntityStatus, FacilityType
-from app.models.core import Facility, Warehouse
+from app.enums import AddressType, EntityStatus, FacilityType
+from app.models.core import Address, Facility, Warehouse
 from app.models.sat_catalog import SatPostalCode
 from app.schemas.core import (
     FacilityResponse,
@@ -19,12 +19,38 @@ from app.schemas.core import (
 from app.services import facility_service, warehouse_service
 
 
-def _db_returning(rows: list) -> AsyncMock:
-    result = MagicMock()
-    result.scalars.return_value.all.return_value = rows
+def _db_returning(*batches: list) -> AsyncMock:
+    """A db whose successive `execute` calls return the given row batches in order."""
+
+    def _result(rows: list) -> MagicMock:
+        result = MagicMock()
+        result.scalars.return_value.all.return_value = rows
+        return result
+
     db = AsyncMock()
-    db.execute = AsyncMock(return_value=result)
+    db.execute = AsyncMock(side_effect=[_result(rows) for rows in batches])
     return db
+
+
+def _address() -> Address:
+    return Address(
+        address_id=1,
+        nickname=None,
+        type=AddressType.OTHER,
+        street='Reforma',
+        exterior_number='100',
+        interior_number=None,
+        postal_code='55620',
+        neighborhood='Centro',
+        locality=None,
+        borough='Cuauhtemoc',
+        state='CDMX',
+        city=None,
+        country='MEX',
+        url_address=None,
+        comment=None,
+        status=EntityStatus.ACTIVE,
+    )
 
 
 def _facility() -> Facility:
@@ -46,15 +72,19 @@ def _facility() -> Facility:
 @pytest.mark.asyncio
 async def test_facility_expansion_leaves_mapped_location_intact() -> None:
     facility = _facility()
-    db = _db_returning([SatPostalCode(sat_postal_code_id='55620', state='MEX')])
+    db = _db_returning([SatPostalCode(sat_postal_code_id='55620', state='MEX')], [_address()])
 
     await facility_service._attach_relations(db, [facility])
 
     # the mapped column still holds the raw FK, so FacilitySummary keeps working
     assert facility.location == '55620'
     assert FacilitySummary.model_validate(facility).location == '55620'
-    # and the expanded value is reachable for the detail response
-    assert FacilityResponse.model_validate(facility).location.id == '55620'
+    assert facility.address == 1
+    assert FacilitySummary.model_validate(facility).address == 1
+    # and the expanded values are reachable for the detail response
+    response = FacilityResponse.model_validate(facility)
+    assert response.location.id == '55620'
+    assert response.address.address_id == 1
 
 
 @pytest.mark.asyncio
@@ -84,7 +114,8 @@ async def test_expanded_facility_does_not_corrupt_an_embedding_warehouse() -> No
     facility = _facility()
 
     await facility_service._attach_relations(
-        _db_returning([SatPostalCode(sat_postal_code_id='55620', state='MEX')]), [facility]
+        _db_returning([SatPostalCode(sat_postal_code_id='55620', state='MEX')], [_address()]),
+        [facility],
     )
     warehouse = Warehouse(
         warehouse_id=1,

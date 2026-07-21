@@ -5,7 +5,7 @@ from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, LargeBinary, Nume
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
-from app.enums import CurrencyCode, EntityStatus
+from app.enums import CurrencyCode, EntityStatus, FiscalCertificationProvider
 
 
 class TaxpayerIssuer(Base):
@@ -14,7 +14,7 @@ class TaxpayerIssuer(Base):
     taxpayer_issuer_id: Mapped[str] = mapped_column(String(13), primary_key=True)
     name: Mapped[str | None] = mapped_column(String(250))
     regime: Mapped[str] = mapped_column(String(3), ForeignKey('sat_tax_regime.sat_tax_regime_id'))
-    provider: Mapped[int] = mapped_column(Integer)
+    provider: Mapped[FiscalCertificationProvider] = mapped_column(Integer)
     comment: Mapped[str | None] = mapped_column(String(500))
     postal_code: Mapped[str | None] = mapped_column(
         String(5), ForeignKey('sat_postal_code.sat_postal_code_id')

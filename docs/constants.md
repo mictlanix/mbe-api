@@ -122,7 +122,7 @@ Exposed as the `?status=<0\|1\|2>` filter on every list endpoint that carries it
 
 ## FiscalCertificationProvider
 
-**File**: `Model/Constants/FiscalCertificationProvider.cs`  
+**File**: `Model/Constants/FiscalCertificationProvider.cs` — now `FiscalCertificationProvider` in `app/enums.py`  
 **DB column**: `taxpayer_issuer.provider`
 
 PAC (Proveedor Autorizado de Certificación) integrations for CFDI stamping.
