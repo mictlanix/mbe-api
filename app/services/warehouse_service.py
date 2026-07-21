@@ -16,7 +16,9 @@ async def _attach_relations(db: AsyncSession, warehouses: Sequence[Warehouse]) -
         db, Facility, Facility.facility_id, (w.facility for w in warehouses)
     )
     for w in warehouses:
-        w.__dict__["facility"] = facilities_by_id.get(w.facility)
+        # Separate key, not `facility`: see the note in facility_service._attach_relations —
+        # clobbering the mapped FK breaks WarehouseSummary.facility for point-of-sale responses.
+        w.__dict__["facility_detail"] = facilities_by_id.get(w.facility)
 
 
 async def list_warehouses(

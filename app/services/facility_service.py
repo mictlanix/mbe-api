@@ -20,7 +20,12 @@ async def _attach_relations(db: AsyncSession, facilities: Sequence[Facility]) ->
     )
     for f in facilities:
         postal_row = postal_codes_by_id.get(f.location)
-        f.__dict__["location"] = to_response(postal_row, postal_config) if postal_row else None
+        # Written under a separate key: `location` is a mapped column and these instances are
+        # shared through the session identity map, so overwriting it corrupts every other
+        # response that reads the raw FK (FacilitySummary.location).
+        f.__dict__["location_detail"] = (
+            to_response(postal_row, postal_config) if postal_row else None
+        )
 
 
 async def list_facilities(
