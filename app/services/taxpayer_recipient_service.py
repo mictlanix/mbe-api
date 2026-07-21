@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.customer import TaxpayerRecipient
 from app.models.sat_catalog import SatPostalCode, SatTaxRegime
 from app.schemas.customer import TaxpayerRecipientCreate, TaxpayerRecipientUpdate
+from app.services.references import assert_not_referenced
 from app.services.sat_catalog_service import SAT_CATALOG_MAP, to_response
 
 
@@ -122,5 +123,6 @@ async def update_taxpayer_recipient(
 
 
 async def delete_taxpayer_recipient(db: AsyncSession, tr: TaxpayerRecipient) -> None:
+    await assert_not_referenced(db, tr)
     await db.delete(tr)
     await db.commit()

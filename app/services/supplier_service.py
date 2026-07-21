@@ -5,6 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.supplier import Supplier
 from app.schemas.supplier import SupplierCreate, SupplierUpdate
+from app.services.references import assert_not_referenced
 
 
 async def list_suppliers(
@@ -70,5 +71,6 @@ async def update_supplier(db: AsyncSession, supplier: Supplier, data: SupplierUp
 
 
 async def delete_supplier(db: AsyncSession, supplier: Supplier) -> None:
+    await assert_not_referenced(db, supplier)
     await db.delete(supplier)
     await db.commit()

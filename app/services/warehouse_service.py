@@ -7,6 +7,7 @@ from app.enums import EntityStatus
 from app.models.core import Facility, Warehouse
 from app.schemas.core import WarehouseCreate, WarehouseUpdate
 from app.services.fk_expansion import batch_fetch
+from app.services.references import assert_not_referenced, assert_unique
 
 
 async def _attach_relations(db: AsyncSession, warehouses: Sequence[Warehouse]) -> None:
@@ -61,6 +62,7 @@ async def get_warehouse(db: AsyncSession, warehouse_id: int) -> Warehouse | None
 
 
 async def create_warehouse(db: AsyncSession, data: WarehouseCreate) -> Warehouse:
+    await assert_unique(db, Warehouse, Warehouse.code, data.code, label='Warehouse code')
     warehouse = Warehouse(
         facility=data.facility,
         code=data.code,
@@ -78,6 +80,15 @@ async def create_warehouse(db: AsyncSession, data: WarehouseCreate) -> Warehouse
 async def update_warehouse(
     db: AsyncSession, warehouse: Warehouse, data: WarehouseUpdate
 ) -> Warehouse:
+    if data.code is not None:
+        await assert_unique(
+            db,
+            Warehouse,
+            Warehouse.code,
+            data.code,
+            exclude_pk=warehouse.warehouse_id,
+            label='Warehouse code',
+        )
     if data.facility is not None:
         warehouse.facility = data.facility
     if data.code is not None:
@@ -95,5 +106,6 @@ async def update_warehouse(
 
 
 async def delete_warehouse(db: AsyncSession, warehouse: Warehouse) -> None:
+    await assert_not_referenced(db, warehouse)
     await db.delete(warehouse)
     await db.commit()

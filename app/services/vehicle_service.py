@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.enums import EntityStatus
 from app.models.core import Vehicle
 from app.schemas.core import VehicleCreate, VehicleUpdate
+from app.services.references import assert_not_referenced, assert_unique
 
 
 async def list_vehicles(
@@ -43,6 +44,9 @@ async def get_vehicle(db: AsyncSession, vehicle_id: int) -> Vehicle | None:
 
 
 async def create_vehicle(db: AsyncSession, data: VehicleCreate) -> Vehicle:
+    await assert_unique(
+        db, Vehicle, Vehicle.license_plate, data.license_plate, label='License plate'
+    )
     vehicle = Vehicle(
         license_plate=data.license_plate,
         name=data.name,
@@ -57,6 +61,15 @@ async def create_vehicle(db: AsyncSession, data: VehicleCreate) -> Vehicle:
 
 
 async def update_vehicle(db: AsyncSession, vehicle: Vehicle, data: VehicleUpdate) -> Vehicle:
+    if data.license_plate is not None:
+        await assert_unique(
+            db,
+            Vehicle,
+            Vehicle.license_plate,
+            data.license_plate,
+            exclude_pk=vehicle.vehicle_id,
+            label='License plate',
+        )
     if data.license_plate is not None:
         vehicle.license_plate = data.license_plate
     if data.name is not None:
@@ -73,5 +86,6 @@ async def update_vehicle(db: AsyncSession, vehicle: Vehicle, data: VehicleUpdate
 
 
 async def delete_vehicle(db: AsyncSession, vehicle: Vehicle) -> None:
+    await assert_not_referenced(db, vehicle)
     await db.delete(vehicle)
     await db.commit()

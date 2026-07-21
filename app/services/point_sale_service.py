@@ -8,6 +8,7 @@ from app.enums import EntityStatus
 from app.models.core import Facility, PointSale, Warehouse
 from app.schemas.core import PointSaleCreate, PointSaleUpdate
 from app.services.fk_expansion import batch_fetch
+from app.services.references import assert_not_referenced, assert_unique
 
 
 async def _attach_relations(db: AsyncSession, point_sales: Sequence[PointSale]) -> None:
@@ -80,6 +81,7 @@ async def _validate_warehouse_facility(db: AsyncSession, facility: int, warehous
 
 
 async def create_point_sale(db: AsyncSession, data: PointSaleCreate) -> PointSale:
+    await assert_unique(db, PointSale, PointSale.code, data.code, label='Point of sale code')
     await _validate_warehouse_facility(db, data.facility, data.warehouse)
     ps = PointSale(
         facility=data.facility,
@@ -97,6 +99,15 @@ async def create_point_sale(db: AsyncSession, data: PointSaleCreate) -> PointSal
 
 
 async def update_point_sale(db: AsyncSession, ps: PointSale, data: PointSaleUpdate) -> PointSale:
+    if data.code is not None:
+        await assert_unique(
+            db,
+            PointSale,
+            PointSale.code,
+            data.code,
+            exclude_pk=ps.point_sale_id,
+            label='Point of sale code',
+        )
     if data.facility is not None or data.warehouse is not None:
         await _validate_warehouse_facility(
             db,
@@ -122,5 +133,6 @@ async def update_point_sale(db: AsyncSession, ps: PointSale, data: PointSaleUpda
 
 
 async def delete_point_sale(db: AsyncSession, ps: PointSale) -> None:
+    await assert_not_referenced(db, ps)
     await db.delete(ps)
     await db.commit()

@@ -8,6 +8,7 @@ from app.core.security import create_recovery_token, sha1_hash, verify_password
 from app.enums import EntityStatus, SystemObject
 from app.models.user import AccessPrivilege, User, UserSettings
 from app.schemas.user import UserCreate, UserSettingsUpdate, UserUpdate
+from app.services.references import assert_not_referenced
 
 
 async def get_user(db: AsyncSession, user_id: str) -> User | None:
@@ -99,6 +100,7 @@ async def update_user(db: AsyncSession, user: User, data: UserUpdate) -> User:
 
 
 async def delete_user(db: AsyncSession, user: User) -> None:
+    await assert_not_referenced(db, user, exempt=frozenset({'user_settings', 'access_privilege'}))
     # ORM cascade (all, delete-orphan) handles: user_settings → access_privilege → user
     await db.delete(user)
     await db.commit()

@@ -1,19 +1,15 @@
 from collections.abc import Sequence
 
-from fastapi import HTTPException, status
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.core import Facility
 from app.models.fiscal import (
-    FiscalDocument,
-    TaxpayerBatch,
-    TaxpayerCertificate,
     TaxpayerIssuer,
 )
 from app.models.sat_catalog import SatPostalCode, SatTaxRegime
 from app.schemas.fiscal import TaxpayerIssuerCreate, TaxpayerIssuerUpdate
 from app.services.fk_expansion import batch_fetch
+from app.services.references import assert_not_referenced
 from app.services.sat_catalog_service import SAT_CATALOG_MAP, to_response
 
 
@@ -110,25 +106,6 @@ async def update_taxpayer_issuer(
 
 
 async def delete_taxpayer_issuer(db: AsyncSession, issuer: TaxpayerIssuer) -> None:
-    """Refuse to delete an issuer still referenced elsewhere.
-
-    The FK would reject it anyway, but as a driver-level IntegrityError surfacing as a 500.
-    """
-    for label, model, column in (
-        ('facilities', Facility, Facility.taxpayer),
-        ('certificates', TaxpayerCertificate, TaxpayerCertificate.taxpayer),
-        ('fiscal batches', TaxpayerBatch, TaxpayerBatch.taxpayer),
-        ('fiscal documents', FiscalDocument, FiscalDocument.issuer),
-    ):
-        count: int = (
-            await db.execute(
-                select(func.count()).select_from(model).where(column == issuer.taxpayer_issuer_id)
-            )
-        ).scalar_one()
-        if count:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail=f'Taxpayer issuer is referenced by {count} {label}',
-            )
+    await assert_not_referenced(db, issuer)
     await db.delete(issuer)
     await db.commit()

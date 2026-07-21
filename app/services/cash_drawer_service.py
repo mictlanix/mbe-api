@@ -7,6 +7,7 @@ from app.enums import EntityStatus
 from app.models.core import CashDrawer, Facility
 from app.schemas.core import CashDrawerCreate, CashDrawerUpdate
 from app.services.fk_expansion import batch_fetch
+from app.services.references import assert_not_referenced, assert_unique
 
 
 async def _attach_relations(db: AsyncSession, cash_drawers: Sequence[CashDrawer]) -> None:
@@ -58,6 +59,7 @@ async def get_cash_drawer(db: AsyncSession, cash_drawer_id: int) -> CashDrawer |
 
 
 async def create_cash_drawer(db: AsyncSession, data: CashDrawerCreate) -> CashDrawer:
+    await assert_unique(db, CashDrawer, CashDrawer.code, data.code, label='Cash drawer code')
     cd = CashDrawer(
         facility=data.facility,
         code=data.code,
@@ -75,6 +77,15 @@ async def create_cash_drawer(db: AsyncSession, data: CashDrawerCreate) -> CashDr
 async def update_cash_drawer(
     db: AsyncSession, cd: CashDrawer, data: CashDrawerUpdate
 ) -> CashDrawer:
+    if data.code is not None:
+        await assert_unique(
+            db,
+            CashDrawer,
+            CashDrawer.code,
+            data.code,
+            exclude_pk=cd.cash_drawer_id,
+            label='Cash drawer code',
+        )
     if data.facility is not None:
         cd.facility = data.facility
     if data.code is not None:
@@ -92,5 +103,6 @@ async def update_cash_drawer(
 
 
 async def delete_cash_drawer(db: AsyncSession, cd: CashDrawer) -> None:
+    await assert_not_referenced(db, cd)
     await db.delete(cd)
     await db.commit()

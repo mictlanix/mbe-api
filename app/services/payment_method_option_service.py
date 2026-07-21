@@ -7,6 +7,7 @@ from app.enums import EntityStatus
 from app.models.core import Facility, PaymentMethodOption, Warehouse
 from app.schemas.core import PaymentMethodOptionCreate, PaymentMethodOptionUpdate
 from app.services.fk_expansion import batch_fetch
+from app.services.references import assert_not_referenced
 
 
 async def _attach_relations(db: AsyncSession, options: Sequence[PaymentMethodOption]) -> None:
@@ -107,5 +108,6 @@ async def update_payment_method_option(
 
 
 async def delete_payment_method_option(db: AsyncSession, pmo: PaymentMethodOption) -> None:
+    await assert_not_referenced(db, pmo)
     await db.delete(pmo)
     await db.commit()
