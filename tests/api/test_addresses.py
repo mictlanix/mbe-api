@@ -75,9 +75,7 @@ async def test_list_addresses_returns_200() -> None:
 @pytest.mark.asyncio
 async def test_get_address_returns_200() -> None:
     _auth()
-    with patch(
-        "app.services.address_service.get_address", new=AsyncMock(return_value=_address())
-    ):
+    with patch("app.services.address_service.get_address", new=AsyncMock(return_value=_address())):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
             r = await c.get("/api/v1/addresses/1")
     assert r.status_code == 200
@@ -103,8 +101,12 @@ async def test_create_address_returns_201() -> None:
             r = await c.post(
                 "/api/v1/addresses",
                 json={
-                    "street": "Main St", "exterior_number": "123", "postal_code": "06000",
-                    "neighborhood": "Centro", "borough": "Cuauhtemoc", "state": "CDMX",
+                    "street": "Main St",
+                    "exterior_number": "123",
+                    "postal_code": "06000",
+                    "neighborhood": "Centro",
+                    "borough": "Cuauhtemoc",
+                    "state": "CDMX",
                     "country": "MX",
                 },
             )
@@ -119,12 +121,8 @@ async def test_update_address_returns_200() -> None:
     updated = _address()
     updated.street = "Second St"
     with (
-        patch(
-            "app.services.address_service.get_address", new=AsyncMock(return_value=_address())
-        ),
-        patch(
-            "app.services.address_service.update_address", new=AsyncMock(return_value=updated)
-        ),
+        patch("app.services.address_service.get_address", new=AsyncMock(return_value=_address())),
+        patch("app.services.address_service.update_address", new=AsyncMock(return_value=updated)),
     ):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
             r = await c.put("/api/v1/addresses/1", json={"street": "Second St"})
@@ -145,9 +143,7 @@ async def test_update_address_returns_404() -> None:
 async def test_delete_address_returns_204() -> None:
     _auth()
     with (
-        patch(
-            "app.services.address_service.get_address", new=AsyncMock(return_value=_address())
-        ),
+        patch("app.services.address_service.get_address", new=AsyncMock(return_value=_address())),
         patch("app.services.address_service.delete_address", new=AsyncMock(return_value=None)),
     ):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:

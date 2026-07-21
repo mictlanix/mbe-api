@@ -19,8 +19,10 @@ async def _attach_price_list(db: AsyncSession, prices: Sequence[ProductPrice]) -
     if not list_ids:
         return
     price_lists = (
-        await db.execute(select(PriceList).where(PriceList.price_list_id.in_(list_ids)))
-    ).scalars().all()
+        (await db.execute(select(PriceList).where(PriceList.price_list_id.in_(list_ids))))
+        .scalars()
+        .all()
+    )
     by_id = {pl.price_list_id: pl for pl in price_lists}
     for pp in prices:
         pp.__dict__["price_list"] = by_id.get(_price_list_id(pp))
@@ -62,9 +64,7 @@ async def create_product_price(db: AsyncSession, data: ProductPriceCreate) -> Pr
     if await db.get(Product, data.product) is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Product not found")
     if await db.get(PriceList, data.price_list) is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Price list not found"
-        )
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Price list not found")
 
     existing = (
         await db.execute(

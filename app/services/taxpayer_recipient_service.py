@@ -19,20 +19,28 @@ async def _attach_relations(db: AsyncSession, recipients: Sequence[TaxpayerRecip
     postal_codes_by_id: dict[str, SatPostalCode] = {}
     if postal_ids:
         rows = (
-            await db.execute(
-                select(SatPostalCode).where(SatPostalCode.sat_postal_code_id.in_(postal_ids))
+            (
+                await db.execute(
+                    select(SatPostalCode).where(SatPostalCode.sat_postal_code_id.in_(postal_ids))
+                )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
         postal_codes_by_id = {p.sat_postal_code_id: p for p in rows}
 
     regime_ids = {r.regime for r in recipients if r.regime is not None}
     regimes_by_id: dict[str, SatTaxRegime] = {}
     if regime_ids:
         rows = (
-            await db.execute(
-                select(SatTaxRegime).where(SatTaxRegime.sat_tax_regime_id.in_(regime_ids))
+            (
+                await db.execute(
+                    select(SatTaxRegime).where(SatTaxRegime.sat_tax_regime_id.in_(regime_ids))
+                )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
         regimes_by_id = {r.sat_tax_regime_id: r for r in rows}
 
     for r in recipients:

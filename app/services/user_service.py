@@ -78,11 +78,13 @@ async def update_user(db: AsyncSession, user: User, data: UserUpdate) -> User:
             if entry.system_object in existing:
                 existing[entry.system_object].privileges = entry.privileges
             else:
-                db.add(AccessPrivilege(
-                    user_id=user.user_id,
-                    system_object=entry.system_object,
-                    privileges=entry.privileges,
-                ))
+                db.add(
+                    AccessPrivilege(
+                        user_id=user.user_id,
+                        system_object=entry.system_object,
+                        privileges=entry.privileges,
+                    )
+                )
 
     if data.settings is not None:
         await _apply_settings(db, user, data.settings)

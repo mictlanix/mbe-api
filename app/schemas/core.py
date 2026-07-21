@@ -2,7 +2,7 @@ import datetime as dt
 from datetime import datetime
 from decimal import Decimal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.enums import AddressType, EntityStatus, FacilityType
 from app.schemas.sat_catalog import SatCatalogResponse
@@ -196,7 +196,9 @@ class FacilityResponse(BaseModel):
     code: str
     name: str
     type: FacilityType
-    location: SatCatalogResponse
+    location: SatCatalogResponse = Field(
+        validation_alias=AliasChoices("location_detail", "location")
+    )
     address: int
     taxpayer: str
     logo: str | None
@@ -243,7 +245,7 @@ class WarehouseResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     warehouse_id: int
-    facility: FacilitySummary
+    facility: FacilitySummary = Field(validation_alias=AliasChoices("facility_detail", "facility"))
     code: str
     name: str
     comment: str | None

@@ -120,9 +120,7 @@ async def test_list_price_lists_returns_200() -> None:
 @pytest.mark.asyncio
 async def test_get_price_list_returns_200() -> None:
     _auth()
-    with patch(
-        "app.services.price_list_service.get_price_list", new=AsyncMock(return_value=_pl())
-    ):
+    with patch("app.services.price_list_service.get_price_list", new=AsyncMock(return_value=_pl())):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
             r = await c.get("/api/v1/price-lists/1")
     assert r.status_code == 200
@@ -132,9 +130,7 @@ async def test_get_price_list_returns_200() -> None:
 @pytest.mark.asyncio
 async def test_get_price_list_returns_404() -> None:
     _auth()
-    with patch(
-        "app.services.price_list_service.get_price_list", new=AsyncMock(return_value=None)
-    ):
+    with patch("app.services.price_list_service.get_price_list", new=AsyncMock(return_value=None)):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
             r = await c.get("/api/v1/price-lists/999")
     assert r.status_code == 404
@@ -161,9 +157,7 @@ async def test_update_price_list_returns_200() -> None:
     updated = _pl()
     updated.name = "Wholesale"
     with (
-        patch(
-            "app.services.price_list_service.get_price_list", new=AsyncMock(return_value=_pl())
-        ),
+        patch("app.services.price_list_service.get_price_list", new=AsyncMock(return_value=_pl())),
         patch(
             "app.services.price_list_service.update_price_list",
             new=AsyncMock(return_value=updated),
@@ -178,9 +172,7 @@ async def test_update_price_list_returns_200() -> None:
 @pytest.mark.asyncio
 async def test_update_price_list_returns_404() -> None:
     _auth()
-    with patch(
-        "app.services.price_list_service.get_price_list", new=AsyncMock(return_value=None)
-    ):
+    with patch("app.services.price_list_service.get_price_list", new=AsyncMock(return_value=None)):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
             r = await c.put("/api/v1/price-lists/999", json={"name": "X"})
     assert r.status_code == 404
@@ -190,9 +182,7 @@ async def test_update_price_list_returns_404() -> None:
 async def test_delete_price_list_returns_204() -> None:
     _auth()
     with (
-        patch(
-            "app.services.price_list_service.get_price_list", new=AsyncMock(return_value=_pl())
-        ),
+        patch("app.services.price_list_service.get_price_list", new=AsyncMock(return_value=_pl())),
         patch(
             "app.services.price_list_service.delete_price_list", new=AsyncMock(return_value=None)
         ),
@@ -205,9 +195,7 @@ async def test_delete_price_list_returns_204() -> None:
 @pytest.mark.asyncio
 async def test_delete_price_list_returns_404() -> None:
     _auth()
-    with patch(
-        "app.services.price_list_service.get_price_list", new=AsyncMock(return_value=None)
-    ):
+    with patch("app.services.price_list_service.get_price_list", new=AsyncMock(return_value=None)):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
             r = await c.delete("/api/v1/price-lists/999")
     assert r.status_code == 404
@@ -253,9 +241,7 @@ async def test_list_products_resolves_photo_url() -> None:
 @pytest.mark.asyncio
 async def test_get_product_returns_200() -> None:
     _auth()
-    with patch(
-        "app.services.product_service.get_product", new=AsyncMock(return_value=_product())
-    ):
+    with patch("app.services.product_service.get_product", new=AsyncMock(return_value=_product())):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
             r = await c.get("/api/v1/products/1")
     assert r.status_code == 200
@@ -272,9 +258,7 @@ async def test_get_product_returns_labels() -> None:
     _auth()
     product = _product()
     product.labels = [_label()]
-    with patch(
-        "app.services.product_service.get_product", new=AsyncMock(return_value=product)
-    ):
+    with patch("app.services.product_service.get_product", new=AsyncMock(return_value=product)):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
             r = await c.get("/api/v1/products/1")
     assert r.status_code == 200
@@ -284,9 +268,7 @@ async def test_get_product_returns_labels() -> None:
 @pytest.mark.asyncio
 async def test_get_product_returns_404() -> None:
     _auth()
-    with patch(
-        "app.services.product_service.get_product", new=AsyncMock(return_value=None)
-    ):
+    with patch("app.services.product_service.get_product", new=AsyncMock(return_value=None)):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
             r = await c.get("/api/v1/products/999")
     assert r.status_code == 404
@@ -344,12 +326,8 @@ async def test_update_product_returns_200() -> None:
     updated = _product()
     updated.name = "Widget Beta"
     with (
-        patch(
-            "app.services.product_service.get_product", new=AsyncMock(return_value=_product())
-        ),
-        patch(
-            "app.services.product_service.update_product", new=AsyncMock(return_value=updated)
-        ),
+        patch("app.services.product_service.get_product", new=AsyncMock(return_value=_product())),
+        patch("app.services.product_service.update_product", new=AsyncMock(return_value=updated)),
     ):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
             r = await c.put("/api/v1/products/1", json={"name": "Widget Beta"})
@@ -362,9 +340,7 @@ async def test_update_product_forwards_labels() -> None:
     _auth()
     mock_update = AsyncMock(return_value=_product())
     with (
-        patch(
-            "app.services.product_service.get_product", new=AsyncMock(return_value=_product())
-        ),
+        patch("app.services.product_service.get_product", new=AsyncMock(return_value=_product())),
         patch("app.services.product_service.update_product", new=mock_update),
     ):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
@@ -376,9 +352,7 @@ async def test_update_product_forwards_labels() -> None:
 @pytest.mark.asyncio
 async def test_update_product_returns_404() -> None:
     _auth()
-    with patch(
-        "app.services.product_service.get_product", new=AsyncMock(return_value=None)
-    ):
+    with patch("app.services.product_service.get_product", new=AsyncMock(return_value=None)):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
             r = await c.put("/api/v1/products/999", json={"name": "XXXX"})
     assert r.status_code == 404
@@ -388,12 +362,8 @@ async def test_update_product_returns_404() -> None:
 async def test_delete_product_returns_204() -> None:
     _auth()
     with (
-        patch(
-            "app.services.product_service.get_product", new=AsyncMock(return_value=_product())
-        ),
-        patch(
-            "app.services.product_service.delete_product", new=AsyncMock(return_value=None)
-        ),
+        patch("app.services.product_service.get_product", new=AsyncMock(return_value=_product())),
+        patch("app.services.product_service.delete_product", new=AsyncMock(return_value=None)),
     ):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
             r = await c.delete("/api/v1/products/1")
@@ -403,9 +373,7 @@ async def test_delete_product_returns_204() -> None:
 @pytest.mark.asyncio
 async def test_delete_product_returns_404() -> None:
     _auth()
-    with patch(
-        "app.services.product_service.get_product", new=AsyncMock(return_value=None)
-    ):
+    with patch("app.services.product_service.get_product", new=AsyncMock(return_value=None)):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
             r = await c.delete("/api/v1/products/999")
     assert r.status_code == 404
@@ -414,13 +382,9 @@ async def test_delete_product_returns_404() -> None:
 @pytest.mark.asyncio
 async def test_merge_products_returns_204() -> None:
     _auth()
-    with patch(
-        "app.services.product_service.merge_products", new=AsyncMock(return_value=None)
-    ):
+    with patch("app.services.product_service.merge_products", new=AsyncMock(return_value=None)):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
-            r = await c.post(
-                "/api/v1/products/merge", json={"product_id": 1, "duplicate_id": 2}
-            )
+            r = await c.post("/api/v1/products/merge", json={"product_id": 1, "duplicate_id": 2})
     assert r.status_code == 204
 
 
@@ -540,9 +504,7 @@ async def test_list_products_invalid_status_returns_422() -> None:
 @pytest.mark.asyncio
 async def test_update_product_invalid_status_returns_422() -> None:
     _auth()
-    with patch(
-        "app.services.product_service.get_product", new=AsyncMock(return_value=_product())
-    ):
+    with patch("app.services.product_service.get_product", new=AsyncMock(return_value=_product())):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
             r = await c.put("/api/v1/products/1", json={"status": 5})
     assert r.status_code == 422

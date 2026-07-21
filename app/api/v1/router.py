@@ -31,9 +31,7 @@ api_router.include_router(auth.router, prefix="/auth", tags=["auth"])
 api_router.include_router(users.router, prefix="/users", tags=["users"])
 api_router.include_router(products.router, prefix="/products", tags=["products"])
 api_router.include_router(price_lists.router, prefix="/price-lists", tags=["price-lists"])
-api_router.include_router(
-    product_prices.router, prefix="/product-prices", tags=["product-prices"]
-)
+api_router.include_router(product_prices.router, prefix="/product-prices", tags=["product-prices"])
 api_router.include_router(customers.router, prefix="/customers", tags=["customers"])
 api_router.include_router(labels.router, prefix="/labels", tags=["labels"])
 api_router.include_router(

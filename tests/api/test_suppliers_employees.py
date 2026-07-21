@@ -98,9 +98,7 @@ async def test_get_supplier_returns_200() -> None:
 @pytest.mark.asyncio
 async def test_get_supplier_returns_404() -> None:
     _auth()
-    with patch(
-        "app.services.supplier_service.get_supplier", new=AsyncMock(return_value=None)
-    ):
+    with patch("app.services.supplier_service.get_supplier", new=AsyncMock(return_value=None)):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
             r = await c.get("/api/v1/suppliers/999")
     assert r.status_code == 404
@@ -146,9 +144,7 @@ async def test_update_supplier_returns_200() -> None:
 @pytest.mark.asyncio
 async def test_update_supplier_returns_404() -> None:
     _auth()
-    with patch(
-        "app.services.supplier_service.get_supplier", new=AsyncMock(return_value=None)
-    ):
+    with patch("app.services.supplier_service.get_supplier", new=AsyncMock(return_value=None)):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
             r = await c.put("/api/v1/suppliers/999", json={"name": "X"})
     assert r.status_code == 404
@@ -162,9 +158,7 @@ async def test_delete_supplier_returns_204() -> None:
             "app.services.supplier_service.get_supplier",
             new=AsyncMock(return_value=_supplier()),
         ),
-        patch(
-            "app.services.supplier_service.delete_supplier", new=AsyncMock(return_value=None)
-        ),
+        patch("app.services.supplier_service.delete_supplier", new=AsyncMock(return_value=None)),
     ):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
             r = await c.delete("/api/v1/suppliers/1")
@@ -174,9 +168,7 @@ async def test_delete_supplier_returns_204() -> None:
 @pytest.mark.asyncio
 async def test_delete_supplier_returns_404() -> None:
     _auth()
-    with patch(
-        "app.services.supplier_service.get_supplier", new=AsyncMock(return_value=None)
-    ):
+    with patch("app.services.supplier_service.get_supplier", new=AsyncMock(return_value=None)):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
             r = await c.delete("/api/v1/suppliers/999")
     assert r.status_code == 404
@@ -223,9 +215,7 @@ async def test_get_employee_returns_200() -> None:
 @pytest.mark.asyncio
 async def test_get_employee_returns_404() -> None:
     _auth()
-    with patch(
-        "app.services.employee_service.get_employee", new=AsyncMock(return_value=None)
-    ):
+    with patch("app.services.employee_service.get_employee", new=AsyncMock(return_value=None)):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
             r = await c.get("/api/v1/employees/999")
     assert r.status_code == 404
@@ -279,9 +269,7 @@ async def test_update_employee_returns_200() -> None:
 @pytest.mark.asyncio
 async def test_update_employee_returns_404() -> None:
     _auth()
-    with patch(
-        "app.services.employee_service.get_employee", new=AsyncMock(return_value=None)
-    ):
+    with patch("app.services.employee_service.get_employee", new=AsyncMock(return_value=None)):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
             r = await c.put("/api/v1/employees/999", json={"first_name": "X"})
     assert r.status_code == 404
@@ -295,9 +283,7 @@ async def test_delete_employee_returns_204() -> None:
             "app.services.employee_service.get_employee",
             new=AsyncMock(return_value=_employee()),
         ),
-        patch(
-            "app.services.employee_service.delete_employee", new=AsyncMock(return_value=None)
-        ),
+        patch("app.services.employee_service.delete_employee", new=AsyncMock(return_value=None)),
     ):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
             r = await c.delete("/api/v1/employees/1")
@@ -307,9 +293,7 @@ async def test_delete_employee_returns_204() -> None:
 @pytest.mark.asyncio
 async def test_delete_employee_returns_404() -> None:
     _auth()
-    with patch(
-        "app.services.employee_service.get_employee", new=AsyncMock(return_value=None)
-    ):
+    with patch("app.services.employee_service.get_employee", new=AsyncMock(return_value=None)):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
             r = await c.delete("/api/v1/employees/999")
     assert r.status_code == 404

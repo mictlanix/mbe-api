@@ -44,9 +44,7 @@ async def get_product_price(
 ) -> ProductPriceResponse:
     pp = await product_price_service.get_product_price(db, product_price_id)
     if pp is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Product price not found"
-        )
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Product price not found")
     return ProductPriceResponse.model_validate(pp)
 
 
@@ -59,9 +57,7 @@ async def update_product_price(
 ) -> ProductPriceResponse:
     pp = await product_price_service.get_product_price(db, product_price_id)
     if pp is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Product price not found"
-        )
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Product price not found")
     pp = await product_price_service.update_product_price(db, pp, data)
     return ProductPriceResponse.model_validate(pp)
 
@@ -74,7 +70,5 @@ async def delete_product_price(
 ) -> None:
     pp = await product_price_service.get_product_price(db, product_price_id)
     if pp is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Product price not found"
-        )
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Product price not found")
     await product_price_service.delete_product_price(db, pp)

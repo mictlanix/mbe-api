@@ -107,9 +107,7 @@ async def test_upload_image_returns_200_with_photo_url() -> None:
             "app.services.image_service.process_and_save_image",
             new=AsyncMock(return_value=expected_filename),
         ),
-        patch(
-            "app.services.product_service.update_product", new=AsyncMock(return_value=updated)
-        ),
+        patch("app.services.product_service.update_product", new=AsyncMock(return_value=updated)),
     ):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
             r = await c.post(
@@ -192,9 +190,7 @@ async def test_upload_same_image_twice_reuses_existing_file() -> None:
             "app.services.image_service.process_and_save_image",
             new=AsyncMock(return_value=same_filename),
         ),
-        patch(
-            "app.services.product_service.update_product", new=AsyncMock(return_value=updated)
-        ),
+        patch("app.services.product_service.update_product", new=AsyncMock(return_value=updated)),
     ):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
             r1 = await c.post(
@@ -222,9 +218,7 @@ async def test_put_photo_null_clears_photo() -> None:
             "app.services.product_service.get_product",
             new=AsyncMock(return_value=_product(photo="old.png")),
         ),
-        patch(
-            "app.services.product_service.update_product", new=AsyncMock(return_value=cleared)
-        ),
+        patch("app.services.product_service.update_product", new=AsyncMock(return_value=cleared)),
     ):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
             r = await c.put("/api/v1/products/1", json={"photo": None})
@@ -241,9 +235,7 @@ async def test_put_without_photo_key_preserves_existing_photo() -> None:
             "app.services.product_service.get_product",
             new=AsyncMock(return_value=_product(photo="keep.png")),
         ),
-        patch(
-            "app.services.product_service.update_product", new=AsyncMock(return_value=unchanged)
-        ),
+        patch("app.services.product_service.update_product", new=AsyncMock(return_value=unchanged)),
     ):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
             r = await c.put("/api/v1/products/1", json={"name": "Updated Name"})
