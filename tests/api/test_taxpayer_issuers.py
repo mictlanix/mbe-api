@@ -36,6 +36,7 @@ def _issuer(rfc: str = 'RFC123456789A') -> SimpleNamespace:
         taxpayer_issuer_id=rfc,
         name='Acme SA de CV',
         regime={'id': '601', 'description': 'General de Ley'},
+        provider=0,
         postal_code={'id': '06000'},
         comment=None,
     )
@@ -91,6 +92,110 @@ async def test_get_taxpayer_issuer_returns_404() -> None:
     ):
         async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as c:
             r = await c.get('/api/v1/taxpayer-issuers/RFCNOTFOUND')
+    assert r.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_create_taxpayer_issuer_returns_201() -> None:
+    _auth()
+    with patch(
+        'app.services.taxpayer_issuer_service.create_taxpayer_issuer',
+        new=AsyncMock(return_value=_issuer()),
+    ):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as c:
+            r = await c.post(
+                '/api/v1/taxpayer-issuers',
+                json={
+                    'taxpayer_issuer_id': 'RFC123456789A',
+                    'name': 'Acme SA de CV',
+                    'regime': '601',
+                },
+            )
+    assert r.status_code == 201
+    assert r.json()['provider'] == 0
+
+
+@pytest.mark.asyncio
+async def test_create_taxpayer_issuer_rejects_a_short_rfc() -> None:
+    _auth()
+    async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as c:
+        r = await c.post(
+            '/api/v1/taxpayer-issuers', json={'taxpayer_issuer_id': 'RFC123', 'regime': '601'}
+        )
+    assert r.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_create_taxpayer_issuer_rejects_an_unknown_provider() -> None:
+    _auth()
+    async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as c:
+        r = await c.post(
+            '/api/v1/taxpayer-issuers',
+            json={'taxpayer_issuer_id': 'RFC123456789A', 'regime': '601', 'provider': 9},
+        )
+    assert r.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_update_taxpayer_issuer_returns_200() -> None:
+    _auth()
+    updated = _issuer()
+    updated.provider = 2
+    with (
+        patch(
+            'app.services.taxpayer_issuer_service.get_taxpayer_issuer',
+            new=AsyncMock(return_value=_issuer()),
+        ),
+        patch(
+            'app.services.taxpayer_issuer_service.update_taxpayer_issuer',
+            new=AsyncMock(return_value=updated),
+        ),
+    ):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as c:
+            r = await c.put('/api/v1/taxpayer-issuers/RFC123456789A', json={'provider': 2})
+    assert r.status_code == 200
+    assert r.json()['provider'] == 2
+
+
+@pytest.mark.asyncio
+async def test_update_taxpayer_issuer_returns_404() -> None:
+    _auth()
+    with patch(
+        'app.services.taxpayer_issuer_service.get_taxpayer_issuer',
+        new=AsyncMock(return_value=None),
+    ):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as c:
+            r = await c.put('/api/v1/taxpayer-issuers/RFCNOTFOUND', json={'name': 'X'})
+    assert r.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_delete_taxpayer_issuer_returns_204() -> None:
+    _auth()
+    with (
+        patch(
+            'app.services.taxpayer_issuer_service.get_taxpayer_issuer',
+            new=AsyncMock(return_value=_issuer()),
+        ),
+        patch(
+            'app.services.taxpayer_issuer_service.delete_taxpayer_issuer',
+            new=AsyncMock(return_value=None),
+        ),
+    ):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as c:
+            r = await c.delete('/api/v1/taxpayer-issuers/RFC123456789A')
+    assert r.status_code == 204
+
+
+@pytest.mark.asyncio
+async def test_delete_taxpayer_issuer_returns_404() -> None:
+    _auth()
+    with patch(
+        'app.services.taxpayer_issuer_service.get_taxpayer_issuer',
+        new=AsyncMock(return_value=None),
+    ):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as c:
+            r = await c.delete('/api/v1/taxpayer-issuers/RFCNOTFOUND')
     assert r.status_code == 404
 
 

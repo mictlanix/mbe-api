@@ -20,6 +20,16 @@ class FacilityType(IntEnum):
     PRODUCTION_SITE = 1
 
 
+class FiscalCertificationProvider(IntEnum):
+    """PAC (Proveedor Autorizado de Certificación) integration used for CFDI stamping."""
+
+    NONE = 0
+    DIVERZA = 1
+    FISCOCLIC = 2
+    SERVISIM = 3
+    PROFACT = 4
+
+
 class EntityStatus(IntEnum):
     """Unified lifecycle state shared by all status-bearing entities."""
 

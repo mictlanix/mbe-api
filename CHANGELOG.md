@@ -7,7 +7,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
-- Read-only endpoints for taxpayer issuers under `/api/v1/taxpayer-issuers` (list with `search` on RFC or name, and get by RFC), with `regime` and `postal_code` expanded to SAT catalog objects; `Facility.taxpayer` is now resolvable and pickable by a client (#100)
+- CRUD endpoints for taxpayer issuers under `/api/v1/taxpayer-issuers` (list with `search` on RFC or name, create, get, update, delete), gated by `SystemObject.TAXPAYERS` (24) — previously unused; `regime` and `postal_code` are expanded to SAT catalog objects, so `Facility.taxpayer` is now resolvable and pickable by a client (#100)
+- `DELETE /api/v1/taxpayer-issuers/{rfc}` returns `409` when the issuer is still referenced by a facility, certificate, fiscal batch or fiscal document, instead of letting the FK violation surface as a `500`
+- `FiscalCertificationProvider` int enum (`0` none / `1` diverza / `2` fiscoclic / `3` servisim / `4` profact) in `app/enums.py`, ported from `Model/Constants/FiscalCertificationProvider.cs`; `TaxpayerIssuer.provider` is typed with it instead of a bare `int` and is exposed on the API
 - Cross-FK validation on `POST`/`PUT /api/v1/points-of-sale`: a point of sale is rejected (`422`) when the referenced `warehouse` belongs to a different `facility`, including when only `facility` changes on update, and `404` when the warehouse does not exist (#102)
 - Optional free-text `search` query param on `GET /api/v1/facilities`, `GET /api/v1/warehouses`, `GET /api/v1/points-of-sale` and `GET /api/v1/cash-drawers` — case-insensitive substring match on the record's `code` or `name`, combinable with the existing facet params, matching the semantics already used by customers/employees/suppliers (#86, #87, #88, #89)
 - CRUD endpoints for addresses under `/api/v1/addresses` (list with `search`/`type`/`status` filters, create, get, update, delete), gated by `SystemObject.ADDRESSES` (11); `app/services/address_service.py`. `Facility.address` (and every other address FK) is now resolvable and pickable by a client (#90)

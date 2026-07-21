@@ -1,10 +1,18 @@
 from collections.abc import Sequence
 
+from fastapi import HTTPException, status
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.fiscal import TaxpayerIssuer
+from app.models.core import Facility
+from app.models.fiscal import (
+    FiscalDocument,
+    TaxpayerBatch,
+    TaxpayerCertificate,
+    TaxpayerIssuer,
+)
 from app.models.sat_catalog import SatPostalCode, SatTaxRegime
+from app.schemas.fiscal import TaxpayerIssuerCreate, TaxpayerIssuerUpdate
 from app.services.fk_expansion import batch_fetch
 from app.services.sat_catalog_service import SAT_CATALOG_MAP, to_response
 
@@ -64,3 +72,63 @@ async def get_taxpayer_issuer(db: AsyncSession, rfc: str) -> TaxpayerIssuer | No
         return None
     await _attach_relations(db, [issuer])
     return issuer
+
+
+async def create_taxpayer_issuer(db: AsyncSession, data: TaxpayerIssuerCreate) -> TaxpayerIssuer:
+    issuer = TaxpayerIssuer(
+        taxpayer_issuer_id=data.taxpayer_issuer_id,
+        name=data.name,
+        regime=data.regime,
+        provider=data.provider,
+        postal_code=data.postal_code,
+        comment=data.comment,
+    )
+    db.add(issuer)
+    await db.commit()
+    await db.refresh(issuer)
+    await _attach_relations(db, [issuer])
+    return issuer
+
+
+async def update_taxpayer_issuer(
+    db: AsyncSession, issuer: TaxpayerIssuer, data: TaxpayerIssuerUpdate
+) -> TaxpayerIssuer:
+    if data.name is not None:
+        issuer.name = data.name
+    if data.regime is not None:
+        issuer.regime = data.regime
+    if data.provider is not None:
+        issuer.provider = data.provider
+    if data.postal_code is not None:
+        issuer.postal_code = data.postal_code
+    if data.comment is not None:
+        issuer.comment = data.comment
+    await db.commit()
+    await db.refresh(issuer)
+    await _attach_relations(db, [issuer])
+    return issuer
+
+
+async def delete_taxpayer_issuer(db: AsyncSession, issuer: TaxpayerIssuer) -> None:
+    """Refuse to delete an issuer still referenced elsewhere.
+
+    The FK would reject it anyway, but as a driver-level IntegrityError surfacing as a 500.
+    """
+    for label, model, column in (
+        ('facilities', Facility, Facility.taxpayer),
+        ('certificates', TaxpayerCertificate, TaxpayerCertificate.taxpayer),
+        ('fiscal batches', TaxpayerBatch, TaxpayerBatch.taxpayer),
+        ('fiscal documents', FiscalDocument, FiscalDocument.issuer),
+    ):
+        count: int = (
+            await db.execute(
+                select(func.count()).select_from(model).where(column == issuer.taxpayer_issuer_id)
+            )
+        ).scalar_one()
+        if count:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f'Taxpayer issuer is referenced by {count} {label}',
+            )
+    await db.delete(issuer)
+    await db.commit()
