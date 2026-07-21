@@ -8,6 +8,7 @@ from app.enums import EntityStatus
 from app.models.core import Employee, VehicleOperator
 from app.schemas.core import VehicleOperatorCreate, VehicleOperatorUpdate
 from app.services.fk_expansion import batch_fetch
+from app.services.references import assert_not_referenced
 
 
 async def _attach_relations(db: AsyncSession, operators: Sequence[VehicleOperator]) -> None:
@@ -119,5 +120,6 @@ async def update_vehicle_operator(
 
 
 async def delete_vehicle_operator(db: AsyncSession, vo: VehicleOperator) -> None:
+    await assert_not_referenced(db, vo)
     await db.delete(vo)
     await db.commit()

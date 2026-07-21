@@ -8,6 +8,7 @@ from app.models.core import Address, Facility
 from app.models.sat_catalog import SatPostalCode
 from app.schemas.core import FacilityCreate, FacilityUpdate
 from app.services.fk_expansion import batch_fetch
+from app.services.references import assert_not_referenced
 from app.services.sat_catalog_service import SAT_CATALOG_MAP, to_response
 
 
@@ -115,5 +116,6 @@ async def update_facility(db: AsyncSession, facility: Facility, data: FacilityUp
 
 
 async def delete_facility(db: AsyncSession, facility: Facility) -> None:
+    await assert_not_referenced(db, facility)
     await db.delete(facility)
     await db.commit()

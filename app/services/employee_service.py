@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.enums import EntityStatus
 from app.models.core import Employee
 from app.schemas.core import EmployeeCreate, EmployeeUpdate
+from app.services.references import assert_not_referenced
 
 
 async def list_employees(
@@ -98,5 +99,6 @@ async def update_employee(db: AsyncSession, employee: Employee, data: EmployeeUp
 
 
 async def delete_employee(db: AsyncSession, employee: Employee) -> None:
+    await assert_not_referenced(db, employee)
     await db.delete(employee)
     await db.commit()

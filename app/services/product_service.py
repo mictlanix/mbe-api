@@ -14,6 +14,7 @@ from app.models.supplier import Supplier
 from app.schemas.product import ProductCreate, ProductMergeRequest, ProductUpdate
 from app.schemas.sat_catalog import SatUnitOfMeasurementResponse
 from app.services import product_price_service
+from app.services.references import assert_not_referenced
 from app.services.sat_catalog_service import SAT_CATALOG_MAP, to_response
 
 
@@ -367,6 +368,7 @@ async def update_product(db: AsyncSession, product: Product, data: ProductUpdate
 
 
 async def delete_product(db: AsyncSession, product: Product) -> None:
+    await assert_not_referenced(db, product, exempt=frozenset({'product_price'}))
     await product_price_service.delete_for_product(db, product.product_id)
     await db.delete(product)
     await db.commit()

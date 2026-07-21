@@ -1,12 +1,11 @@
 from collections.abc import Sequence
 
-from fastapi import HTTPException, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.customer import Customer
 from app.models.product import PriceList
 from app.schemas.product import PriceListCreate, PriceListUpdate
+from app.services.references import assert_not_referenced
 
 
 async def list_price_lists(
@@ -58,17 +57,6 @@ async def update_price_list(db: AsyncSession, pl: PriceList, data: PriceListUpda
 
 
 async def delete_price_list(db: AsyncSession, pl: PriceList) -> None:
-    in_use = (
-        await db.execute(
-            select(func.count())
-            .select_from(Customer)
-            .where(Customer.price_list == pl.price_list_id)
-        )
-    ).scalar_one()
-    if in_use > 0:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail='Price list is assigned to one or more customers',
-        )
+    await assert_not_referenced(db, pl)
     await db.delete(pl)
     await db.commit()

@@ -9,6 +9,7 @@ from app.models.core import Employee
 from app.models.customer import Customer
 from app.models.product import PriceList
 from app.schemas.customer import CustomerCreate, CustomerUpdate
+from app.services.references import assert_not_referenced
 
 
 async def _attach_customer_relations(db: AsyncSession, customers: Sequence[Customer]) -> None:
@@ -144,5 +145,6 @@ async def delete_customer(db: AsyncSession, customer: Customer, default_customer
             status_code=status.HTTP_409_CONFLICT,
             detail='Cannot delete the system default customer',
         )
+    await assert_not_referenced(db, customer)
     await db.delete(customer)
     await db.commit()

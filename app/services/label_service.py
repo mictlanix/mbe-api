@@ -5,6 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.core import Label
 from app.schemas.core import LabelCreate, LabelUpdate
+from app.services.references import assert_not_referenced
 
 
 async def list_labels(
@@ -50,5 +51,6 @@ async def update_label(db: AsyncSession, label: Label, data: LabelUpdate) -> Lab
 
 
 async def delete_label(db: AsyncSession, label: Label) -> None:
+    await assert_not_referenced(db, label)
     await db.delete(label)
     await db.commit()

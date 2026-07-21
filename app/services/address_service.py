@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.enums import AddressType, EntityStatus
 from app.models.core import Address
 from app.schemas.core import AddressCreate, AddressUpdate
+from app.services.references import assert_not_referenced
 
 
 async def list_addresses(
@@ -110,5 +111,6 @@ async def update_address(db: AsyncSession, address: Address, data: AddressUpdate
 
 
 async def delete_address(db: AsyncSession, address: Address) -> None:
+    await assert_not_referenced(db, address)
     await db.delete(address)
     await db.commit()

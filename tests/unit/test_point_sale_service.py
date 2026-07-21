@@ -1,7 +1,7 @@
 """Covers GH #102: a point of sale must not pair a warehouse with a facility it does not
 belong to, on create or on update."""
 
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi import HTTPException
@@ -26,6 +26,10 @@ def _warehouse(facility: int) -> Warehouse:
 def _db(warehouse: Warehouse | None) -> AsyncMock:
     db = AsyncMock()
     db.get = AsyncMock(return_value=warehouse)
+    # the code-uniqueness guard runs first and must find nothing
+    unique = MagicMock()
+    unique.first.return_value = None
+    db.execute = AsyncMock(return_value=unique)
     return db
 
 
