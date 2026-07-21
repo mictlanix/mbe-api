@@ -137,12 +137,16 @@ async def get_label_facets(
 
 async def _get_labels(db: AsyncSession, product_id: int) -> list[Label]:
     rows = (
-        await db.execute(
-            select(Label)
-            .join(product_label, product_label.c["label"] == Label.label_id)
-            .where(product_label.c["product"] == product_id)
+        (
+            await db.execute(
+                select(Label)
+                .join(product_label, product_label.c["label"] == Label.label_id)
+                .where(product_label.c["product"] == product_id)
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     return list(rows)
 
 
@@ -165,12 +169,16 @@ async def _attach_unit_of_measurement(db: AsyncSession, products: Sequence[Produ
         return
     unit_ids = {p.unit_of_measurement for p in products}
     units = (
-        await db.execute(
-            select(SatUnitOfMeasurement).where(
-                SatUnitOfMeasurement.sat_unit_of_measurement_id.in_(unit_ids)
+        (
+            await db.execute(
+                select(SatUnitOfMeasurement).where(
+                    SatUnitOfMeasurement.sat_unit_of_measurement_id.in_(unit_ids)
+                )
             )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     units_by_id = {u.sat_unit_of_measurement_id: u for u in units}
     for p in products:
         unit_row = units_by_id.get(p.unit_of_measurement)
@@ -197,20 +205,26 @@ async def _attach_product_relations(db: AsyncSession, products: Sequence[Product
     keys_by_id: dict[str, SatProductService] = {}
     if key_ids:
         keys = (
-            await db.execute(
-                select(SatProductService).where(
-                    SatProductService.sat_product_service_id.in_(key_ids)
+            (
+                await db.execute(
+                    select(SatProductService).where(
+                        SatProductService.sat_product_service_id.in_(key_ids)
+                    )
                 )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
         keys_by_id = {k.sat_product_service_id: k for k in keys}
 
     supplier_ids = {p.supplier for p in products if p.supplier is not None}
     suppliers_by_id: dict[int, Supplier] = {}
     if supplier_ids:
         suppliers = (
-            await db.execute(select(Supplier).where(Supplier.supplier_id.in_(supplier_ids)))
-        ).scalars().all()
+            (await db.execute(select(Supplier).where(Supplier.supplier_id.in_(supplier_ids))))
+            .scalars()
+            .all()
+        )
         suppliers_by_id = {s.supplier_id: s for s in suppliers}
 
     for p in products:
@@ -394,9 +408,7 @@ async def merge_products(db: AsyncSession, req: ProductMergeRequest) -> None:
 
     # product_label junction: remap, ignoring duplicates (ON DUPLICATE KEY approach via text)
     await db.execute(
-        text(
-            "UPDATE IGNORE product_label SET product = :canonical WHERE product = :duplicate"
-        ),
+        text("UPDATE IGNORE product_label SET product = :canonical WHERE product = :duplicate"),
         {"canonical": req.product_id, "duplicate": req.duplicate_id},
     )
     # delete any remaining (already existed on canonical side)

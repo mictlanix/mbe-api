@@ -245,9 +245,7 @@ class WarehouseResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     warehouse_id: int
-    facility: FacilitySummary = Field(
-        validation_alias=AliasChoices("facility_detail", "facility")
-    )
+    facility: FacilitySummary = Field(validation_alias=AliasChoices("facility_detail", "facility"))
     code: str
     name: str
     comment: str | None

@@ -114,9 +114,7 @@ async def test_get_label_returns_404() -> None:
 @pytest.mark.asyncio
 async def test_create_label_returns_201() -> None:
     _auth()
-    with patch(
-        "app.services.label_service.create_label", new=AsyncMock(return_value=_label())
-    ):
+    with patch("app.services.label_service.create_label", new=AsyncMock(return_value=_label())):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
             r = await c.post("/api/v1/labels", json={"name": "Tag A"})
     assert r.status_code == 201
@@ -352,9 +350,7 @@ async def test_get_customer_returns_200() -> None:
 @pytest.mark.asyncio
 async def test_get_customer_returns_404() -> None:
     _auth()
-    with patch(
-        "app.services.customer_service.get_customer", new=AsyncMock(return_value=None)
-    ):
+    with patch("app.services.customer_service.get_customer", new=AsyncMock(return_value=None)):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
             r = await c.get("/api/v1/customers/999")
     assert r.status_code == 404
@@ -400,9 +396,7 @@ async def test_update_customer_returns_200() -> None:
 @pytest.mark.asyncio
 async def test_update_customer_returns_404() -> None:
     _auth()
-    with patch(
-        "app.services.customer_service.get_customer", new=AsyncMock(return_value=None)
-    ):
+    with patch("app.services.customer_service.get_customer", new=AsyncMock(return_value=None)):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
             r = await c.put("/api/v1/customers/999", json={"name": "X"})
     assert r.status_code == 404
@@ -416,9 +410,7 @@ async def test_delete_customer_returns_204() -> None:
             "app.services.customer_service.get_customer",
             new=AsyncMock(return_value=_customer()),
         ),
-        patch(
-            "app.services.customer_service.delete_customer", new=AsyncMock(return_value=None)
-        ),
+        patch("app.services.customer_service.delete_customer", new=AsyncMock(return_value=None)),
     ):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
             r = await c.delete("/api/v1/customers/1")
@@ -428,9 +420,7 @@ async def test_delete_customer_returns_204() -> None:
 @pytest.mark.asyncio
 async def test_delete_customer_returns_404() -> None:
     _auth()
-    with patch(
-        "app.services.customer_service.get_customer", new=AsyncMock(return_value=None)
-    ):
+    with patch("app.services.customer_service.get_customer", new=AsyncMock(return_value=None)):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
             r = await c.delete("/api/v1/customers/999")
     assert r.status_code == 404

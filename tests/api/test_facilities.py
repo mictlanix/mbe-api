@@ -70,8 +70,12 @@ def _facility(facility_id: int = 1) -> SimpleNamespace:
 def _warehouse_summary(warehouse_id: int = 1) -> SimpleNamespace:
     """Flat Warehouse shape (as embedded in PointSale/PaymentMethodOption FK fields)."""
     return SimpleNamespace(
-        warehouse_id=warehouse_id, facility=1, code="WH1", name="Main Warehouse",
-        comment=None, status=0,
+        warehouse_id=warehouse_id,
+        facility=1,
+        code="WH1",
+        name="Main Warehouse",
+        comment=None,
+        status=0,
     )
 
 
@@ -84,15 +88,24 @@ def _warehouse(warehouse_id: int = 1) -> SimpleNamespace:
 
 def _pos(point_sale_id: int = 1) -> SimpleNamespace:
     return SimpleNamespace(
-        point_sale_id=point_sale_id, facility=_facility_summary(), code="POS1", name="Register 1",
-        warehouse=_warehouse_summary(), comment=None, status=0,
+        point_sale_id=point_sale_id,
+        facility=_facility_summary(),
+        code="POS1",
+        name="Register 1",
+        warehouse=_warehouse_summary(),
+        comment=None,
+        status=0,
     )
 
 
 def _cash_drawer(cash_drawer_id: int = 1) -> SimpleNamespace:
     return SimpleNamespace(
-        cash_drawer_id=cash_drawer_id, facility=_facility_summary(), code="CD1", name="Drawer 1",
-        comment=None, status=0,
+        cash_drawer_id=cash_drawer_id,
+        facility=_facility_summary(),
+        code="CD1",
+        name="Drawer 1",
+        comment=None,
+        status=0,
     )
 
 
@@ -145,8 +158,13 @@ async def test_create_facility_returns_201() -> None:
             r = await c.post(
                 "/api/v1/facilities",
                 json={
-                    "code": "S1", "name": "Main Store", "type": 0, "location": "Downtown",
-                    "address": 1, "taxpayer": "RFC123456789A", "logo": "logo.png",
+                    "code": "S1",
+                    "name": "Main Store",
+                    "type": 0,
+                    "location": "Downtown",
+                    "address": 1,
+                    "taxpayer": "RFC123456789A",
+                    "logo": "logo.png",
                 },
             )
     assert r.status_code == 201
@@ -163,9 +181,7 @@ async def test_update_facility_returns_200() -> None:
         patch(
             "app.services.facility_service.get_facility", new=AsyncMock(return_value=_facility())
         ),
-        patch(
-            "app.services.facility_service.update_facility", new=AsyncMock(return_value=updated)
-        ),
+        patch("app.services.facility_service.update_facility", new=AsyncMock(return_value=updated)),
     ):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
             r = await c.put("/api/v1/facilities/1", json={"name": "Branch Store"})
@@ -287,9 +303,7 @@ async def test_get_warehouse_returns_200() -> None:
 @pytest.mark.asyncio
 async def test_get_warehouse_returns_404() -> None:
     _auth()
-    with patch(
-        "app.services.warehouse_service.get_warehouse", new=AsyncMock(return_value=None)
-    ):
+    with patch("app.services.warehouse_service.get_warehouse", new=AsyncMock(return_value=None)):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
             r = await c.get("/api/v1/warehouses/999")
     assert r.status_code == 404
@@ -334,9 +348,7 @@ async def test_update_warehouse_returns_200() -> None:
 @pytest.mark.asyncio
 async def test_update_warehouse_returns_404() -> None:
     _auth()
-    with patch(
-        "app.services.warehouse_service.get_warehouse", new=AsyncMock(return_value=None)
-    ):
+    with patch("app.services.warehouse_service.get_warehouse", new=AsyncMock(return_value=None)):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
             r = await c.put("/api/v1/warehouses/999", json={"name": "X"})
     assert r.status_code == 404
@@ -350,9 +362,7 @@ async def test_delete_warehouse_returns_204() -> None:
             "app.services.warehouse_service.get_warehouse",
             new=AsyncMock(return_value=_warehouse()),
         ),
-        patch(
-            "app.services.warehouse_service.delete_warehouse", new=AsyncMock(return_value=None)
-        ),
+        patch("app.services.warehouse_service.delete_warehouse", new=AsyncMock(return_value=None)),
     ):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
             r = await c.delete("/api/v1/warehouses/1")
@@ -362,9 +372,7 @@ async def test_delete_warehouse_returns_204() -> None:
 @pytest.mark.asyncio
 async def test_delete_warehouse_returns_404() -> None:
     _auth()
-    with patch(
-        "app.services.warehouse_service.get_warehouse", new=AsyncMock(return_value=None)
-    ):
+    with patch("app.services.warehouse_service.get_warehouse", new=AsyncMock(return_value=None)):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
             r = await c.delete("/api/v1/warehouses/999")
     assert r.status_code == 404
@@ -452,9 +460,7 @@ async def test_get_point_of_sale_returns_200() -> None:
 @pytest.mark.asyncio
 async def test_get_point_of_sale_returns_404() -> None:
     _auth()
-    with patch(
-        "app.services.point_sale_service.get_point_sale", new=AsyncMock(return_value=None)
-    ):
+    with patch("app.services.point_sale_service.get_point_sale", new=AsyncMock(return_value=None)):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
             r = await c.get("/api/v1/points-of-sale/999")
     assert r.status_code == 404
@@ -499,9 +505,7 @@ async def test_update_point_of_sale_returns_200() -> None:
 @pytest.mark.asyncio
 async def test_update_point_of_sale_returns_404() -> None:
     _auth()
-    with patch(
-        "app.services.point_sale_service.get_point_sale", new=AsyncMock(return_value=None)
-    ):
+    with patch("app.services.point_sale_service.get_point_sale", new=AsyncMock(return_value=None)):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
             r = await c.put("/api/v1/points-of-sale/999", json={"name": "X"})
     assert r.status_code == 404
@@ -528,9 +532,7 @@ async def test_delete_point_of_sale_returns_204() -> None:
 @pytest.mark.asyncio
 async def test_delete_point_of_sale_returns_404() -> None:
     _auth()
-    with patch(
-        "app.services.point_sale_service.get_point_sale", new=AsyncMock(return_value=None)
-    ):
+    with patch("app.services.point_sale_service.get_point_sale", new=AsyncMock(return_value=None)):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
             r = await c.delete("/api/v1/points-of-sale/999")
     assert r.status_code == 404
@@ -811,9 +813,7 @@ async def test_upload_facility_logo_returns_200_with_resolved_url() -> None:
             "app.services.image_service.process_and_save_image",
             new=AsyncMock(return_value=expected_filename),
         ),
-        patch(
-            "app.services.facility_service.update_facility", new=AsyncMock(return_value=updated)
-        ),
+        patch("app.services.facility_service.update_facility", new=AsyncMock(return_value=updated)),
     ):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
             r = await c.post(

@@ -116,9 +116,7 @@ async def test_list_vehicles_search_passed_through() -> None:
 @pytest.mark.asyncio
 async def test_get_vehicle_returns_200() -> None:
     _auth()
-    with patch(
-        "app.services.vehicle_service.get_vehicle", new=AsyncMock(return_value=_vehicle())
-    ):
+    with patch("app.services.vehicle_service.get_vehicle", new=AsyncMock(return_value=_vehicle())):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
             r = await c.get("/api/v1/vehicles/1")
     assert r.status_code == 200
@@ -129,9 +127,7 @@ async def test_get_vehicle_returns_200() -> None:
 @pytest.mark.asyncio
 async def test_get_vehicle_returns_404() -> None:
     _auth()
-    with patch(
-        "app.services.vehicle_service.get_vehicle", new=AsyncMock(return_value=None)
-    ):
+    with patch("app.services.vehicle_service.get_vehicle", new=AsyncMock(return_value=None)):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
             r = await c.get("/api/v1/vehicles/999")
     assert r.status_code == 404
@@ -164,12 +160,8 @@ async def test_update_vehicle_returns_200() -> None:
     updated = _vehicle()
     updated.name = "Truck 2"
     with (
-        patch(
-            "app.services.vehicle_service.get_vehicle", new=AsyncMock(return_value=_vehicle())
-        ),
-        patch(
-            "app.services.vehicle_service.update_vehicle", new=AsyncMock(return_value=updated)
-        ),
+        patch("app.services.vehicle_service.get_vehicle", new=AsyncMock(return_value=_vehicle())),
+        patch("app.services.vehicle_service.update_vehicle", new=AsyncMock(return_value=updated)),
     ):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
             r = await c.put("/api/v1/vehicles/1", json={"name": "Truck 2"})
@@ -180,9 +172,7 @@ async def test_update_vehicle_returns_200() -> None:
 @pytest.mark.asyncio
 async def test_update_vehicle_returns_404() -> None:
     _auth()
-    with patch(
-        "app.services.vehicle_service.get_vehicle", new=AsyncMock(return_value=None)
-    ):
+    with patch("app.services.vehicle_service.get_vehicle", new=AsyncMock(return_value=None)):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
             r = await c.put("/api/v1/vehicles/999", json={"name": "X"})
     assert r.status_code == 404
@@ -192,12 +182,8 @@ async def test_update_vehicle_returns_404() -> None:
 async def test_delete_vehicle_returns_204() -> None:
     _auth()
     with (
-        patch(
-            "app.services.vehicle_service.get_vehicle", new=AsyncMock(return_value=_vehicle())
-        ),
-        patch(
-            "app.services.vehicle_service.delete_vehicle", new=AsyncMock(return_value=None)
-        ),
+        patch("app.services.vehicle_service.get_vehicle", new=AsyncMock(return_value=_vehicle())),
+        patch("app.services.vehicle_service.delete_vehicle", new=AsyncMock(return_value=None)),
     ):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
             r = await c.delete("/api/v1/vehicles/1")
@@ -207,9 +193,7 @@ async def test_delete_vehicle_returns_204() -> None:
 @pytest.mark.asyncio
 async def test_delete_vehicle_returns_404() -> None:
     _auth()
-    with patch(
-        "app.services.vehicle_service.get_vehicle", new=AsyncMock(return_value=None)
-    ):
+    with patch("app.services.vehicle_service.get_vehicle", new=AsyncMock(return_value=None)):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
             r = await c.delete("/api/v1/vehicles/999")
     assert r.status_code == 404
@@ -337,9 +321,7 @@ async def test_update_vehicle_operator_returns_200() -> None:
         ),
     ):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
-            r = await c.put(
-                "/api/v1/vehicle-operators/1", json={"issuing_location": "GDL"}
-            )
+            r = await c.put("/api/v1/vehicle-operators/1", json={"issuing_location": "GDL"})
     assert r.status_code == 200
     assert r.json()["issuing_location"] == "GDL"
 

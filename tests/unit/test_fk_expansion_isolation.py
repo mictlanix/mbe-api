@@ -60,7 +60,11 @@ async def test_facility_expansion_leaves_mapped_location_intact() -> None:
 @pytest.mark.asyncio
 async def test_warehouse_expansion_leaves_mapped_facility_intact() -> None:
     warehouse = Warehouse(
-        warehouse_id=1, facility=1, code="WH1", name="Main", comment=None,
+        warehouse_id=1,
+        facility=1,
+        code="WH1",
+        name="Main",
+        comment=None,
         status=EntityStatus.ACTIVE,
     )
     db = _db_returning([_facility()])
@@ -83,7 +87,11 @@ async def test_expanded_facility_does_not_corrupt_an_embedding_warehouse() -> No
         _db_returning([SatPostalCode(sat_postal_code_id="55620", state="MEX")]), [facility]
     )
     warehouse = Warehouse(
-        warehouse_id=1, facility=1, code="WH1", name="Main", comment=None,
+        warehouse_id=1,
+        facility=1,
+        code="WH1",
+        name="Main",
+        comment=None,
         status=EntityStatus.ACTIVE,
     )
     # the very same (already expanded) instance is handed back by the second service

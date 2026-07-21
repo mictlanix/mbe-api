@@ -16,16 +16,20 @@ async def _attach_customer_relations(db: AsyncSession, customers: Sequence[Custo
         return
     list_ids = {c.price_list for c in customers}
     price_lists = (
-        await db.execute(select(PriceList).where(PriceList.price_list_id.in_(list_ids)))
-    ).scalars().all()
+        (await db.execute(select(PriceList).where(PriceList.price_list_id.in_(list_ids))))
+        .scalars()
+        .all()
+    )
     lists_by_id = {pl.price_list_id: pl for pl in price_lists}
 
     salesperson_ids = {c.salesperson for c in customers if c.salesperson is not None}
     employees_by_id: dict[int, Employee] = {}
     if salesperson_ids:
         employees = (
-            await db.execute(select(Employee).where(Employee.employee_id.in_(salesperson_ids)))
-        ).scalars().all()
+            (await db.execute(select(Employee).where(Employee.employee_id.in_(salesperson_ids))))
+            .scalars()
+            .all()
+        )
         employees_by_id = {e.employee_id: e for e in employees}
 
     for c in customers:

@@ -240,9 +240,7 @@ async def test_list_expenses_search_passed_through() -> None:
 @pytest.mark.asyncio
 async def test_get_expense_returns_200() -> None:
     _auth()
-    with patch(
-        "app.services.expense_service.get_expense", new=AsyncMock(return_value=_expense())
-    ):
+    with patch("app.services.expense_service.get_expense", new=AsyncMock(return_value=_expense())):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
             r = await c.get("/api/v1/expenses/1")
     assert r.status_code == 200
@@ -253,9 +251,7 @@ async def test_get_expense_returns_200() -> None:
 @pytest.mark.asyncio
 async def test_get_expense_returns_404() -> None:
     _auth()
-    with patch(
-        "app.services.expense_service.get_expense", new=AsyncMock(return_value=None)
-    ):
+    with patch("app.services.expense_service.get_expense", new=AsyncMock(return_value=None)):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
             r = await c.get("/api/v1/expenses/999")
     assert r.status_code == 404
@@ -279,12 +275,8 @@ async def test_update_expense_returns_200() -> None:
     updated = _expense()
     updated.expense = "Travel"
     with (
-        patch(
-            "app.services.expense_service.get_expense", new=AsyncMock(return_value=_expense())
-        ),
-        patch(
-            "app.services.expense_service.update_expense", new=AsyncMock(return_value=updated)
-        ),
+        patch("app.services.expense_service.get_expense", new=AsyncMock(return_value=_expense())),
+        patch("app.services.expense_service.update_expense", new=AsyncMock(return_value=updated)),
     ):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
             r = await c.put("/api/v1/expenses/1", json={"name": "Travel"})
@@ -295,9 +287,7 @@ async def test_update_expense_returns_200() -> None:
 @pytest.mark.asyncio
 async def test_update_expense_returns_404() -> None:
     _auth()
-    with patch(
-        "app.services.expense_service.get_expense", new=AsyncMock(return_value=None)
-    ):
+    with patch("app.services.expense_service.get_expense", new=AsyncMock(return_value=None)):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
             r = await c.put("/api/v1/expenses/999", json={"name": "X"})
     assert r.status_code == 404
@@ -307,12 +297,8 @@ async def test_update_expense_returns_404() -> None:
 async def test_delete_expense_returns_204() -> None:
     _auth()
     with (
-        patch(
-            "app.services.expense_service.get_expense", new=AsyncMock(return_value=_expense())
-        ),
-        patch(
-            "app.services.expense_service.delete_expense", new=AsyncMock(return_value=None)
-        ),
+        patch("app.services.expense_service.get_expense", new=AsyncMock(return_value=_expense())),
+        patch("app.services.expense_service.delete_expense", new=AsyncMock(return_value=None)),
     ):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
             r = await c.delete("/api/v1/expenses/1")
@@ -322,9 +308,7 @@ async def test_delete_expense_returns_204() -> None:
 @pytest.mark.asyncio
 async def test_delete_expense_returns_404() -> None:
     _auth()
-    with patch(
-        "app.services.expense_service.get_expense", new=AsyncMock(return_value=None)
-    ):
+    with patch("app.services.expense_service.get_expense", new=AsyncMock(return_value=None)):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
             r = await c.delete("/api/v1/expenses/999")
     assert r.status_code == 404
@@ -471,9 +455,7 @@ async def test_list_payment_method_options_requires_auth() -> None:
 async def test_list_payment_method_options_status_filter_passed_through() -> None:
     _auth()
     mock = AsyncMock(return_value=([_pmo()], 1))
-    with patch(
-        "app.services.payment_method_option_service.list_payment_method_options", new=mock
-    ):
+    with patch("app.services.payment_method_option_service.list_payment_method_options", new=mock):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
             r = await c.get("/api/v1/payment-method-options?status=0")
     assert r.status_code == 200
@@ -485,9 +467,7 @@ async def test_list_payment_method_options_status_filter_passed_through() -> Non
 async def test_list_payment_method_options_no_status_filter() -> None:
     _auth()
     mock = AsyncMock(return_value=([_pmo()], 1))
-    with patch(
-        "app.services.payment_method_option_service.list_payment_method_options", new=mock
-    ):
+    with patch("app.services.payment_method_option_service.list_payment_method_options", new=mock):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
             r = await c.get("/api/v1/payment-method-options")
     assert r.status_code == 200
