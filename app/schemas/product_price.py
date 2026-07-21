@@ -1,6 +1,6 @@
 from decimal import Decimal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field
 
 from app.schemas.product import PriceListResponse
 
@@ -24,7 +24,9 @@ class ProductPriceResponse(BaseModel):
 
     product_price_id: int
     product: int
-    price_list: PriceListResponse
+    price_list: PriceListResponse = Field(
+        validation_alias=AliasChoices('price_list_detail', 'price_list')
+    )
     price: Decimal
     low_profit: Decimal
     high_profit: Decimal

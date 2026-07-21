@@ -33,8 +33,10 @@ async def _attach_customer_relations(db: AsyncSession, customers: Sequence[Custo
         employees_by_id = {e.employee_id: e for e in employees}
 
     for c in customers:
-        c.__dict__['price_list'] = lists_by_id.get(c.price_list)
-        c.__dict__['salesperson'] = (
+        # Written under a separate key: the mapped column is shared through the session
+        # identity map, so overwriting it corrupts every reader of the raw FK (#95, #104).
+        c.__dict__['price_list_detail'] = lists_by_id.get(c.price_list)
+        c.__dict__['salesperson_detail'] = (
             employees_by_id.get(c.salesperson) if c.salesperson is not None else None
         )
 

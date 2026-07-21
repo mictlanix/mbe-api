@@ -8,14 +8,8 @@ from app.models.product import PriceList, Product, ProductPrice
 from app.schemas.product_price import ProductPriceCreate, ProductPriceUpdate
 
 
-def _price_list_id(pp: ProductPrice) -> int:
-    """Read the FK id even if a previous call already injected the PriceList object."""
-    value = pp.price_list
-    return value.price_list_id if isinstance(value, PriceList) else value
-
-
 async def _attach_price_list(db: AsyncSession, prices: Sequence[ProductPrice]) -> None:
-    list_ids = {_price_list_id(pp) for pp in prices}
+    list_ids = {pp.price_list for pp in prices}
     if not list_ids:
         return
     price_lists = (
@@ -25,7 +19,9 @@ async def _attach_price_list(db: AsyncSession, prices: Sequence[ProductPrice]) -
     )
     by_id = {pl.price_list_id: pl for pl in price_lists}
     for pp in prices:
-        pp.__dict__['price_list'] = by_id.get(_price_list_id(pp))
+        # Written under a separate key: the mapped column is shared through the session
+        # identity map, so overwriting it corrupts every reader of the raw FK (#95, #104).
+        pp.__dict__['price_list_detail'] = by_id.get(pp.price_list)
 
 
 async def list_product_prices(
