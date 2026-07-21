@@ -21,18 +21,18 @@ def _no_filters() -> dict:
 
 
 def test_apply_product_filters_search_matches_multiple_columns() -> None:
-    query = _apply_product_filters(select(Product), **{**_no_filters(), "search": "widget"})
-    compiled = str(query.compile(compile_kwargs={"literal_binds": True}))
-    assert "widget" in compiled
-    assert "lower(product.code)" in compiled
-    assert "lower(product.name)" in compiled
+    query = _apply_product_filters(select(Product), **{**_no_filters(), 'search': 'widget'})
+    compiled = str(query.compile(compile_kwargs={'literal_binds': True}))
+    assert 'widget' in compiled
+    assert 'lower(product.code)' in compiled
+    assert 'lower(product.name)' in compiled
 
 
 def test_apply_product_filters_label_requires_all_labels() -> None:
-    query = _apply_product_filters(select(Product), **{**_no_filters(), "label": [2, 5]})
-    compiled = str(query.compile(compile_kwargs={"literal_binds": True}))
-    assert "product_label" in compiled
-    assert "count(distinct(product_label.label)) = 2" in compiled
+    query = _apply_product_filters(select(Product), **{**_no_filters(), 'label': [2, 5]})
+    compiled = str(query.compile(compile_kwargs={'literal_binds': True}))
+    assert 'product_label' in compiled
+    assert 'count(distinct(product_label.label)) = 2' in compiled
 
 
 def test_apply_product_filters_no_filters_leaves_query_unchanged() -> None:
@@ -54,6 +54,6 @@ async def test_get_label_facets_returns_rows_from_db() -> None:
 
     assert [(r.label_id, r.count) for r in rows] == [(3, 42), (7, 12)]
     facet_query = db.execute.call_args.args[0]
-    compiled = str(facet_query.compile(compile_kwargs={"literal_binds": True}))
-    assert "GROUP BY product_label.label" in compiled
-    assert "product_label.product IN" in compiled
+    compiled = str(facet_query.compile(compile_kwargs={'literal_binds': True}))
+    assert 'GROUP BY product_label.label' in compiled
+    assert 'product_label.product IN' in compiled

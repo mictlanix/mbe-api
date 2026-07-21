@@ -14,7 +14,7 @@ from app.services.sat_catalog_service import SAT_CATALOG_MAP, to_response
 async def _attach_relations(db: AsyncSession, facilities: Sequence[Facility]) -> None:
     if not facilities:
         return
-    postal_config = SAT_CATALOG_MAP["postal-codes"]
+    postal_config = SAT_CATALOG_MAP['postal-codes']
     postal_codes_by_id = await batch_fetch(
         db, SatPostalCode, SatPostalCode.sat_postal_code_id, (f.location for f in facilities)
     )
@@ -23,7 +23,7 @@ async def _attach_relations(db: AsyncSession, facilities: Sequence[Facility]) ->
         # Written under a separate key: `location` is a mapped column and these instances are
         # shared through the session identity map, so overwriting it corrupts every other
         # response that reads the raw FK (FacilitySummary.location).
-        f.__dict__["location_detail"] = (
+        f.__dict__['location_detail'] = (
             to_response(postal_row, postal_config) if postal_row else None
         )
 
@@ -40,7 +40,7 @@ async def list_facilities(
     count_q = select(func.count()).select_from(Facility)
 
     if search:
-        term = f"%{search}%"
+        term = f'%{search}%'
         condition = or_(Facility.code.ilike(term), Facility.name.ilike(term))
         base = base.where(condition)
         count_q = count_q.where(condition)

@@ -30,12 +30,12 @@ def _db_returning(rows: list) -> AsyncMock:
 def _facility() -> Facility:
     return Facility(
         facility_id=1,
-        code="S1",
-        name="Main Store",
+        code='S1',
+        name='Main Store',
         type=FacilityType.STORE,
-        location="55620",
+        location='55620',
         address=1,
-        taxpayer="RFC123456789A",
+        taxpayer='RFC123456789A',
         logo=None,
         receipt_message=None,
         default_batch=None,
@@ -46,15 +46,15 @@ def _facility() -> Facility:
 @pytest.mark.asyncio
 async def test_facility_expansion_leaves_mapped_location_intact() -> None:
     facility = _facility()
-    db = _db_returning([SatPostalCode(sat_postal_code_id="55620", state="MEX")])
+    db = _db_returning([SatPostalCode(sat_postal_code_id='55620', state='MEX')])
 
     await facility_service._attach_relations(db, [facility])
 
     # the mapped column still holds the raw FK, so FacilitySummary keeps working
-    assert facility.location == "55620"
-    assert FacilitySummary.model_validate(facility).location == "55620"
+    assert facility.location == '55620'
+    assert FacilitySummary.model_validate(facility).location == '55620'
     # and the expanded value is reachable for the detail response
-    assert FacilityResponse.model_validate(facility).location.id == "55620"
+    assert FacilityResponse.model_validate(facility).location.id == '55620'
 
 
 @pytest.mark.asyncio
@@ -62,8 +62,8 @@ async def test_warehouse_expansion_leaves_mapped_facility_intact() -> None:
     warehouse = Warehouse(
         warehouse_id=1,
         facility=1,
-        code="WH1",
-        name="Main",
+        code='WH1',
+        name='Main',
         comment=None,
         status=EntityStatus.ACTIVE,
     )
@@ -84,17 +84,17 @@ async def test_expanded_facility_does_not_corrupt_an_embedding_warehouse() -> No
     facility = _facility()
 
     await facility_service._attach_relations(
-        _db_returning([SatPostalCode(sat_postal_code_id="55620", state="MEX")]), [facility]
+        _db_returning([SatPostalCode(sat_postal_code_id='55620', state='MEX')]), [facility]
     )
     warehouse = Warehouse(
         warehouse_id=1,
         facility=1,
-        code="WH1",
-        name="Main",
+        code='WH1',
+        name='Main',
         comment=None,
         status=EntityStatus.ACTIVE,
     )
     # the very same (already expanded) instance is handed back by the second service
     await warehouse_service._attach_relations(_db_returning([facility]), [warehouse])
 
-    assert WarehouseResponse.model_validate(warehouse).facility.location == "55620"
+    assert WarehouseResponse.model_validate(warehouse).facility.location == '55620'

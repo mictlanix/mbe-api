@@ -12,8 +12,8 @@ from app.services.sat_catalog_service import SAT_CATALOG_MAP, to_response
 async def _attach_relations(db: AsyncSession, recipients: Sequence[TaxpayerRecipient]) -> None:
     if not recipients:
         return
-    postal_config = SAT_CATALOG_MAP["postal-codes"]
-    regime_config = SAT_CATALOG_MAP["tax-regimes"]
+    postal_config = SAT_CATALOG_MAP['postal-codes']
+    regime_config = SAT_CATALOG_MAP['tax-regimes']
 
     postal_ids = {r.postal_code for r in recipients if r.postal_code is not None}
     postal_codes_by_id: dict[str, SatPostalCode] = {}
@@ -45,9 +45,9 @@ async def _attach_relations(db: AsyncSession, recipients: Sequence[TaxpayerRecip
 
     for r in recipients:
         postal_row = postal_codes_by_id.get(r.postal_code) if r.postal_code is not None else None
-        r.__dict__["postal_code"] = to_response(postal_row, postal_config) if postal_row else None
+        r.__dict__['postal_code'] = to_response(postal_row, postal_config) if postal_row else None
         regime_row = regimes_by_id.get(r.regime) if r.regime is not None else None
-        r.__dict__["regime"] = to_response(regime_row, regime_config) if regime_row else None
+        r.__dict__['regime'] = to_response(regime_row, regime_config) if regime_row else None
 
 
 async def list_taxpayer_recipients(
@@ -61,7 +61,7 @@ async def list_taxpayer_recipients(
     count_q = select(func.count()).select_from(TaxpayerRecipient)
 
     if search:
-        term = f"%{search}%"
+        term = f'%{search}%'
         condition = or_(
             TaxpayerRecipient.taxpayer_recipient_id.ilike(term),
             TaxpayerRecipient.name.ilike(term),

@@ -4,7 +4,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.enums import EntityStatus
 
-_USERNAME_RE = re.compile(r"^[0-9a-zA-Z]+$")
+_USERNAME_RE = re.compile(r'^[0-9a-zA-Z]+$')
 
 
 class PrivilegeResponse(BaseModel):
@@ -51,11 +51,11 @@ class UserCreate(BaseModel):
     administrator: bool = False
     status: EntityStatus = EntityStatus.ACTIVE
 
-    @field_validator("user_id")
+    @field_validator('user_id')
     @classmethod
     def validate_username(cls, v: str) -> str:
         if not _USERNAME_RE.match(v):
-            raise ValueError("Username must contain only alphanumeric characters")
+            raise ValueError('Username must contain only alphanumeric characters')
         return v
 
 

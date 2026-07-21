@@ -10,7 +10,7 @@ from app.db.session import get_db
 from app.enums import AccessRight, EntityStatus, SystemObject
 from app.models.user import AccessPrivilege, User
 
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl='/api/v1/auth/login')
 
 
 @dataclass
@@ -27,12 +27,12 @@ async def get_current_user(
 ) -> CurrentUser:
     exc = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Invalid or expired credentials",
-        headers={"WWW-Authenticate": "Bearer"},
+        detail='Invalid or expired credentials',
+        headers={'WWW-Authenticate': 'Bearer'},
     )
     try:
         payload = decode_token(token)
-        user_id: str | None = payload.get("sub")
+        user_id: str | None = payload.get('sub')
         if not user_id:
             raise exc
     except JWTError:
@@ -43,21 +43,21 @@ async def get_current_user(
         raise exc
 
     # Validate session_version on every request to support immediate invalidation
-    if user.session_version != payload.get("session_version", -1):
+    if user.session_version != payload.get('session_version', -1):
         raise exc
 
     return CurrentUser(
         user_id=user_id,
         session_version=user.session_version,
         administrator=user.administrator,
-        facility_id=payload.get("facility_id"),
+        facility_id=payload.get('facility_id'),
     )
 
 
 def require_admin(current_user: CurrentUser = Depends(get_current_user)) -> CurrentUser:
     if not current_user.administrator:
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN, detail="Administrator access required"
+            status_code=status.HTTP_403_FORBIDDEN, detail='Administrator access required'
         )
     return current_user
 
@@ -82,7 +82,7 @@ def require_privilege(system_object: SystemObject, right: AccessRight = AccessRi
         priv = result.scalar_one_or_none()
         if priv is None or not (priv.privileges & int(right)):
             raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN, detail="Insufficient privileges"
+                status_code=status.HTTP_403_FORBIDDEN, detail='Insufficient privileges'
             )
         return current_user
 

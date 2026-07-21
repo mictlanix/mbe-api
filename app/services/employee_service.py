@@ -21,7 +21,7 @@ async def list_employees(
     count_q = select(func.count()).select_from(Employee)
 
     if search:
-        term = f"%{search}%"
+        term = f'%{search}%'
         condition = or_(
             Employee.first_name.ilike(term),
             Employee.last_name.ilike(term),

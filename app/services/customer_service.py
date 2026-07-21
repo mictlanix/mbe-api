@@ -33,8 +33,8 @@ async def _attach_customer_relations(db: AsyncSession, customers: Sequence[Custo
         employees_by_id = {e.employee_id: e for e in employees}
 
     for c in customers:
-        c.__dict__["price_list"] = lists_by_id.get(c.price_list)
-        c.__dict__["salesperson"] = (
+        c.__dict__['price_list'] = lists_by_id.get(c.price_list)
+        c.__dict__['salesperson'] = (
             employees_by_id.get(c.salesperson) if c.salesperson is not None else None
         )
 
@@ -53,7 +53,7 @@ async def list_customers(
     count_q = select(func.count()).select_from(Customer)
 
     if search:
-        term = f"%{search}%"
+        term = f'%{search}%'
         condition = or_(
             Customer.code.ilike(term),
             Customer.name.ilike(term),
@@ -140,7 +140,7 @@ async def delete_customer(db: AsyncSession, customer: Customer, default_customer
     if customer.customer_id == default_customer_id:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="Cannot delete the system default customer",
+            detail='Cannot delete the system default customer',
         )
     await db.delete(customer)
     await db.commit()

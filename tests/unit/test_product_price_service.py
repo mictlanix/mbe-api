@@ -22,17 +22,17 @@ async def test_attach_price_list_survives_repeated_calls() -> None:
     must not choke on a PriceList object already injected by the first."""
     price_list = PriceList(
         price_list_id=5,
-        name="Retail",
-        high_profit_margin=Decimal("0.3"),
-        low_profit_margin=Decimal("0.1"),
+        name='Retail',
+        high_profit_margin=Decimal('0.3'),
+        low_profit_margin=Decimal('0.1'),
     )
     price = ProductPrice(
         product_price_id=1,
         product=1,
         price_list=5,
-        price=Decimal("10.00"),
-        low_profit=Decimal("1.0"),
-        high_profit=Decimal("2.0"),
+        price=Decimal('10.00'),
+        low_profit=Decimal('1.0'),
+        high_profit=Decimal('2.0'),
     )
 
     db = _db_returning([price_list])

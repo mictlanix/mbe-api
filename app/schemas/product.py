@@ -8,18 +8,18 @@ from app.schemas.core import LabelResponse
 from app.schemas.sat_catalog import SatCatalogResponse, SatUnitOfMeasurementResponse
 from app.schemas.supplier import SupplierResponse
 
-_WHITESPACE_RE = re.compile(r"\s")
+_WHITESPACE_RE = re.compile(r'\s')
 
 
 def _validate_code(v: str) -> str:
     if _WHITESPACE_RE.search(v):
-        raise ValueError("Code must not contain whitespace")
+        raise ValueError('Code must not contain whitespace')
     return v
 
 
 def _validate_bar_code(v: str | None) -> str | None:
-    if v and not re.fullmatch(r"\d{13}", v):
-        raise ValueError("Barcode must be empty or exactly 13 digits (EAN-13)")
+    if v and not re.fullmatch(r'\d{13}', v):
+        raise ValueError('Barcode must be empty or exactly 13 digits (EAN-13)')
     return v
 
 
@@ -28,8 +28,8 @@ def _validate_bar_code(v: str | None) -> str | None:
 
 class PriceListCreate(BaseModel):
     name: str
-    high_profit_margin: Decimal = Decimal("0")
-    low_profit_margin: Decimal = Decimal("0")
+    high_profit_margin: Decimal = Decimal('0')
+    low_profit_margin: Decimal = Decimal('0')
 
 
 class PriceListUpdate(BaseModel):
@@ -76,12 +76,12 @@ class ProductCreate(BaseModel):
     comment: str | None = None
     labels: list[int] | None = None
 
-    @field_validator("code")
+    @field_validator('code')
     @classmethod
     def validate_code(cls, v: str) -> str:
         return _validate_code(v)
 
-    @field_validator("bar_code")
+    @field_validator('bar_code')
     @classmethod
     def validate_bar_code(cls, v: str | None) -> str | None:
         return _validate_bar_code(v)
@@ -115,14 +115,14 @@ class ProductUpdate(BaseModel):
     comment: str | None = None
     labels: list[int] | None = None
 
-    @field_validator("code")
+    @field_validator('code')
     @classmethod
     def validate_code(cls, v: str | None) -> str | None:
         if v is not None:
             return _validate_code(v)
         return v
 
-    @field_validator("bar_code")
+    @field_validator('bar_code')
     @classmethod
     def validate_bar_code(cls, v: str | None) -> str | None:
         return _validate_bar_code(v)
@@ -169,7 +169,7 @@ class ProductResponse(BaseModel):
     purchasable: bool
     salable: bool
     invoiceable: bool
-    stock_required: bool = Field(alias="stock_verification")
+    stock_required: bool = Field(alias='stock_verification')
     status: EntityStatus
     comment: str | None
     labels: list[LabelResponse] = []

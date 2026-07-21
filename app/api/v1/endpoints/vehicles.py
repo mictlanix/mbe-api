@@ -12,7 +12,7 @@ from app.services import vehicle_service
 router = APIRouter()
 
 
-@router.get("", response_model=ListResponse[VehicleResponse])
+@router.get('', response_model=ListResponse[VehicleResponse])
 async def list_vehicles(
     search: str | None = Query(None),
     status: EntityStatus | None = Query(None),
@@ -27,7 +27,7 @@ async def list_vehicles(
     return ListResponse(items=list(items), total=total)
 
 
-@router.post("", response_model=VehicleResponse, status_code=http_status.HTTP_201_CREATED)
+@router.post('', response_model=VehicleResponse, status_code=http_status.HTTP_201_CREATED)
 async def create_vehicle(
     data: VehicleCreate,
     _: CurrentUser = Depends(get_current_user),
@@ -37,7 +37,7 @@ async def create_vehicle(
     return VehicleResponse.model_validate(vehicle)
 
 
-@router.get("/{vehicle_id}", response_model=VehicleResponse)
+@router.get('/{vehicle_id}', response_model=VehicleResponse)
 async def get_vehicle(
     vehicle_id: int,
     _: CurrentUser = Depends(get_current_user),
@@ -45,11 +45,11 @@ async def get_vehicle(
 ) -> VehicleResponse:
     vehicle = await vehicle_service.get_vehicle(db, vehicle_id)
     if vehicle is None:
-        raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail="Vehicle not found")
+        raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail='Vehicle not found')
     return VehicleResponse.model_validate(vehicle)
 
 
-@router.put("/{vehicle_id}", response_model=VehicleResponse)
+@router.put('/{vehicle_id}', response_model=VehicleResponse)
 async def update_vehicle(
     vehicle_id: int,
     data: VehicleUpdate,
@@ -58,12 +58,12 @@ async def update_vehicle(
 ) -> VehicleResponse:
     vehicle = await vehicle_service.get_vehicle(db, vehicle_id)
     if vehicle is None:
-        raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail="Vehicle not found")
+        raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail='Vehicle not found')
     vehicle = await vehicle_service.update_vehicle(db, vehicle, data)
     return VehicleResponse.model_validate(vehicle)
 
 
-@router.delete("/{vehicle_id}", status_code=http_status.HTTP_204_NO_CONTENT)
+@router.delete('/{vehicle_id}', status_code=http_status.HTTP_204_NO_CONTENT)
 async def delete_vehicle(
     vehicle_id: int,
     _: CurrentUser = Depends(get_current_user),
@@ -71,5 +71,5 @@ async def delete_vehicle(
 ) -> None:
     vehicle = await vehicle_service.get_vehicle(db, vehicle_id)
     if vehicle is None:
-        raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail="Vehicle not found")
+        raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail='Vehicle not found')
     await vehicle_service.delete_vehicle(db, vehicle)

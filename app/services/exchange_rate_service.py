@@ -57,7 +57,7 @@ async def create_exchange_rate(db: AsyncSession, data: ExchangeRateCreate) -> Ex
     if existing is not None:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="Exchange rate for this date and currency pair already exists",
+            detail='Exchange rate for this date and currency pair already exists',
         )
     er = ExchangeRate(date=data.date, rate=data.rate, base=data.base, target=data.target)
     db.add(er)

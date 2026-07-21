@@ -14,7 +14,7 @@ async def list_expenses(
     count_q = select(func.count()).select_from(Expense)
 
     if search:
-        term = f"%{search}%"
+        term = f'%{search}%'
         condition = Expense.expense.ilike(term)
         base = base.where(condition)
         count_q = count_q.where(condition)

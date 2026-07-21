@@ -12,7 +12,7 @@ from app.services import address_service
 router = APIRouter()
 
 
-@router.get("", response_model=ListResponse[AddressResponse])
+@router.get('', response_model=ListResponse[AddressResponse])
 async def list_addresses(
     search: str | None = Query(None),
     type: AddressType | None = Query(None),
@@ -28,7 +28,7 @@ async def list_addresses(
     return ListResponse(items=list(items), total=total)
 
 
-@router.post("", response_model=AddressResponse, status_code=http_status.HTTP_201_CREATED)
+@router.post('', response_model=AddressResponse, status_code=http_status.HTTP_201_CREATED)
 async def create_address(
     data: AddressCreate,
     _: CurrentUser = Depends(require_privilege(SystemObject.ADDRESSES, AccessRight.CREATE)),
@@ -38,7 +38,7 @@ async def create_address(
     return AddressResponse.model_validate(address)
 
 
-@router.get("/{address_id}", response_model=AddressResponse)
+@router.get('/{address_id}', response_model=AddressResponse)
 async def get_address(
     address_id: int,
     _: CurrentUser = Depends(require_privilege(SystemObject.ADDRESSES, AccessRight.READ)),
@@ -46,11 +46,11 @@ async def get_address(
 ) -> AddressResponse:
     address = await address_service.get_address(db, address_id)
     if address is None:
-        raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail="Address not found")
+        raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail='Address not found')
     return AddressResponse.model_validate(address)
 
 
-@router.put("/{address_id}", response_model=AddressResponse)
+@router.put('/{address_id}', response_model=AddressResponse)
 async def update_address(
     address_id: int,
     data: AddressUpdate,
@@ -59,12 +59,12 @@ async def update_address(
 ) -> AddressResponse:
     address = await address_service.get_address(db, address_id)
     if address is None:
-        raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail="Address not found")
+        raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail='Address not found')
     address = await address_service.update_address(db, address, data)
     return AddressResponse.model_validate(address)
 
 
-@router.delete("/{address_id}", status_code=http_status.HTTP_204_NO_CONTENT)
+@router.delete('/{address_id}', status_code=http_status.HTTP_204_NO_CONTENT)
 async def delete_address(
     address_id: int,
     _: CurrentUser = Depends(require_privilege(SystemObject.ADDRESSES, AccessRight.DELETE)),
@@ -72,5 +72,5 @@ async def delete_address(
 ) -> None:
     address = await address_service.get_address(db, address_id)
     if address is None:
-        raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail="Address not found")
+        raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail='Address not found')
     await address_service.delete_address(db, address)

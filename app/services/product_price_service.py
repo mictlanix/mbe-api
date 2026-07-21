@@ -25,7 +25,7 @@ async def _attach_price_list(db: AsyncSession, prices: Sequence[ProductPrice]) -
     )
     by_id = {pl.price_list_id: pl for pl in price_lists}
     for pp in prices:
-        pp.__dict__["price_list"] = by_id.get(_price_list_id(pp))
+        pp.__dict__['price_list'] = by_id.get(_price_list_id(pp))
 
 
 async def list_product_prices(
@@ -62,9 +62,9 @@ async def get_product_price(db: AsyncSession, product_price_id: int) -> ProductP
 
 async def create_product_price(db: AsyncSession, data: ProductPriceCreate) -> ProductPrice:
     if await db.get(Product, data.product) is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Product not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Product not found')
     if await db.get(PriceList, data.price_list) is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Price list not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Price list not found')
 
     existing = (
         await db.execute(
@@ -77,7 +77,7 @@ async def create_product_price(db: AsyncSession, data: ProductPriceCreate) -> Pr
     if existing is not None:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="Price already exists for this product and price list",
+            detail='Price already exists for this product and price list',
         )
 
     pp = ProductPrice(

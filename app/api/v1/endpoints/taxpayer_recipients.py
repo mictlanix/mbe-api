@@ -14,7 +14,7 @@ from app.services import taxpayer_recipient_service
 router = APIRouter()
 
 
-@router.get("", response_model=ListResponse[TaxpayerRecipientResponse])
+@router.get('', response_model=ListResponse[TaxpayerRecipientResponse])
 async def list_taxpayer_recipients(
     search: str | None = Query(None),
     skip: int = Query(0, ge=0),
@@ -28,7 +28,7 @@ async def list_taxpayer_recipients(
     return ListResponse(items=list(items), total=total)
 
 
-@router.post("", response_model=TaxpayerRecipientResponse, status_code=status.HTTP_201_CREATED)
+@router.post('', response_model=TaxpayerRecipientResponse, status_code=status.HTTP_201_CREATED)
 async def create_taxpayer_recipient(
     data: TaxpayerRecipientCreate,
     _: CurrentUser = Depends(get_current_user),
@@ -38,7 +38,7 @@ async def create_taxpayer_recipient(
     return TaxpayerRecipientResponse.model_validate(tr)
 
 
-@router.get("/{rfc}", response_model=TaxpayerRecipientResponse)
+@router.get('/{rfc}', response_model=TaxpayerRecipientResponse)
 async def get_taxpayer_recipient(
     rfc: str,
     _: CurrentUser = Depends(get_current_user),
@@ -47,12 +47,12 @@ async def get_taxpayer_recipient(
     tr = await taxpayer_recipient_service.get_taxpayer_recipient(db, rfc)
     if tr is None:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Taxpayer recipient not found"
+            status_code=status.HTTP_404_NOT_FOUND, detail='Taxpayer recipient not found'
         )
     return TaxpayerRecipientResponse.model_validate(tr)
 
 
-@router.put("/{rfc}", response_model=TaxpayerRecipientResponse)
+@router.put('/{rfc}', response_model=TaxpayerRecipientResponse)
 async def update_taxpayer_recipient(
     rfc: str,
     data: TaxpayerRecipientUpdate,
@@ -62,13 +62,13 @@ async def update_taxpayer_recipient(
     tr = await taxpayer_recipient_service.get_taxpayer_recipient(db, rfc)
     if tr is None:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Taxpayer recipient not found"
+            status_code=status.HTTP_404_NOT_FOUND, detail='Taxpayer recipient not found'
         )
     tr = await taxpayer_recipient_service.update_taxpayer_recipient(db, tr, data)
     return TaxpayerRecipientResponse.model_validate(tr)
 
 
-@router.delete("/{rfc}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete('/{rfc}', status_code=status.HTTP_204_NO_CONTENT)
 async def delete_taxpayer_recipient(
     rfc: str,
     _: CurrentUser = Depends(get_current_user),
@@ -77,6 +77,6 @@ async def delete_taxpayer_recipient(
     tr = await taxpayer_recipient_service.get_taxpayer_recipient(db, rfc)
     if tr is None:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Taxpayer recipient not found"
+            status_code=status.HTTP_404_NOT_FOUND, detail='Taxpayer recipient not found'
         )
     await taxpayer_recipient_service.delete_taxpayer_recipient(db, tr)

@@ -7,7 +7,7 @@ class SupplierCreate(BaseModel):
     code: str
     name: str
     zone: str | None = None
-    credit_limit: Decimal = Decimal("0")
+    credit_limit: Decimal = Decimal('0')
     credit_days: int = 0
     comment: str | None = None
 

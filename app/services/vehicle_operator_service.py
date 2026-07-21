@@ -16,9 +16,9 @@ async def _attach_relations(db: AsyncSession, operators: Sequence[VehicleOperato
     employee_ids = {i for vo in operators for i in (vo.driver, vo.creator, vo.updater)}
     employees_by_id = await batch_fetch(db, Employee, Employee.employee_id, employee_ids)
     for vo in operators:
-        vo.__dict__["driver"] = employees_by_id.get(vo.driver)
-        vo.__dict__["creator"] = employees_by_id.get(vo.creator)
-        vo.__dict__["updater"] = employees_by_id.get(vo.updater)
+        vo.__dict__['driver'] = employees_by_id.get(vo.driver)
+        vo.__dict__['creator'] = employees_by_id.get(vo.creator)
+        vo.__dict__['updater'] = employees_by_id.get(vo.updater)
 
 
 async def list_vehicle_operators(
@@ -34,7 +34,7 @@ async def list_vehicle_operators(
     count_q = select(func.count()).select_from(VehicleOperator)
 
     if search:
-        term = f"%{search}%"
+        term = f'%{search}%'
         join_on = VehicleOperator.driver == Employee.employee_id
         condition = or_(
             VehicleOperator.driver_license_number.ilike(term),

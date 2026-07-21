@@ -18,7 +18,7 @@ async def list_labels(
     count_q = select(func.count()).select_from(Label)
 
     if search:
-        term = f"%{search}%"
+        term = f'%{search}%'
         base = base.where(Label.name.ilike(term))
         count_q = count_q.where(Label.name.ilike(term))
 

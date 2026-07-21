@@ -27,29 +27,29 @@ class SatCatalogConfig:
 
 
 SAT_CATALOG_MAP: dict[str, SatCatalogConfig] = {
-    "cfdi-usages": SatCatalogConfig(SatCfdiUsage, "sat_cfdi_usage_id", "description"),
-    "countries": SatCatalogConfig(SatCountry, "sat_country_id", "description"),
-    "currencies": SatCatalogConfig(SatCurrency, "sat_currency_id", "description"),
-    "postal-codes": SatCatalogConfig(
+    'cfdi-usages': SatCatalogConfig(SatCfdiUsage, 'sat_cfdi_usage_id', 'description'),
+    'countries': SatCatalogConfig(SatCountry, 'sat_country_id', 'description'),
+    'currencies': SatCatalogConfig(SatCurrency, 'sat_currency_id', 'description'),
+    'postal-codes': SatCatalogConfig(
         SatPostalCode,
-        "sat_postal_code_id",
-        extra_search_fields=("state", "borough", "locality"),
+        'sat_postal_code_id',
+        extra_search_fields=('state', 'borough', 'locality'),
     ),
-    "product-services": SatCatalogConfig(
+    'product-services': SatCatalogConfig(
         SatProductService,
-        "sat_product_service_id",
-        "description",
-        extra_search_fields=("keywords",),
+        'sat_product_service_id',
+        'description',
+        extra_search_fields=('keywords',),
     ),
-    "reason-cancellations": SatCatalogConfig(
-        SatReasonCancellation, "sat_reason_cancellation_id", "description"
+    'reason-cancellations': SatCatalogConfig(
+        SatReasonCancellation, 'sat_reason_cancellation_id', 'description'
     ),
-    "tax-regimes": SatCatalogConfig(SatTaxRegime, "sat_tax_regime_id", "description"),
-    "units-of-measurement": SatCatalogConfig(
+    'tax-regimes': SatCatalogConfig(SatTaxRegime, 'sat_tax_regime_id', 'description'),
+    'units-of-measurement': SatCatalogConfig(
         SatUnitOfMeasurement,
-        "sat_unit_of_measurement_id",
-        "name",
-        extra_search_fields=("description", "symbol"),
+        'sat_unit_of_measurement_id',
+        'name',
+        extra_search_fields=('description', 'symbol'),
     ),
 }
 
@@ -67,7 +67,7 @@ async def list_sat(
     count_q = select(func.count()).select_from(model)
 
     if search:
-        term = f"%{search}%"
+        term = f'%{search}%'
         description_fields = (config.description_field,) if config.description_field else ()
         search_fields = (config.pk_field, *description_fields, *config.extra_search_fields)
         condition = or_(*(getattr(model, f).ilike(term) for f in search_fields))
