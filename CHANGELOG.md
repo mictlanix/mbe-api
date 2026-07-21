@@ -6,6 +6,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+- Optional free-text `search` query param on `GET /api/v1/facilities`, `GET /api/v1/warehouses`, `GET /api/v1/points-of-sale` and `GET /api/v1/cash-drawers` — case-insensitive substring match on the record's `code` or `name`, combinable with the existing facet params, matching the semantics already used by customers/employees/suppliers (#86, #87, #88, #89)
+- CRUD endpoints for addresses under `/api/v1/addresses` (list with `search`/`type`/`status` filters, create, get, update, delete), gated by `SystemObject.ADDRESSES` (11); `app/services/address_service.py`. `Facility.address` (and every other address FK) is now resolvable and pickable by a client (#90)
+- `AddressType` int enum (`0` other / `1` home / `2` work / `3` business / `4` fiscal) in `app/enums.py`; `Address.type` is typed with it instead of a bare `int`
+- `POST /api/v1/facilities/{id}/logo` — multipart image upload mirroring `POST /api/v1/products/{id}/image`; stores the processed filename in `facility.logo` and returns the updated facility (#91)
+- SQL migration script `migrations/sql/006_facility_logo_nullable.sql` (+ rollback script): makes `facility.logo` nullable and clears empty strings and legacy ASP.NET virtual paths (`~/Content/images/...`, unrenderable by any client) to `NULL` — affected facilities show no logo until one is re-uploaded through the new endpoint
+- `EntityStatus`, `FacilityType` and the corrected `AddressType` sections in `docs/constants.md`
+
+### Changed
+- **Breaking**: `FacilityCreate.logo` is now optional — a facility can be created without a logo and given one later via the upload endpoint (#91)
+- `FacilityResponse.logo` and `FacilitySummary.logo` now return a renderable URL (`{images_base_url}/images/{filename}`, or `/images/{filename}` when `images_base_url` is unset) instead of the bare stored filename, matching how `Product.photo` is already returned; `null` when the facility has no logo (#91)
+- `docs/data-dictionary.md` now documents the `status` column on all 13 status-bearing tables instead of the `disabled`/`active`/`deactivated`/`enabled` columns that migration 005 dropped (the `employee` pair collapses to a single row), plus the nullable `facility.logo`
+- `/api/v1/facilities`, `/api/v1/warehouses`, `/api/v1/points-of-sale` and `/api/v1/cash-drawers` are now gated by `require_privilege` — `Facilities` (29), `Warehouses` (4), `PointsOfSale` (9) and `CashDrawers` (10) respectively, with `READ` on list/get and `CREATE`/`UPDATE`/`DELETE` on the mutating routes; they previously required only an authenticated session. `Facilities` (29) is the former `Stores` object, renamed in the Store + ProductionSite merge; the retired `ProductionSites` (107) does not govern anything (#93)
+
 ### Changed
 - **Breaking**: every boolean lifecycle flag is replaced by a single integer `status` field (`0` = active, `1` = inactive, `2` = archived, `EntityStatus` enum) across all status-bearing entities — users, customers, products, employees, facilities, warehouses, points of sale, cash drawers, payment method options, vehicles, vehicle operators (plus persistence-only addresses and taxpayer certificates). The legacy fields `disabled` (user/customer/facility/warehouse/point_sale/cash_drawer), `active` (employee/vehicle/vehicle_operator), `deactivated` (product), and `enabled` (payment_method_option) no longer exist in requests or responses; `Employee` in particular collapses its duplicate `active`+`disabled` pair into the one `status` field (#80, #81)
 - **Breaking**: lifecycle list filters are now uniform — `?status=<0|1|2>` on every status-bearing list endpoint (users, customers, products (both list variants incl. `labels/facets`), employees, facilities, warehouses, points-of-sale, cash-drawers, payment-method-options, vehicles, vehicle-operators), replacing the previous `?deactivated` (products), `?disabled` (customers), and `?active` (employees) parameters

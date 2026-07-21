@@ -5,6 +5,8 @@ import os
 
 from PIL import Image, UnidentifiedImageError
 
+from app.core.config import settings
+
 _MAX_BYTES = 2 * 1024 * 1024  # 2 MB
 _MAX_WIDTH = 150
 
@@ -48,3 +50,11 @@ def _process_and_save_sync(content: bytes, images_dir: str) -> str:
 
 async def process_and_save_image(content: bytes, images_dir: str) -> str:
     return await asyncio.to_thread(_process_and_save_sync, content, images_dir)
+
+
+def image_url(filename: str | None) -> str | None:
+    """Resolve a stored image filename to a URL a non-same-origin client can render."""
+    if filename is None or "/" in filename:
+        return filename
+    base = settings.images_base_url.rstrip("/")
+    return f"{base}/images/{filename}" if base else f"/images/{filename}"

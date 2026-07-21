@@ -1,6 +1,6 @@
 from collections.abc import Sequence
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.enums import EntityStatus
@@ -26,6 +26,7 @@ async def _attach_relations(db: AsyncSession, point_sales: Sequence[PointSale]) 
 async def list_point_sales(
     db: AsyncSession,
     *,
+    search: str | None = None,
     facility: int | None = None,
     warehouse: int | None = None,
     status: EntityStatus | None = None,
@@ -34,6 +35,11 @@ async def list_point_sales(
 ) -> tuple[Sequence[PointSale], int]:
     base = select(PointSale)
     count_q = select(func.count()).select_from(PointSale)
+    if search:
+        term = f"%{search}%"
+        condition = or_(PointSale.code.ilike(term), PointSale.name.ilike(term))
+        base = base.where(condition)
+        count_q = count_q.where(condition)
     if facility is not None:
         base = base.where(PointSale.facility == facility)
         count_q = count_q.where(PointSale.facility == facility)

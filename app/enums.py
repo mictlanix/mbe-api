@@ -7,6 +7,14 @@ class CurrencyCode(IntEnum):
     EUR = 2
 
 
+class AddressType(IntEnum):
+    OTHER = 0
+    HOME = 1
+    WORK = 2
+    BUSINESS = 3
+    FISCAL = 4
+
+
 class FacilityType(IntEnum):
     STORE = 0
     PRODUCTION_SITE = 1

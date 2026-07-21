@@ -5,7 +5,7 @@ from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Integer, Numeric, Sm
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
-from app.enums import CurrencyCode, EntityStatus, FacilityType
+from app.enums import AddressType, CurrencyCode, EntityStatus, FacilityType
 
 
 class Address(Base):
@@ -13,7 +13,7 @@ class Address(Base):
 
     address_id: Mapped[int] = mapped_column(Integer, primary_key=True)
     nickname: Mapped[str | None] = mapped_column(String(100))
-    type: Mapped[int] = mapped_column(Integer)
+    type: Mapped[AddressType] = mapped_column(Integer)
     street: Mapped[str] = mapped_column(String(150))
     exterior_number: Mapped[str] = mapped_column(String(25))
     interior_number: Mapped[str | None] = mapped_column(String(25))
@@ -83,7 +83,7 @@ class Facility(Base):
     taxpayer: Mapped[str] = mapped_column(
         String(13), ForeignKey("taxpayer_issuer.taxpayer_issuer_id")
     )
-    logo: Mapped[str] = mapped_column(String(255))
+    logo: Mapped[str | None] = mapped_column(String(255))
     receipt_message: Mapped[str | None] = mapped_column(String(250))
     default_batch: Mapped[str | None] = mapped_column(String(10))
     status: Mapped[EntityStatus] = mapped_column(

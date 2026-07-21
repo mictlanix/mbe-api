@@ -1,6 +1,6 @@
 from collections.abc import Sequence
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.enums import EntityStatus
@@ -22,6 +22,7 @@ async def _attach_relations(db: AsyncSession, cash_drawers: Sequence[CashDrawer]
 async def list_cash_drawers(
     db: AsyncSession,
     *,
+    search: str | None = None,
     facility: int | None = None,
     status: EntityStatus | None = None,
     skip: int = 0,
@@ -29,6 +30,11 @@ async def list_cash_drawers(
 ) -> tuple[Sequence[CashDrawer], int]:
     base = select(CashDrawer)
     count_q = select(func.count()).select_from(CashDrawer)
+    if search:
+        term = f"%{search}%"
+        condition = or_(CashDrawer.code.ilike(term), CashDrawer.name.ilike(term))
+        base = base.where(condition)
+        count_q = count_q.where(condition)
     if facility is not None:
         base = base.where(CashDrawer.facility == facility)
         count_q = count_q.where(CashDrawer.facility == facility)
