@@ -72,5 +72,5 @@ You (Opus) are the orchestrator. Plan, decompose, synthesize. Reason through the
 <!-- SPECKIT START -->
 For additional context about technologies to be used, project structure,
 shell commands, and other important information, read the current plan
-at specs/008-csd-certificates/plan.md
+at specs/009-sql-migrations/plan.md
 <!-- SPECKIT END -->

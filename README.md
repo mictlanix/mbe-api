@@ -49,16 +49,37 @@ ReDoc: `http://localhost:8000/redoc`
 
 ## Database migrations
 
+Migrations are hand-written SQL files in `migrations/`, applied in order and recorded in a
+`schema_migrations` table inside the target database (the one named by `DATABASE_URL`).
+
 ```bash
-# Apply all pending migrations
-uv run alembic upgrade head
+# Apply everything this database has not yet received
+uv run python -m app.db.migrate
 
-# Create a new migration (after changing models)
-uv run alembic revision --autogenerate -m "describe the change"
+# Report which migrations this database has and has not received
+uv run python -m app.db.migrate status
 
-# Downgrade one step
-uv run alembic downgrade -1
+# Record migrations as applied WITHOUT executing them
+# (only for changes applied by hand before this tooling existed)
+uv run python -m app.db.migrate mark 004_facility_rename
 ```
+
+### Writing a migration
+
+Create `migrations/NNN_short_description.sql`. That's the whole registration step — the
+runner discovers files from the directory, so there is no index or manifest to update.
+
+- `NNN` is the ordering prefix, parsed as a number (`010` runs after `009`). Use the next
+  free number; two migrations may not share a prefix.
+- Optionally add `migrations/NNN_short_description_rollback.sql` to reverse it. Rollback
+  files are never applied automatically — run one by hand when you need it:
+  `mysql <database> < migrations/005_unified_entity_status_rollback.sql`
+- Statements are split on `;`. `--` comments and semicolons inside quoted strings are
+  handled; **`DELIMITER` blocks (stored procedures, triggers) are not supported.**
+
+MariaDB does not roll back DDL. If a migration fails partway, the statements before the
+failure remain applied and the migration is *not* recorded — the runner prints exactly
+which statement failed so you can finish or reverse it by hand.
 
 ## Test
 
