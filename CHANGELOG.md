@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+- SQL migration runner (`uv run python -m app.db.migrate`): applies every migration the target database has not yet received, in numeric-prefix order, and records each one in a `schema_migrations` ledger table inside that database — so what a database has received is a property of the database, not of whoever last ran something by hand. `status` reports applied vs pending; `mark` records a migration as applied without executing it, for changes made before this tooling existed. Statements are split client-side, so a failure names the exact statement, not just the file — which matters because MariaDB does not roll back DDL and a half-applied file needs manual resolution
+
+### Changed
+- SQL migrations now live in a single flat `migrations/` directory. `scripts/facility_rename.sql` became `migrations/004_facility_rename.sql` — numbered *before* 005, not chronologically, because 005 does `ALTER TABLE facility` and that table is only named `facility` because 004 renames it from `store`; the old numbering would have broken every fresh-database bootstrap. `migrations/sql/` and `scripts/` are gone
+
+### Removed
+- Alembic: `alembic.ini`, `migrations/env.py`, `migrations/script.py.mako`, `migrations/README`, and the dependency. It had been wired to application settings since the first release but never produced a single versioned migration — every real schema change was already hand-written SQL, so there was no history to convert
+
+### Docs
+- README documents the SQL migration workflow: where files live, the `NNN_name.sql` convention, the three commands, how to roll back by hand, and the `DELIMITER` limitation of the statement splitter
+
 ### Fixed
 - Database constraint violations return `409` instead of `500` (#107). Deleting a record that something still references is refused with the blocking `table.column` and row counts named in the error, so a client knows what to clear; the referencing tables are derived from the mapped metadata, so a new foreign key is covered as soon as its model exists. Creating or updating a warehouse, point of sale, cash drawer or vehicle with a duplicate `code` / `license_plate` is likewise `409` rather than `500`. An `IntegrityError` handler backstops anything not checked up front, returning a generic conflict — the driver message is logged, never returned, since it names tables and indexes
 - `price_list` delete now reports every blocker, not only customers — it previously missed `product_price`
