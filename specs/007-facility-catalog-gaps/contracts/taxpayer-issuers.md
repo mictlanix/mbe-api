@@ -43,7 +43,10 @@ DELETE /api/v1/taxpayer-issuers/{rfc}    → 204 | 404 | 409
 - On create, `provider` defaults to none when omitted.
 - `PUT` is partial: omitted fields are left unchanged.
 - `DELETE` returns `409` while facilities, certificates, fiscal batches or fiscal documents
-  still reference the entity, naming what blocks it.
+  still reference the entity, naming what blocks it. This feature shipped a hand-written check
+  over those four tables; it was later replaced by the shared referential guard, so the exact
+  response shape is now defined by
+  [feature 006's contract](../../006-constraint-violation-handling/contracts/conflict-responses.md).
 
 ## Deployment note
 
