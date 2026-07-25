@@ -134,6 +134,15 @@ The 9 tables that reference `product_id` that we know of from the spec:
 **Rationale**: ORM bulk updates are safer and more readable than raw SQL; they also play nicely
 with the async session.
 
+**Superseded by [feature 010](../010-product-merge-integrity/research.md)**. Two parts of this
+decision did not survive contact with the data. "The 9 tables that reference `product_id` that we
+know of from the spec … and others" is 19, and the implementation handled 8 — the phrase "and
+others" is the defect: what shipped was a hand-written list, and the eleven relations it omitted
+made 13,248 of 21,542 products unmergeable. The set now comes from the mapped metadata via
+`referencing_columns()`, so no list exists to be incomplete. Raw `text()` statements were kept
+rather than ORM `update()`, since the loop is driven by `(Table, Column)` pairs from metadata and
+never has an ORM class in hand.
+
 ---
 
 ## Decision 8: VehicleOperator License Expiry Advisory

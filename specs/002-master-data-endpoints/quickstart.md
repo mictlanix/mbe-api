@@ -172,6 +172,12 @@ curl -s $BASE/products/$B -H "Authorization: Bearer $TOKEN" -o /dev/null -w "%{h
 # expected: 404
 ```
 
+> Two freshly created products have no references, so this scenario exercises the deletion and
+> nothing else. What a merge does to references — and the `GET /products/merge/preview` that
+> reports them beforehand — is covered by
+> [feature 010's quickstart](../010-product-merge-integrity/quickstart.md), which runs a merge
+> against real history inside a rolled-back transaction.
+
 ---
 
 ## Scenario 9: Vehicle operator advisory flag

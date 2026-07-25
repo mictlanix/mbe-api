@@ -119,6 +119,12 @@ An administrator merges a duplicate product into a canonical product to clean up
 1. **Given** two products A (canonical) and B (duplicate), **When** `POST /api/v1/products/merge` is called with `{product_id: A.id, duplicate_id: B.id}`, **Then** all FK references in transactional tables are remapped from B to A, B is deleted, and `204 No Content` is returned.
 2. **Given** the caller lacks the `ProductsMerge (73)` privilege with `AllowCreate`, **When** the merge endpoint is called, **Then** `403 Forbidden` is returned.
 
+*Post-release refinement*: scenario 1 held only for the eight relations the implementation
+listed, and "remapped" is no longer true of all of them — the duplicate's prices, labels,
+commission assignment and per-customer discounts are discarded rather than moved. Superseded by
+[feature 010](../010-product-merge-integrity/spec.md), which specifies the merge's guarantees in
+full and adds the pre-merge preview.
+
 ---
 
 ### User Story 7 - Browse SAT Catalog Reference Data (Priority: P2)
@@ -206,7 +212,7 @@ calling `GET /api/v1/products` and confirming the same shape appears on every li
 - **FR-003**: System MUST expose `GET /api/v1/products/{id}` returning full product detail including its labels. (Per-product prices are served by the standalone `/api/v1/product-prices` endpoint, not embedded here.)
 - **FR-004**: System MUST expose `PUT /api/v1/products/{id}` to update a product.
 - **FR-005**: System MUST expose `DELETE /api/v1/products/{id}` to hard-delete a product and all its `product_price` rows.
-- **FR-006**: System MUST expose `POST /api/v1/products/merge` to merge a duplicate product into a canonical product; requires the caller to hold `AllowCreate` on `SystemObject 73 (ProductsMerge)`.
+- **FR-006**: System MUST expose `POST /api/v1/products/merge` to merge a duplicate product into a canonical product; requires the caller to hold `AllowCreate` on `SystemObject 73 (ProductsMerge)`. *Post-release refinement*: what a merge does to the references is now specified by [feature 010](../010-product-merge-integrity/spec.md) — every mapped reference is carried over rather than a listed subset, the duplicate's configuration is discarded rather than moved, and `GET /api/v1/products/merge/preview` reports the blast radius beforehand under the same object at `AllowRead`.
 - **FR-007**: `code` MUST be unique (1–25 chars, no whitespace). `bar_code` MUST be either empty or exactly 13 digits. `name` MUST be 4–250 chars.
 
 **Price Lists (`/api/v1/price-lists`)**
@@ -344,7 +350,7 @@ calling `GET /api/v1/products` and confirming the same shape appears on every li
 
 - **SC-001**: All 16 master data resources respond to their `GET` list endpoint within 500 ms under normal load.
 - **SC-002**: All mandatory field validations (code uniqueness, bar code length, RFC length) return an error response before any data is persisted — zero silent data corruption.
-- **SC-003**: The product merge operation leaves zero orphan FK references to the deleted duplicate across all transactional tables.
+- **SC-003**: The product merge operation leaves zero orphan FK references to the deleted duplicate across all transactional tables. *Post-release note*: this criterion was not met by the implementation delivered here — it remapped 8 of the 19 mapped references, so 13,248 of 21,542 products could not be merged at all and two unenforced foreign keys left orphans behind. Met as of [feature 010](../010-product-merge-integrity/spec.md).
 - **SC-004**: All endpoints return `401` for unauthenticated requests and never expose record data to unauthenticated callers.
 - **SC-005**: The product creation auto-default logic (`min_order_qty`, `stock_required`, `tax_rate`, `tax_included`, `price_type`, `photo`) executes atomically — either the product row is created with every default applied, or none of it is. (Per-product prices are no longer part of product creation; see `specs/004-price-management-service`.)
 - **SC-006**: All 5 FK filters (supplier, price_list, salesperson, facility, warehouse, employee) narrow results correctly — a filter for a non-existent ID returns an empty list, never an error.

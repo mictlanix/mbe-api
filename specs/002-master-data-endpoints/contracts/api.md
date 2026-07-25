@@ -173,6 +173,16 @@ Response `204`
 Error `400` if `product_id == duplicate_id`.  
 Error `403` if caller lacks PRODUCTS_MERGE privilege.
 
+### `GET /api/v1/products/merge/preview`
+
+Added by [feature 010](../../010-product-merge-integrity/contracts/product-merge.md), which also
+specifies what a `204` from the merge above guarantees — including the duplicate's prices,
+labels, commission assignment and per-customer discounts being discarded rather than moved.
+
+Query: `product_id`, `duplicate_id` (both required).  
+Requires: `AccessRight.READ` on `SystemObject.PRODUCTS_MERGE (73)`.  
+Response `200`: `{"items": [{"category": "table.column", "count": N}, ...], "total": N}`
+
 ---
 
 ## 2. Price Lists
