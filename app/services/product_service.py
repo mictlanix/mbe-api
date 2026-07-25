@@ -378,13 +378,16 @@ async def delete_product(db: AsyncSession, product: Product) -> None:
     await db.commit()
 
 
-# Tables whose unique key covers the product column, so two rows cannot coexist for the same
-# product: `product_label(product, label)`, `commission_product(product)` and
-# `customer_discount(customer, product)`. Declared rather than read off the metadata because
-# the models do not carry these unique keys — only the database does. A new referencing table
-# with a unique key that is missed here fails loudly on the constraint and rolls the merge
-# back; it cannot corrupt anything.
-_MERGE_UNIQUE = frozenset({'product_label', 'commission_product', 'customer_discount'})
+# Per-product configuration the canonical already owns, so a merge drops the duplicate's rows
+# instead of moving them: prices, labels, commission assignment and per-customer discounts
+# describe how *this* catalog row is set up, not history that happened to it. Each has a unique
+# key covering the product column — `product_price(product, list)`, `product_label(product,
+# label)`, `commission_product(product)`, `customer_discount(customer, product)` — so the
+# duplicate's rows could never all land on the canonical anyway; dropping them outright makes the
+# outcome the same for every row rather than depending on which ones happened to collide.
+_MERGE_DISCARD = frozenset(
+    {'product_price', 'product_label', 'commission_product', 'customer_discount'}
+)
 
 
 async def _load_merge_pair(db: AsyncSession, req: ProductMergeRequest) -> tuple[Product, Product]:
@@ -422,34 +425,27 @@ async def preview_merge(db: AsyncSession, req: ProductMergeRequest) -> list[tupl
 
 
 async def merge_products(db: AsyncSession, req: ProductMergeRequest) -> None:
-    """Move everything the duplicate carries onto the canonical, then delete the duplicate.
+    """Move the duplicate's history onto the canonical, drop its configuration, delete it.
 
-    Both rows describe the same physical product entered twice, so every reference follows —
-    including `fiscal_document_detail`. A stamped CFDI keeps its own `product_code` /
-    `product_name` snapshot, so what the document says was invoiced does not change; only the
-    catalog row it points at does, and that row is about to stop existing.
+    Both rows describe the same physical product entered twice, so every reference to what
+    *happened* follows — including `fiscal_document_detail`. A stamped CFDI keeps its own
+    `product_code` / `product_name` snapshot, so what the document says was invoiced does not
+    change; only the catalog row it points at does, and that row is about to stop existing.
+
+    How the duplicate was *set up* does not follow: its prices, labels, commission assignment
+    and per-customer discounts are discarded, because the canonical is the row being kept and
+    its own configuration is the one that survives.
     """
     _, duplicate = await _load_merge_pair(db, req)
 
     ids = {'canonical': req.product_id, 'duplicate': req.duplicate_id}
-    # The duplicate's own copy of every price list. The canonical already has its own rows, so
-    # these are dropped rather than moved — the one relation a merge deletes wholesale.
-    await product_price_service.delete_for_product(db, req.duplicate_id)
-
-    # Raw statements: a bulk UPDATE by foreign key needs no ORM instances, and the set comes
-    # from the mapped metadata rather than a list, so a new foreign key to `product` is
-    # remapped as soon as its model exists (#112) — and is the same set the preview counts.
-    for table, column in referencing_columns(Product, exempt=frozenset({'product_price'})):
-        if table.name in _MERGE_UNIQUE:
-            # The duplicate's row cannot land on a canonical that already has its counterpart,
-            # so the canonical's wins: move what fits, drop what collided.
-            await db.execute(
-                text(
-                    f'UPDATE IGNORE {table.name} SET {column.name} = :canonical '
-                    f'WHERE {column.name} = :duplicate'
-                ),
-                ids,
-            )
+    # Raw statements: a bulk UPDATE or DELETE by foreign key needs no ORM instances, and the set
+    # comes from the mapped metadata rather than a list, so a new foreign key to `product` is
+    # handled as soon as its model exists (#112) — and is the same set the preview counts. Every
+    # relation goes through this one loop, so which side of the split it falls on is the only
+    # thing that varies.
+    for table, column in referencing_columns(Product):
+        if table.name in _MERGE_DISCARD:
             await db.execute(
                 text(f'DELETE FROM {table.name} WHERE {column.name} = :duplicate'),
                 {'duplicate': req.duplicate_id},
