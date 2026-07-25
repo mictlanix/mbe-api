@@ -1,0 +1,17 @@
+{
+  "workflow": "speckit",
+  "specName": "Csd Certificates",
+  "branch": "",
+  "currentStep": "specify",
+  "status": "completed",
+  "history": [
+    {
+      "step": "specify",
+      "substep": null,
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-07-25T22:58:16.167Z"
+    }
+  ],
+  "telemetryInstanceId": "7bdd0d9a-c72d-4de7-92e5-c344c63366df"
+}

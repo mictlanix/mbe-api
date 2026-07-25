@@ -1,0 +1,17 @@
+{
+  "workflow": "speckit",
+  "specName": "Sql Migrations",
+  "branch": "",
+  "currentStep": "specify",
+  "status": "completed",
+  "history": [
+    {
+      "step": "specify",
+      "substep": null,
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-07-25T22:58:13.632Z"
+    }
+  ],
+  "telemetryInstanceId": "a64e00f7-3156-43d7-af3f-34d9a3bb984d"
+}

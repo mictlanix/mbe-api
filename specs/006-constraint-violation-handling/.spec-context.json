@@ -1,0 +1,17 @@
+{
+  "workflow": "speckit",
+  "specName": "Constraint Violation Handling",
+  "branch": "",
+  "currentStep": "specify",
+  "status": "completed",
+  "history": [
+    {
+      "step": "specify",
+      "substep": null,
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-07-25T22:58:20.598Z"
+    }
+  ],
+  "telemetryInstanceId": "86b54788-e2b8-4dc5-8cb1-2fa128230f15"
+}

@@ -1,0 +1,17 @@
+{
+  "workflow": "speckit",
+  "specName": "Price Management Service",
+  "branch": "",
+  "currentStep": "specify",
+  "status": "completed",
+  "history": [
+    {
+      "step": "specify",
+      "substep": null,
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-07-25T22:58:25.619Z"
+    }
+  ],
+  "telemetryInstanceId": "15e17454-c552-46e5-a438-862fcf4054ad"
+}

@@ -1,0 +1,18 @@
+{
+  "workflow": "speckit",
+  "specName": "010-product-merge-integrity",
+  "branch": "010-product-merge-integrity",
+  "selectedAt": "2026-07-25T22:58:03.068Z",
+  "currentStep": "specify",
+  "status": "completed",
+  "history": [
+    {
+      "step": "specify",
+      "substep": null,
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-07-25T22:58:10.723Z"
+    }
+  ],
+  "telemetryInstanceId": "95c46c34-de2c-42a7-8703-80faa7a00abe"
+}

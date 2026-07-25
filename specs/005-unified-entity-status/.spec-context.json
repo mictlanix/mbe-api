@@ -1,0 +1,17 @@
+{
+  "workflow": "speckit",
+  "specName": "Unified Entity Status",
+  "branch": "",
+  "currentStep": "specify",
+  "status": "completed",
+  "history": [
+    {
+      "step": "specify",
+      "substep": null,
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-07-25T22:58:22.913Z"
+    }
+  ],
+  "telemetryInstanceId": "499b08ed-35bc-4883-b46b-6df066ad4cce"
+}
