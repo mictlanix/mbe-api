@@ -124,31 +124,34 @@ async def test_preview_merge_refuses_the_pairs_a_merge_refuses() -> None:
 
 
 async def _merge_statements(db: AsyncMock | None = None) -> list[str]:
-    """The SQL a merge of 2 into 1 issues, one statement per line."""
+    """The SQL a merge of 2 into 1 issues, one statement per line.
+
+    Nothing is stubbed: every relation goes through the one loop, so the coverage below is what
+    the merge does, not what it was mocked into doing.
+    """
     db = db or _merge_db(Product(product_id=1), Product(product_id=2))
-    with patch(
-        'app.services.product_service.product_price_service.delete_for_product', new=AsyncMock()
-    ):
-        await merge_products(db, ProductMergeRequest(product_id=1, duplicate_id=2))
+    await merge_products(db, ProductMergeRequest(product_id=1, duplicate_id=2))
     return [str(call.args[0]) for call in db.execute.await_args_list]
 
 
 def _remapped_tables(statements: list[str]) -> set[str]:
-    """The table each `UPDATE` / `UPDATE IGNORE` moves onto the canonical."""
-    words = [s.split() for s in statements if s.startswith('UPDATE')]
-    return {w[2] if w[1] == 'IGNORE' else w[1] for w in words}
+    """The table each `UPDATE` moves onto the canonical."""
+    return {s.split()[1] for s in statements if s.startswith('UPDATE')}
+
+
+def _deleted_tables(statements: list[str]) -> set[str]:
+    """The table each `DELETE` clears of the duplicate's rows."""
+    return {s.split()[2] for s in statements if s.startswith('DELETE FROM')}
 
 
 @pytest.mark.asyncio
-async def test_merge_remaps_every_mapped_reference() -> None:
+async def test_merge_handles_every_mapped_reference() -> None:
     """The set comes from the metadata, so the relations #112 reported missing are covered
     without a list to keep in step — and so is the next foreign key someone adds."""
-    remapped = _remapped_tables(await _merge_statements())
+    statements = await _merge_statements()
 
-    expected = {
-        table.name for table, _ in referencing_columns(Product, exempt=frozenset({'product_price'}))
-    }
-    assert remapped == expected
+    expected = {table.name for table, _ in referencing_columns(Product)}
+    assert _remapped_tables(statements) | _deleted_tables(statements) == expected
     assert {  # the eleven left behind before #112
         'commission_product',
         'commissions_history',
@@ -161,7 +164,22 @@ async def test_merge_remaps_every_mapped_reference() -> None:
         'sales_quote_detail',
         'service_order_detail',
         'supplier_return_detail',
-    } <= remapped
+    } <= _remapped_tables(statements) | _deleted_tables(statements)
+
+
+@pytest.mark.asyncio
+async def test_merge_remaps_history_and_nothing_else() -> None:
+    """Every relation is either history that follows the product or configuration that dies
+    with the duplicate — never both, and the split is exhaustive."""
+    statements = await _merge_statements()
+
+    assert _remapped_tables(statements) & _deleted_tables(statements) == set()
+    assert _deleted_tables(statements) == {
+        'product_label',
+        'commission_product',
+        'customer_discount',
+        'product_price',
+    }
 
 
 @pytest.mark.asyncio
@@ -176,47 +194,49 @@ async def test_merge_remaps_the_referencing_column_not_a_column_named_product() 
 
 
 @pytest.mark.asyncio
-async def test_merge_drops_the_duplicate_row_where_a_unique_key_forbids_two() -> None:
-    """One row per product (or per customer/label and product), so the canonical's wins."""
+async def test_merge_discards_the_duplicates_configuration_without_moving_any_of_it() -> None:
+    """The canonical is the row being kept, so its labels, commission and discounts stand and
+    the duplicate's are dropped whole — not partially moved depending on what collided."""
     statements = await _merge_statements()
 
     for table in ('product_label', 'commission_product', 'customer_discount'):
-        assert f'UPDATE IGNORE {table} SET' in ' '.join(statements)
         assert f'DELETE FROM {table} WHERE' in ' '.join(statements)
+        assert not [s for s in statements if s.startswith(f'UPDATE {table} ')]
 
 
 @pytest.mark.asyncio
-async def test_merge_does_not_ignore_errors_on_transactional_tables() -> None:
-    """`UPDATE IGNORE` plus a blanket `DELETE` would silently destroy order history if a
-    statement failed for any reason, so it is confined to the unique-key tables."""
+async def test_merge_never_ignores_a_failed_statement() -> None:
+    """Nothing is moved past a unique key any more, so no statement suppresses its errors —
+    `UPDATE IGNORE` would hide a failure that should roll the merge back."""
     statements = await _merge_statements()
 
-    assert not [s for s in statements if s.startswith('DELETE FROM sales_order_detail')]
-    assert not [s for s in statements if s.startswith('UPDATE IGNORE sales_order_detail')]
+    assert not [s for s in statements if s.startswith('UPDATE IGNORE')]
+
+
+@pytest.mark.asyncio
+async def test_merge_does_not_delete_transactional_history() -> None:
+    """Only configuration is dropped; a `DELETE` against order history would destroy it."""
+    statements = await _merge_statements()
+
+    for table in ('sales_order_detail', 'fiscal_document_detail', 'commissions_history'):
+        assert not [s for s in statements if s.startswith(f'DELETE FROM {table} ')]
+        assert f'UPDATE {table} SET' in ' '.join(statements)
 
 
 @pytest.mark.asyncio
 async def test_merge_deletes_the_duplicates_prices_rather_than_moving_them() -> None:
-    db = _merge_db(Product(product_id=1), Product(product_id=2))
-    delete_prices = AsyncMock()
-    with patch(
-        'app.services.product_service.product_price_service.delete_for_product', new=delete_prices
-    ):
-        await merge_products(db, ProductMergeRequest(product_id=1, duplicate_id=2))
+    """Prices are discarded by the same loop as the rest of the configuration, not by a
+    separate call the coverage above would not see."""
+    statements = await _merge_statements()
 
-    assert delete_prices.await_args.args[1] == 2  # the duplicate's rows, not the canonical's
-    assert not [
-        s for s in (str(c.args[0]) for c in db.execute.await_args_list) if 'product_price' in s
-    ]
+    assert 'DELETE FROM product_price WHERE product = :duplicate' in statements
+    assert 'product_price' not in _remapped_tables(statements)
 
 
 @pytest.mark.asyncio
 async def test_merge_deletes_the_duplicate_and_commits_once() -> None:
     db = _merge_db(Product(product_id=1), duplicate := Product(product_id=2))
-    with patch(
-        'app.services.product_service.product_price_service.delete_for_product', new=AsyncMock()
-    ):
-        await merge_products(db, ProductMergeRequest(product_id=1, duplicate_id=2))
+    await merge_products(db, ProductMergeRequest(product_id=1, duplicate_id=2))
 
     assert db.delete.await_args.args[0] is duplicate
     assert db.commit.await_count == 1
@@ -224,9 +244,10 @@ async def test_merge_deletes_the_duplicate_and_commits_once() -> None:
 
 @pytest.mark.asyncio
 async def test_preview_counts_exactly_what_a_merge_touches() -> None:
-    """The invariant behind both features: the preview's categories are the merge's remaps
-    plus the prices it deletes. If they can drift, the preview is a lie."""
-    touched = _remapped_tables(await _merge_statements())
+    """The invariant behind both features: the preview's categories are what the merge remaps
+    plus what it deletes. If they can drift, the preview is a lie."""
+    statements = await _merge_statements()
+    touched = _remapped_tables(statements) | _deleted_tables(statements)
     counted = {table.name for table, _ in referencing_columns(Product)}
 
-    assert counted == touched | {'product_price'}
+    assert counted == touched
