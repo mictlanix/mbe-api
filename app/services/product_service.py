@@ -14,7 +14,7 @@ from app.models.supplier import Supplier
 from app.schemas.product import ProductCreate, ProductMergeRequest, ProductUpdate
 from app.schemas.sat_catalog import SatUnitOfMeasurementResponse
 from app.services import product_price_service
-from app.services.references import assert_not_referenced
+from app.services.references import assert_not_referenced, find_blocking_references
 from app.services.sat_catalog_service import SAT_CATALOG_MAP, to_response
 
 
@@ -374,14 +374,17 @@ async def delete_product(db: AsyncSession, product: Product) -> None:
     await db.commit()
 
 
-async def merge_products(db: AsyncSession, req: ProductMergeRequest) -> None:
+async def _load_merge_pair(db: AsyncSession, req: ProductMergeRequest) -> tuple[Product, Product]:
+    """Return `(canonical, duplicate)`, rejecting the pair a merge would refuse.
+
+    Shared with the preview so a preview that answers has the same pair a merge would act on.
+    """
     if req.product_id == req.duplicate_id:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail='Cannot merge a product with itself',
         )
 
-    # Verify both products exist
     canonical = await db.get(Product, req.product_id)
     duplicate = await db.get(Product, req.duplicate_id)
     if canonical is None:
@@ -392,6 +395,21 @@ async def merge_products(db: AsyncSession, req: ProductMergeRequest) -> None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail='Duplicate product not found'
         )
+    return canonical, duplicate
+
+
+async def preview_merge(db: AsyncSession, req: ProductMergeRequest) -> list[tuple[str, int]]:
+    """Count the rows riding on the duplicate, largest first, without touching any of them.
+
+    Reported per `table.column` off the mapped metadata, so a new foreign key to `product`
+    shows up the moment its model exists — no list to keep in step with `merge_products`.
+    """
+    _, duplicate = await _load_merge_pair(db, req)
+    return await find_blocking_references(db, duplicate)
+
+
+async def merge_products(db: AsyncSession, req: ProductMergeRequest) -> None:
+    _, duplicate = await _load_merge_pair(db, req)
 
     from sqlalchemy import text
 

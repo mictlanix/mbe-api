@@ -11,6 +11,8 @@ from app.schemas.product import (
     ProductCreate,
     ProductLabelFacet,
     ProductListItem,
+    ProductMergePreviewItem,
+    ProductMergePreviewResponse,
     ProductMergeRequest,
     ProductResponse,
     ProductUpdate,
@@ -102,6 +104,20 @@ async def merge_products(
     db: AsyncSession = Depends(get_db),
 ) -> None:
     await product_service.merge_products(db, data)
+
+
+@router.get('/merge/preview', response_model=ProductMergePreviewResponse)
+async def preview_product_merge(
+    product_id: int = Query(...),
+    duplicate_id: int = Query(...),
+    _: CurrentUser = Depends(require_privilege(SystemObject.PRODUCTS_MERGE, AccessRight.READ)),
+    db: AsyncSession = Depends(get_db),
+) -> ProductMergePreviewResponse:
+    references = await product_service.preview_merge(
+        db, ProductMergeRequest(product_id=product_id, duplicate_id=duplicate_id)
+    )
+    items = [ProductMergePreviewItem(category=name, count=count) for name, count in references]
+    return ProductMergePreviewResponse(items=items, total=sum(item.count for item in items))
 
 
 @router.post('/{product_id}/image', response_model=ProductResponse)

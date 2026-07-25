@@ -389,6 +389,61 @@ async def test_merge_products_returns_204() -> None:
 
 
 @pytest.mark.asyncio
+async def test_merge_preview_totals_the_reported_references() -> None:
+    _auth()
+    counts = [('sales_order_detail.product', 9), ('product_price.product', 3)]
+    with patch('app.services.product_service.preview_merge', new=AsyncMock(return_value=counts)):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as c:
+            r = await c.get('/api/v1/products/merge/preview?product_id=1&duplicate_id=2')
+    assert r.status_code == 200
+    assert r.json() == {
+        'items': [
+            {'category': 'sales_order_detail.product', 'count': 9},
+            {'category': 'product_price.product', 'count': 3},
+        ],
+        'total': 12,
+    }
+
+
+@pytest.mark.asyncio
+async def test_merge_preview_of_an_untouched_duplicate_is_empty() -> None:
+    _auth()
+    with patch('app.services.product_service.preview_merge', new=AsyncMock(return_value=[])):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as c:
+            r = await c.get('/api/v1/products/merge/preview?product_id=1&duplicate_id=2')
+    assert r.status_code == 200
+    assert r.json() == {'items': [], 'total': 0}
+
+
+@pytest.mark.asyncio
+async def test_merge_preview_passes_both_ids_to_the_service() -> None:
+    _auth()
+    mock = AsyncMock(return_value=[])
+    with patch('app.services.product_service.preview_merge', new=mock):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as c:
+            r = await c.get('/api/v1/products/merge/preview?product_id=4&duplicate_id=7')
+    assert r.status_code == 200
+    req = mock.call_args.args[1]
+    assert (req.product_id, req.duplicate_id) == (4, 7)
+
+
+@pytest.mark.asyncio
+async def test_merge_preview_is_not_read_as_a_product_id() -> None:
+    """`/merge/preview` must not be swallowed by `GET /{product_id}`."""
+    _auth()
+    async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as c:
+        r = await c.get('/api/v1/products/merge/preview')
+    assert r.status_code == 422  # missing query params, not a 404 from the by-id route
+
+
+@pytest.mark.asyncio
+async def test_merge_preview_requires_auth() -> None:
+    async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as c:
+        r = await c.get('/api/v1/products/merge/preview?product_id=1&duplicate_id=2')
+    assert r.status_code == 401
+
+
+@pytest.mark.asyncio
 async def test_list_products_requires_auth() -> None:
     async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as c:
         r = await c.get('/api/v1/products')
