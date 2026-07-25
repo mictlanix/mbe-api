@@ -2,7 +2,7 @@ from collections.abc import Sequence
 from typing import Any
 
 from fastapi import HTTPException, status
-from sqlalchemy import Row, Select, delete, func, insert, or_, select
+from sqlalchemy import Row, Select, delete, func, insert, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings
@@ -14,7 +14,11 @@ from app.models.supplier import Supplier
 from app.schemas.product import ProductCreate, ProductMergeRequest, ProductUpdate
 from app.schemas.sat_catalog import SatUnitOfMeasurementResponse
 from app.services import product_price_service
-from app.services.references import assert_not_referenced
+from app.services.references import (
+    assert_not_referenced,
+    find_blocking_references,
+    referencing_columns,
+)
 from app.services.sat_catalog_service import SAT_CATALOG_MAP, to_response
 
 
@@ -374,14 +378,26 @@ async def delete_product(db: AsyncSession, product: Product) -> None:
     await db.commit()
 
 
-async def merge_products(db: AsyncSession, req: ProductMergeRequest) -> None:
+# Tables whose unique key covers the product column, so two rows cannot coexist for the same
+# product: `product_label(product, label)`, `commission_product(product)` and
+# `customer_discount(customer, product)`. Declared rather than read off the metadata because
+# the models do not carry these unique keys — only the database does. A new referencing table
+# with a unique key that is missed here fails loudly on the constraint and rolls the merge
+# back; it cannot corrupt anything.
+_MERGE_UNIQUE = frozenset({'product_label', 'commission_product', 'customer_discount'})
+
+
+async def _load_merge_pair(db: AsyncSession, req: ProductMergeRequest) -> tuple[Product, Product]:
+    """Return `(canonical, duplicate)`, rejecting the pair a merge would refuse.
+
+    Shared with the preview so a preview that answers has the same pair a merge would act on.
+    """
     if req.product_id == req.duplicate_id:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail='Cannot merge a product with itself',
         )
 
-    # Verify both products exist
     canonical = await db.get(Product, req.product_id)
     duplicate = await db.get(Product, req.duplicate_id)
     if canonical is None:
@@ -392,38 +408,60 @@ async def merge_products(db: AsyncSession, req: ProductMergeRequest) -> None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail='Duplicate product not found'
         )
+    return canonical, duplicate
 
-    from sqlalchemy import text
 
-    # Remap FK references across all transactional tables using raw UPDATE statements.
-    # We use text() because these tables may not all have ORM models defined yet.
-    tables_and_columns: list[tuple[str, str]] = [
-        ('sales_order_detail', 'product'),
-        ('purchase_order_detail', 'product'),
-        ('inventory_receipt_detail', 'product'),
-        ('inventory_issue_detail', 'product'),
-        ('inventory_transfer_detail', 'product'),
-        ('lot_serial_tracking', 'product'),
-    ]
-    for table, col in tables_and_columns:
-        await db.execute(
-            text(f'UPDATE {table} SET {col} = :canonical WHERE {col} = :duplicate'),
-            {'canonical': req.product_id, 'duplicate': req.duplicate_id},
-        )
+async def preview_merge(db: AsyncSession, req: ProductMergeRequest) -> list[tuple[str, int]]:
+    """Count the rows riding on the duplicate, largest first, without touching any of them.
 
-    # product_price: remove duplicate's prices (canonical already has its own rows)
+    Reported per `table.column` off the mapped metadata, so a new foreign key to `product`
+    shows up the moment its model exists — no list to keep in step with `merge_products`.
+    """
+    _, duplicate = await _load_merge_pair(db, req)
+    return await find_blocking_references(db, duplicate)
+
+
+async def merge_products(db: AsyncSession, req: ProductMergeRequest) -> None:
+    """Move everything the duplicate carries onto the canonical, then delete the duplicate.
+
+    Both rows describe the same physical product entered twice, so every reference follows —
+    including `fiscal_document_detail`. A stamped CFDI keeps its own `product_code` /
+    `product_name` snapshot, so what the document says was invoiced does not change; only the
+    catalog row it points at does, and that row is about to stop existing.
+    """
+    _, duplicate = await _load_merge_pair(db, req)
+
+    ids = {'canonical': req.product_id, 'duplicate': req.duplicate_id}
+    # The duplicate's own copy of every price list. The canonical already has its own rows, so
+    # these are dropped rather than moved — the one relation a merge deletes wholesale.
     await product_price_service.delete_for_product(db, req.duplicate_id)
 
-    # product_label junction: remap, ignoring duplicates (ON DUPLICATE KEY approach via text)
-    await db.execute(
-        text('UPDATE IGNORE product_label SET product = :canonical WHERE product = :duplicate'),
-        {'canonical': req.product_id, 'duplicate': req.duplicate_id},
-    )
-    # delete any remaining (already existed on canonical side)
-    await db.execute(
-        text('DELETE FROM product_label WHERE product = :duplicate'),
-        {'duplicate': req.duplicate_id},
-    )
+    # Raw statements: a bulk UPDATE by foreign key needs no ORM instances, and the set comes
+    # from the mapped metadata rather than a list, so a new foreign key to `product` is
+    # remapped as soon as its model exists (#112) — and is the same set the preview counts.
+    for table, column in referencing_columns(Product, exempt=frozenset({'product_price'})):
+        if table.name in _MERGE_UNIQUE:
+            # The duplicate's row cannot land on a canonical that already has its counterpart,
+            # so the canonical's wins: move what fits, drop what collided.
+            await db.execute(
+                text(
+                    f'UPDATE IGNORE {table.name} SET {column.name} = :canonical '
+                    f'WHERE {column.name} = :duplicate'
+                ),
+                ids,
+            )
+            await db.execute(
+                text(f'DELETE FROM {table.name} WHERE {column.name} = :duplicate'),
+                {'duplicate': req.duplicate_id},
+            )
+        else:
+            await db.execute(
+                text(
+                    f'UPDATE {table.name} SET {column.name} = :canonical '
+                    f'WHERE {column.name} = :duplicate'
+                ),
+                ids,
+            )
 
     await db.delete(duplicate)
     await db.commit()

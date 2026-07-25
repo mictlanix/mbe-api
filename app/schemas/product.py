@@ -192,3 +192,19 @@ class ProductLabelFacet(BaseModel):
 class ProductMergeRequest(BaseModel):
     product_id: int
     duplicate_id: int
+
+
+class ProductMergePreviewItem(BaseModel):
+    """One referencing relation and how many of its rows point at the duplicate.
+
+    `category` is the `table.column` label the referential guard already uses, so the same
+    vocabulary appears in a merge preview and in a delete conflict.
+    """
+
+    category: str
+    count: int
+
+
+class ProductMergePreviewResponse(BaseModel):
+    items: list[ProductMergePreviewItem]
+    total: int

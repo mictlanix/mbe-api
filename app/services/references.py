@@ -13,13 +13,33 @@ those, trading the named blocker for a generic 409.
 from typing import Any, cast
 
 from fastapi import HTTPException, status
-from sqlalchemy import Select, func, literal, select, union_all
+from sqlalchemy import Column, Select, Table, func, literal, select, union_all
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.inspection import inspect
 from sqlalchemy.orm import Mapper
 
 import app.models  # noqa: F401  — registers every table, so no FK is missed
 from app.db.base import Base
+
+
+def referencing_columns(
+    model: type, *, exempt: frozenset[str] = frozenset()
+) -> list[tuple[Table, Column[Any]]]:
+    """Every mapped `(table, column)` whose foreign key points at `model`'s primary key.
+
+    The one place the referencing relations are enumerated, so a caller that counts them and
+    a caller that rewrites them cannot fall out of step. Sorted for a stable statement order.
+    """
+    pk_column = cast(Mapper[Any], inspect(model)).primary_key[0]
+    columns = [
+        (table, fk.parent)
+        for table in Base.metadata.tables.values()
+        if table.name not in exempt
+        for fk in table.foreign_keys
+        if fk.column is pk_column
+    ]
+    columns.sort(key=lambda c: (c[0].name, c[1].name))
+    return columns
 
 
 async def find_blocking_references(
@@ -31,7 +51,6 @@ async def find_blocking_references(
     counted as blockers.
     """
     mapper = cast(Mapper[Any], inspect(type(instance)))
-    pk_column = mapper.primary_key[0]
     (pk_value,) = mapper.primary_key_from_instance(instance)
     if pk_value is None:
         return []
@@ -40,13 +59,10 @@ async def find_blocking_references(
         # Labelled by column, not just table: a table can reference the same target twice
         # (inventory_transfer's source and destination warehouse), and "inventory_transfer"
         # listed twice with different counts tells the client nothing about what to clear.
-        select(literal(f'{table.name}.{fk.parent.name}').label('reference'), func.count())
+        select(literal(f'{table.name}.{column.name}').label('reference'), func.count())
         .select_from(table)
-        .where(fk.parent == pk_value)
-        for table in Base.metadata.tables.values()
-        if table.name not in exempt
-        for fk in table.foreign_keys
-        if fk.column is pk_column
+        .where(column == pk_value)
+        for table, column in referencing_columns(type(instance), exempt=exempt)
     ]
     if not counts:
         return []
