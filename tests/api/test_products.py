@@ -428,6 +428,34 @@ async def test_merge_preview_passes_both_ids_to_the_service() -> None:
 
 
 @pytest.mark.asyncio
+async def test_merge_preview_refuses_a_self_merge() -> None:
+    """The preview refuses the pairs a merge refuses, so a preview that answers is a preview of
+    a merge that would be accepted."""
+    _auth()
+    async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as c:
+        r = await c.get('/api/v1/products/merge/preview?product_id=3&duplicate_id=3')
+    assert r.status_code == 400
+    assert r.json()['detail'] == 'Cannot merge a product with itself'
+
+
+@pytest.mark.asyncio
+async def test_merge_preview_names_the_missing_side() -> None:
+    """A 404 says which of the two ids is wrong, rather than that something was not found."""
+    _auth()
+    db = AsyncMock()
+    db.get = AsyncMock(side_effect=[None, object()])
+
+    async def _db():
+        yield db
+
+    app.dependency_overrides[get_db] = _db
+    async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as c:
+        r = await c.get('/api/v1/products/merge/preview?product_id=1&duplicate_id=2')
+    assert r.status_code == 404
+    assert r.json()['detail'] == 'Canonical product not found'
+
+
+@pytest.mark.asyncio
 async def test_merge_preview_is_not_read_as_a_product_id() -> None:
     """`/merge/preview` must not be swallowed by `GET /{product_id}`."""
     _auth()
