@@ -14,6 +14,37 @@
       },
       "registered_skills": [],
       "installed_at": "2026-06-14T20:42:14.273977+00:00"
+    },
+    "companion": {
+      "version": "0.20.0",
+      "source": "local",
+      "manifest_hash": "sha256:26f206dffb6b4ca5dffbab325692a36cababfee4650d70d40491d293ace50a2b",
+      "enabled": true,
+      "priority": 10,
+      "registered_commands": {
+        "claude": [
+          "speckit.companion.after-specify",
+          "speckit.companion.after-plan",
+          "speckit.companion.after-tasks",
+          "speckit.companion.after-implement",
+          "speckit.companion.status",
+          "speckit.companion.resume",
+          "speckit.companion.specify",
+          "speckit.companion.plan",
+          "speckit.companion.tasks",
+          "speckit.companion.implement",
+          "speckit.companion.classify",
+          "speckit.companion.mark-complete",
+          "speckit.companion.auto",
+          "speckit.companion.living-adopt",
+          "speckit.companion.living-move",
+          "speckit.companion.living-drift",
+          "speckit.companion.living-coverage",
+          "speckit.companion.living-sync"
+        ]
+      },
+      "registered_skills": [],
+      "installed_at": "2026-07-25T23:04:27.528147+00:00"
     }
   }
 }
