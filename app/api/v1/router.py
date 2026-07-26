@@ -4,6 +4,7 @@ from app.api.v1.endpoints import (
     addresses,
     auth,
     cash_drawers,
+    customer_payments,
     customers,
     employees,
     exchange_rates,
@@ -16,6 +17,7 @@ from app.api.v1.endpoints import (
     price_lists,
     product_prices,
     products,
+    sales_orders,
     sat_catalogs,
     suppliers,
     taxpayer_certificates,
@@ -35,6 +37,10 @@ api_router.include_router(products.router, prefix='/products', tags=['products']
 api_router.include_router(price_lists.router, prefix='/price-lists', tags=['price-lists'])
 api_router.include_router(product_prices.router, prefix='/product-prices', tags=['product-prices'])
 api_router.include_router(customers.router, prefix='/customers', tags=['customers'])
+api_router.include_router(sales_orders.router, prefix='/sales-orders', tags=['sales-orders'])
+api_router.include_router(
+    customer_payments.router, prefix='/customer-payments', tags=['customer-payments']
+)
 api_router.include_router(labels.router, prefix='/labels', tags=['labels'])
 api_router.include_router(
     taxpayer_issuers.router, prefix='/taxpayer-issuers', tags=['taxpayer-issuers']

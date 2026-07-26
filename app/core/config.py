@@ -2,6 +2,8 @@ from decimal import Decimal
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from app.enums import CurrencyCode
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file='.env', env_file_encoding='utf-8', extra='ignore')
@@ -31,6 +33,14 @@ class Settings(BaseSettings):
     default_price_type: int = 0  # 0 = Fixed
     default_photo_file: str = 'no-image.png'
     default_customer_id: int = 1
+
+    # Sales defaults (replaces legacy WebConfig values)
+    default_currency: CurrencyCode = CurrencyCode.MXN
+    default_quotation_due_days: int = 30
+    max_days_to_deliver_stockables: int = 7
+    price_validation_in_range_required: bool = True
+    # Price list holding cost rather than sale price; read when snapshotting a line's cost
+    cost_price_list_id: int = 0
 
     # Directory where uploaded product images are stored
     images_dir: str = 'images'

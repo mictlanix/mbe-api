@@ -2,8 +2,8 @@
   "workflow": "speckit",
   "specName": "Sales Cycle Endpoints",
   "branch": "main",
-  "currentStep": "tasks",
-  "status": "ready-to-implement",
+  "currentStep": "implement",
+  "status": "in-progress",
   "history": [
     {
       "step": "specify",
@@ -25,6 +25,13 @@
       "kind": "start",
       "by": "extension",
       "at": "2026-07-26T01:19:59.310Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "kind": "start",
+      "by": "extension",
+      "at": "2026-07-26T01:59:10.560Z"
     }
   ]
 }

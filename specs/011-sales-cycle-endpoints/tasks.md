@@ -36,8 +36,8 @@ Existing single-project layout, unchanged: `app/{enums,core,schemas,services,api
 
 **Purpose**: Establish a known-good baseline before touching anything.
 
-- [ ] T001 Confirm baseline is green on this branch: `uv run ruff check app/ migrations/ tests/` and `uv run pytest tests/ -q`
-- [ ] T002 Confirm no pending schema work: `uv run python -m app.db.migrate status` reports nothing pending (this feature adds no migration)
+- [X] T001 Confirm baseline is green on this branch: `uv run ruff check app/ migrations/ tests/` and `uv run pytest tests/ -q`
+- [X] T002 Confirm no pending schema work: `uv run python -m app.db.migrate status` reports nothing pending (this feature adds no migration)
 
 ---
 
@@ -46,20 +46,20 @@ Existing single-project layout, unchanged: `app/{enums,core,schemas,services,api
 **Purpose**: Everything every user story depends on. **No user story can start until this phase
 completes.**
 
-- [ ] T003 [P] Add `PaymentTerms`, `PaymentMethod`, `PaymentType`, `Priority`, `TransactionType` and `SourceType` int enums to `app/enums.py`, values taken verbatim from `docs/constants.md` per research R7
-- [ ] T004 [P] Add `default_currency`, `default_quotation_due_days`, `max_days_to_deliver_stockables`, `price_validation_in_range_required` and `cost_price_list_id` settings to `app/core/config.py` per research R8
-- [ ] T005 [P] Write failing unit tests in `tests/unit/test_deps_current_user.py` asserting `CurrentUser` carries the caller's `employee_id`, `point_sale_id` and `cash_drawer_id`, and that each is `None` when the user has no employee or no settings
-- [ ] T006 Extend the `CurrentUser` dataclass in `app/core/deps.py` with `employee_id`, `point_sale_id` and `cash_drawer_id`, populated from the already-loaded `User` and its eager-loaded `UserSettings`; give each a default so existing call sites and test fixtures stay valid (research R9). Do **not** change the JWT payload
-- [ ] T007 Verify the `CurrentUser` change broke nothing: `uv run pytest tests/ -q` still green, especially `tests/api/test_auth.py`
-- [ ] T008 [P] Write failing unit tests for money computation in `tests/unit/test_totals.py`: tax-excluded lines, tax-included lines back-derived, discount application, and quantize-once-at-document-level (research R5)
-- [ ] T009 Implement `app/services/totals.py` — line subtotal/tax and document subtotal/tax/total/balance — making `tests/unit/test_totals.py` pass
-- [ ] T010 [P] Write failing unit tests for folio assignment and the editability guard in `tests/unit/test_documents.py`, including that a second confirm for the same facility does not reuse a serial
-- [ ] T011 Implement `app/services/documents.py` — `assign_folio()` taking a `FOR UPDATE` lock on the owning `facility` row before `MAX(serial)+1` (research R1), and `assert_editable()` refusing completed or cancelled documents — making `tests/unit/test_documents.py` pass
-- [ ] T012 [P] Write failing unit tests for stock ledger posting and on-hand aggregation in `tests/unit/test_stock_ledger.py`, covering negative-on-sale, positive-on-refund and positive-on-cancel
-- [ ] T013 Implement `app/services/stock_ledger.py` — `post_movement()` writing `lot_serial_tracking` rows (`source` = `TransactionType`, `reference` = document id) and `on_hand()` summing quantity by product + warehouse (research R4) — making `tests/unit/test_stock_ledger.py` pass
-- [ ] T014 [P] Write failing unit tests in `tests/unit/test_incidences.py` asserting an audit entry records source, instance id, updater, timestamp and reason, and that a missing reason is rejected
-- [ ] T015 Implement `app/services/incidences.py` writing `incidence` rows for audit entries (FR-045a, FR-072), making `tests/unit/test_incidences.py` pass
-- [ ] T016 Run `uv run ruff check app/ migrations/ tests/` and fix violations introduced by Phase 2
+- [X] T003 [P] Add `PaymentTerms`, `PaymentMethod`, `PaymentType`, `Priority`, `TransactionType` and `SourceType` int enums to `app/enums.py`, values taken verbatim from `docs/constants.md` per research R7
+- [X] T004 [P] Add `default_currency`, `default_quotation_due_days`, `max_days_to_deliver_stockables`, `price_validation_in_range_required` and `cost_price_list_id` settings to `app/core/config.py` per research R8
+- [X] T005 [P] Write failing unit tests in `tests/unit/test_deps_current_user.py` asserting `CurrentUser` carries the caller's `employee_id`, `point_sale_id` and `cash_drawer_id`, and that each is `None` when the user has no employee or no settings
+- [X] T006 Extend the `CurrentUser` dataclass in `app/core/deps.py` with `employee_id`, `point_sale_id` and `cash_drawer_id`, populated from the already-loaded `User` and its eager-loaded `UserSettings`; give each a default so existing call sites and test fixtures stay valid (research R9). Do **not** change the JWT payload
+- [X] T007 Verify the `CurrentUser` change broke nothing: `uv run pytest tests/ -q` still green, especially `tests/api/test_auth.py`
+- [X] T008 [P] Write failing unit tests for money computation in `tests/unit/test_totals.py`: tax-excluded lines, tax-included lines back-derived, discount application, and quantize-once-at-document-level (research R5)
+- [X] T009 Implement `app/services/totals.py` — line subtotal/tax and document subtotal/tax/total/balance — making `tests/unit/test_totals.py` pass
+- [X] T010 [P] Write failing unit tests for folio assignment and the editability guard in `tests/unit/test_documents.py`, including that a second confirm for the same facility does not reuse a serial
+- [X] T011 Implement `app/services/documents.py` — `assign_folio()` taking a `FOR UPDATE` lock on the owning `facility` row before `MAX(serial)+1` (research R1), and `assert_editable()` refusing completed or cancelled documents — making `tests/unit/test_documents.py` pass
+- [X] T012 [P] Write failing unit tests for stock ledger posting and on-hand aggregation in `tests/unit/test_stock_ledger.py`, covering negative-on-sale, positive-on-refund and positive-on-cancel
+- [X] T013 Implement `app/services/stock_ledger.py` — `post_movement()` writing `lot_serial_tracking` rows (`source` = `TransactionType`, `reference` = document id) and `on_hand()` summing quantity by product + warehouse (research R4) — making `tests/unit/test_stock_ledger.py` pass
+- [X] T014 [P] Write failing unit tests in `tests/unit/test_incidences.py` asserting an audit entry records source, instance id, updater, timestamp and reason, and that a missing reason is rejected
+- [X] T015 Implement `app/services/incidences.py` writing `incidence` rows for audit entries (FR-045a, FR-072), making `tests/unit/test_incidences.py` pass
+- [X] T016 Run `uv run ruff check app/ migrations/ tests/` and fix violations introduced by Phase 2
 
 **Checkpoint**: Shared helpers exist and are unit-tested. User stories may now begin.
 
@@ -74,20 +74,20 @@ moving correctly in both directions.
 quantity and discount, confirm, and observe a folio assigned, the order read-only, and one outbound
 ledger row per stocked line. Then cancel and observe the stock restored.
 
-- [ ] T017 [P] [US1] Create request/response schemas in `app/schemas/sales_order.py`: create, update, line create/update, and response carrying derived `subtotal`/`tax_total`/`total`/`balance` and a single derived lifecycle `status`
-- [ ] T018 [P] [US1] Write failing endpoint tests in `tests/api/test_sales_orders.py`: happy-path create/read/update/list, 401 unauthenticated, 403 without `SALES_ORDERS` (7), 404 unknown id, 409 editing a completed order, 422 when the caller has no employee and (distinguishably) no point of sale
-- [ ] T019 [P] [US1] Write failing unit tests in `tests/unit/test_sales_order_service.py` for the state machine: confirm rejects zero-priced lines naming them, cancel refuses when paid, cancel refuses when live applications exist, priority stays editable after completion, credit-terms guard, and price-margin bypass with privilege 102
-- [ ] T020 [US1] Implement create/read/update/list in `app/services/sales_order_service.py` with defaults per FR-010 (default customer, caller's employee and point of sale, default currency at today's rate, promise date, terms from credit standing) and the credit-terms guard (FR-016)
-- [ ] T021 [US1] Implement line add/update/remove in `app/services/sales_order_service.py`: snapshot product code/name/tax/tax-inclusion, cost from `cost_price_list_id` (research R3), price from the customer's price list, quantity defaulted to and floored at the product minimum (FR-012, FR-013)
-- [ ] T022 [US1] Implement price-margin validation in `app/services/sales_order_service.py`, bypassed when the caller holds `EXCLUDE_PRICE_RANGE_VALIDATION` (102) and skipped when `price_validation_in_range_required` is false (FR-014)
-- [ ] T023 [US1] Implement `confirm()` in `app/services/sales_order_service.py`: refuse completed/cancelled, refuse zero-priced lines naming them, validate stock per product aggregated across lines, assign folio via `documents.assign_folio()`, post outbound movements via `stock_ledger.post_movement()`, set completed — all in one transaction (FR-017, FR-018, research R6)
-- [ ] T024 [US1] Implement `cancel()` in `app/services/sales_order_service.py`: refuse when paid with a message directing to refund, refuse when any non-cancelled application exists naming them, and post compensating inbound movements for a previously confirmed order (FR-019, FR-019a, FR-019b)
-- [ ] T025 [US1] Implement currency change bringing the exchange rate and every line into agreement in `app/services/sales_order_service.py` (FR-020)
-- [ ] T026 [P] [US1] Write failing unit tests in `tests/unit/test_sales_order_lookup.py` for the product lookup: a 13-digit numeric pattern routes to barcode matching, anything else to free-text, and results carry per-customer price and per-warehouse on-hand
-- [ ] T027 [US1] Implement the sales product lookup in `app/services/sales_order_service.py` (FR-021), making `tests/unit/test_sales_order_lookup.py` pass
-- [ ] T028 [US1] Create the router in `app/api/v1/endpoints/sales_orders.py` wiring every route in [contracts](./contracts/README.md#sales-orders--systemobject-sales_orders-7), each gated by `require_privilege(SystemObject.SALES_ORDERS, ...)`
-- [ ] T029 [US1] Register the sales-orders router in `app/api/v1/router.py` under prefix `/sales-orders`
-- [ ] T030 [US1] Make all US1 test files pass; run `uv run ruff check app/ tests/`
+- [X] T017 [P] [US1] Create request/response schemas in `app/schemas/sales_order.py`: create, update, line create/update, and response carrying derived `subtotal`/`tax_total`/`total`/`balance` and a single derived lifecycle `status`
+- [X] T018 [P] [US1] Write failing endpoint tests in `tests/api/test_sales_orders.py`: happy-path create/read/update/list, 401 unauthenticated, 403 without `SALES_ORDERS` (7), 404 unknown id, 409 editing a completed order, 422 when the caller has no employee and (distinguishably) no point of sale
+- [X] T019 [P] [US1] Write failing unit tests in `tests/unit/test_sales_order_service.py` for the state machine: confirm rejects zero-priced lines naming them, cancel refuses when paid, cancel refuses when live applications exist, priority stays editable after completion, credit-terms guard, and price-margin bypass with privilege 102
+- [X] T020 [US1] Implement create/read/update/list in `app/services/sales_order_service.py` with defaults per FR-010 (default customer, caller's employee and point of sale, default currency at today's rate, promise date, terms from credit standing) and the credit-terms guard (FR-016)
+- [X] T021 [US1] Implement line add/update/remove in `app/services/sales_order_service.py`: snapshot product code/name/tax/tax-inclusion, cost from `cost_price_list_id` (research R3), price from the customer's price list, quantity defaulted to and floored at the product minimum (FR-012, FR-013)
+- [X] T022 [US1] Implement price-margin validation in `app/services/sales_order_service.py`, bypassed when the caller holds `EXCLUDE_PRICE_RANGE_VALIDATION` (102) and skipped when `price_validation_in_range_required` is false (FR-014)
+- [X] T023 [US1] Implement `confirm()` in `app/services/sales_order_service.py`: refuse completed/cancelled, refuse zero-priced lines naming them, validate stock per product aggregated across lines, assign folio via `documents.assign_folio()`, post outbound movements via `stock_ledger.post_movement()`, set completed — all in one transaction (FR-017, FR-018, research R6)
+- [X] T024 [US1] Implement `cancel()` in `app/services/sales_order_service.py`: refuse when paid with a message directing to refund, refuse when any non-cancelled application exists naming them, and post compensating inbound movements for a previously confirmed order (FR-019, FR-019a, FR-019b)
+- [X] T025 [US1] Implement currency change bringing the exchange rate and every line into agreement in `app/services/sales_order_service.py` (FR-020)
+- [X] T026 [P] [US1] Write failing unit tests in `tests/unit/test_sales_order_lookup.py` for the product lookup: a 13-digit numeric pattern routes to barcode matching, anything else to free-text, and results carry per-customer price and per-warehouse on-hand
+- [X] T027 [US1] Implement the sales product lookup in `app/services/sales_order_service.py` (FR-021), making `tests/unit/test_sales_order_lookup.py` pass
+- [X] T028 [US1] Create the router in `app/api/v1/endpoints/sales_orders.py` wiring every route in [contracts](./contracts/README.md#sales-orders--systemobject-sales_orders-7), each gated by `require_privilege(SystemObject.SALES_ORDERS, ...)`
+- [X] T029 [US1] Register the sales-orders router in `app/api/v1/router.py` under prefix `/sales-orders`
+- [X] T030 [US1] Make all US1 test files pass; run `uv run ruff check app/ tests/`
 
 **Checkpoint**: US1 is independently demonstrable — an order can be built, confirmed and cancelled.
 
@@ -101,18 +101,18 @@ ledger row per stocked line. Then cancel and observe the stock restored.
 and the order be marked paid; reverse the application with a reason and watch all of it undo while
 the cancelled application stays visible.
 
-- [ ] T031 [P] [US2] Create schemas in `app/schemas/customer_payment.py`: payment create/response with derived `unapplied`, application create/response, and a reversal body whose `reason` is required
-- [ ] T032 [P] [US2] Write failing endpoint tests in `tests/api/test_customer_payments.py`: record, list with explicit filters, apply, reverse, 401, 403 without `CUSTOMER_PAYMENTS` (8), 404, 409 applying to a draft or cancelled order, 422 over-application, 422 cross-currency, 422 reversal without a reason
-- [ ] T033 [P] [US2] Write failing unit tests in `tests/unit/test_customer_payment_service.py` for paid-flag set and clear, unapplied-amount arithmetic, that `amount_change` does not consume unapplied amount, and that reversal writes an incidence entry
-- [ ] T034 [US2] Implement payment create/read/list in `app/services/customer_payment_service.py`, attaching the caller's open cash session when one exists, with explicit filters only and no implicit session scoping (FR-040, FR-041, FR-009a)
-- [ ] T035 [US2] Implement `apply()` in `app/services/customer_payment_service.py`: require a completed, uncancelled order for the same customer, cap at unapplied amount, refuse cross-currency, record `applier`/`date`/`amount_change`, and set `paid` when applications cover the total (FR-042, FR-042a, FR-043, FR-044)
-- [ ] T036 [US2] Implement `reverse()` in `app/services/customer_payment_service.py`: require a reason, mark the application cancelled without deleting it, restore the balance, clear `paid`, and write an incidence entry via `incidences` (FR-045, FR-045a)
-- [ ] T037 [P] [US2] Write failing unit tests in `tests/unit/test_outstanding_search.py` for the outstanding-orders search: numeric terms match id or serial, text terms match customer name, customer's salesperson nickname, order salesperson nickname or `customer_name`
-- [ ] T038 [US2] Implement the outstanding-orders search in `app/services/customer_payment_service.py` (FR-046), making `tests/unit/test_outstanding_search.py` pass
-- [ ] T039 [US2] Create the router in `app/api/v1/endpoints/customer_payments.py` per [contracts](./contracts/README.md#customer-payments--systemobject-customer_payments-8), including the applications sub-resource
-- [ ] T040 [US2] Register the customer-payments router in `app/api/v1/router.py` under prefix `/customer-payments`
-- [ ] T041 [US2] Wire the cancel-blocked-by-live-applications check (T024) to the real application query and extend `tests/unit/test_sales_order_service.py` to cover it end to end
-- [ ] T042 [US2] Make all US2 test files pass; run `uv run ruff check app/ tests/`
+- [X] T031 [P] [US2] Create schemas in `app/schemas/customer_payment.py`: payment create/response with derived `unapplied`, application create/response, and a reversal body whose `reason` is required
+- [X] T032 [P] [US2] Write failing endpoint tests in `tests/api/test_customer_payments.py`: record, list with explicit filters, apply, reverse, 401, 403 without `CUSTOMER_PAYMENTS` (8), 404, 409 applying to a draft or cancelled order, 422 over-application, 422 cross-currency, 422 reversal without a reason
+- [X] T033 [P] [US2] Write failing unit tests in `tests/unit/test_customer_payment_service.py` for paid-flag set and clear, unapplied-amount arithmetic, that `amount_change` does not consume unapplied amount, and that reversal writes an incidence entry
+- [X] T034 [US2] Implement payment create/read/list in `app/services/customer_payment_service.py`, attaching the caller's open cash session when one exists, with explicit filters only and no implicit session scoping (FR-040, FR-041, FR-009a)
+- [X] T035 [US2] Implement `apply()` in `app/services/customer_payment_service.py`: require a completed, uncancelled order for the same customer, cap at unapplied amount, refuse cross-currency, record `applier`/`date`/`amount_change`, and set `paid` when applications cover the total (FR-042, FR-042a, FR-043, FR-044)
+- [X] T036 [US2] Implement `reverse()` in `app/services/customer_payment_service.py`: require a reason, mark the application cancelled without deleting it, restore the balance, clear `paid`, and write an incidence entry via `incidences` (FR-045, FR-045a)
+- [X] T037 [P] [US2] Write failing unit tests in `tests/unit/test_outstanding_search.py` for the outstanding-orders search: numeric terms match id or serial, text terms match customer name, customer's salesperson nickname, order salesperson nickname or `customer_name`
+- [X] T038 [US2] Implement the outstanding-orders search in `app/services/customer_payment_service.py` (FR-046), making `tests/unit/test_outstanding_search.py` pass
+- [X] T039 [US2] Create the router in `app/api/v1/endpoints/customer_payments.py` per [contracts](./contracts/README.md#customer-payments--systemobject-customer_payments-8), including the applications sub-resource
+- [X] T040 [US2] Register the customer-payments router in `app/api/v1/router.py` under prefix `/customer-payments`
+- [X] T041 [US2] Wire the cancel-blocked-by-live-applications check (T024) to the real application query and extend `tests/unit/test_sales_order_service.py` to cover it end to end
+- [X] T042 [US2] Make all US2 test files pass; run `uv run ruff check app/ tests/`
 
 **Checkpoint**: The core revenue path is complete and demonstrable — MVP boundary.
 

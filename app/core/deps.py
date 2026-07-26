@@ -19,6 +19,12 @@ class CurrentUser:
     session_version: int
     administrator: bool
     facility_id: int | None
+    # Sourced from the User row and its eager-loaded settings, not from the JWT, so existing
+    # tokens keep working. `None` means "not configured" and is refused by the services that
+    # need it rather than being papered over (FR-002, FR-004a).
+    employee_id: int | None = None
+    point_sale_id: int | None = None
+    cash_drawer_id: int | None = None
 
 
 async def get_current_user(
@@ -46,11 +52,15 @@ async def get_current_user(
     if user.session_version != payload.get('session_version', -1):
         raise exc
 
+    settings = user.settings
     return CurrentUser(
         user_id=user_id,
         session_version=user.session_version,
         administrator=user.administrator,
         facility_id=payload.get('facility_id'),
+        employee_id=user.employee_id,
+        point_sale_id=settings.point_sale_id if settings else None,
+        cash_drawer_id=settings.cash_drawer_id if settings else None,
     )
 
 
