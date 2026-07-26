@@ -1,8 +1,14 @@
 # Phase 1 Data Model: Sales Cycle Endpoints
 
-**No new tables and no schema migration.** Every entity below is already mapped. This document
-records which columns this feature writes, what is derived rather than stored, and the state
-machines the lifecycle rules impose.
+**No new tables and no column changes.** Every entity below is already mapped. One migration
+(`007_document_serial_unique.sql`) adds a unique index on `(facility, serial)` to the three
+document tables and corrects the legacy rows blocking it — see research R1. This document records
+which columns this feature writes, what is derived rather than stored, and the state machines the
+lifecycle rules impose.
+
+**Folio invariant**: `serial` is `NULL` on a draft and unique per facility once assigned. A
+`serial` of `0` is not a folio — it was the legacy application's placeholder for "not numbered" and
+migration 007 clears it to `NULL`.
 
 Column names are the repository's, not the source document's — see the spec's Divergences table.
 

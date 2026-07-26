@@ -11,8 +11,11 @@ cp .env.example .env                     # configure DATABASE_URL and JWT_SECRET
 uv run python -m app.db.migrate status   # expect: no pending migrations for this feature
 ```
 
-This feature adds **no migration**. If `status` reports pending work, it belongs to an earlier
-feature and should be applied first.
+This feature adds **one migration**, `007_document_serial_unique.sql`. Apply it with
+`uv run python -m app.db.migrate`. It nulls 4,240 `serial = 0` placeholders, renumbers 21 genuinely
+duplicated folios, and then adds the unique index on `(facility, serial)` to the three document
+tables. **The data changes are not reversible** — the rollback script drops the indexes only. Read
+the header comment before applying it to a database you care about.
 
 ## Gates that must pass before the feature is done
 
@@ -121,8 +124,9 @@ curl -X POST .../sales-orders/{id2}/confirm -H "$AUTH" &
 wait
 ```
 
-Expect two **different** serials. Because there is no unique index on `(facility, serial)`, a
-regression here is silent in the database — this check is the only thing that catches it.
+Expect two **different** serials. The unique index added by migration 007 means a regression now
+fails loudly rather than silently duplicating a folio; this check confirms the facility row lock is
+still doing its job, so callers queue instead of one of them hitting a constraint violation.
 
 **Over-refund (SC-006, R2)** — confirm two refunds of the same order line concurrently; their
 combined quantity must never exceed what was sold.
@@ -134,4 +138,4 @@ combined quantity must never exceed what was sold.
 - [ ] Scenarios 1–5 pass by hand against a real database
 - [ ] Both concurrency checks pass
 - [ ] `CHANGELOG.md` `[Unreleased]` updated (Constitution: Development Workflow)
-- [ ] No new migration, no new model, no new dependency
+- [ ] Migration 007 applied; no new model, no new dependency, no column change

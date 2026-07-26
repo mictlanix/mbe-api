@@ -8,36 +8,54 @@ both are flagged.
 
 ## R1 — Folio uniqueness under concurrent confirmation (SC-005)
 
-**Finding that changed the approach**: `sales_order`, `sales_quote` and `customer_refund` each have
-`serial int(11) DEFAULT NULL` with **no unique index on `(facility, serial)`**. The database will
-not stop two concurrent confirmations from taking the same folio. The spec assumed no migration
-would be needed; enforcing SC-005 in the database alone would need one.
+**Finding**: `sales_order`, `sales_quote` and `customer_refund` each have `serial int(11) DEFAULT
+NULL` with **no unique index on `(facility, serial)`**. Nothing in the database stopped two
+concurrent confirmations from taking the same folio.
 
-**Decision**: Serialize folio assignment with a row lock on the owning `facility`, taken inside the
-confirmation transaction immediately before computing `MAX(serial) + 1`:
+**Decision**: Both layers, because they do different jobs.
 
-```
-SELECT ... FROM facility WHERE facility_id = :id FOR UPDATE
-```
+1. **A unique index on `(facility, serial)`** for all three tables
+   (`migrations/007_document_serial_unique.sql`). This is the guarantee: a regression in the
+   application surfaces as a constraint violation instead of a silently duplicated folio. Draft
+   documents carry `NULL` and MySQL permits any number of those in a unique index.
+2. **A `FOR UPDATE` lock on the owning `facility` row**, taken inside the confirmation transaction
+   before reading `MAX(serial)`. This is the ergonomics: concurrent confirmations queue rather than
+   one of them failing on a duplicate key. It also covers any future code path that assigns a folio
+   without going through `documents.assign_folio()`.
 
-InnoDB holds the lock until the transaction commits, so two confirms for the same facility queue
-rather than race. Contention is per-facility and confirmation is short, so this is cheap. No
-migration, no risk to existing data.
+**The data audit this originally deferred was carried out**, against the live database, and it
+found real violations — which is why the migration is not a bare `CREATE UNIQUE INDEX`:
 
-**Rationale**: The alternative that *looks* stronger — adding `UNIQUE (facility, serial)` — cannot
-be adopted blind. Legacy data may already contain duplicate or malformed folios, and the migration
-would fail on exactly the databases that matter. It also cannot be verified from this repository.
+| Table | `serial = 0` placeholders | Genuine duplicate folios | Clean? |
+|---|---|---|---|
+| `sales_order` | 3 | 0 groups | already clean |
+| `sales_quote` | 4,065 (3,974 completed) | 9 groups / 24 rows | needed both fixes |
+| `customer_refund` | 172 | 4 groups / 10 rows | needed both fixes |
+
+The two classes are different problems and the migration treats them differently:
+
+- **`serial = 0` is not folio zero.** It is the legacy application's placeholder for "not numbered",
+  written on 4,240 rows from 2024 onward. These become `NULL`, which is what the new model means by
+  "no folio yet". No real folio changes.
+- **Thirty-four rows genuinely collide**, dating 2018–2023. The earliest document in each group
+  keeps its folio; the 21 later ones move to the next free numbers for their facility. This was
+  authorised explicitly, with the consequence understood: a reassigned `customer_refund` folio will
+  no longer match a receipt printed years ago.
+
+Order matters and the migration says so — the `0 → NULL` step must run first, or the 4,240
+placeholder rows would be treated as duplicates and issued real folios.
+
+**Verified before shipping**: the data steps were executed against the live database inside a
+transaction that was rolled back. 4,240 rows nulled, 21 renumbered, and zero duplicate groups
+remaining on all three tables — so the index is creatable. Nothing was written.
 
 **Alternatives considered**:
-- *Unique index + retry on duplicate-key*: strongest guarantee, but requires a migration whose
-  success depends on unverifiable production data, and turns a normal confirm into a retry loop.
-- *Dedicated counter table*: another table and another write path, for a guarantee the row lock
-  already gives.
-- *`MAX(serial)+1` with no lock*: what the legacy system does. Silently violates SC-005.
-
-**Follow-up left for the team, not this feature**: audit `facility`/`serial` pairs in production;
-if clean, add the unique index later as defence in depth. Recorded here so the decision is not
-mistaken for an oversight.
+- *Row lock alone* (the original decision): no migration and no data risk, but the guarantee lives
+  only in application code and a regression is invisible to the database.
+- *Unique index alone, with retry on duplicate key*: turns every concurrent confirm into a
+  user-visible failure and a retry loop, for a guarantee the lock already provides quietly.
+- *Renumbering the earliest document instead of the latest*: would move the folio of the document
+  most likely to have been circulated.
 
 ---
 

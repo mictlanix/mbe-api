@@ -4,6 +4,7 @@ from app.api.v1.endpoints import (
     addresses,
     auth,
     cash_drawers,
+    cash_sessions,
     customer_payments,
     customers,
     employees,
@@ -58,6 +59,7 @@ api_router.include_router(facilities.router, prefix='/facilities', tags=['facili
 api_router.include_router(warehouses.router, prefix='/warehouses', tags=['warehouses'])
 api_router.include_router(points_of_sale.router, prefix='/points-of-sale', tags=['points-of-sale'])
 api_router.include_router(cash_drawers.router, prefix='/cash-drawers', tags=['cash-drawers'])
+api_router.include_router(cash_sessions.router, prefix='/cash-sessions', tags=['cash-sessions'])
 api_router.include_router(exchange_rates.router, prefix='/exchange-rates', tags=['exchange-rates'])
 api_router.include_router(expenses.router, prefix='/expenses', tags=['expenses'])
 api_router.include_router(

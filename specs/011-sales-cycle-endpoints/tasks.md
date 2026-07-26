@@ -60,6 +60,9 @@ completes.**
 - [X] T014 [P] Write failing unit tests in `tests/unit/test_incidences.py` asserting an audit entry records source, instance id, updater, timestamp and reason, and that a missing reason is rejected
 - [X] T015 Implement `app/services/incidences.py` writing `incidence` rows for audit entries (FR-045a, FR-072), making `tests/unit/test_incidences.py` pass
 - [X] T016 Run `uv run ruff check app/ migrations/ tests/` and fix violations introduced by Phase 2
+- [X] T016a Write `migrations/007_document_serial_unique.sql` (+ rollback): null the `serial = 0` placeholders, renumber genuinely duplicated folios keeping the earliest, then add the unique index on `(facility, serial)` to `sales_order`, `sales_quote` and `customer_refund` (FR-022, research R1). The `0 -> NULL` step MUST precede the renumber
+- [X] T016b Dry-run the migration's data steps against a real database inside a rolled-back transaction; confirm zero duplicate `(facility, serial)` groups remain on all three tables, so the index is creatable
+- [ ] T016c Apply the migration (`uv run python -m app.db.migrate`) and confirm `status` reports it applied. **Not reversible** — the rollback drops the indexes only, it does not restore the corrected data
 
 **Checkpoint**: Shared helpers exist and are unit-tested. User stories may now begin.
 
@@ -125,15 +128,15 @@ the cancelled application stays visible.
 **Independent test**: Open a session on a drawer, be refused a second on the same drawer, read it
 with its payment summary, then close it with denomination counts.
 
-- [ ] T043 [P] [US3] Create schemas in `app/schemas/cash_session.py`: open request with `opening_amount`, close request with denomination counts, and a current-session response distinguishing none / open-today / open-stale
-- [ ] T044 [P] [US3] Write failing endpoint tests in `tests/api/test_cash_sessions.py`: open, 409 second session on the same drawer, 409 second session for the same cashier, current in all three states, close, 401, 403 on close without `CASH_SESSION_CLOSE` (111)
-- [ ] T045 [P] [US3] Write failing unit tests in `tests/unit/test_cash_session_service.py` for the three-state current-session logic (none / open-today / open-stale), the two open-session refusals, and payment summarisation by method
-- [ ] T046 [US3] Implement `open_session()` in `app/services/cash_session_service.py` recording `start`, `cashier` and `cash_drawer`, refusing when the drawer or the cashier already has an open session, and storing the opening amount as a `cash_count` row of the opening type (FR-050)
-- [ ] T047 [US3] Implement `current_session()` in `app/services/cash_session_service.py` returning the three-state result and the session's payments summarised by method (FR-051, FR-053)
-- [ ] T048 [US3] Implement `close_session()` in `app/services/cash_session_service.py` storing `cash_count` rows and setting `end` (FR-052)
-- [ ] T049 [US3] Create the router in `app/api/v1/endpoints/cash_sessions.py` per [contracts](./contracts/README.md#cash-sessions--systemobject-pos-adjacent-close-gated-by-cash_session_close-111), gating close with `CASH_SESSION_CLOSE` (111)
-- [ ] T050 [US3] Register the cash-sessions router in `app/api/v1/router.py` under prefix `/cash-sessions`
-- [ ] T051 [US3] Make all US3 test files pass; run `uv run ruff check app/ tests/`
+- [X] T043 [P] [US3] Create schemas in `app/schemas/cash_session.py`: open request with `opening_amount`, close request with denomination counts, and a current-session response distinguishing none / open-today / open-stale
+- [X] T044 [P] [US3] Write failing endpoint tests in `tests/api/test_cash_sessions.py`: open, 409 second session on the same drawer, 409 second session for the same cashier, current in all three states, close, 401, 403 on close without `CASH_SESSION_CLOSE` (111)
+- [X] T045 [P] [US3] Write failing unit tests in `tests/unit/test_cash_session_service.py` for the three-state current-session logic (none / open-today / open-stale), the two open-session refusals, and payment summarisation by method
+- [X] T046 [US3] Implement `open_session()` in `app/services/cash_session_service.py` recording `start`, `cashier` and `cash_drawer`, refusing when the drawer or the cashier already has an open session, and storing the opening amount as a `cash_count` row of the opening type (FR-050)
+- [X] T047 [US3] Implement `current_session()` in `app/services/cash_session_service.py` returning the three-state result and the session's payments summarised by method (FR-051, FR-053)
+- [X] T048 [US3] Implement `close_session()` in `app/services/cash_session_service.py` storing `cash_count` rows and setting `end` (FR-052)
+- [X] T049 [US3] Create the router in `app/api/v1/endpoints/cash_sessions.py` per [contracts](./contracts/README.md#cash-sessions--systemobject-pos-adjacent-close-gated-by-cash_session_close-111), gating close with `CASH_SESSION_CLOSE` (111)
+- [X] T050 [US3] Register the cash-sessions router in `app/api/v1/router.py` under prefix `/cash-sessions`
+- [X] T051 [US3] Make all US3 test files pass; run `uv run ruff check app/ tests/`
 
 **Checkpoint**: Counter operation is possible; refunds are now unblocked.
 

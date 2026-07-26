@@ -46,6 +46,7 @@ substantive divergences are recorded in [Divergences from the source document](#
 - Q: What should cancelling a confirmed sales order do to the stock its confirmation decremented? → A: Post a compensating reversing entry per line, restoring on-hand; the ledger stays append-only
 - Q: How should a credit note's remaining balance and redemption work? → A: As a view over its backing customer payment — remaining is the issued amount less that payment's non-cancelled applications, and redemption is an ordinary payment application
 - Q: When should a sales quote be assigned its folio — on create as the legacy document says, or on confirm? → A: On confirm, the same rule as sales orders and customer refunds, so abandoned drafts leave no gaps
+- Q: Should folio uniqueness be guaranteed by the database as well as the application? → A: Yes — a unique index on `(facility, serial)` for all three document tables, added by migration. The legacy data blocking it is corrected first: `serial = 0` placeholders become `NULL`, and where two documents genuinely share a folio the earliest keeps it while later ones are renumbered
 - Q: What is the binding lifecycle for paying, cancelling and refunding an order? → A: Given directly as four rules — only completed, uncancelled orders can be paid; only completed **and paid** orders can be refunded; a completed, paid order cannot be cancelled and must be refunded instead; a payment application can be undone, marking the order unpaid again, but must leave evidence rather than be silently deleted
 - Q: A refundable order is now always fully paid, so every refund returns the full amount. In what form? → A: The cashier chooses at confirmation — cash out of the open session, or a credit note
 - Q: Where should the evidence for a reversed payment application live, given no column records who reversed it? → A: The incidence log — employee, timestamp and a required reason; no schema change
@@ -446,6 +447,14 @@ order.
   warehouse. A 13-digit numeric pattern MUST be matched against the product's barcode instead of
   the free-text fields.
 
+- **FR-022**: Folio uniqueness MUST be enforced by a unique database constraint on
+  `(facility, serial)` for sales orders, quotes and refunds, in addition to the application-level
+  serialisation that assigns them. Draft documents carry no folio and MUST NOT collide with one
+  another. Existing rows that violate the constraint MUST be corrected before it is applied: a
+  `serial` of `0` is the legacy application's placeholder for "not numbered" and becomes absent,
+  and where two documents genuinely share a folio the earliest keeps it while later ones are
+  reassigned to the next free numbers for that facility.
+
 #### Sales quotes
 
 - **FR-030**: Users MUST be able to create an editable quote defaulted to the default customer, the
@@ -612,7 +621,8 @@ order.
   order's balance is its total less every non-cancelled application against it, and reversing an
   application restores it exactly.
 - **SC-005**: No two documents of the same type share a folio within a facility, including when
-  two users confirm at the same moment.
+  two users confirm at the same moment. Guaranteed by a unique database constraint on
+  `(facility, serial)`, not by application code alone — a regression cannot pass unnoticed.
 - **SC-006**: No customer can be refunded more units of an order line than were sold on it, under
   any interleaving of concurrent refunds.
 - **SC-007**: No committed document can be silently altered: after confirmation, every content
@@ -709,8 +719,11 @@ is well-defined and is being deliberately replaced (see Clarifications):
 - **Existing gap this feature must close**: the authenticated user's context currently carries the
   facility but not the linked employee, point of sale or cash drawer, all of which every document
   in this feature needs.
-- **Blocked on nothing.** Every table this feature writes is already mapped in the codebase; no
-  schema migration is anticipated.
+- **One schema migration.** Every table this feature writes is already mapped, and no column is
+  added or changed. The single migration adds a unique index on `(facility, serial)` to
+  `sales_order`, `sales_quote` and `customer_refund`, and corrects the legacy rows that would
+  otherwise block it (FR-022).
+- **Blocked on nothing else.**
 
 ## Out of Scope
 

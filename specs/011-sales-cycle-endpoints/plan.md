@@ -8,8 +8,8 @@
 
 Deliver the transactional sales cycle — quotes, orders, payments, cash sessions, refunds, credit
 notes and the two supervisor tools — on top of the SQLAlchemy models that already exist for every
-table involved. No new model and no schema migration: this feature is schemas, services, routers
-and tests.
+table involved. No new model and no column change: this feature is schemas, services, routers and
+tests, plus one migration that adds a unique index on `(facility, serial)`.
 
 Three things drive the technical approach:
 
@@ -33,8 +33,9 @@ Three things drive the technical approach:
 v2, aiomysql. No new dependency.
 
 **Storage**: MariaDB 10.11. All tables already mapped in `app/models/sales.py`, `core.py`,
-`inventory.py`, `incidence.py`. **No migration planned** — see research R1 for the one place this
-was reconsidered.
+`inventory.py`, `incidence.py`; no column is added or changed. **One migration** —
+`007_document_serial_unique.sql` adds the unique index on `(facility, serial)` that SC-005 needs
+and corrects the legacy rows blocking it (research R1).
 
 **Testing**: pytest + pytest-asyncio + httpx `ASGITransport`, following the existing
 `tests/api/` pattern (FastAPI `dependency_overrides` over mocked services, no live database) and
@@ -96,6 +97,9 @@ specs/011-sales-cycle-endpoints/
 ### Source Code (repository root)
 
 ```text
+migrations/
+└── 007_document_serial_unique.sql    # NEW (+ rollback): unique (facility, serial)
+
 app/
 ├── enums.py                          # EDIT: + PaymentTerms, PaymentMethod, PaymentType,
 │                                     #         Priority, TransactionType, SourceType
@@ -181,8 +185,9 @@ depend on Phase 2 (confirmation requires an open cash session).
 | **Editing `app/core/deps.py`** (Principle III) | FR-002 and FR-004a require the caller's employee and point of sale. `get_current_user` already loads the `User` and its eager-loaded `settings`; the values are simply not exposed. | Re-querying the user inside every service would repeat a database read already performed on every request. Putting them in the JWT would invalidate every live session for no benefit. |
 | **Editing `app/enums.py` and `config.py`** (Principle III) | Spec Assumptions 5 and 6 — the legacy `WebConfig` values and the constants documented in `docs/constants.md` but absent from code. | Bare integers for payment terms and transaction types would be unreadable and untypable, contradicting the precedent set by `EntityStatus`, `AddressType` and `FiscalCertificationProvider`. |
 
-**Deliberately not done**: no new model, no migration, no new dependency, no POS endpoint, no
-document rendering. See the spec's Out of Scope.
+**Deliberately not done**: no new model, no new dependency, no POS endpoint, no document
+rendering. See the spec's Out of Scope. One migration is included, and it adds an index and
+corrects data — it changes no column.
 
 ## Post-Design Constitution Re-Check
 
@@ -196,12 +201,15 @@ Re-run after Phase 1. **Result: PASS** — no new violation, and one deviation t
 | VI. Async-First | Held. The row locks in R1/R2 use `with_for_update()` inside the existing `AsyncSession`. |
 | VII. Security by Default | Held. Every route in contracts carries a system object and access right; the two supervisor tools reuse (100)/(108) rather than inventing objects. |
 
-**One risk carried into implementation, not a violation**: SC-005 (no duplicate folios) is enforced
-by the application-level facility row lock from R1, because no unique index exists on
-`(facility, serial)` in any of the three tables. The database will not catch a regression here, so
-the concurrency check in [quickstart.md](./quickstart.md) is the only guard. Adding the index is
-recorded in R1 as follow-up work requiring a production data audit — deliberately out of this
-feature's scope.
+**The R1 risk is closed.** SC-005 was originally guarded only by the application-level facility
+row lock, because no unique index existed on `(facility, serial)`. The index is now part of this
+feature (`migrations/007_document_serial_unique.sql`), so a regression in the locking code surfaces
+as a constraint violation instead of a silently duplicated folio. The lock stays: it makes
+concurrent confirmations queue rather than fail, and the index is the backstop for any future code
+path that forgets it.
+
+The production data audit R1 called for was done rather than deferred, and it found real
+violations — see R1 for what they were and how the migration corrects them.
 
 **Agent context (`CLAUDE.md`) updated**: the `<!-- SPECKIT START -->` / `<!-- SPECKIT END -->`
 markers were reinstated at the end of the file, pointing at this plan. They had been removed in
