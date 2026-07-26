@@ -38,6 +38,90 @@ class EntityStatus(IntEnum):
     ARCHIVED = 2
 
 
+class PaymentTerms(IntEnum):
+    """`sales_order.payment_terms`, `sales_quote.payment_terms`."""
+
+    IMMEDIATE = 0
+    NET_D = 1
+
+
+class PaymentMethod(IntEnum):
+    """`customer_payment.method` — SAT forma de pago catalog codes."""
+
+    NA = 0
+    CASH = 1
+    CHECK = 2
+    EFT = 3
+    CREDIT_CARD = 4
+    ELECTRONIC_PURSE = 5
+    ELECTRONIC_MONEY = 6
+    FOOD_VOUCHERS = 8
+    GIVING = 12
+    TO_THE_SATISFACTION_OF_THE_CREDITOR = 27
+    DEBIT_CARD = 28
+    SERVICE_CARD = 29
+    ADVANCE_PAYMENTS = 30
+    TO_BE_DEFINED = 99
+    GOVERNMENT_FUNDING = 1001
+
+
+class PaymentType(IntEnum):
+    """`customer_payment.payment_type` — what the payment record represents.
+
+    The column is `payment_type`, not `type` as the legacy sales spec claims.
+    """
+
+    NA = 0
+    IMMEDIATE = 1
+    CREDIT_PAYMENT = 2
+    PAYMENT_IN_ADVANCE = 3
+    CREDIT_NOTE = 4
+    EXPENSE = 5
+
+
+class Priority(IntEnum):
+    """`sales_order.priority`."""
+
+    LOW = 0
+    NORMAL = 1
+    HIGH = 2
+    CRITICAL = 3
+
+
+class CashCountType(IntEnum):
+    """`cash_count.type`."""
+
+    STARTING_CASH = 0
+    COUNTED_CASH = 1
+
+
+class TransactionType(IntEnum):
+    """`lot_serial_tracking.source` — classifies an inventory ledger entry.
+
+    The column is `source`, not `transaction_type` as the legacy spec claims;
+    `lot_serial_tracking.reference` carries the source document's id.
+    """
+
+    SALES_ORDER = 1
+    CUSTOMER_REFUND = 2
+    INVENTORY_ISSUE = 3
+    INVENTORY_RECEIPT = 4
+
+
+class SourceType(IntEnum):
+    """`incidence.source` — which entity type an audit entry references."""
+
+    DELIVERY_ORDER = 1
+    CUSTOMER_PAYMENT = 2
+    SALES_ORDER = 3
+    PURCHASE_REQUEST = 4
+    PURCHASE_ORDER = 5
+    PRICING = 6
+    CUSTOMER = 7
+    USER_SETTINGS = 8
+    PRODUCT = 9
+
+
 class AccessRight(IntFlag):
     NONE = 0
     CREATE = 1

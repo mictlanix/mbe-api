@@ -4,6 +4,10 @@ from app.api.v1.endpoints import (
     addresses,
     auth,
     cash_drawers,
+    cash_sessions,
+    credit_notes,
+    customer_payments,
+    customer_refunds,
     customers,
     employees,
     exchange_rates,
@@ -16,6 +20,8 @@ from app.api.v1.endpoints import (
     price_lists,
     product_prices,
     products,
+    sales_orders,
+    sales_quotes,
     sat_catalogs,
     suppliers,
     taxpayer_certificates,
@@ -35,6 +41,15 @@ api_router.include_router(products.router, prefix='/products', tags=['products']
 api_router.include_router(price_lists.router, prefix='/price-lists', tags=['price-lists'])
 api_router.include_router(product_prices.router, prefix='/product-prices', tags=['product-prices'])
 api_router.include_router(customers.router, prefix='/customers', tags=['customers'])
+api_router.include_router(sales_orders.router, prefix='/sales-orders', tags=['sales-orders'])
+api_router.include_router(sales_quotes.router, prefix='/sales-quotes', tags=['sales-quotes'])
+api_router.include_router(
+    customer_payments.router, prefix='/customer-payments', tags=['customer-payments']
+)
+api_router.include_router(
+    customer_refunds.router, prefix='/customer-refunds', tags=['customer-refunds']
+)
+api_router.include_router(credit_notes.router, prefix='/credit-notes', tags=['credit-notes'])
 api_router.include_router(labels.router, prefix='/labels', tags=['labels'])
 api_router.include_router(
     taxpayer_issuers.router, prefix='/taxpayer-issuers', tags=['taxpayer-issuers']
@@ -52,6 +67,7 @@ api_router.include_router(facilities.router, prefix='/facilities', tags=['facili
 api_router.include_router(warehouses.router, prefix='/warehouses', tags=['warehouses'])
 api_router.include_router(points_of_sale.router, prefix='/points-of-sale', tags=['points-of-sale'])
 api_router.include_router(cash_drawers.router, prefix='/cash-drawers', tags=['cash-drawers'])
+api_router.include_router(cash_sessions.router, prefix='/cash-sessions', tags=['cash-sessions'])
 api_router.include_router(exchange_rates.router, prefix='/exchange-rates', tags=['exchange-rates'])
 api_router.include_router(expenses.router, prefix='/expenses', tags=['expenses'])
 api_router.include_router(
