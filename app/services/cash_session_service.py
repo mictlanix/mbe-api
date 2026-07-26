@@ -65,19 +65,31 @@ def _drawer(current: CurrentUser, requested: int | None) -> int:
 
 
 async def open_session_for_cashier(db: AsyncSession, cashier: int) -> CashSession | None:
+    """The cashier's current open session — the most recent, if legacy data left several.
+
+    `end IS NULL` is not unique in practice: the legacy application left cashiers with several
+    sessions open at once. Asserting uniqueness here raised `MultipleResultsFound`, which surfaced
+    as a 500 on any payment recorded by such a cashier. `open_session` still refuses to *create* a
+    second, so this tolerance only ever applies to pre-existing rows.
+    """
     return (
         await db.execute(
-            select(CashSession).where(CashSession.cashier == cashier, CashSession.end.is_(None))
+            select(CashSession)
+            .where(CashSession.cashier == cashier, CashSession.end.is_(None))
+            .order_by(CashSession.start.desc())
+            .limit(1)
         )
     ).scalar_one_or_none()
 
 
 async def open_session_for_drawer(db: AsyncSession, drawer: int) -> CashSession | None:
+    """The drawer's current open session — most recent first, for the same reason as above."""
     return (
         await db.execute(
-            select(CashSession).where(
-                CashSession.cash_drawer == drawer, CashSession.end.is_(None)
-            )
+            select(CashSession)
+            .where(CashSession.cash_drawer == drawer, CashSession.end.is_(None))
+            .order_by(CashSession.start.desc())
+            .limit(1)
         )
     ).scalar_one_or_none()
 

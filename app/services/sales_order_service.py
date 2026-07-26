@@ -51,20 +51,39 @@ def assert_quantity_allowed(quantity: Decimal, *, min_order_qty: int) -> None:
         )
 
 
-def assert_price_in_margin(
-    price: Decimal, *, low: Decimal, high: Decimal, enabled: bool, exempt: bool
+def assert_margin_in_range(
+    price: Decimal,
+    cost: Decimal,
+    *,
+    low_rate: Decimal,
+    high_rate: Decimal,
+    enabled: bool,
+    exempt: bool,
 ) -> None:
-    """Refuse a price outside the product's profit band (FR-014).
+    """Refuse a line whose profit margin falls outside the product's allowed band (FR-014).
+
+    `product_price.low_profit` / `high_profit` are profit **rates**, not price bounds — every row in
+    the production data has both between 0 and 1. Comparing a price against them directly refuses
+    any price above 1.00, which would make 98.8% of the catalogue unsellable. The check is on the
+    derived margin:
+
+        margin = (price - cost) / price
 
     Bypassed for a caller holding ExcludePriceRangeValidation (102), and skipped entirely when the
-    deployment turns margin validation off.
+    deployment turns margin validation off. A zero price is not judged here — confirmation refuses
+    it outright (FR-017), and dividing by it has no meaning.
     """
-    if not enabled or exempt:
+    if not enabled or exempt or price <= 0:
         return
-    if price < low or price > high:
+
+    margin = (price - cost) / price
+    if margin < low_rate or margin > high_rate:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail=f'Price {price} is outside the allowed margin [{low}, {high}]',
+            detail=(
+                f'Profit margin {margin:.4f} on a price of {price} is outside the allowed range '
+                f'[{low_rate}, {high_rate}]'
+            ),
         )
 
 
@@ -625,11 +644,13 @@ async def add_line(
     assert_quantity_allowed(quantity, min_order_qty=product.min_order_qty)
 
     price = data.price if data.price is not None else (listed.price if listed else Decimal(0))
+    cost = cost_row.price if cost_row else Decimal(0)
     if listed is not None:
-        assert_price_in_margin(
+        assert_margin_in_range(
             price,
-            low=listed.low_profit,
-            high=listed.high_profit,
+            cost,
+            low_rate=listed.low_profit,
+            high_rate=listed.high_profit,
             enabled=settings.price_validation_in_range_required,
             exempt=await _exempt_from_margin(db, current),
         )
@@ -638,7 +659,7 @@ async def add_line(
         sales_order=order.sales_order_id,
         product=product.product_id,
         quantity=quantity,
-        cost=cost_row.price if cost_row else Decimal(0),
+        cost=cost,
         price=price,
         discount_rate=data.discount_rate,
         tax_rate=product.tax_rate,
@@ -681,10 +702,11 @@ async def update_line(
         customer = await _customer_or_404(db, order.customer)
         listed = await _price_for(db, product, customer.price_list) if product else None
         if listed is not None:
-            assert_price_in_margin(
+            assert_margin_in_range(
                 changes['price'],
-                low=listed.low_profit,
-                high=listed.high_profit,
+                line.cost,
+                low_rate=listed.low_profit,
+                high_rate=listed.high_profit,
                 enabled=settings.price_validation_in_range_required,
                 exempt=await _exempt_from_margin(db, current),
             )

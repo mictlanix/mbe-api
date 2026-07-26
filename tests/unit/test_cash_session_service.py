@@ -95,3 +95,56 @@ class TestContextResolution:
 
         assert exc.value.status_code == 422
         assert 'drawer' in exc.value.detail.lower()
+
+
+class TestLegacyMultipleOpenSessions:
+    """Reading a cashier's open session must tolerate legacy multiplicity.
+
+    `cash_session.end IS NULL` is not unique in the production data — two cashiers have three and
+    four sessions open at once. `scalar_one_or_none()` raised `MultipleResultsFound` on those,
+    turning any payment they recorded into a 500. The query now orders by start and takes one.
+    """
+
+    @pytest.mark.asyncio
+    async def test_returns_the_most_recent_when_several_are_open(self) -> None:
+        from unittest.mock import AsyncMock
+
+        from app.services.cash_session_service import open_session_for_cashier
+
+        newest = SimpleNamespace(cash_session_id=9, start=datetime(2026, 7, 25))
+        db = AsyncMock()
+        db.execute = AsyncMock(
+            return_value=SimpleNamespace(scalar_one_or_none=lambda: newest)
+        )
+
+        assert await open_session_for_cashier(db, 17) is newest
+
+    @pytest.mark.asyncio
+    async def test_query_orders_and_limits_instead_of_asserting_uniqueness(self) -> None:
+        from unittest.mock import AsyncMock
+
+        from app.services.cash_session_service import open_session_for_cashier
+
+        db = AsyncMock()
+        db.execute = AsyncMock(return_value=SimpleNamespace(scalar_one_or_none=lambda: None))
+
+        await open_session_for_cashier(db, 17)
+
+        sql = str(db.execute.await_args.args[0]).lower()
+        assert 'order by' in sql
+        assert 'limit' in sql
+
+    @pytest.mark.asyncio
+    async def test_drawer_lookup_is_guarded_the_same_way(self) -> None:
+        from unittest.mock import AsyncMock
+
+        from app.services.cash_session_service import open_session_for_drawer
+
+        db = AsyncMock()
+        db.execute = AsyncMock(return_value=SimpleNamespace(scalar_one_or_none=lambda: None))
+
+        await open_session_for_drawer(db, 5)
+
+        sql = str(db.execute.await_args.args[0]).lower()
+        assert 'order by' in sql
+        assert 'limit' in sql

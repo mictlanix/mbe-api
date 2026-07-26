@@ -179,14 +179,19 @@ async def create_payment(
 
 
 async def _open_session_id(db: AsyncSession, employee: int) -> int | None:
-    """The cashier's open session, when there is one. A payment does not require one."""
+    """The cashier's open session, when there is one. A payment does not require one.
+
+    Ordered and limited rather than asserting uniqueness: legacy data leaves some cashiers with
+    several sessions open, and `scalar_one_or_none` raised on those, turning a payment into a 500.
+    """
     from app.models.core import CashSession
 
     return (
         await db.execute(
-            select(CashSession.cash_session_id).where(
-                CashSession.cashier == employee, CashSession.end.is_(None)
-            )
+            select(CashSession.cash_session_id)
+            .where(CashSession.cashier == employee, CashSession.end.is_(None))
+            .order_by(CashSession.start.desc())
+            .limit(1)
         )
     ).scalar_one_or_none()
 
