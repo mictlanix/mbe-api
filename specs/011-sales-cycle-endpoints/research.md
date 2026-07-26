@@ -1,0 +1,223 @@
+# Phase 0 Research: Sales Cycle Endpoints
+
+Ten decisions taken before design. Each was verified against the codebase or `docs/mbe_schema.sql`
+rather than assumed — two of them overturned what the spec's Dependencies section anticipated, and
+both are flagged.
+
+---
+
+## R1 — Folio uniqueness under concurrent confirmation (SC-005)
+
+**Finding that changed the approach**: `sales_order`, `sales_quote` and `customer_refund` each have
+`serial int(11) DEFAULT NULL` with **no unique index on `(facility, serial)`**. The database will
+not stop two concurrent confirmations from taking the same folio. The spec assumed no migration
+would be needed; enforcing SC-005 in the database alone would need one.
+
+**Decision**: Serialize folio assignment with a row lock on the owning `facility`, taken inside the
+confirmation transaction immediately before computing `MAX(serial) + 1`:
+
+```
+SELECT ... FROM facility WHERE facility_id = :id FOR UPDATE
+```
+
+InnoDB holds the lock until the transaction commits, so two confirms for the same facility queue
+rather than race. Contention is per-facility and confirmation is short, so this is cheap. No
+migration, no risk to existing data.
+
+**Rationale**: The alternative that *looks* stronger — adding `UNIQUE (facility, serial)` — cannot
+be adopted blind. Legacy data may already contain duplicate or malformed folios, and the migration
+would fail on exactly the databases that matter. It also cannot be verified from this repository.
+
+**Alternatives considered**:
+- *Unique index + retry on duplicate-key*: strongest guarantee, but requires a migration whose
+  success depends on unverifiable production data, and turns a normal confirm into a retry loop.
+- *Dedicated counter table*: another table and another write path, for a guarantee the row lock
+  already gives.
+- *`MAX(serial)+1` with no lock*: what the legacy system does. Silently violates SC-005.
+
+**Follow-up left for the team, not this feature**: audit `facility`/`serial` pairs in production;
+if clean, add the unique index later as defence in depth. Recorded here so the decision is not
+mistaken for an oversight.
+
+---
+
+## R2 — Preventing over-refund under concurrency (SC-006)
+
+**Decision**: Confirmation of a refund locks the source `sales_order` row (`FOR UPDATE`), then
+recomputes each line's refundable quantity from `sales_order_detail` minus the sum over completed,
+uncancelled `customer_refund_detail` rows, and adjusts or drops lines to fit before writing
+anything. Two clerks refunding the same order therefore serialize on the order row.
+
+**Rationale**: The quantity check must happen against state that cannot change between the check and
+the write. Locking the parent order — rather than individual detail rows — also covers a refund of a
+line that a concurrent refund is adding, and matches FR-063's requirement to re-validate at confirm.
+
+**Alternatives considered**:
+- *Optimistic check at edit time only*: what the field-level validation does (FR-062); insufficient
+  alone, which is exactly why FR-063 mandates re-validation.
+- *`SELECT ... FOR UPDATE` on each `sales_order_detail`*: finer-grained, but multi-row locks in
+  varying order invite deadlocks for no practical gain at this contention level.
+
+---
+
+## R3 — Where cost comes from at line add (FR-012)
+
+**Decision**: Read the product's cost from `product_price` for the price list identified by a new
+`cost_price_list_id` setting, defaulting to `0` as the source document states. Resolve it through
+the existing `product_price_service`; if no row exists for that product and list, the cost is
+recorded as zero rather than failing the line add.
+
+**Rationale**: The source document names "cost price list, id=0" but nothing in the codebase
+encodes it, and a hard-coded `0` in service logic would be invisible. A setting makes it
+configurable per deployment, matching how `default_customer_id` is already handled.
+
+**Alternatives considered**: a `cost` column on `product` (does not exist); failing the line add
+when no cost row exists (would make a product unsellable because of a missing *reporting* figure).
+
+---
+
+## R4 — Available stock (FR-018)
+
+**Decision**: On-hand for a product in a warehouse is `SUM(lot_serial_tracking.quantity)` filtered
+by product and warehouse. There is no stock-balance table; the ledger is the only source of truth,
+with positive rows inbound and negative outbound.
+
+Stock validation at confirm aggregates the order's own lines first, so a product appearing on three
+lines is checked once against the total — as FR-018 requires — not three times independently.
+
+**Rationale**: Confirmed from `docs/data-dictionary.md` (`quantity`: "Positive=in, Negative=out")
+and the absence of any balance table in the schema.
+
+---
+
+## R5 — Money computation and rounding (SC-004, FR-007)
+
+**Decision**: All money is `Decimal`, never `float`. One helper (`app/services/totals.py`) computes
+every figure, so orders, quotes, refunds and credit notes cannot round differently:
+
+- Line subtotal = `quantity × price × (1 − discount_rate)`
+- When `tax_included` is false, tax = `subtotal × tax_rate`; when true, the price already contains
+  tax and the subtotal is back-derived as `subtotal ÷ (1 + tax_rate)`
+- Document totals sum line figures, then quantize to 2 decimal places **once, at the end**
+- Order balance = total − sum of non-cancelled applications
+
+**Rationale**: `product.tax_included` exists per product and per line, so both conventions occur in
+the same document and must be handled per line. Quantizing per line then summing produces
+cent-level drift that would break SC-004's exactness requirement.
+
+**Alternatives considered**: storing computed totals on the document — rejected by spec Assumption
+7, and no column exists.
+
+---
+
+## R6 — Transaction boundaries
+
+**Decision**: `get_db` yields a session and never commits; services commit, matching every existing
+service. Each state transition is **one** `await db.commit()` at the end of the service function.
+Confirming an order writes the folio, the completed flag and every ledger row in a single
+transaction; a refund confirm additionally writes the payout. Nothing is committed midway.
+
+**Rationale**: FR-054's atomicity language was removed with the POS endpoint, but the underlying
+requirement survives per transition: a confirm that half-succeeds would leave stock decremented for
+an order with no folio. The row locks from R1/R2 are only meaningful within one transaction anyway.
+
+---
+
+## R7 — Enums to add (spec Assumption 6)
+
+**Decision**: Add to `app/enums.py`, values taken verbatim from `docs/constants.md`:
+
+| Enum | Values | Backing column |
+|---|---|---|
+| `PaymentTerms` | 0 Immediate, 1 NetD | `sales_order.payment_terms`, `sales_quote.payment_terms` |
+| `PaymentMethod` | 0 NA, 1 Cash, 2 Check, 3 EFT, … (SAT-aligned) | `customer_payment.method` |
+| `PaymentType` | 0 NA, 1 Immediate, 2 CreditPayment, 3 PaymentInAdvance, … | `customer_payment.payment_type` |
+| `Priority` | 0 Low, 1 Normal, 2 High, 3 Critical | `sales_order.priority` |
+| `TransactionType` | 1 SalesOrder, 2 CustomerRefund, 3 InventoryIssue, 4 InventoryReceipt | `lot_serial_tracking.source` |
+| `SourceType` | 1 DeliveryOrder, 2 CustomerPayment, 3 SalesOrder, … | `incidence.source` |
+
+Two naming traps confirmed against the repository, both already recorded in the spec's Divergences:
+`customer_payment.payment_type` (the document says `type`), and `lot_serial_tracking.source` carries
+`TransactionType` (the document says `transaction_type`).
+
+---
+
+## R8 — Configuration settings to add (spec Assumption 5)
+
+**Decision**: Extend `app/core/config.py`, which already absorbed the legacy `WebConfig` product
+defaults:
+
+| Setting | Default | Replaces |
+|---|---|---|
+| `default_currency` | `CurrencyCode.MXN` | `WebConfig.DefaultCurrency` |
+| `default_quotation_due_days` | `30` | `WebConfig.DefaultQuotationDueDays` |
+| `max_days_to_deliver_stockables` | `7` | `WebConfig.MaxDaysToDeliverStockables` |
+| `price_validation_in_range_required` | `True` | `WebConfig.PriceValidationInRangeRequired` |
+| `cost_price_list_id` | `0` | the "cost price list, id=0" convention (R3) |
+
+`default_customer_id` already exists and is reused unchanged.
+
+---
+
+## R9 — Surfacing the caller's employee and point of sale (FR-002, FR-004a)
+
+**Finding that simplified the approach**: `get_current_user` already loads the `User` row, and
+`User.settings` is `lazy='selectin'` with `facility`, `point_sale` and `cash_drawer` eagerly joined.
+Everything needed is already in memory and simply is not exposed on `CurrentUser`.
+
+**Decision**: Extend the `CurrentUser` dataclass with `employee_id`, `point_sale_id` and
+`cash_drawer_id`, populated from the already-loaded `User` and its settings. **No JWT change** — the
+token keeps its current claims, so no live session is invalidated and no re-login is forced.
+
+Services then guard explicitly: a missing `employee_id` fails FR-002 with a distinguishable error,
+and a missing `point_sale_id` fails FR-004a with a different one.
+
+**Rationale**: Reading from the token would require re-issuing every token; re-querying inside each
+service would repeat a read already done per request.
+
+**Note on blast radius**: `CurrentUser` is constructed in `app/core/deps.py` and in test fixtures.
+Adding fields with defaults keeps every existing call site and test valid — verified against the
+`_auth()` helper pattern in `tests/api/test_facilities.py`.
+
+---
+
+## R10 — Testing approach (Constitution v1.1.0)
+
+**Decision**: Follow the established `tests/api/` pattern exactly — FastAPI `dependency_overrides`
+replacing `get_current_user` and `get_db`, with services patched via `unittest.mock.AsyncMock`. No
+live database, matching every existing API test in this repository.
+
+Per router, cover: happy path, 404, 401 (no auth override), 403 (privilege denied), and the
+resource-specific failures — 409 for lifecycle conflicts (paying a draft, cancelling a paid order,
+refunding an unpaid one, opening a second session on a drawer) and 422 for validation (quantity
+below minimum, price outside margin, reversal with no reason).
+
+State-transition and money logic get `tests/unit/` service tests, where the locking and re-validation
+from R1/R2 can be exercised directly rather than through HTTP.
+
+**Rationale**: The constitution makes tests mandatory for new endpoints and prescribes the minimum
+matrix. The no-database pattern is what the repository already does; introducing a test database
+would be a larger change than this feature warrants.
+
+---
+
+## Resolved unknowns
+
+Every `NEEDS CLARIFICATION` from Technical Context is closed:
+
+| Unknown | Resolved by |
+|---|---|
+| Folio uniqueness mechanism | R1 — facility row lock |
+| Refund race prevention | R2 — source order row lock |
+| Source of line cost | R3 — `cost_price_list_id` setting |
+| Stock balance source | R4 — `lot_serial_tracking` aggregate |
+| Rounding rules | R5 — quantize once at document level |
+| Transaction granularity | R6 — one commit per transition |
+| Enum values | R7 — `docs/constants.md`, verified against columns |
+| Configuration defaults | R8 — extend existing settings |
+| Employee / point-of-sale resolution | R9 — extend `CurrentUser`, no token change |
+| Test strategy | R10 — existing `dependency_overrides` pattern |
+
+**Performance targets** remain deliberately unset: the spec defines none, and inventing latency
+budgets would contradict Principle I. The one operational constraint carried into design is
+avoiding N+1 queries on list endpoints, handled by the existing `fk_expansion` helper.
