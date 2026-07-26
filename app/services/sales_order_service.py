@@ -234,6 +234,60 @@ async def attach_derived(db: AsyncSession, order: SalesOrder) -> SalesOrder:
     return order
 
 
+async def attach_summary_totals(db: AsyncSession, orders: Sequence[SalesOrder]) -> None:
+    """Compute totals and balances for a whole page in two queries, not two per row.
+
+    `attach_derived` is the right shape for a single order but issues per-order queries; used in a
+    loop over a page it is an N+1. List endpoints call this instead, which batches the line fetch
+    and the applied-amount aggregate across every order on the page.
+    """
+    ids = [order.sales_order_id for order in orders]
+    if not ids:
+        return
+
+    lines_by_order: dict[int, list[totals.Line]] = {oid: [] for oid in ids}
+    rows = (
+        (
+            await db.execute(
+                select(SalesOrderDetail).where(SalesOrderDetail.sales_order.in_(ids))
+            )
+        )
+        .scalars()
+        .all()
+    )
+    for row in rows:
+        lines_by_order[row.sales_order].append(
+            totals.Line(
+                quantity=row.quantity,
+                price=row.price,
+                discount_rate=row.discount_rate,
+                tax_rate=row.tax_rate,
+                tax_included=row.tax_included,
+            )
+        )
+
+    applied_rows = (
+        await db.execute(
+            select(SalesOrderPayment.sales_order, func.sum(SalesOrderPayment.amount))
+            .where(
+                SalesOrderPayment.sales_order.in_(ids),
+                SalesOrderPayment.cancelled.is_(False),
+            )
+            .group_by(SalesOrderPayment.sales_order)
+        )
+    ).all()
+    applied_by_order = {oid: amount or Decimal(0) for oid, amount in applied_rows}
+
+    for order in orders:
+        computed = totals.document_totals(lines_by_order.get(order.sales_order_id, []))
+        applied = applied_by_order.get(order.sales_order_id, Decimal(0))
+        order.__dict__['subtotal'] = computed.subtotal
+        order.__dict__['tax_total'] = computed.tax_total
+        order.__dict__['total'] = computed.total
+        order.__dict__['balance'] = totals.remaining(computed.total, [applied])
+        order.__dict__['status'] = _status(order)
+
+
 def _status(order: SalesOrder) -> str:
     from app.schemas.sales_order import derive_status
 
@@ -475,8 +529,7 @@ async def list_orders(
     total: int = (await db.execute(count_q)).scalar_one()
     page = base.order_by(SalesOrder.sales_order_id.desc()).offset(skip).limit(limit)
     items = (await db.execute(page)).scalars().all()
-    for order in items:
-        await attach_derived(db, order)
+    await attach_summary_totals(db, items)
     return items, total
 
 

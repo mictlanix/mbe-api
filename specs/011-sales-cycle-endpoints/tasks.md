@@ -151,17 +151,17 @@ sales order carrying its customer and lines.
 
 **Depends on**: US1 (conversion produces a sales order).
 
-- [ ] T052 [P] [US4] Create schemas in `app/schemas/sales_quote.py` mirroring the order schemas, with `price_adjustment` and **no** `price_increment_rate` (see spec Divergences)
-- [ ] T053 [P] [US4] Write failing endpoint tests in `tests/api/test_sales_quotes.py`: CRUD, confirm, cancel, duplicate, convert, 401, 403 without `SALES_QUOTES` (30), 404, 409 editing a confirmed quote, 409 converting an expired / unconfirmed / cancelled quote
-- [ ] T054 [P] [US4] Write failing unit tests in `tests/unit/test_sales_quote_service.py` for the salesperson fallback when `customer.salesperson` is unset, expiry-date defaulting, duplicate re-fetching prices, folio assigned only at confirm, and the three conversion refusals
-- [ ] T055 [US4] Implement quote create/read/update/list in `app/services/sales_quote_service.py` with defaults per FR-030
-- [ ] T056 [US4] Implement quote line add/update/remove in `app/services/sales_quote_service.py` (FR-031)
-- [ ] T057 [US4] Implement `confirm()` and `cancel()` in `app/services/sales_quote_service.py`, assigning the folio only at confirmation via `documents.assign_folio()` (FR-032)
-- [ ] T058 [US4] Implement `duplicate()` in `app/services/sales_quote_service.py` creating an editable copy dated today with prices re-fetched from the customer's current price list (FR-033)
-- [ ] T059 [US4] Implement `convert_to_order()` in `app/services/sales_quote_service.py` producing a draft order carrying customer, contact, ship-to, currency, rate and lines with the quote as origin, refusing unconfirmed, cancelled or expired quotes (FR-034)
-- [ ] T060 [US4] Create the router in `app/api/v1/endpoints/sales_quotes.py` per [contracts](./contracts/README.md#sales-quotes--systemobject-sales_quotes-30); the convert route additionally requires CREATE on `SALES_ORDERS`
-- [ ] T061 [US4] Register the sales-quotes router in `app/api/v1/router.py` under prefix `/sales-quotes`
-- [ ] T062 [US4] Make all US4 test files pass; run `uv run ruff check app/ tests/`
+- [X] T052 [P] [US4] Create schemas in `app/schemas/sales_quote.py` mirroring the order schemas, with `price_adjustment` and **no** `price_increment_rate` (see spec Divergences)
+- [X] T053 [P] [US4] Write failing endpoint tests in `tests/api/test_sales_quotes.py`: CRUD, confirm, cancel, duplicate, convert, 401, 403 without `SALES_QUOTES` (30), 404, 409 editing a confirmed quote, 409 converting an expired / unconfirmed / cancelled quote
+- [X] T054 [P] [US4] Write failing unit tests in `tests/unit/test_sales_quote_service.py` for the salesperson fallback when `customer.salesperson` is unset, expiry-date defaulting, duplicate re-fetching prices, folio assigned only at confirm, and the three conversion refusals
+- [X] T055 [US4] Implement quote create/read/update/list in `app/services/sales_quote_service.py` with defaults per FR-030
+- [X] T056 [US4] Implement quote line add/update/remove in `app/services/sales_quote_service.py` (FR-031)
+- [X] T057 [US4] Implement `confirm()` and `cancel()` in `app/services/sales_quote_service.py`, assigning the folio only at confirmation via `documents.assign_folio()` (FR-032)
+- [X] T058 [US4] Implement `duplicate()` in `app/services/sales_quote_service.py` creating an editable copy dated today with prices re-fetched from the customer's current price list (FR-033)
+- [X] T059 [US4] Implement `convert_to_order()` in `app/services/sales_quote_service.py` producing a draft order carrying customer, contact, ship-to, currency, rate and lines with the quote as origin, refusing unconfirmed, cancelled or expired quotes (FR-034)
+- [X] T060 [US4] Create the router in `app/api/v1/endpoints/sales_quotes.py` per [contracts](./contracts/README.md#sales-quotes--systemobject-sales_quotes-30); the convert route additionally requires CREATE on `SALES_ORDERS`
+- [X] T061 [US4] Register the sales-quotes router in `app/api/v1/router.py` under prefix `/sales-quotes`
+- [X] T062 [US4] Make all US4 test files pass; run `uv run ruff check app/ tests/`
 
 ---
 
@@ -176,17 +176,17 @@ the same units capped.
 
 **Depends on**: US1, US2, US3 (confirmation requires an open cash session).
 
-- [ ] T063 [P] [US5] Create schemas in `app/schemas/customer_refund.py`, using `discount` on refund lines (not `discount_rate` — see Divergences) and a confirm body carrying `payout` of `cash` or `credit_note`
-- [ ] T064 [P] [US5] Write failing endpoint tests in `tests/api/test_customer_refunds.py`: open against a paid order, **409 with distinguishable reasons** for not-completed vs not-paid, 409 when no refundable lines, 422 quantity above refundable, confirm with each payout form, 409 confirming with no open cash session, 403 on confirm without `CUSTOMER_REFUND_CONFIRM` (110), 401, 404
-- [ ] T065 [P] [US5] Write failing unit tests in `tests/unit/test_customer_refund_service.py` for refundable-quantity arithmetic, re-validation dropping and adjusting lines at confirm, both payout branches, and that the source order's `paid` flag and `balance_zeroed_time` are never touched
-- [ ] T066 [US5] Implement `open_refund()` in `app/services/customer_refund_service.py`: require a completed **and paid** order, pre-populate lines whose refundable quantity exceeds zero at quantity zero, refuse when none, with distinct reasons for not-completed and not-paid (FR-060, FR-061)
-- [ ] T067 [US5] Implement refund line edit in `app/services/customer_refund_service.py` capping return quantity at the line's refundable quantity (FR-062)
-- [ ] T068 [US5] Implement `confirm()` in `app/services/customer_refund_service.py`: require an open cash session, take a `FOR UPDATE` lock on the source order (research R2), re-validate and adjust or drop lines, drop zero-quantity lines, post inbound movements, assign the folio, set `date` and completed — one transaction (FR-063)
-- [ ] T069 [US5] Implement the payout branch in `app/services/customer_refund_service.py`: cash paid against the open session, or a credit note plus its backing `customer_payment` classified as a credit note, for the **full** refund total; never write `balance_zeroed_time` and never alter the order's `paid` flag (FR-064, FR-065, FR-065a)
-- [ ] T070 [US5] Implement `cancel()` in `app/services/customer_refund_service.py`, refused once completed (FR-066)
-- [ ] T071 [US5] Create the router in `app/api/v1/endpoints/customer_refunds.py` per [contracts](./contracts/README.md#customer-refunds--systemobject-customer_refunds-22-confirm-gated-by-110)
-- [ ] T072 [US5] Register the customer-refunds router in `app/api/v1/router.py` under prefix `/customer-refunds`
-- [ ] T073 [US5] Make all US5 test files pass; run `uv run ruff check app/ tests/`
+- [X] T063 [P] [US5] Create schemas in `app/schemas/customer_refund.py`, using `discount` on refund lines (not `discount_rate` — see Divergences) and a confirm body carrying `payout` of `cash` or `credit_note`
+- [X] T064 [P] [US5] Write failing endpoint tests in `tests/api/test_customer_refunds.py`: open against a paid order, **409 with distinguishable reasons** for not-completed vs not-paid, 409 when no refundable lines, 422 quantity above refundable, confirm with each payout form, 409 confirming with no open cash session, 403 on confirm without `CUSTOMER_REFUND_CONFIRM` (110), 401, 404
+- [X] T065 [P] [US5] Write failing unit tests in `tests/unit/test_customer_refund_service.py` for refundable-quantity arithmetic, re-validation dropping and adjusting lines at confirm, both payout branches, and that the source order's `paid` flag and `balance_zeroed_time` are never touched
+- [X] T066 [US5] Implement `open_refund()` in `app/services/customer_refund_service.py`: require a completed **and paid** order, pre-populate lines whose refundable quantity exceeds zero at quantity zero, refuse when none, with distinct reasons for not-completed and not-paid (FR-060, FR-061)
+- [X] T067 [US5] Implement refund line edit in `app/services/customer_refund_service.py` capping return quantity at the line's refundable quantity (FR-062)
+- [X] T068 [US5] Implement `confirm()` in `app/services/customer_refund_service.py`: require an open cash session, take a `FOR UPDATE` lock on the source order (research R2), re-validate and adjust or drop lines, drop zero-quantity lines, post inbound movements, assign the folio, set `date` and completed — one transaction (FR-063)
+- [X] T069 [US5] Implement the payout branch in `app/services/customer_refund_service.py`: cash paid against the open session, or a credit note plus its backing `customer_payment` classified as a credit note, for the **full** refund total; never write `balance_zeroed_time` and never alter the order's `paid` flag (FR-064, FR-065, FR-065a)
+- [X] T070 [US5] Implement `cancel()` in `app/services/customer_refund_service.py`, refused once completed (FR-066)
+- [X] T071 [US5] Create the router in `app/api/v1/endpoints/customer_refunds.py` per [contracts](./contracts/README.md#customer-refunds--systemobject-customer_refunds-22-confirm-gated-by-110)
+- [X] T072 [US5] Register the customer-refunds router in `app/api/v1/router.py` under prefix `/customer-refunds`
+- [X] T073 [US5] Make all US5 test files pass; run `uv run ruff check app/ tests/`
 
 ---
 
@@ -199,13 +199,13 @@ remaining balance, redeem it against another order, and reverse the redemption.
 
 **Depends on**: US2 (redemption is a payment application), US5 (credit notes originate there).
 
-- [ ] T074 [P] [US6] Create schemas in `app/schemas/credit_note.py` exposing amount issued, originating refund, source order and derived remaining balance
-- [ ] T075 [P] [US6] Write failing endpoint tests in `tests/api/test_credit_notes.py`: list by customer, read, 401, 403 without `CREDIT_PAYMENTS` (83), 404
-- [ ] T076 [P] [US6] Write failing unit tests in `tests/unit/test_credit_note_service.py` asserting remaining balance is derived from the backing payment's non-cancelled applications, falls on redemption, is restored exactly on reversal, and that `refunded` is never decremented
-- [ ] T077 [US6] Implement list/read in `app/services/credit_note_service.py` (FR-070), making the unit tests pass
-- [ ] T078 [US6] Create the router in `app/api/v1/endpoints/credit_notes.py` per [contracts](./contracts/README.md#credit-notes--systemobject-credit_payments-83). **Add no redemption route** — redemption is `POST /customer-payments/{backing_payment_id}/applications` (FR-070a)
-- [ ] T079 [US6] Register the credit-notes router in `app/api/v1/router.py` under prefix `/credit-notes`
-- [ ] T080 [US6] Make all US6 test files pass; run `uv run ruff check app/ tests/`
+- [X] T074 [P] [US6] Create schemas in `app/schemas/credit_note.py` exposing amount issued, originating refund, source order and derived remaining balance
+- [X] T075 [P] [US6] Write failing endpoint tests in `tests/api/test_credit_notes.py`: list by customer, read, 401, 403 without `CREDIT_PAYMENTS` (83), 404
+- [X] T076 [P] [US6] Write failing unit tests in `tests/unit/test_credit_note_service.py` asserting remaining balance is derived from the backing payment's non-cancelled applications, falls on redemption, is restored exactly on reversal, and that `refunded` is never decremented
+- [X] T077 [US6] Implement list/read in `app/services/credit_note_service.py` (FR-070), making the unit tests pass
+- [X] T078 [US6] Create the router in `app/api/v1/endpoints/credit_notes.py` per [contracts](./contracts/README.md#credit-notes--systemobject-credit_payments-83). **Add no redemption route** — redemption is `POST /customer-payments/{backing_payment_id}/applications` (FR-070a)
+- [X] T079 [US6] Register the credit-notes router in `app/api/v1/router.py` under prefix `/credit-notes`
+- [X] T080 [US6] Make all US6 test files pass; run `uv run ruff check app/ tests/`
 
 ---
 
@@ -218,12 +218,12 @@ leave.
 
 **Depends on**: US2.
 
-- [ ] T081 [P] [US7] Write failing endpoint tests in `tests/api/test_customer_payments.py` (extending the US2 file) for the unverified queue with its filters, verify, and reject with a required reason; 403 without `PAYMENTS_VERIFICATION` (108)
-- [ ] T082 [P] [US7] Write failing unit tests in `tests/unit/test_payment_verification.py` for the `verifier IS NULL` filter combined with facility, date range, method and amount range, that verifying sets `verifier` and removes the payment from the queue, and that rejection writes an incidence entry carrying the reason
-- [ ] T083 [US7] Implement the unverified queue in `app/services/customer_payment_service.py` (FR-071)
-- [ ] T084 [US7] Implement `verify()` in `app/services/customer_payment_service.py` recording the supervisor's employee as `verifier` (FR-071)
-- [ ] T085 [US7] Implement `reject()` in `app/services/customer_payment_service.py` writing an incidence entry carrying the reason (FR-072)
-- [ ] T086 [US7] Add the three routes to `app/api/v1/endpoints/customer_payments.py` gated by `PAYMENTS_VERIFICATION` (108); make all US7 test files pass and run ruff
+- [X] T081 [P] [US7] Write failing endpoint tests in `tests/api/test_customer_payments.py` (extending the US2 file) for the unverified queue with its filters, verify, and reject with a required reason; 403 without `PAYMENTS_VERIFICATION` (108)
+- [X] T082 [P] [US7] Write failing unit tests in `tests/unit/test_payment_verification.py` for the `verifier IS NULL` filter combined with facility, date range, method and amount range, that verifying sets `verifier` and removes the payment from the queue, and that rejection writes an incidence entry carrying the reason
+- [X] T083 [US7] Implement the unverified queue in `app/services/customer_payment_service.py` (FR-071)
+- [X] T084 [US7] Implement `verify()` in `app/services/customer_payment_service.py` recording the supervisor's employee as `verifier` (FR-071)
+- [X] T085 [US7] Implement `reject()` in `app/services/customer_payment_service.py` writing an incidence entry carrying the reason (FR-072)
+- [X] T086 [US7] Add the three routes to `app/api/v1/endpoints/customer_payments.py` gated by `PAYMENTS_VERIFICATION` (108); make all US7 test files pass and run ruff
 
 ---
 
@@ -236,23 +236,23 @@ cancelled ones, reverse the wrong one, and apply the freed amount to the right o
 
 **Depends on**: US2 (this story is almost entirely its reuse).
 
-- [ ] T087 [P] [US8] Write failing endpoint tests in `tests/api/test_customer_payments.py` for listing **all** applications including cancelled, and cross-facility payment search; 403 without `PAYMENTS_EDITOR` (100)
-- [ ] T088 [P] [US8] Write failing unit tests in `tests/unit/test_payments_editor.py` asserting cancelled applications are included in the listing, each naming order/amount/applier, and that cross-facility search is refused without privilege 100
-- [ ] T089 [US8] Implement the applications listing in `app/services/customer_payment_service.py` returning cancelled applications too (FR-073)
-- [ ] T090 [US8] Implement cross-facility payment search by customer, reference and date in `app/services/customer_payment_service.py`, gated by `PAYMENTS_EDITOR` (100) (FR-073)
-- [ ] T091 [US8] Add the routes to `app/api/v1/endpoints/customer_payments.py`; make all US8 test files pass and run ruff
+- [X] T087 [P] [US8] Write failing endpoint tests in `tests/api/test_customer_payments.py` for listing **all** applications including cancelled, and cross-facility payment search; 403 without `PAYMENTS_EDITOR` (100)
+- [X] T088 [P] [US8] Write failing unit tests in `tests/unit/test_payments_editor.py` asserting cancelled applications are included in the listing, each naming order/amount/applier, and that cross-facility search is refused without privilege 100
+- [X] T089 [US8] Implement the applications listing in `app/services/customer_payment_service.py` returning cancelled applications too (FR-073)
+- [X] T090 [US8] Implement cross-facility payment search by customer, reference and date in `app/services/customer_payment_service.py`, gated by `PAYMENTS_EDITOR` (100) (FR-073)
+- [X] T091 [US8] Add the routes to `app/api/v1/endpoints/customer_payments.py`; make all US8 test files pass and run ruff
 
 ---
 
 ## Phase 11: Polish & Cross-Cutting Concerns
 
-- [ ] T092 Verify the derived lifecycle `status` field is consistent across all document responses in `app/schemas/` — one state, not three raw booleans (contracts: Request/response shape notes)
-- [ ] T093 [P] Apply `app/services/fk_expansion.py` to every list endpoint added by this feature so no list issues N+1 queries; confirm resolved objects land on `<column>_detail` keys and never overwrite the mapped FK, extending `tests/unit/test_fk_expansion_isolation.py`
-- [ ] T094 [P] Confirm no document root exposes `DELETE` in `app/api/v1/endpoints/` (FR-006); line-level deletes exist only while the parent is editable
+- [X] T092 Verify the derived lifecycle `status` field is consistent across all document responses in `app/schemas/` — one state, not three raw booleans (contracts: Request/response shape notes)
+- [ ] T093 [P] **PARTIAL** — `/sales-orders` list now batches a page into two queries via `attach_summary_totals()`. The payments, quotes, refunds, credit-notes and cash-sessions lists still attach derived values one row at a time, which is an N+1 on a full page. No list expands FKs, so `fk_expansion` itself is not yet needed; batching the remaining five is the outstanding work
+- [X] T094 [P] Confirm no document root exposes `DELETE` in `app/api/v1/endpoints/` (FR-006); line-level deletes exist only while the parent is editable
 - [ ] T095 Run the two concurrency checks from [quickstart.md](./quickstart.md#concurrency-checks) against a real database: two simultaneous confirms yield different serials (SC-005), and two simultaneous refunds cannot over-refund a line (SC-006)
 - [ ] T096 Walk quickstart Scenarios 1–5 by hand against a real database, especially Scenario 3's lifecycle rule table
-- [ ] T097 Update `CHANGELOG.md` `[Unreleased]` under Added, describing the new endpoints, the enums and settings added, and the deliberate absence of POS routes
-- [ ] T098 Final gate: `uv run ruff check app/ migrations/ tests/` clean and `uv run pytest tests/ -q` green, with every service in `app/services/` added by this feature having a corresponding `tests/unit/` file (Constitution v1.2.0)
+- [X] T097 Update `CHANGELOG.md` `[Unreleased]` under Added, describing the new endpoints, the enums and settings added, and the deliberate absence of POS routes
+- [X] T098 Final gate: `uv run ruff check app/ migrations/ tests/` clean and `uv run pytest tests/ -q` green, with every service in `app/services/` added by this feature having a corresponding `tests/unit/` file (Constitution v1.2.0)
 
 ---
 
