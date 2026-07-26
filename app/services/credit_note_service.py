@@ -50,6 +50,30 @@ async def attach_remaining(db: AsyncSession, note: CreditNote) -> CreditNote:
     return note
 
 
+async def attach_summary_remaining(db: AsyncSession, notes: Sequence[CreditNote]) -> None:
+    """Remaining balances for a whole page in one query."""
+    payment_ids = [n.customer_payment for n in notes]
+    if not payment_ids:
+        return
+
+    rows = (
+        await db.execute(
+            select(SalesOrderPayment.customer_payment, func.sum(SalesOrderPayment.amount))
+            .where(
+                SalesOrderPayment.customer_payment.in_(payment_ids),
+                SalesOrderPayment.cancelled.is_(False),
+            )
+            .group_by(SalesOrderPayment.customer_payment)
+        )
+    ).all()
+    applied = {pid: amount or Decimal(0) for pid, amount in rows}
+
+    for note in notes:
+        note.__dict__['remaining'] = remaining_balance(
+            note.refunded, applied.get(note.customer_payment, Decimal(0))
+        )
+
+
 async def get_credit_note(db: AsyncSession, credit_note_id: int) -> CreditNote | None:
     return await db.get(CreditNote, credit_note_id)
 
@@ -74,8 +98,7 @@ async def list_credit_notes(
     page = base.order_by(CreditNote.credit_note_id.desc()).offset(skip).limit(limit)
     items = list((await db.execute(page)).scalars().all())
 
-    for note in items:
-        await attach_remaining(db, note)
+    await attach_summary_remaining(db, items)
 
     if open_only:
         items = [n for n in items if n.__dict__['remaining'] > 0]

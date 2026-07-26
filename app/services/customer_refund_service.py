@@ -187,6 +187,49 @@ async def attach_derived(db: AsyncSession, refund: CustomerRefund) -> CustomerRe
     return refund
 
 
+async def attach_summary_totals(db: AsyncSession, refunds: Sequence[CustomerRefund]) -> None:
+    """Totals for a whole page in one query.
+
+    Deliberately does not compute each line's `refundable_quantity`: that needs a per-line lookup
+    against the source order and only the detail view shows it. A summary row does not.
+    """
+    ids = [r.customer_refund_id for r in refunds]
+    if not ids:
+        return
+
+    grouped: dict[int, list[totals.Line]] = {rid: [] for rid in ids}
+    rows = (
+        (
+            await db.execute(
+                select(CustomerRefundDetail).where(
+                    CustomerRefundDetail.customer_refund.in_(ids)
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    for row in rows:
+        grouped[row.customer_refund].append(
+            totals.Line(
+                quantity=row.quantity,
+                price=row.price,
+                discount_rate=row.discount,
+                tax_rate=row.tax_rate,
+                tax_included=row.tax_included,
+            )
+        )
+
+    for refund in refunds:
+        computed = totals.document_totals(grouped.get(refund.customer_refund_id, []))
+        refund.__dict__['subtotal'] = computed.subtotal
+        refund.__dict__['tax_total'] = computed.tax_total
+        refund.__dict__['total'] = computed.total
+        refund.__dict__['status'] = derive_status(
+            completed=refund.completed, cancelled=refund.cancelled
+        ).value
+
+
 # ── Opening ───────────────────────────────────────────────────────────────────
 
 
@@ -312,8 +355,7 @@ async def list_refunds(
     total: int = (await db.execute(count_q)).scalar_one()
     page = base.order_by(CustomerRefund.customer_refund_id.desc()).offset(skip).limit(limit)
     items = (await db.execute(page)).scalars().all()
-    for refund in items:
-        await attach_derived(db, refund)
+    await attach_summary_totals(db, items)
     return items, total
 
 

@@ -122,6 +122,40 @@ async def attach_derived(db: AsyncSession, quote: SalesQuote) -> SalesQuote:
     return quote
 
 
+async def attach_summary_totals(db: AsyncSession, quotes: Sequence[SalesQuote]) -> None:
+    """Totals for a whole page in one query, instead of one query per quote."""
+    ids = [q.sales_quote_id for q in quotes]
+    if not ids:
+        return
+
+    grouped: dict[int, list[totals.Line]] = {qid: [] for qid in ids}
+    rows = (
+        (await db.execute(select(SalesQuoteDetail).where(SalesQuoteDetail.sales_quote.in_(ids))))
+        .scalars()
+        .all()
+    )
+    for row in rows:
+        grouped[row.sales_quote].append(
+            totals.Line(
+                quantity=row.quantity,
+                price=row.price + row.price_adjustment,
+                discount_rate=row.discount_rate,
+                tax_rate=row.tax_rate,
+                tax_included=row.tax_included,
+            )
+        )
+
+    for quote in quotes:
+        computed = totals.document_totals(grouped.get(quote.sales_quote_id, []))
+        quote.__dict__['subtotal'] = computed.subtotal
+        quote.__dict__['tax_total'] = computed.tax_total
+        quote.__dict__['total'] = computed.total
+        quote.__dict__['has_expired'] = has_expired(quote)
+        quote.__dict__['status'] = derive_status(
+            completed=quote.completed, cancelled=quote.cancelled
+        ).value
+
+
 # ── Header ────────────────────────────────────────────────────────────────────
 
 
@@ -237,8 +271,7 @@ async def list_quotes(
     total: int = (await db.execute(count_q)).scalar_one()
     page = base.order_by(SalesQuote.sales_quote_id.desc()).offset(skip).limit(limit)
     items = (await db.execute(page)).scalars().all()
-    for quote in items:
-        await attach_derived(db, quote)
+    await attach_summary_totals(db, items)
     return items, total
 
 

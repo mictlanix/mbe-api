@@ -117,6 +117,49 @@ async def attach_derived(db: AsyncSession, session: CashSession) -> CashSession:
     return session
 
 
+async def attach_summary_amounts(db: AsyncSession, sessions: Sequence[CashSession]) -> None:
+    """Opening amounts and per-method payment totals for a whole page, in two queries."""
+    ids = [s.cash_session_id for s in sessions]
+    if not ids:
+        return
+
+    opening_rows = (
+        await db.execute(
+            select(CashCount.session, func.sum(CashCount.denomination * CashCount.quantity))
+            .where(
+                CashCount.session.in_(ids),
+                CashCount.type == int(CashCountType.STARTING_CASH),
+            )
+            .group_by(CashCount.session)
+        )
+    ).all()
+    opening = {sid: amount or Decimal(0) for sid, amount in opening_rows}
+
+    payment_rows = (
+        await db.execute(
+            select(
+                CustomerPayment.cash_session,
+                CustomerPayment.method,
+                func.sum(CustomerPayment.amount),
+            )
+            .where(CustomerPayment.cash_session.in_(ids))
+            .group_by(CustomerPayment.cash_session, CustomerPayment.method)
+            .order_by(CustomerPayment.method)
+        )
+    ).all()
+    by_session: dict[int, list[dict]] = {sid: [] for sid in ids}
+    for sid, method, amount in payment_rows:
+        by_session.setdefault(sid, []).append(
+            {'method': method, 'total': amount or Decimal(0)}
+        )
+
+    for session in sessions:
+        session.__dict__['opening_amount'] = opening.get(
+            session.cash_session_id, Decimal(0)
+        )
+        session.__dict__['payments_by_method'] = by_session.get(session.cash_session_id, [])
+
+
 # ── Transitions ───────────────────────────────────────────────────────────────
 
 
@@ -219,6 +262,5 @@ async def list_sessions(
     total: int = (await db.execute(count_q)).scalar_one()
     page = base.order_by(CashSession.cash_session_id.desc()).offset(skip).limit(limit)
     items = (await db.execute(page)).scalars().all()
-    for session in items:
-        await attach_derived(db, session)
+    await attach_summary_amounts(db, items)
     return items, total

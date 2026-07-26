@@ -112,6 +112,36 @@ async def attach_unapplied(db: AsyncSession, payment: CustomerPayment) -> Custom
     return payment
 
 
+async def attach_summary_unapplied(
+    db: AsyncSession, payments: Sequence[CustomerPayment]
+) -> None:
+    """Unapplied amounts for a whole page in one query.
+
+    `attach_unapplied` re-reads the payment and aggregates per call, which is an N+1 when looped
+    over a page. This aggregates every payment on the page at once.
+    """
+    ids = [p.customer_payment_id for p in payments]
+    if not ids:
+        return
+
+    rows = (
+        await db.execute(
+            select(SalesOrderPayment.customer_payment, func.sum(SalesOrderPayment.amount))
+            .where(
+                SalesOrderPayment.customer_payment.in_(ids),
+                SalesOrderPayment.cancelled.is_(False),
+            )
+            .group_by(SalesOrderPayment.customer_payment)
+        )
+    ).all()
+    applied = {pid: amount or Decimal(0) for pid, amount in rows}
+
+    for payment in payments:
+        payment.__dict__['unapplied'] = payment.amount - applied.get(
+            payment.customer_payment_id, Decimal(0)
+        )
+
+
 async def create_payment(
     db: AsyncSession, data: CustomerPaymentCreate, *, current: CurrentUser
 ) -> CustomerPayment:
@@ -222,8 +252,7 @@ async def list_payments(
     total: int = (await db.execute(count_q)).scalar_one()
     page = base.order_by(CustomerPayment.customer_payment_id.desc()).offset(skip).limit(limit)
     items = (await db.execute(page)).scalars().all()
-    for payment in items:
-        await attach_unapplied(db, payment)
+    await attach_summary_unapplied(db, items)
     return items, total
 
 
