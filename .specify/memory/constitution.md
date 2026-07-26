@@ -1,22 +1,34 @@
 <!--
-## Sync Impact Report — Constitution v1.1.0
+## Sync Impact Report — Constitution v1.2.0
 
-**Version change**: 1.0.0 → 1.1.0
+**Version change**: 1.1.0 → 1.2.0
 
 ### Principles Changed
 - None removed or redefined.
 
 ### Sections Changed
-- `Development Workflow > Testing`: Tests are now REQUIRED whenever new API endpoints are
-  introduced. The previous blanket "tests are OPTIONAL unless explicitly requested" policy
-  remains for non-endpoint work only.
+- `Development Workflow > Testing`: **Tests are no longer optional for any work.** The v1.1.0
+  carve-out ("For non-endpoint work (services, utilities, config): tests are OPTIONAL unless
+  explicitly requested") is removed. Services, helpers and utilities with branching logic, state
+  transitions or arithmetic now require `tests/unit/` coverage exercising those branches directly.
+  A narrow exemption remains for work with no observable behaviour (renames, comments, docs,
+  formatting), and it must be stated rather than assumed.
+- `Development Workflow > Testing`: test-first ordering is now unconditional — it previously
+  applied only "when tests are included".
 
 ### Templates Reviewed
-- ✅ plan-template.md — No update needed; Constitution Check will surface the new rule.
+- ✅ plan-template.md — No update needed; Constitution Check surfaces the rule.
 - ✅ spec-template.md — No update needed.
-- ✅ tasks-template.md — Tasks for endpoints must now include test tasks by default.
+- ⚠️ tasks-template.md — Its boilerplate still reads "Tests are OPTIONAL - only include them if
+  explicitly requested in the feature specification". That line is upstream Spec Kit text and is
+  now contradicted by this constitution; generated `tasks.md` files MUST override it. Flagged
+  rather than edited, since the template ships with the toolchain.
 - ✅ checklist-template.md — No update needed.
 - ✅ agent-context command — No outdated references.
+
+### Downstream Impact
+- `specs/011-sales-cycle-endpoints/tasks.md` regenerated with unit-test tasks for every service
+  that previously relied on the removed carve-out.
 
 ### Deferred Items
 None. All fields resolved.
@@ -149,15 +161,22 @@ Fixed constraints — MUST NOT change without a constitution amendment.
 
 ### Testing
 
-- Test files live in `tests/api/` following the existing pattern.
+**Tests are NOT optional.** Every change ships with tests.
+
+- Test files live in `tests/api/` for endpoints and `tests/unit/` for everything else, following
+  the existing patterns.
 - Stack: pytest + pytest-asyncio + httpx `ASGITransport`.
-- **MUST write unit tests when new API endpoints are introduced.** A test file MUST be
+- **MUST write tests when new API endpoints are introduced.** A test file MUST be
   created or updated in `tests/api/` covering at minimum: happy path, 404 (not found),
   401 (unauthenticated), and any resource-specific constraints (409 conflicts, 422 validation
   errors). Tests MUST be committed in the same task as the endpoints they cover.
-- For non-endpoint work (services, utilities, config): tests are OPTIONAL unless explicitly
-  requested in the feature spec.
-- When tests are included: MUST write tests first, confirm they fail, then implement.
+- **MUST write tests for non-endpoint work too** — services, helpers, utilities and configuration
+  behaviour. A service carrying branching logic, state transitions or arithmetic MUST have a
+  `tests/unit/` file exercising those branches directly, not only through an endpoint.
+- The only work exempt from a test is work with no observable behaviour to assert: pure
+  renames, comment and documentation edits, and formatting. Exemptions are stated in the change,
+  never assumed silently.
+- MUST write tests first, confirm they fail, then implement.
 
 ### Changelog
 
@@ -189,4 +208,4 @@ and receive explicit justification before implementation proceeds.
 **Runtime guidance**: See `CLAUDE.md` for session-level behavioral guidelines that complement
 this constitution.
 
-**Version**: 1.1.0 | **Ratified**: 2026-06-14 | **Last Amended**: 2026-06-15
+**Version**: 1.2.0 | **Ratified**: 2026-06-14 | **Last Amended**: 2026-07-25
