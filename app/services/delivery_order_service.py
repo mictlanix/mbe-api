@@ -35,14 +35,6 @@ from app.services import delivery_events, documents, stock_ledger
 TERMINAL = delivery_events.TERMINAL
 
 
-def _employee(current: CurrentUser) -> int:
-    if current.employee_id is None:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail='Your user account is not linked to an employee and cannot author documents',
-        )
-    return current.employee_id
-
 
 def open_quantity(line: DeliveryOrderDetail) -> Decimal:
     """Ordered less what is delivered, returned, or already claimed by a trip (FR-026)."""
@@ -146,7 +138,7 @@ async def create_from_sales_order(
     so the type belongs to the delivery order, not to the sale. Detection is the default because
     it is right for the ordinary case, not because it is the rule (FR-005, FR-005a).
     """
-    employee = _employee(current)
+    employee = current.employee_id
 
     order = await db.get(SalesOrder, sales_order_id)
     if order is None:
@@ -354,7 +346,7 @@ async def update_order(
     db: AsyncSession, order: DeliveryOrder, data: object, *, current: CurrentUser
 ) -> DeliveryOrder:
     assert_editable(order)
-    employee = _employee(current)
+    employee = current.employee_id
 
     for field in ('date', 'priority', 'ship_to', 'contact', 'comment'):
         value = getattr(data, field, None)
@@ -428,7 +420,7 @@ async def confirm(
 ) -> DeliveryOrder:
     """Number the document and put it into the flow (FR-017 – FR-020)."""
     assert_editable(order)
-    employee = _employee(current)
+    employee = current.employee_id
 
     lines = await lines_of(db, order.delivery_order_id)
     if not lines:
@@ -467,7 +459,7 @@ async def confirm(
 
 async def approve(db: AsyncSession, order: DeliveryOrder, *, current: CurrentUser) -> DeliveryOrder:
     """Approval branches on fulfilment type in a single transition (FR-022, FR-024)."""
-    employee = _employee(current)
+    employee = current.employee_id
     if S(order.status) is not S.PENDING_APPROVAL:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -487,7 +479,7 @@ async def reject(
     db: AsyncSession, order: DeliveryOrder, reason: str, *, current: CurrentUser
 ) -> DeliveryOrder:
     """Send it back to its author with a stated reason — never leave it in limbo (FR-023)."""
-    employee = _employee(current)
+    employee = current.employee_id
     if S(order.status) is not S.PENDING_APPROVAL:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -507,7 +499,7 @@ async def reject(
 async def mark_ready_for_pickup(
     db: AsyncSession, order: DeliveryOrder, *, current: CurrentUser
 ) -> DeliveryOrder:
-    employee = _employee(current)
+    employee = current.employee_id
     delivery_events.transition(db, order, S.READY_FOR_PICKUP, employee=employee)
     order.updater = employee
     order.modification_time = datetime.now()
@@ -523,7 +515,7 @@ async def requeue(db: AsyncSession, order: DeliveryOrder, *, current: CurrentUse
     would have no open quantity and could never be dispatched — the goods came back and are
     available again.
     """
-    employee = _employee(current)
+    employee = current.employee_id
     if S(order.status) is not S.FAILED:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -545,7 +537,7 @@ async def cancel(
     db: AsyncSession, order: DeliveryOrder, reason: str, *, current: CurrentUser
 ) -> DeliveryOrder:
     """Retire the order, releasing anything it was holding (FR-007)."""
-    employee = _employee(current)
+    employee = current.employee_id
 
     for line in await lines_of(db, order.delivery_order_id):
         line.committed_quantity = Decimal(0)
@@ -601,7 +593,7 @@ async def confirm_pickup(
     Stock is consumed straight from the store warehouse: there is no in-transit step because the
     goods never travelled (FR-060).
     """
-    employee = _employee(current)
+    employee = current.employee_id
 
     proof = build_proof(
         db,

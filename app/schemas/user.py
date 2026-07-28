@@ -47,7 +47,9 @@ class UserCreate(BaseModel):
     user_id: str = Field(min_length=4, max_length=20)
     password: str = Field(min_length=1)
     email: str
-    employee_id: int | None = None
+    # Required, and NOT NULL in the database since migration 012 (#127). A user with no employee
+    # can log in and then be refused by every service that authors a document
+    employee_id: int
     administrator: bool = False
     status: EntityStatus = EntityStatus.ACTIVE
 
@@ -74,7 +76,7 @@ class UserListItem(BaseModel):
 
     user_id: str
     email: str
-    employee_id: int | None
+    employee_id: int
     administrator: bool
     status: EntityStatus
 
@@ -89,7 +91,7 @@ class UserResponse(BaseModel):
 
     user_id: str
     email: str
-    employee_id: int | None
+    employee_id: int
     administrator: bool
     status: EntityStatus
     session_version: int

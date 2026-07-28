@@ -167,15 +167,6 @@ def assert_can_cancel(order: object, *, live_applications: Sequence[object]) -> 
 # ── Context resolution ────────────────────────────────────────────────────────
 
 
-def _employee(current: CurrentUser) -> int:
-    """FR-002 — a user with no employee cannot author a document."""
-    if current.employee_id is None:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail='Your user account is not linked to an employee and cannot author documents',
-        )
-    return current.employee_id
-
 
 def _point_sale(current: CurrentUser, requested: int | None) -> int:
     """FR-004a — `sales_order.point_sale` is NOT NULL but a user's setting is optional."""
@@ -423,7 +414,7 @@ async def _price_for(db: AsyncSession, product: Product, price_list: int) -> Pro
 async def create_order(
     db: AsyncSession, data: SalesOrderCreate, *, current: CurrentUser
 ) -> SalesOrder:
-    employee = _employee(current)
+    employee = current.employee_id
     facility = _facility(current)
     point_sale = _point_sale(current, data.point_sale)
 
@@ -560,7 +551,7 @@ async def list_orders(
 async def update_order(
     db: AsyncSession, order: SalesOrder, data: SalesOrderUpdate, *, current: CurrentUser
 ) -> SalesOrder:
-    employee = _employee(current)
+    employee = current.employee_id
     changes = data.model_dump(exclude_unset=True)
 
     # Priority is the one field that survives completion (FR-011)
@@ -635,7 +626,7 @@ async def add_line(
     db: AsyncSession, order: SalesOrder, data: SalesOrderLineCreate, *, current: CurrentUser
 ) -> SalesOrder:
     documents.assert_editable(order)
-    employee = _employee(current)
+    employee = current.employee_id
 
     product = await db.get(Product, data.product)
     if product is None:
@@ -693,7 +684,7 @@ async def update_line(
     current: CurrentUser,
 ) -> SalesOrder:
     documents.assert_editable(order)
-    employee = _employee(current)
+    employee = current.employee_id
     changes = data.model_dump(exclude_unset=True)
 
     product = await db.get(Product, line.product)
@@ -730,7 +721,7 @@ async def remove_line(
     db: AsyncSession, order: SalesOrder, line: SalesOrderDetail, *, current: CurrentUser
 ) -> SalesOrder:
     documents.assert_editable(order)
-    order.updater = _employee(current)
+    order.updater = current.employee_id
     order.modification_time = datetime.now()
     await db.delete(line)
     await db.commit()
@@ -772,7 +763,7 @@ async def confirm_order(
 ) -> SalesOrder:
     """Assign the folio, commit the stock, freeze the document — one transaction (FR-017)."""
     documents.assert_editable(order)
-    employee = _employee(current)
+    employee = current.employee_id
 
     lines = list(
         (
@@ -840,7 +831,7 @@ async def cancel_order(
     db: AsyncSession, order: SalesOrder, *, current: CurrentUser
 ) -> SalesOrder:
     """Retire the order and give back the stock it took (FR-019, FR-019a, FR-019b)."""
-    employee = _employee(current)
+    employee = current.employee_id
     assert_can_cancel(order, live_applications=await live_applications(db, order.sales_order_id))
 
     if order.completed:

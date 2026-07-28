@@ -13,7 +13,9 @@ class User(Base):
     # varchar(40) in legacy DB (SHA1 hex); extended to 255 for bcrypt migration — see spec §5
     password: Mapped[str] = mapped_column(String(255))
     email: Mapped[str] = mapped_column(String(250))
-    employee_id: Mapped[int | None] = mapped_column(
+    # NOT NULL since migration 012 (#127) — every user is an employee, or it cannot author
+    # the documents it is going to be asked to author
+    employee_id: Mapped[int] = mapped_column(
         'employee', Integer, ForeignKey('employee.employee_id')
     )
     # bit(1) in DB; SQLAlchemy Boolean maps correctly

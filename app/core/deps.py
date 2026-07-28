@@ -20,9 +20,10 @@ class CurrentUser:
     administrator: bool
     facility_id: int | None
     # Sourced from the User row and its eager-loaded settings, not from the JWT, so existing
-    # tokens keep working. `None` means "not configured" and is refused by the services that
-    # need it rather than being papered over (FR-002, FR-004a).
-    employee_id: int | None = None
+    # tokens keep working. `employee` is NOT NULL since migration 012 (#127), so every
+    # authenticated user has one — no service checks for its absence. `point_sale` is still
+    # optional and is refused by the services that need it (FR-004a).
+    employee_id: int
     point_sale_id: int | None = None
     cash_drawer_id: int | None = None
 

@@ -82,14 +82,6 @@ def is_barcode_or_id(term: str) -> bool:
 # ── Payments ──────────────────────────────────────────────────────────────────
 
 
-def _employee(current: CurrentUser) -> int:
-    if current.employee_id is None:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail='Your user account is not linked to an employee and cannot record payments',
-        )
-    return current.employee_id
-
 
 async def unapplied_amount(db: AsyncSession, customer_payment_id: int) -> Decimal:
     """The payment's amount less every non-cancelled application. Never stored."""
@@ -145,7 +137,7 @@ async def attach_summary_unapplied(
 async def create_payment(
     db: AsyncSession, data: CustomerPaymentCreate, *, current: CurrentUser
 ) -> CustomerPayment:
-    employee = _employee(current)
+    employee = current.employee_id
 
     if await db.get(Customer, data.customer) is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Customer not found')
@@ -288,7 +280,7 @@ async def apply_payment(
     *,
     current: CurrentUser,
 ) -> SalesOrderPayment:
-    employee = _employee(current)
+    employee = current.employee_id
 
     order = await db.get(SalesOrder, data.sales_order)
     if order is None:
@@ -326,7 +318,7 @@ async def reverse_application(
     current: CurrentUser,
 ) -> SalesOrderPayment:
     """Undo an application without destroying it (FR-045, FR-045a)."""
-    employee = _employee(current)
+    employee = current.employee_id
 
     if application.cancelled:
         raise HTTPException(
@@ -408,7 +400,7 @@ async def get_application(
 async def verify_payment(
     db: AsyncSession, payment: CustomerPayment, *, current: CurrentUser
 ) -> CustomerPayment:
-    employee = _employee(current)
+    employee = current.employee_id
     if payment.verifier is not None:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT, detail='Payment is already verified'
@@ -425,7 +417,7 @@ async def reject_payment(
     db: AsyncSession, payment: CustomerPayment, *, reason: str, current: CurrentUser
 ) -> CustomerPayment:
     """Flag a payment for investigation, leaving the reason on the record (FR-072)."""
-    employee = _employee(current)
+    employee = current.employee_id
     incidences.record(
         db,
         source=SourceType.CUSTOMER_PAYMENT,

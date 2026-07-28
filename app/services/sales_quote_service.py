@@ -159,14 +159,6 @@ async def attach_summary_totals(db: AsyncSession, quotes: Sequence[SalesQuote]) 
 # ── Header ────────────────────────────────────────────────────────────────────
 
 
-def _employee(current: CurrentUser) -> int:
-    if current.employee_id is None:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail='Your user account is not linked to an employee and cannot author documents',
-        )
-    return current.employee_id
-
 
 async def _customer_or_404(db: AsyncSession, customer_id: int) -> Customer:
     customer = await db.get(Customer, customer_id)
@@ -178,7 +170,7 @@ async def _customer_or_404(db: AsyncSession, customer_id: int) -> Customer:
 async def create_quote(
     db: AsyncSession, data: SalesQuoteCreate, *, current: CurrentUser
 ) -> SalesQuote:
-    employee = _employee(current)
+    employee = current.employee_id
     if current.facility_id is None:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
@@ -279,7 +271,7 @@ async def update_quote(
     db: AsyncSession, quote: SalesQuote, data: SalesQuoteUpdate, *, current: CurrentUser
 ) -> SalesQuote:
     documents.assert_editable(quote)
-    employee = _employee(current)
+    employee = current.employee_id
     changes = data.model_dump(exclude_unset=True)
 
     if 'customer' in changes and changes['customer'] is not None:
@@ -330,7 +322,7 @@ async def add_line(
     db: AsyncSession, quote: SalesQuote, data: SalesQuoteLineCreate, *, current: CurrentUser
 ) -> SalesQuote:
     documents.assert_editable(quote)
-    employee = _employee(current)
+    employee = current.employee_id
 
     product = await db.get(Product, data.product)
     if product is None:
@@ -387,7 +379,7 @@ async def update_line(
         if field in changes and changes[field] is not None:
             setattr(line, field, changes[field])
 
-    quote.updater = _employee(current)
+    quote.updater = current.employee_id
     quote.modification_time = datetime.now()
     await db.commit()
     await db.refresh(quote)
@@ -398,7 +390,7 @@ async def remove_line(
     db: AsyncSession, quote: SalesQuote, line: SalesQuoteDetail, *, current: CurrentUser
 ) -> SalesQuote:
     documents.assert_editable(quote)
-    quote.updater = _employee(current)
+    quote.updater = current.employee_id
     quote.modification_time = datetime.now()
     await db.delete(line)
     await db.commit()
@@ -416,7 +408,7 @@ async def confirm_quote(
     documents.assert_editable(quote)
     quote.serial = await documents.assign_folio(db, SalesQuote, facility=quote.facility)
     quote.completed = True
-    quote.updater = _employee(current)
+    quote.updater = current.employee_id
     quote.modification_time = datetime.now()
     await db.commit()
     await db.refresh(quote)
@@ -429,7 +421,7 @@ async def cancel_quote(db: AsyncSession, quote: SalesQuote, *, current: CurrentU
             status_code=status.HTTP_409_CONFLICT, detail='Quote is already cancelled'
         )
     quote.cancelled = True
-    quote.updater = _employee(current)
+    quote.updater = current.employee_id
     quote.modification_time = datetime.now()
     await db.commit()
     await db.refresh(quote)
@@ -440,7 +432,7 @@ async def duplicate_quote(
     db: AsyncSession, quote: SalesQuote, *, current: CurrentUser
 ) -> SalesQuote:
     """A fresh editable quote dated today, re-priced from the customer's current list (FR-033)."""
-    employee = _employee(current)
+    employee = current.employee_id
     now = datetime.now()
     customer = await _customer_or_404(db, quote.customer)
 
@@ -508,7 +500,7 @@ async def convert_to_order(
     db: AsyncSession, quote: SalesQuote, *, current: CurrentUser
 ) -> SalesOrder:
     """Produce a draft order carrying the quote's terms and lines (FR-034)."""
-    employee = _employee(current)
+    employee = current.employee_id
     assert_convertible(quote)
 
     point_sale = current.point_sale_id

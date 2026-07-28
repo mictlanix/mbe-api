@@ -50,14 +50,6 @@ from app.services import (
 _BUCKETS = ('earlier', 'yesterday', 'today', 'tomorrow', 'day_after', 'later')
 
 
-def _employee(current: CurrentUser) -> int:
-    if current.employee_id is None:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail='Your user account is not linked to an employee and cannot author documents',
-        )
-    return current.employee_id
-
 
 # ── Pending deliveries ────────────────────────────────────────────────────────
 
@@ -181,7 +173,7 @@ async def create_itinerary(
     partial unique index, so "at most one row where status = OPEN per vehicle" cannot be a
     constraint; the lock makes concurrent opens queue instead of racing (research R9).
     """
-    employee = _employee(current)
+    employee = current.employee_id
 
     if vehicle is not None:
         locked = (
@@ -322,7 +314,7 @@ async def update_itinerary(
         value = getattr(data, field, None)
         if value is not None:
             setattr(itinerary, field, value)
-    itinerary.updater = _employee(current)
+    itinerary.updater = current.employee_id
     itinerary.modification_time = datetime.now()
     await db.commit()
     await db.refresh(itinerary)
@@ -344,7 +336,7 @@ async def cancel_itinerary(
         await db.delete(stop)
 
     itinerary.status = ItineraryStatus.CANCELLED
-    itinerary.updater = _employee(current)
+    itinerary.updater = current.employee_id
     itinerary.modification_time = datetime.now()
     await db.commit()
     await db.refresh(itinerary)
@@ -583,7 +575,7 @@ async def depart(
     still spoken for, and releasing it here would let a second itinerary commit stock that is
     physically on the truck (FR-029a).
     """
-    employee = _employee(current)
+    employee = current.employee_id
     assert_open(itinerary)
 
     stops = await stops_of(db, itinerary.deliveries_itinerary_id)
@@ -697,7 +689,7 @@ async def close_stop(
     remainder into a child order, post the inventory, update sales-order coverage, and close the
     itinerary if this was its last unresolved stop.
     """
-    employee = _employee(current)
+    employee = current.employee_id
 
     if ItineraryStatus(itinerary.status) is not ItineraryStatus.DEPARTED:
         raise HTTPException(

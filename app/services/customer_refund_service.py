@@ -99,14 +99,6 @@ def reconcile_lines(
 # ── Context ───────────────────────────────────────────────────────────────────
 
 
-def _employee(current: CurrentUser) -> int:
-    if current.employee_id is None:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail='Your user account is not linked to an employee and cannot author documents',
-        )
-    return current.employee_id
-
 
 # ── Derived values ────────────────────────────────────────────────────────────
 
@@ -237,7 +229,7 @@ async def open_refund(
     db: AsyncSession, sales_order_id: int, *, current: CurrentUser
 ) -> CustomerRefund:
     """Pre-populate a refund with every line that still has something to give back (FR-060)."""
-    employee = _employee(current)
+    employee = current.employee_id
 
     order = await db.get(SalesOrder, sales_order_id)
     if order is None:
@@ -378,7 +370,7 @@ async def update_line(
     if 'warehouse' in changes:
         line.warehouse = changes['warehouse']
 
-    refund.updater = _employee(current)
+    refund.updater = current.employee_id
     refund.modification_time = datetime.now()
     await db.commit()
     await db.refresh(refund)
@@ -397,7 +389,7 @@ async def confirm_refund(
 ) -> CustomerRefund:
     """Restock the goods, number the document, and pay the customer back (FR-063, FR-065)."""
     documents.assert_editable(refund)
-    employee = _employee(current)
+    employee = current.employee_id
 
     session = await cash_session_service.open_session_for_cashier(db, employee)
     if session is None:
@@ -565,7 +557,7 @@ async def cancel_refund(
         )
 
     refund.cancelled = True
-    refund.updater = _employee(current)
+    refund.updater = current.employee_id
     refund.modification_time = datetime.now()
     await db.commit()
     await db.refresh(refund)

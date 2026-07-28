@@ -1,6 +1,5 @@
 from collections.abc import Sequence
 
-from fastapi import HTTPException, status
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -157,12 +156,6 @@ async def delete_facility(db: AsyncSession, facility: Facility, *, current: Curr
     Nothing is committed until every check has passed. `get_db` never commits on an exception, so
     a refusal discards the staged delete and the staged audit entry together.
     """
-    if current.employee_id is None:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail='Your user account is not linked to an employee and cannot delete a facility',
-        )
-
     transit = await warehouse_service.get_transit_warehouse(db, facility.facility_id)
     if transit is not None:
         await assert_not_referenced(db, transit)
