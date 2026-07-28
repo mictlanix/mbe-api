@@ -102,6 +102,10 @@ class Warehouse(Base):
     status: Mapped[EntityStatus] = mapped_column(
         Integer, default=EntityStatus.ACTIVE, server_default='0'
     )
+    # One per facility, created and destroyed by the system. The default is what keeps the column
+    # invisible to the legacy application, which goes on writing ordinary warehouses without
+    # knowing it exists — and therefore cannot produce a second in-transit row (migration 011).
+    in_transit: Mapped[bool] = mapped_column(Boolean, default=False, server_default='0')
 
 
 class PointSale(Base):
