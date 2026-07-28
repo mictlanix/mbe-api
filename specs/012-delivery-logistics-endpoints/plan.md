@@ -200,9 +200,22 @@ any delivery endpoint depends on it.
 **Deliberately not done**: no notification channel, no print/ticket/PDF rendering, no itinerary
 status enum, no ORM event listener, no new dependency, no standalone delivery-order creation.
 
-**Footprint, measured rather than estimated** (2026-07-28): 17 new files and 17 edited — 12 app
-files and 5 test files. Six of the twelve app edits were unplanned; each is justified above. This
-plan originally claimed five, which is why the count is now stated as a measurement.
+**Footprint, measured rather than estimated** (2026-07-28, at merge): 17 new files and 17 edited —
+12 app files and 5 test files. Six of the twelve app edits were unplanned; each is justified above.
+This plan originally claimed five, which is why the count is now stated as a measurement.
+
+**What shipped after the merge is deliberately not folded into the tree above.** The tree records
+what this plan planned; three follow-up changes landed as their own pull requests and are recorded
+in the spec's *After merge* section instead:
+
+| Change | Adds |
+|---|---|
+| Expiry sweep (#118, PR #121) | `app/services/order_expiry.py`, `app/jobs/expire_orders.py`, `tests/unit/test_order_expiry.py` |
+| System employee (PR #122) | `migrations/010_system_employee.sql` (+ rollback) |
+| Constant, not a setting (PR #123) | `app/core/constants.py`; edits `employee_service.py`, `main.py` |
+
+Retrofitting them here would make the plan look as though it foresaw work that only existed
+because the feature shipped and its consequences were measured.
 
 ## Post-Design Constitution Re-Check
 

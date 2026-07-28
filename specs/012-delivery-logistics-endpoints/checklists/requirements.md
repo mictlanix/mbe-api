@@ -77,3 +77,26 @@ implementation choice.
   discoverability substitute is specified instead (FR-067, US2 scenario 4).
 - FR-070 and FR-071 add sales-order coverage as a derived figure *and* maintain the stored
   `delivered` flag, so the cross-feature contract with spec 011 is explicit rather than implied.
+
+---
+
+## After merge (2026-07-28)
+
+Re-validated against the spec as it stands after PR #120 and the three follow-ups. **Still 16/16.**
+
+The spec grew from 74 to 80 functional requirements and gained an *After merge* section, so the
+items worth restating:
+
+- **No implementation details** — still a deliberate deviation, unchanged in character. The
+  *After merge* section names migrations, settings and pull requests, for the same reason the
+  Context section does: this feature's job was reconciling two documents against a live schema,
+  and the follow-ups only make sense with the artefacts named.
+- **Requirements testable and unambiguous** — FR-005a, FR-011 (struck), FR-012, FR-025a, FR-029a,
+  FR-044a/b, FR-045a, FR-051a and FR-055a were all added or rewritten after measurement rather
+  than assumption. Each carries the figure that forced it.
+- **Scope clearly bounded** — the three follow-ups are recorded as *after merge* rather than
+  folded into the requirements, so what this feature specified stays distinguishable from what its
+  consequences forced.
+
+**Measured, not assumed:** 80/80 FR and 11/11 SC carry a task citation; 108 tasks complete; the
+eight quickstart scenarios ran against a live server with every created row removed afterwards.

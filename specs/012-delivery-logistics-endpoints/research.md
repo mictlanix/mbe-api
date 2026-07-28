@@ -346,6 +346,13 @@ them would be defensible. Namespacing is still preferred: it destroys nothing, n
 step, and cannot be got wrong at 3 a.m. `reserved()` filters on our value alone, so the stale rows
 are simply invisible to it.
 
+**Revised after merge.** R4 and R5 gave reservations a creation and a release but no expiry, and
+that gap shipped: an order confirmed and then abandoned held its stock indefinitely (#118). The
+lifecycle now has a third exit — a scheduled sweep cancels an order still neither paid nor
+delivered after a configured window **and still holding a reservation** — and the release itself
+became per-line, because releasing an order's whole claim on a partial departure handed back lines
+that never left. See the spec's *After merge* section.
+
 ### A3 — 6,693 delivery orders have no ship-to address
 
 Fulfilment type is `NOT NULL` and is detected by matching `ship_to` against facility addresses; 25%
