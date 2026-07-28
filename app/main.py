@@ -42,6 +42,22 @@ app.add_middleware(
 )
 
 @app.on_event('startup')
+async def ensure_system_employee() -> None:
+    """Make sure the actor for automated actions exists before anything can need it.
+
+    `sales_order.updater` is an enforced foreign key, so a missing row surfaces as a constraint
+    violation partway through the expiry sweep rather than at boot. Created rather than merely
+    checked because there is exactly one correct value and nothing for an operator to decide —
+    migration 010 seeds it, and this covers a database that has not run it.
+    """
+    from app.db.session import AsyncSessionLocal
+    from app.services import employee_service
+
+    async with AsyncSessionLocal() as db:
+        await employee_service.ensure_system_employee(db)
+
+
+@app.on_event('startup')
 async def verify_in_transit_warehouse() -> None:
     """Refuse to serve until the in-transit warehouse is configured and exists.
 

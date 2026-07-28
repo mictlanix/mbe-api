@@ -28,6 +28,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
+from app.core.constants import SYSTEM_EMPLOYEE_ID
 from app.core.deps import CurrentUser
 from app.enums import TransactionType
 from app.models.core import Employee
@@ -112,8 +113,8 @@ async def _assert_employee_exists(db: AsyncSession, employee: int) -> None:
 
     if found is None:
         raise RuntimeError(
-            f'SYSTEM_EMPLOYEE_ID={employee} names no employee. Migration 010 seeds the system '
-            'employee at -1; point the setting at it, or at a real employee.'
+            f'Employee {employee} does not exist. The system employee is seeded by migration 010 '
+            'and created at API startup; run either, or `employee_service.ensure_system_employee`.'
         )
 
 
@@ -130,7 +131,7 @@ async def expire_unpaid_orders(
     if days <= 0:
         return ExpiryReport(cancelled=[], skipped=[])
 
-    employee = settings.system_employee_id if employee is None else employee
+    employee = SYSTEM_EMPLOYEE_ID if employee is None else employee
     await _assert_employee_exists(db, employee)
 
     orders = await find_expired(db, days=days, now=now)

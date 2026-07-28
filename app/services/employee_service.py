@@ -1,8 +1,10 @@
 from collections.abc import Sequence
+from datetime import date
 
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.constants import SYSTEM_EMPLOYEE_ID
 from app.enums import EntityStatus
 from app.models.core import Employee
 from app.schemas.core import EmployeeCreate, EmployeeUpdate
@@ -102,3 +104,39 @@ async def delete_employee(db: AsyncSession, employee: Employee) -> None:
     await assert_not_referenced(db, employee)
     await db.delete(employee)
     await db.commit()
+
+
+async def ensure_system_employee(db: AsyncSession) -> Employee:
+    """Return the employee automated actions are recorded against, creating it if absent.
+
+    Migration 010 seeds this row, but the API and the expiry sweep both depend on it and neither
+    should assume the migration has run — a database restored from before it, or a fresh one built
+    by another route, would otherwise fail at the first automated cancellation with a foreign key
+    violation rather than at boot.
+
+    Idempotent: it inserts only when the row is missing, so calling it on every startup costs one
+    indexed lookup. Archived, so it never appears in an employee picker.
+    """
+    existing = await db.get(Employee, SYSTEM_EMPLOYEE_ID)
+    if existing is not None:
+        return existing
+
+    employee = Employee(
+        employee_id=SYSTEM_EMPLOYEE_ID,
+        first_name='System',
+        last_name='Process',
+        nickname='system',
+        gender=0,
+        birthday=date(1970, 1, 1),
+        taxpayer_id=None,
+        sales_person=False,
+        status=EntityStatus.ARCHIVED,
+        personal_id=None,
+        start_job_date=date(1970, 1, 1),
+        comment='Recorded as the actor for automated actions such as the expiry sweep',
+        enroll_number=None,
+    )
+    db.add(employee)
+    await db.commit()
+    await db.refresh(employee)
+    return employee

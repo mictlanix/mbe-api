@@ -6,6 +6,7 @@ missing from availability. These tests pin the selection rule, the guards, and t
 what the sweep could *not* do, which is the half that still needs a person.
 """
 
+import inspect
 from datetime import datetime, timedelta
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
@@ -153,13 +154,13 @@ class TestGuards:
     async def test_refuses_when_the_system_employee_does_not_exist(self) -> None:
         """`sales_order.updater` is an enforced FK, so a missing employee is error 1452 partway
         through the sweep — after some orders are cancelled and others are not. Checked once up
-        front so a run is all-or-nothing."""
+        front so a run is all-or-nothing."""  # noqa: D401
         db = AsyncMock()
         db.execute = AsyncMock(
             return_value=SimpleNamespace(scalar_one_or_none=lambda: None)
         )
 
-        with pytest.raises(RuntimeError, match='names no employee'):
+        with pytest.raises(RuntimeError, match='does not exist'):
             await expire_unpaid_orders(db, days=2, employee=999, now=NOW)
 
     @pytest.mark.asyncio
@@ -184,3 +185,32 @@ class TestGuards:
 
         assert report.cancelled == [1, 2]
         cancel.assert_not_awaited()
+
+
+class TestTheActorIsAConstant:
+    """Not a setting: there is exactly one correct value, and a wrong one is not a preference.
+
+    `sales_order.updater` is an enforced foreign key, so a misconfigured id is a run that fails
+    partway through with error 1452 after some orders have already been cancelled. Nothing is
+    gained by letting a deployment choose it.
+    """
+
+    def test_the_sweep_defaults_to_the_constant(self) -> None:
+        from app.core.constants import SYSTEM_EMPLOYEE_ID
+
+        source = inspect.getsource(expire_unpaid_orders)
+
+        assert 'SYSTEM_EMPLOYEE_ID if employee is None' in source
+        assert SYSTEM_EMPLOYEE_ID == -1
+
+    def test_it_is_not_a_configurable_setting(self) -> None:
+        from app.core.config import Settings
+
+        assert 'system_employee_id' not in Settings.model_fields
+
+    def test_it_is_negative_so_normal_numbering_is_untouched(self) -> None:
+        """InnoDB only advances AUTO_INCREMENT for values above it; a high id would push every
+        real employee thereafter past it."""
+        from app.core.constants import SYSTEM_EMPLOYEE_ID
+
+        assert SYSTEM_EMPLOYEE_ID < 0
