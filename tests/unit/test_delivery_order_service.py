@@ -173,12 +173,38 @@ class TestTransitionsRouteThroughTheChokepoint:
         assert 'committed_quantity = Decimal(0)' in source
 
 
+class TestFallbackWarehouse:
+    """Spec 013 FR-012. This was a live defect, not a port of an existing exclusion.
+
+    Before spec 013 the fallback took `MIN(warehouse_id)` across every warehouse in the facility
+    with no exclusion whatsoever, so a facility whose in-transit row happened to hold the lowest
+    id would hand a delivery line the virtual location as its dispatch warehouse.
+    """
+
+    def test_in_transit_locations_are_excluded_from_the_automatic_choice(self) -> None:
+        source = inspect.getsource(service._fallback_warehouse)
+
+        assert 'in_transit.is_(False)' in source
+
+    def test_the_exclusion_is_a_predicate_not_a_post_filter(self) -> None:
+        """MIN() must be computed over the filtered set, or it still returns the transit row."""
+        source = inspect.getsource(service._fallback_warehouse)
+
+        min_at = source.index('func.min(')
+        exclusion_at = source.index('in_transit.is_(False)')
+        assert exclusion_at > min_at, 'the exclusion belongs inside the same query as MIN()'
+
+
 class TestCounterPickupInventory:
     def test_pickup_consumes_from_the_store_with_no_transit_step(self) -> None:
         """FR-060 — the goods never travelled, so there is no in-transit leg."""
         source = inspect.getsource(service.confirm_pickup)
 
-        assert 'in_transit_warehouse_id' not in source
+        # Asserted on identifiers, not prose: `inspect.getsource` includes the docstring, which
+        # says "in-transit" in the course of explaining that there isn't one. Spec 013 retired
+        # `in_transit_warehouse_id`, so naming it here would be a test that can never fail again.
+        assert 'in_transit' not in source
+        assert 'transit_warehouses_for' not in source
         assert 'outbound=True' in source
 
     def test_pickup_releases_only_this_order_s_lines(self) -> None:

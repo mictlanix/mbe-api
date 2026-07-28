@@ -86,10 +86,11 @@ async def update_facility(
 @router.delete('/{facility_id}', status_code=http_status.HTTP_204_NO_CONTENT)
 async def delete_facility(
     facility_id: int,
-    _: CurrentUser = Depends(require_privilege(SystemObject.FACILITIES, AccessRight.DELETE)),
+    current: CurrentUser = Depends(require_privilege(SystemObject.FACILITIES, AccessRight.DELETE)),
     db: AsyncSession = Depends(get_db),
 ) -> None:
     facility = await facility_service.get_facility(db, facility_id)
     if facility is None:
         raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail='Facility not found')
-    await facility_service.delete_facility(db, facility)
+    # `current` rather than `_`: the deletion is audited and the entry needs an actor (FR-015a).
+    await facility_service.delete_facility(db, facility, current=current)

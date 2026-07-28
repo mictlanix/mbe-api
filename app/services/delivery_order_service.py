@@ -113,9 +113,15 @@ async def _is_facility_address(db: AsyncSession, address: int | None) -> bool:
 
 
 async def _fallback_warehouse(db: AsyncSession, facility: int) -> int:
+    # `in_transit` is excluded, not merely unlikely to win. Before spec 013 this took MIN over
+    # every warehouse in the facility with no exclusion at all, so a facility whose in-transit row
+    # held the lowest id would silently dispatch *from* the virtual location (FR-012).
     warehouse = (
         await db.execute(
-            select(func.min(Warehouse.warehouse_id)).where(Warehouse.facility == facility)
+            select(func.min(Warehouse.warehouse_id)).where(
+                Warehouse.facility == facility,
+                Warehouse.in_transit.is_(False),
+            )
         )
     ).scalar_one_or_none()
     if warehouse is None:

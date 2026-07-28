@@ -1,9 +1,9 @@
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 
-from app.core.config import settings
 from app.enums import EntityStatus
 from app.models.core import Facility, Warehouse
 from app.schemas.core import WarehouseCreate, WarehouseUpdate
@@ -35,14 +35,14 @@ async def list_warehouses(
     base = select(Warehouse)
     count_q = select(func.count()).select_from(Warehouse)
 
-    # The in-transit location is a warehouse row so `stock_ledger.on_hand` reports its balance
-    # with no new mechanism (spec 012, research R3). It is not a place anyone picks from, so it
-    # is kept out of every picker: choosing it on a sales order or an itinerary would misfile
-    # stock into the virtual location.
-    if settings.in_transit_warehouse_id:
-        virtual = Warehouse.warehouse_id != settings.in_transit_warehouse_id
-        base = base.where(virtual)
-        count_q = count_q.where(virtual)
+    # In-transit locations are warehouse rows so `stock_ledger.on_hand` reports their balances
+    # with no new mechanism (spec 012, research R3). They are not places anyone picks from, so
+    # they are kept out of every picker: choosing one on a sales order or an itinerary would
+    # misfile stock into a virtual location. There is now one per facility, so this excludes all
+    # of them by flag rather than the single configured id spec 012 had (spec 013, FR-012).
+    virtual = Warehouse.in_transit.is_(False)
+    base = base.where(virtual)
+    count_q = count_q.where(virtual)
 
     if search:
         term = f'%{search}%'
@@ -64,11 +64,56 @@ async def list_warehouses(
 
 
 async def get_warehouse(db: AsyncSession, warehouse_id: int) -> Warehouse | None:
+    # Deliberately returns in-transit rows too. The refusal is the endpoint's job (403, not 404),
+    # because "forbidden" and "not found" have to stay distinguishable — and a service function
+    # that pretends a row does not exist is a trap for every future caller (spec 013, research R4).
     warehouse = await db.get(Warehouse, warehouse_id)
     if warehouse is None:
         return None
     await _attach_relations(db, [warehouse])
     return warehouse
+
+
+async def get_transit_warehouse(db: AsyncSession, facility: int) -> Warehouse | None:
+    """The in-transit location belonging to `facility`, or `None` when it has none.
+
+    `None` is a broken state, not a normal one: every facility gets one at creation and the
+    migration backfilled the rest. Callers refuse rather than repairing it — the system never
+    creates one on demand (FR-009a).
+    """
+    return (
+        await db.execute(
+            select(Warehouse).where(Warehouse.facility == facility, Warehouse.in_transit.is_(True))
+        )
+    ).scalar_one_or_none()
+
+
+async def transit_warehouses_for(
+    db: AsyncSession, dispatch_warehouses: Iterable[int]
+) -> dict[int, int]:
+    """Map each dispatch warehouse id to the in-transit warehouse id of the facility owning it.
+
+    One self-join for the whole trip, not one lookup per line — the N+1 that `fk_expansion`
+    exists to police. A dispatch warehouse missing from the result means its facility has no
+    in-transit location; the caller raises rather than posting the movement elsewhere (FR-009).
+    """
+    ids = set(dispatch_warehouses)
+    if not ids:
+        return {}
+
+    dispatch = aliased(Warehouse)
+    transit = aliased(Warehouse)
+    rows = (
+        await db.execute(
+            select(dispatch.warehouse_id, transit.warehouse_id)
+            .join(
+                transit,
+                (transit.facility == dispatch.facility) & transit.in_transit.is_(True),
+            )
+            .where(dispatch.warehouse_id.in_(ids))
+        )
+    ).all()
+    return {dispatch_id: transit_id for dispatch_id, transit_id in rows}
 
 
 async def create_warehouse(db: AsyncSession, data: WarehouseCreate) -> Warehouse:

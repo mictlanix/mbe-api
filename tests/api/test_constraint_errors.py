@@ -33,7 +33,14 @@ def _auth() -> None:
 
 def _warehouse() -> SimpleNamespace:
     return SimpleNamespace(
-        warehouse_id=1, facility=1, code='WH1', name='Main', comment=None, status=0
+        warehouse_id=1,
+        facility=1,
+        code='WH1',
+        name='Main',
+        comment=None,
+        status=0,
+        # Read by the endpoint's `_addressable` guard (spec 013).
+        in_transit=False,
     )
 
 

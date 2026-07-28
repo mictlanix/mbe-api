@@ -134,6 +134,7 @@ class SourceType(IntEnum):
     CUSTOMER = 7
     USER_SETTINGS = 8
     PRODUCT = 9
+    FACILITY = 10
 
 
 class AccessRight(IntFlag):
