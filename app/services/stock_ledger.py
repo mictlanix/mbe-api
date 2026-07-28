@@ -12,11 +12,11 @@ feature, not this one.
 from datetime import datetime
 from decimal import Decimal
 
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.enums import TransactionType
-from app.models.inventory import LotSerialTracking
+from app.models.inventory import LotSerialRqmt, LotSerialTracking
 
 
 def post_movement(
@@ -64,3 +64,131 @@ async def on_hand(db: AsyncSession, *, product: int, warehouse: int) -> Decimal:
     ).scalar_one_or_none()
 
     return total if total is not None else Decimal(0)
+
+
+def reserve(
+    db: AsyncSession,
+    *,
+    sales_order: int,
+    product: int,
+    warehouse: int,
+    quantity: Decimal,
+) -> LotSerialRqmt:
+    """Stage a claim on stock that a confirmed sales order has not yet taken off the shelf.
+
+    Confirming an order no longer writes an outbound ledger entry (FR-055), so the goods stay in
+    `on_hand` until the truck leaves. This row is what stops them being promised twice in the
+    meantime; `available()` is the figure the stock check must use.
+
+    Reservations are namespaced under `SALES_ORDER_RESERVATION`, not `SALES_ORDER`. The legacy
+    application wrote 2,609 rows under the latter before it stopped in January 2025 — reusing it
+    would make `reserved()` count those as ours and `release_reservations()` delete them.
+    """
+    if quantity < 0:
+        raise ValueError('quantity must be positive')
+
+    entry = LotSerialRqmt(
+        source=int(TransactionType.SALES_ORDER_RESERVATION),
+        reference=sales_order,
+        warehouse=warehouse,
+        product=product,
+        quantity=quantity,
+    )
+    db.add(entry)
+    return entry
+
+
+async def reserved(db: AsyncSession, *, product: int, warehouse: int) -> Decimal:
+    """Stock spoken for by confirmed sales orders that have not yet departed."""
+    total = (
+        await db.execute(
+            select(func.sum(LotSerialRqmt.quantity)).where(
+                LotSerialRqmt.source == int(TransactionType.SALES_ORDER_RESERVATION),
+                LotSerialRqmt.product == product,
+                LotSerialRqmt.warehouse == warehouse,
+            )
+        )
+    ).scalar_one_or_none()
+
+    return total if total is not None else Decimal(0)
+
+
+async def available(db: AsyncSession, *, product: int, warehouse: int) -> Decimal:
+    """What can still be promised: on hand, less what is already claimed (FR-055a).
+
+    The stock check at sales-order confirmation must use this rather than `on_hand`. Confirmation
+    stopped decrementing on-hand, so an unreserved check would let one physical unit satisfy an
+    unlimited number of orders — every confirmation succeeding, the shortfall surfacing only when
+    the truck is loaded.
+    """
+    return await on_hand(db, product=product, warehouse=warehouse) - await reserved(
+        db, product=product, warehouse=warehouse
+    )
+
+
+async def release_reservations(db: AsyncSession, *, sales_order: int) -> None:
+    """Give back everything this order was holding.
+
+    Whole-order release, for cancellation only. Departure must **not** use this: an order's
+    reservations are one row per line, so releasing by reference alone would give back the lines
+    that stayed behind as well as the ones that left.
+
+    Deletion is safe because only rows this application wrote carry `SALES_ORDER_RESERVATION`.
+    """
+    await db.execute(
+        delete(LotSerialRqmt).where(
+            LotSerialRqmt.source == int(TransactionType.SALES_ORDER_RESERVATION),
+            LotSerialRqmt.reference == sales_order,
+        )
+    )
+
+
+async def release_reservation(
+    db: AsyncSession,
+    *,
+    sales_order: int,
+    product: int,
+    warehouse: int,
+    quantity: Decimal,
+) -> Decimal:
+    """Release exactly `quantity` of one product's claim, leaving the rest of the order alone.
+
+    What departure and counter pickup need: those consume part of an order, and the part that has
+    not moved must keep its claim or it becomes available to sell twice over.
+
+    Consumes across the order's rows for this product and warehouse, deleting a row once it is
+    exhausted. Returns the amount actually released, which is less than requested only when the
+    order was holding less than the caller thought — that is worth surfacing rather than hiding,
+    so callers can assert on it.
+    """
+    if quantity <= 0:
+        return Decimal(0)
+
+    rows = (
+        (
+            await db.execute(
+                select(LotSerialRqmt)
+                .where(
+                    LotSerialRqmt.source == int(TransactionType.SALES_ORDER_RESERVATION),
+                    LotSerialRqmt.reference == sales_order,
+                    LotSerialRqmt.product == product,
+                    LotSerialRqmt.warehouse == warehouse,
+                )
+                .order_by(LotSerialRqmt.lot_serial_rqmt_id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+
+    outstanding = quantity
+    for row in rows:
+        if outstanding <= 0:
+            break
+        taken = min(row.quantity, outstanding)
+        row.quantity -= taken
+        outstanding -= taken
+        if row.quantity <= 0:
+            await db.delete(row)
+
+    return quantity - outstanding

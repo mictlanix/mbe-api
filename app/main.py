@@ -41,5 +41,43 @@ app.add_middleware(
     allow_headers=['*'],
 )
 
+@app.on_event('startup')
+async def verify_in_transit_warehouse() -> None:
+    """Refuse to serve until the in-transit warehouse is configured and exists.
+
+    Delivery movements post outbound from the dispatch warehouse and inbound to this one. With
+    the setting left at its `0` default the inbound half would be written against a warehouse
+    that does not exist — stock silently misfiled rather than an error anyone would notice. The
+    id is created by migration 008 and cannot be defaulted, so this is checked here instead.
+    """
+    from sqlalchemy import select
+
+    from app.db.session import AsyncSessionLocal
+    from app.models.core import Warehouse
+
+    if not settings.in_transit_warehouse_id:
+        raise RuntimeError(
+            'IN_TRANSIT_WAREHOUSE_ID is not set. Migration 008 seeds the warehouse; recover its '
+            "id with: SELECT warehouse_id FROM warehouse WHERE code = 'IN-TRANSIT';"
+        )
+
+    async with AsyncSessionLocal() as db:
+        found = (
+            await db.execute(
+                select(Warehouse.warehouse_id).where(
+                    Warehouse.warehouse_id == settings.in_transit_warehouse_id
+                )
+            )
+        ).scalar_one_or_none()
+
+    if found is None:
+        raise RuntimeError(
+            f'IN_TRANSIT_WAREHOUSE_ID={settings.in_transit_warehouse_id} names no warehouse. '
+            'Point it at the row migration 008 created.'
+        )
+
+
 app.include_router(api_router, prefix=settings.api_v1_prefix)
+# Product images only. Proof-of-delivery captures live under settings.pod_dir and are served by
+# an authenticated route: a customer signature must never sit behind an unauthenticated URL.
 app.mount('/images', StaticFiles(directory=settings.images_dir, check_dir=False), name='images')

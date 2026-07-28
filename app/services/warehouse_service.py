@@ -3,6 +3,7 @@ from collections.abc import Sequence
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.enums import EntityStatus
 from app.models.core import Facility, Warehouse
 from app.schemas.core import WarehouseCreate, WarehouseUpdate
@@ -33,6 +34,15 @@ async def list_warehouses(
 ) -> tuple[Sequence[Warehouse], int]:
     base = select(Warehouse)
     count_q = select(func.count()).select_from(Warehouse)
+
+    # The in-transit location is a warehouse row so `stock_ledger.on_hand` reports its balance
+    # with no new mechanism (spec 012, research R3). It is not a place anyone picks from, so it
+    # is kept out of every picker: choosing it on a sales order or an itinerary would misfile
+    # stock into the virtual location.
+    if settings.in_transit_warehouse_id:
+        virtual = Warehouse.warehouse_id != settings.in_transit_warehouse_id
+        base = base.where(virtual)
+        count_q = count_q.where(virtual)
 
     if search:
         term = f'%{search}%'

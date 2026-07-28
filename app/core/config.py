@@ -42,10 +42,23 @@ class Settings(BaseSettings):
     # Price list holding cost rather than sale price; read when snapshotting a line's cost
     cost_price_list_id: int = 0
 
+    # Delivery defaults (replaces legacy WebConfig values)
+    delivery_order_approval_required: bool = False
+    delivery_order_requires_paid_or_credit_sales_order: bool = False
+    # Minimum lead time between now and a delivery order's scheduled date; 0 disables the check
+    min_span_hours_for_deliveries: int = 0
+    # Virtual warehouse holding goods between itinerary departure and delivery. Seeded by
+    # migration 008; 0 means "not configured" and is refused at startup rather than silently
+    # posting ledger entries against a non-existent warehouse.
+    in_transit_warehouse_id: int = 0
+
     # Directory where uploaded product images are stored
     images_dir: str = 'images'
     # Base URL used to construct full image URLs in API responses (e.g. https://api.example.com)
     images_base_url: str = ''
+    # Directory holding proof-of-delivery captures. Deliberately NOT under `images_dir`, which is
+    # served by an unauthenticated static mount; a signature is personal data (FR-044a).
+    pod_dir: str = 'pod'
 
 
 settings = Settings()

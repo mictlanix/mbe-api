@@ -106,6 +106,20 @@ class TransactionType(IntEnum):
     CUSTOMER_REFUND = 2
     INVENTORY_ISSUE = 3
     INVENTORY_RECEIPT = 4
+    # 5-9 are allocated by the legacy application (docs/constants.md) and are in live use:
+    # source 5 alone carries 38,411 rows. They are modelled so the range cannot be mistaken
+    # for free, as it was when this feature first proposed DELIVERY_ORDER = 5 (research A1).
+    INVENTORY_TRANSFER = 5
+    PURCHASE_ORDER = 6
+    SUPPLIER_RETURN = 7
+    INVENTORY_ADJUSTMENT = 8
+    PRODUCT_CONVERSION = 9
+    # First value beyond the legacy range
+    DELIVERY_ORDER = 10
+    # `lot_serial_rqmt.source`, not the ledger. The legacy application wrote 2,609 reservation
+    # rows under SALES_ORDER before it stopped in January 2025; reusing that value would make
+    # `reserved()` count them as ours and `release_reservations()` delete them (research A2).
+    SALES_ORDER_RESERVATION = 11
 
 
 class SourceType(IntEnum):
@@ -242,3 +256,54 @@ class SystemObject(IntEnum):
     CASH_SESSION_CLOSE = 111
     COMMISSIONS_BY_SALES_PERSON = 112
     DOWNLOAD_CSV_FILES = 113
+
+
+class DeliveryOrderStatus(IntEnum):
+    """`delivery_order.status` — the v2 delivery lifecycle (spec 012, FR-001)."""
+
+    DRAFT = 0
+    PENDING_APPROVAL = 1
+    APPROVED = 2
+    READY_FOR_PICKUP = 3
+    PICKED_UP = 4
+    IN_PREPARATION = 5
+    IN_TRANSIT = 6
+    DELIVERED = 7
+    PARTIALLY_DELIVERED = 8
+    FAILED = 9
+    CANCELLED = 10
+
+
+class FulfillmentType(IntEnum):
+    """`delivery_order.fulfillment_type` — a type, not a status; immutable after creation."""
+
+    DELIVERY = 0
+    COUNTER_PICKUP = 1
+
+
+class ItineraryStatus(IntEnum):
+    """`deliveries_itinerary.status` — the trip lifecycle (FR-033a)."""
+
+    OPEN = 0
+    DEPARTED = 1
+    CLOSED = 2
+    CANCELLED = 3
+
+
+class StopOutcome(IntEnum):
+    """`deliveries_itinerary_stop.outcome` — how a stop resolved."""
+
+    PENDING = 0
+    DELIVERED = 1
+    PARTIALLY_DELIVERED = 2
+    FAILED = 3
+
+
+class ShortfallReason(IntEnum):
+    """`deliveries_itinerary_detail.reason_code` — why a line fell short of what was sent."""
+
+    CUSTOMER_REFUSED = 0
+    NOBODY_PRESENT = 1
+    WRONG_ADDRESS = 2
+    DAMAGED_GOODS = 3
+    OTHER = 4

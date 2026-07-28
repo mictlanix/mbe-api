@@ -20,7 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.deps import CurrentUser
-from app.enums import CurrencyCode, PaymentTerms, TransactionType
+from app.enums import CurrencyCode, PaymentTerms
 from app.models.core import ExchangeRate, Warehouse
 from app.models.customer import Customer
 from app.models.product import Product, ProductPrice
@@ -100,13 +100,18 @@ def zero_priced_lines(lines: Iterable[object]) -> list[str]:
 def stock_shortfalls(
     lines: Iterable[object],
     *,
-    on_hand: dict[tuple[int, int], Decimal],
+    available: dict[tuple[int, int], Decimal],
     stocked: set[int],
 ) -> list[str]:
-    """Report what the order cannot fulfil (FR-018).
+    """Report what the order cannot fulfil (FR-018, FR-055a).
 
     Quantities are aggregated per product+warehouse first: a product on three lines is one demand
     against the warehouse, not three independent ones that each pass while the total does not.
+
+    The figure compared against is **availability** — on hand less what other confirmed orders
+    have reserved — not raw on-hand. Confirmation stopped decrementing on-hand when consumption
+    moved to delivery, so checking on-hand here would pass the same physical unit to every order
+    that asked for it.
     """
     demand: dict[tuple[int, int], Decimal] = {}
     problems: list[str] = []
@@ -124,11 +129,11 @@ def stock_shortfalls(
         demand[key] = demand.get(key, Decimal(0)) + getattr(line, 'quantity', Decimal(0))
 
     for (product, warehouse), needed in demand.items():
-        available = on_hand.get((product, warehouse), Decimal(0))
-        if needed > available:
+        can_supply = available.get((product, warehouse), Decimal(0))
+        if needed > can_supply:
             problems.append(
-                f'Product {product} needs {needed} in warehouse {warehouse} but only {available} '
-                f'is on hand'
+                f'Product {product} needs {needed} in warehouse {warehouse} but only '
+                f'{can_supply} is available'
             )
 
     return problems
@@ -665,7 +670,6 @@ async def add_line(
         tax_rate=product.tax_rate,
         product_code=product.code,
         product_name=product.name,
-        delivery=data.delivery,
         warehouse=data.warehouse,
         exchange_rate=order.exchange_rate,
         currency=order.currency,
@@ -711,7 +715,7 @@ async def update_line(
                 exempt=await _exempt_from_margin(db, current),
             )
         line.price = changes['price']
-    for field in ('discount_rate', 'warehouse', 'delivery', 'comment'):
+    for field in ('discount_rate', 'warehouse', 'comment'):
         if field in changes and changes[field] is not None:
             setattr(line, field, changes[field])
 
@@ -794,16 +798,16 @@ async def confirm_order(
         )
 
     stocked = await _stocked_products(db, {line.product for line in lines})
-    on_hand = {}
+    available: dict[tuple[int, int], Decimal] = {}
     for line in lines:
         if line.product in stocked and line.warehouse is not None:
             key = (line.product, line.warehouse)
-            if key not in on_hand:
-                on_hand[key] = await stock_ledger.on_hand(
+            if key not in available:
+                available[key] = await stock_ledger.available(
                     db, product=line.product, warehouse=line.warehouse
                 )
 
-    problems = stock_shortfalls(lines, on_hand=on_hand, stocked=stocked)
+    problems = stock_shortfalls(lines, available=available, stocked=stocked)
     if problems:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -812,16 +816,16 @@ async def confirm_order(
 
     order.serial = await documents.assign_folio(db, SalesOrder, facility=order.facility)
 
+    # Claim the stock rather than take it. The goods stay on the shelf and in `on_hand` until
+    # the truck leaves; the delivery posts the movement (FR-055).
     for line in lines:
         if line.product in stocked and line.warehouse is not None:
-            stock_ledger.post_movement(
+            stock_ledger.reserve(
                 db,
-                source=TransactionType.SALES_ORDER,
-                reference=order.sales_order_id,
+                sales_order=order.sales_order_id,
                 product=line.product,
                 warehouse=line.warehouse,
                 quantity=line.quantity,
-                outbound=True,
             )
 
     order.completed = True
@@ -840,30 +844,10 @@ async def cancel_order(
     assert_can_cancel(order, live_applications=await live_applications(db, order.sales_order_id))
 
     if order.completed:
-        lines = (
-            (
-                await db.execute(
-                    select(SalesOrderDetail).where(
-                        SalesOrderDetail.sales_order == order.sales_order_id
-                    )
-                )
-            )
-            .scalars()
-            .all()
-        )
-        stocked = await _stocked_products(db, {line.product for line in lines})
-        for line in lines:
-            if line.product in stocked and line.warehouse is not None:
-                # A compensating entry, not an edit — the sale and its reversal stay visible
-                stock_ledger.post_movement(
-                    db,
-                    source=TransactionType.SALES_ORDER,
-                    reference=order.sales_order_id,
-                    product=line.product,
-                    warehouse=line.warehouse,
-                    quantity=line.quantity,
-                    outbound=False,
-                )
+        # Nothing left the warehouse, so there is nothing to compensate for: releasing the claim
+        # restores availability outright (FR-056). Goods already dispatched are not reachable
+        # here — a delivered order's stock is resolved at the stop, not by cancelling the sale.
+        await stock_ledger.release_reservations(db, sales_order=order.sales_order_id)
 
     order.cancelled = True
     order.updater = employee

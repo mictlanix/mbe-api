@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import pytest
 
 from app.db.migrate import MigrationError, discover, split_statements
@@ -90,3 +92,22 @@ class TestDiscover:
     def test_rollback_alone_is_not_a_migration(self, tmp_path):
         _write(tmp_path, '007_thing_rollback.sql')
         assert discover(tmp_path) == []
+
+
+class TestRealCorpus:
+    """The shipped `migrations/` directory, not a fixture — ordering there is what actually runs."""
+
+    def test_008_is_discovered_and_ordered_after_007(self):
+        versions = [m.version for m in discover(Path('migrations'))]
+        assert any(v.startswith('008_') for v in versions), '008 missing from migrations/'
+        assert versions.index('008_delivery_flow_v2') > versions.index('007_document_serial_unique')
+
+    def test_008_rollback_is_not_applied_automatically(self):
+        versions = [m.version for m in discover(Path('migrations'))]
+        assert '008_delivery_flow_v2_rollback' not in versions
+
+    def test_009_is_discovered_and_ordered_after_008(self):
+        versions = [m.version for m in discover(Path('migrations'))]
+        assert versions.index('009_drop_sales_order_detail_delivery') > versions.index(
+            '008_delivery_flow_v2'
+        )

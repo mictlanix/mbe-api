@@ -41,7 +41,6 @@ class SalesOrderLineCreate(BaseModel):
     price: Decimal | None = Field(default=None, ge=0)
     discount_rate: Decimal = Field(default=Decimal(0), ge=0, le=1)
     warehouse: int | None = None
-    delivery: bool = False
     comment: str | None = None
 
 
@@ -50,7 +49,6 @@ class SalesOrderLineUpdate(BaseModel):
     price: Decimal | None = Field(default=None, ge=0)
     discount_rate: Decimal | None = Field(default=None, ge=0, le=1)
     warehouse: int | None = None
-    delivery: bool | None = None
     comment: str | None = None
 
 
@@ -70,7 +68,6 @@ class SalesOrderLineResponse(BaseModel):
     currency: CurrencyCode
     exchange_rate: Decimal
     warehouse: int | None
-    delivery: bool
     comment: str | None
     # Derived, never stored (spec Assumption 7)
     subtotal: Decimal

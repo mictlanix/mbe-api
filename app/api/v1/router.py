@@ -9,6 +9,8 @@ from app.api.v1.endpoints import (
     customer_payments,
     customer_refunds,
     customers,
+    delivery_itineraries,
+    delivery_orders,
     employees,
     exchange_rates,
     expenses,
@@ -80,3 +82,9 @@ api_router.include_router(
     vehicle_operators.router, prefix='/vehicle-operators', tags=['vehicle-operators']
 )
 api_router.include_router(sat_catalogs.router, prefix='/sat', tags=['sat-catalogs'])
+api_router.include_router(
+    delivery_orders.router, prefix='/delivery-orders', tags=['delivery-orders']
+)
+api_router.include_router(
+    delivery_itineraries.router, prefix='/delivery-itineraries', tags=['delivery-itineraries']
+)

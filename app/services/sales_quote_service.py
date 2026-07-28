@@ -585,7 +585,6 @@ async def convert_to_order(
                 tax_rate=line.tax_rate,
                 product_code=line.product_code,
                 product_name=line.product_name,
-                delivery=False,
                 warehouse=None,
                 exchange_rate=line.exchange_rate,
                 currency=line.currency,
