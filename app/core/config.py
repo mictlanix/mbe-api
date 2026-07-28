@@ -47,11 +47,6 @@ class Settings(BaseSettings):
     delivery_order_requires_paid_or_credit_sales_order: bool = False
     # Minimum lead time between now and a delivery order's scheduled date; 0 disables the check
     min_span_hours_for_deliveries: int = 0
-    # Virtual warehouse holding goods between itinerary departure and delivery. Seeded by
-    # migration 008; 0 means "not configured" and is refused at startup rather than silently
-    # posting ledger entries against a non-existent warehouse.
-    in_transit_warehouse_id: int = 0
-
     # An order confirmed this many days ago that is still neither paid nor delivered is cancelled
     # by the expiry sweep, releasing the stock it reserved. 0 disables the sweep entirely.
     unpaid_order_expiry_days: int = 2
