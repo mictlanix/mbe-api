@@ -249,6 +249,12 @@ correct failure (an audit attribution must not be invented) but it is a behaviou
 shipped endpoint, and it is worth confirming against the live `user` table before release rather
 than discovering it in production.
 
+> **The risk was real, and T043 caught it exactly as intended** — 2 of 34 active users had no
+> employee record, one of them an administrator, so those users would have met the new `422`.
+> Resolved outside this feature by #127: the accounts were purged and migration 012 makes
+> `user.employee` `NOT NULL`, which turns the clarified invariant into a schema guarantee. The
+> refusal is deleted with it — for `delete_facility` and for the seven services that predated it.
+
 **One thing the audit changed that is worth carrying into the migration.** The shared in-transit
 warehouse belongs to facility 1, which is `INACTIVE`. Migration 011 converts that row rather than
 deleting it (FR-016), so facility 1 keeps a location it can never use — correct and harmless, and

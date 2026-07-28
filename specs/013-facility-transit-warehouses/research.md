@@ -198,6 +198,15 @@ takes the employee id and **refuses rather than inventing an attribution** if it
 globally is a different feature; this one refuses loudly instead of falling back to the system
 employee, which would have logged a person-shaped lie.
 
+> **Resolved by #127, after this feature shipped.** T043 checked the invariant against live data and
+> found it false — 2 of 34 active users had no employee record, one of them an administrator. The
+> "different feature" turned out to be a one-column migration: `user.employee` is `NOT NULL` from
+> migration 012, and the unlinked accounts were purged before it was applied. `CurrentUser.employee_id`
+> is now `int`, and `delete_facility`'s refusal is deleted along with the seven other services' —
+> a branch that cannot execute is worse than no branch, because the annotation above it lies about
+> what can arrive. The rejected alternative below stands unchanged: nothing falls back to the system
+> employee. The invariant is now guaranteed rather than refused-upon.
+
 **Consequences beyond this feature.** `delete_facility` gains a parameter and the endpoint must pass
 `CurrentUser` through — a signature change to a shipped service, which is why it is named in the
 plan's Complexity Tracking rather than absorbed quietly.

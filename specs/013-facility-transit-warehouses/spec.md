@@ -321,6 +321,8 @@ for that reason.
   fallback for. **Worth knowing**: the database does not enforce this — `user.employee` is nullable
   — so this is a policy the deployment upholds, not a guarantee the schema provides. Facility
   deletion therefore refuses rather than inventing an attribution if it ever encounters one.
+  *(Updated by #127: the policy is now a schema guarantee — `user.employee` is `NOT NULL` from
+  migration 012 — and the refusal is removed, because the state it guarded cannot occur.)*
 - **A facility missing its in-transit location is repaired out of band.** By migration or direct
   database fix; the system will not create one on demand (FR-009a). This keeps the invariant's only
   writer in one place, at the cost of a facility created outside this system staying undispatchable
