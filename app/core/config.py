@@ -52,6 +52,13 @@ class Settings(BaseSettings):
     # posting ledger entries against a non-existent warehouse.
     in_transit_warehouse_id: int = 0
 
+    # An order confirmed this many days ago that is still neither paid nor delivered is cancelled
+    # by the expiry sweep, releasing the stock it reserved. 0 disables the sweep entirely.
+    unpaid_order_expiry_days: int = 2
+    # Employee recorded as having cancelled an order the expiry sweep retires. Required by the
+    # sweep: attributing an automated cancellation to the salesperson would misread as their act.
+    system_employee_id: int = 0
+
     # Directory where uploaded product images are stored
     images_dir: str = 'images'
     # Base URL used to construct full image URLs in API responses (e.g. https://api.example.com)

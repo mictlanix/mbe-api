@@ -1,0 +1,153 @@
+"""The sweep that stops abandoned orders holding stock forever (#118).
+
+Confirmation reserves stock and only cancellation, departure or a counter pickup releases it, so
+an order confirmed and then abandoned keeps stock unavailable indefinitely — visible on the shelf,
+missing from availability. These tests pin the selection rule, the guards, and the reporting of
+what the sweep could *not* do, which is the half that still needs a person.
+"""
+
+from datetime import datetime, timedelta
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, patch
+
+import pytest
+from fastapi import HTTPException
+
+from app.services.order_expiry import ExpiryReport, expire_unpaid_orders, find_expired
+
+NOW = datetime(2026, 7, 28, 12, 0)
+SERVICE = 'app.services.order_expiry'
+
+
+def _order(order_id: int) -> SimpleNamespace:
+    return SimpleNamespace(sales_order_id=order_id)
+
+
+def _db(rows: list) -> AsyncMock:
+    db = AsyncMock()
+    db.execute = AsyncMock(
+        return_value=SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: rows))
+    )
+    return db
+
+
+class TestSelection:
+    @pytest.mark.asyncio
+    async def test_filters_on_completed_uncancelled_unpaid_undelivered_and_the_cutoff(self) -> None:
+        db = _db([])
+
+        await find_expired(db, days=2, now=NOW)
+
+        sql = str(db.execute.await_args.args[0]).lower()
+        for column in ('completed', 'cancelled', 'paid', 'delivered', 'date'):
+            assert column in sql
+
+    @pytest.mark.asyncio
+    async def test_only_orders_actually_holding_stock_are_selected(self) -> None:
+        """The condition that keeps the sweep to its purpose.
+
+        Reservations exist only for orders confirmed after this model shipped — none were
+        backfilled. Without this the sweep matches every historical order never paid or delivered:
+        measured on the live database, 1,363 matched the age and payment rules and **not one held
+        a reservation**. That is a mass retirement of historical documents releasing nothing.
+        """
+        db = _db([])
+
+        await find_expired(db, days=2, now=NOW)
+
+        sql = str(db.execute.await_args.args[0]).lower()
+        assert 'exists' in sql
+        assert 'lot_serial_rqmt' in sql
+
+    @pytest.mark.asyncio
+    async def test_the_cutoff_moves_with_the_window(self) -> None:
+        db = _db([])
+
+        await find_expired(db, days=5, now=NOW)
+        five = db.execute.await_args.args[0].compile().params
+
+        assert any(v == NOW - timedelta(days=5) for v in five.values())
+
+
+class TestExpiry:
+    @pytest.mark.asyncio
+    async def test_cancels_each_expired_order(self) -> None:
+        db = _db([_order(1), _order(2)])
+
+        with patch(
+            f'{SERVICE}.sales_order_service.cancel_order', AsyncMock()
+        ) as cancel:
+            report = await expire_unpaid_orders(db, days=2, employee=7, now=NOW)
+
+        assert report.cancelled == [1, 2]
+        assert report.skipped == []
+        assert cancel.await_count == 2
+
+    @pytest.mark.asyncio
+    async def test_cancellation_goes_through_the_ordinary_path(self) -> None:
+        """Not a bespoke delete: an expired order is retired by the same code, and the same
+        guards, as one a person cancels — which is what releases the reservation."""
+        db = _db([_order(1)])
+
+        with patch(f'{SERVICE}.sales_order_service.cancel_order', AsyncMock()) as cancel:
+            await expire_unpaid_orders(db, days=2, employee=7, now=NOW)
+
+        assert cancel.await_args.kwargs['current'].employee_id == 7
+
+    @pytest.mark.asyncio
+    async def test_a_partially_paid_order_is_skipped_and_named(self) -> None:
+        """It holds live payment applications. Reversing those is somebody's decision."""
+        db = _db([_order(1), _order(2)])
+        refusal = HTTPException(status_code=409, detail='Order still has payment applications (5)')
+
+        with patch(
+            f'{SERVICE}.sales_order_service.cancel_order',
+            AsyncMock(side_effect=[refusal, None]),
+        ):
+            report = await expire_unpaid_orders(db, days=2, employee=7, now=NOW)
+
+        assert report.cancelled == [2]
+        assert report.skipped[0][0] == 1
+        assert 'payment applications' in report.skipped[0][1]
+
+    @pytest.mark.asyncio
+    async def test_a_refusal_does_not_stop_the_rest_of_the_sweep(self) -> None:
+        db = _db([_order(1), _order(2), _order(3)])
+        refusal = HTTPException(status_code=409, detail='nope')
+
+        with patch(
+            f'{SERVICE}.sales_order_service.cancel_order',
+            AsyncMock(side_effect=[refusal, None, refusal]),
+        ):
+            report = await expire_unpaid_orders(db, days=2, employee=7, now=NOW)
+
+        assert report.cancelled == [2]
+        assert len(report.skipped) == 2
+        assert report.total == 3
+
+
+class TestGuards:
+    @pytest.mark.asyncio
+    async def test_zero_days_disables_the_sweep_entirely(self) -> None:
+        db = _db([_order(1)])
+
+        report = await expire_unpaid_orders(db, days=0, employee=7, now=NOW)
+
+        assert report == ExpiryReport(cancelled=[], skipped=[])
+        db.execute.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_refuses_to_run_without_a_system_employee(self) -> None:
+        """Attributing an automated cancellation to the salesperson would misread as their act."""
+        with pytest.raises(RuntimeError, match='SYSTEM_EMPLOYEE_ID'):
+            await expire_unpaid_orders(_db([]), days=2, employee=0, now=NOW)
+
+    @pytest.mark.asyncio
+    async def test_dry_run_reports_without_cancelling(self) -> None:
+        db = _db([_order(1), _order(2)])
+
+        with patch(f'{SERVICE}.sales_order_service.cancel_order', AsyncMock()) as cancel:
+            report = await expire_unpaid_orders(db, days=2, employee=7, now=NOW, dry_run=True)
+
+        assert report.cancelled == [1, 2]
+        cancel.assert_not_awaited()
