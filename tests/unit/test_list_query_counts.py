@@ -199,3 +199,83 @@ class TestCashSessions:
         ]
         assert sessions[1].__dict__['opening_amount'] == Decimal('0')
         assert sessions[1].__dict__['payments_by_method'] == []
+
+
+class TestDeliveryListsAreFlat:
+    """The delivery list endpoints attach nothing per row, so their cost must not track page size.
+
+    `list_orders` issues a count and a page; `pending_deliveries` issues one join. Written as a
+    count assertion rather than a "does it work" test because only a count catches the day someone
+    adds a per-row lookup (T101).
+    """
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize('page_size', PAGE_SIZES)
+    async def test_delivery_order_listing_is_two_queries(self, page_size: int) -> None:
+        from app.core.deps import CurrentUser
+        from app.services.delivery_order_service import list_orders
+
+        orders = [SimpleNamespace(delivery_order_id=i) for i in range(page_size)]
+        db = _db(SimpleNamespace(scalar_one=lambda: page_size), _rows(orders))
+
+        await list_orders(
+            db,
+            current=CurrentUser(
+                user_id='t', session_version=1, administrator=True, facility_id=1, employee_id=7
+            ),
+            limit=page_size,
+        )
+
+        assert db.execute.await_count == 2
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize('page_size', PAGE_SIZES)
+    async def test_itinerary_listing_is_two_queries(self, page_size: int) -> None:
+        from app.services.delivery_itinerary_service import list_itineraries
+
+        rows = [SimpleNamespace(deliveries_itinerary_id=i) for i in range(page_size)]
+        db = _db(SimpleNamespace(scalar_one=lambda: page_size), _rows(rows))
+
+        await list_itineraries(db, limit=page_size)
+
+        assert db.execute.await_count == 2
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize('page_size', PAGE_SIZES)
+    async def test_pending_deliveries_is_one_query(self, page_size: int) -> None:
+        from datetime import date
+
+        from app.core.deps import CurrentUser
+        from app.services.delivery_itinerary_service import pending_deliveries
+
+        pairs = [
+            (
+                SimpleNamespace(
+                    delivery_order_id=i, serial=i, customer=1, ship_to=1, date=None, priority=1
+                ),
+                SimpleNamespace(
+                    delivery_order_detail_id=i,
+                    product=1,
+                    product_code='X',
+                    product_name='Y',
+                    warehouse=1,
+                    quantity=Decimal('5'),
+                    committed_quantity=Decimal('0'),
+                    delivered_quantity=Decimal('0'),
+                    returned_quantity=Decimal('0'),
+                ),
+            )
+            for i in range(page_size)
+        ]
+        db = _db(_rows(pairs))
+
+        grouped = await pending_deliveries(
+            db,
+            current=CurrentUser(
+                user_id='t', session_version=1, administrator=True, facility_id=1, employee_id=7
+            ),
+            today=date(2026, 7, 27),
+        )
+
+        assert db.execute.await_count == 1
+        assert len(grouped['later']) == page_size

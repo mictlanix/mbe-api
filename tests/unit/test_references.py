@@ -131,3 +131,41 @@ async def test_two_foreign_keys_to_the_same_target_are_reported_separately() -> 
     compiled = str(db.execute.await_args.args[0])
     assert 'inventory_transfer.warehouse' in compiled
     assert 'inventory_transfer.warehouse_to' in compiled
+
+
+class TestDeliveryTablesAreDiscoverable:
+    """The three tables spec 012 adds must be visible to the reference guard.
+
+    `references` derives blockers from mapped metadata rather than a hand-written list, so a new
+    foreign key is covered the moment its model exists — but only if the model is imported. These
+    assert the delivery models reached the registry (T102).
+    """
+
+    def test_delivery_order_is_referenced_by_its_events_and_lines(self) -> None:
+        from app.models.logistics import DeliveryOrder
+        from app.services.references import referencing_columns
+
+        names = {f'{t.name}.{c.name}' for t, c in referencing_columns(DeliveryOrder)}
+
+        assert 'delivery_order_event.delivery_order' in names
+        assert 'delivery_order_detail.delivery_order' in names
+        # A partial-delivery child points back at its parent (FR-048)
+        assert 'delivery_order.parent_delivery_order' in names
+
+    def test_proof_of_delivery_is_referenced_by_both_holders(self) -> None:
+        from app.models.logistics import ProofOfDelivery
+        from app.services.references import referencing_columns
+
+        names = {f'{t.name}.{c.name}' for t, c in referencing_columns(ProofOfDelivery)}
+
+        assert 'delivery_order.proof_of_delivery' in names
+        assert 'deliveries_itinerary_stop.proof_of_delivery' in names
+
+    def test_a_stop_is_referenced_by_its_lines(self) -> None:
+        from app.models.logistics import DeliveriesItineraryStop
+        from app.services.references import referencing_columns
+
+        cols = referencing_columns(DeliveriesItineraryStop)
+        names = {f'{t.name}.{c.name}' for t, c in cols}
+
+        assert 'deliveries_itinerary_detail.deliveries_itinerary_stop' in names
