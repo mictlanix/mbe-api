@@ -1,9 +1,14 @@
-"""Application boot: the checks run, and a failing one stops the process starting.
+"""Application boot: the check runs, and a failing one stops the process starting.
 
-`@app.on_event('startup')` is deprecated by FastAPI, so these ran under `lifespan` instead. The
+`@app.on_event('startup')` is deprecated by FastAPI, so this runs under `lifespan` instead. The
 migration is only safe if one property survives it — a check that raises must still abort the
-boot. A deployment that starts anyway would file stock against a warehouse that does not exist,
-which is the failure the checks exist to prevent.
+boot.
+
+Spec 013 removed the second check. `verify_in_transit_warehouse` existed only to catch an unset
+`IN_TRANSIT_WAREHOUSE_ID`; there is one in-transit location per facility now, found by its flag,
+so there is no setting left to misconfigure and nothing for a startup check to verify. What these
+tests still assert is the property that mattered — a raising check aborts the boot — plus the
+absence of the retired check, so it cannot quietly come back.
 """
 
 import inspect
@@ -14,43 +19,28 @@ import pytest
 import app.main as main
 
 
-class TestLifespanRunsTheChecks:
+class TestLifespanRunsTheCheck:
     @pytest.mark.asyncio
-    async def test_both_checks_run_before_serving(self, monkeypatch) -> None:
+    async def test_the_system_employee_is_created_before_serving(self, monkeypatch) -> None:
         calls: list[str] = []
 
         async def _employee() -> None:
             calls.append('employee')
 
-        async def _warehouse() -> None:
-            calls.append('warehouse')
-
         monkeypatch.setattr(main, 'ensure_system_employee', _employee)
-        monkeypatch.setattr(main, 'verify_in_transit_warehouse', _warehouse)
 
         async with main.lifespan(main.app):
-            assert calls == ['employee', 'warehouse']
+            assert calls == ['employee']
 
-    @pytest.mark.asyncio
-    async def test_the_employee_is_created_before_the_warehouse_is_checked(
-        self, monkeypatch
-    ) -> None:
-        """Ordered deliberately: the employee is the row a later failure would leave missing."""
-        calls: list[str] = []
+    def test_the_in_transit_check_is_gone(self) -> None:
+        """FR-006. It guarded a setting that no longer exists.
 
-        monkeypatch.setattr(
-            main, 'ensure_system_employee', AsyncMock(side_effect=lambda: calls.append('employee'))
-        )
-        monkeypatch.setattr(
-            main,
-            'verify_in_transit_warehouse',
-            AsyncMock(side_effect=lambda: calls.append('warehouse')),
-        )
-
-        async with main.lifespan(main.app):
-            pass
-
-        assert calls.index('employee') < calls.index('warehouse')
+        Asserted rather than merely deleted: a startup check that refuses to boot the whole API
+        because one facility lacks a location was explicitly rejected (research R7), so its return
+        would be a regression, not an improvement.
+        """
+        assert not hasattr(main, 'verify_in_transit_warehouse')
+        assert 'in_transit' not in inspect.getsource(main.lifespan.__wrapped__)
 
 
 class TestAFailingCheckAbortsTheBoot:
@@ -58,30 +48,26 @@ class TestAFailingCheckAbortsTheBoot:
 
     @pytest.mark.asyncio
     async def test_a_raising_check_propagates(self, monkeypatch) -> None:
-        monkeypatch.setattr(main, 'ensure_system_employee', AsyncMock())
         monkeypatch.setattr(
-            main,
-            'verify_in_transit_warehouse',
-            AsyncMock(side_effect=RuntimeError('IN_TRANSIT_WAREHOUSE_ID is not set')),
+            main, 'ensure_system_employee', AsyncMock(side_effect=RuntimeError('no employee'))
         )
 
-        with pytest.raises(RuntimeError, match='IN_TRANSIT_WAREHOUSE_ID'):
+        with pytest.raises(RuntimeError, match='no employee'):
             async with main.lifespan(main.app):
                 pytest.fail('the application must not start when a check fails')
 
     @pytest.mark.asyncio
-    async def test_serving_never_begins_when_the_first_check_fails(self, monkeypatch) -> None:
-        second = AsyncMock()
+    async def test_serving_never_begins_when_the_check_fails(self, monkeypatch) -> None:
+        served = False
         monkeypatch.setattr(
             main, 'ensure_system_employee', AsyncMock(side_effect=RuntimeError('no employee'))
         )
-        monkeypatch.setattr(main, 'verify_in_transit_warehouse', second)
 
         with pytest.raises(RuntimeError):
             async with main.lifespan(main.app):
-                pass
+                served = True
 
-        second.assert_not_awaited()
+        assert served is False
 
 
 class TestTheDeprecatedHookIsGone:

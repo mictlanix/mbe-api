@@ -155,8 +155,30 @@ class TestDeparture:
         source = inspect.getsource(service.depart)
 
         assert source.count('post_movement(') == 2
-        assert 'in_transit_warehouse_id' in source
+        # Spec 013: the inbound half goes to the dispatching facility's own in-transit location,
+        # not to the single configured warehouse spec 012 had (FR-002).
+        assert 'transit[order_line.warehouse]' in source
+        assert 'in_transit_warehouse_id' not in source
         assert 'order_line.warehouse' in source
+
+    def test_the_transit_map_is_resolved_before_any_entry_is_written(self) -> None:
+        """FR-009 with all-or-nothing semantics.
+
+        If the map were resolved lazily inside the posting loop, a trip whose second facility is
+        missing its location would depart with the first facility's goods already posted — half a
+        trip in the ledger and no way to tell from the itinerary.
+        """
+        source = inspect.getsource(service.depart)
+
+        assert source.index('_transit_map(') < source.index('post_movement(')
+
+    def test_departure_does_not_repair_a_missing_location(self) -> None:
+        """FR-009a — no self-healing. The refusal is the whole behaviour."""
+        source = inspect.getsource(service._transit_map)
+
+        assert 'has no in-transit location' in source
+        assert 'Warehouse(' not in source, 'a missing location is refused, never created'
+        assert 'db.add(' not in source
 
     def test_departure_releases_only_what_departed(self) -> None:
         """The ledger now records the movement, so that part of the claim is redundant (FR-057).
@@ -274,3 +296,81 @@ def _db(line: SimpleNamespace):
             return None
 
     return _Db()
+
+
+class TestPerFacilityTransit:
+    """Spec 013 — goods in transit stay on the books of the facility they left.
+
+    Exercised against `_transit_map` directly: it is where the facility decision is made, and the
+    posting loops around it are unchanged from spec 012 apart from which id they read.
+    """
+
+    @staticmethod
+    def _entries(*warehouse_ids: int):
+        return [(SimpleNamespace(), SimpleNamespace(warehouse=w)) for w in warehouse_ids]
+
+    @staticmethod
+    def _db(mapping: dict[int, int], facilities: list[int] | None = None):
+        class _Scalars:
+            def all(self_inner):
+                return facilities or []
+
+        class _Result:
+            def scalars(self_inner):
+                return _Scalars()
+
+        class _Db:
+            async def execute(self_inner, _statement):
+                return _Result()
+
+        return _Db(), mapping
+
+    def test_each_facility_receives_only_its_own_goods(self, monkeypatch) -> None:
+        """FR-002, SC-002 — the defect this feature exists to fix."""
+        db, mapping = self._db({12: 21, 17: 22})
+        monkeypatch.setattr(
+            service.warehouse_service,
+            'transit_warehouses_for',
+            _async_return(mapping),
+        )
+
+        result = asyncio.run(service._transit_map(db, self._entries(12, 17)))
+
+        assert result == {12: 21, 17: 22}
+        assert result[12] != result[17], 'two facilities must not share an in-transit location'
+
+    def test_a_trip_spanning_two_facilities_is_not_refused(self, monkeypatch) -> None:
+        """FR-005 — one truck may carry goods from more than one facility."""
+        db, mapping = self._db({12: 21, 17: 22})
+        monkeypatch.setattr(
+            service.warehouse_service, 'transit_warehouses_for', _async_return(mapping)
+        )
+
+        assert asyncio.run(service._transit_map(db, self._entries(12, 17, 12))) == mapping
+
+    def test_a_facility_without_a_location_refuses_the_whole_departure(self, monkeypatch) -> None:
+        """FR-009 — named, and 422 rather than a silent misfiling."""
+        db, _ = self._db({12: 21}, facilities=[53])
+        monkeypatch.setattr(
+            service.warehouse_service, 'transit_warehouses_for', _async_return({12: 21})
+        )
+
+        with pytest.raises(HTTPException) as exc:
+            asyncio.run(service._transit_map(db, self._entries(12, 17)))
+
+        assert exc.value.status_code == 422
+        assert 'no in-transit location' in exc.value.detail
+        assert '53' in exc.value.detail, 'the offending facility must be named'
+
+    def test_no_entries_needs_no_lookup(self, monkeypatch) -> None:
+        db, _ = self._db({})
+        monkeypatch.setattr(service.warehouse_service, 'transit_warehouses_for', _async_return({}))
+
+        assert asyncio.run(service._transit_map(db, [])) == {}
+
+
+def _async_return(value):
+    async def _inner(*_args, **_kwargs):
+        return value
+
+    return _inner

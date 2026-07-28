@@ -914,9 +914,10 @@ async def lookup_products(
     products = (await db.execute(query.limit(limit))).scalars().all()
     customer = await _customer_or_404(db, customer_id)
 
-    # The in-transit location is an ordinary warehouse row so `on_hand` reports its balance with
-    # no new mechanism (spec 012, research R3). Goods on a truck are not pickable, so offering it
-    # here would invite a salesperson to promise stock that has already left.
+    # In-transit locations are ordinary warehouse rows so `on_hand` reports their balances with
+    # no new mechanism (spec 012, research R3). Goods on a truck are not pickable, so offering one
+    # here would invite a salesperson to promise stock that has already left. There is one per
+    # facility now, so all of them are excluded by flag (spec 013, FR-012).
     warehouses = (
         [warehouse]
         if warehouse is not None
@@ -924,7 +925,7 @@ async def lookup_products(
             await db.execute(
                 select(Warehouse.warehouse_id).where(
                     Warehouse.warehouse_id > 0,
-                    Warehouse.warehouse_id != settings.in_transit_warehouse_id,
+                    Warehouse.in_transit.is_(False),
                 )
             )
         )

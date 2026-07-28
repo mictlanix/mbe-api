@@ -1,12 +1,15 @@
 from collections.abc import Sequence
 
+from fastapi import HTTPException, status
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.enums import EntityStatus
-from app.models.core import Address, Facility
+from app.core.deps import CurrentUser
+from app.enums import EntityStatus, SourceType
+from app.models.core import Address, Facility, Warehouse
 from app.models.sat_catalog import SatPostalCode
 from app.schemas.core import FacilityCreate, FacilityUpdate
+from app.services import incidences, warehouse_service
 from app.services.fk_expansion import batch_fetch
 from app.services.references import assert_not_referenced
 from app.services.sat_catalog_service import SAT_CATALOG_MAP, to_response
@@ -31,6 +34,26 @@ async def _attach_relations(db: AsyncSession, facilities: Sequence[Facility]) ->
             to_response(postal_row, postal_config) if postal_row else None
         )
         f.__dict__['address_detail'] = addresses_by_id.get(f.address)
+
+
+def _transit_warehouse_for(facility_id: int) -> Warehouse:
+    """The in-transit location every facility owns (spec 013, FR-001, FR-007).
+
+    Coded on `facility_id` rather than the facility's code: codes are editable, and a renamed
+    facility would otherwise strand its warehouse code. `ACTIVE` regardless of the facility's own
+    status, so deactivating a facility cannot strand goods already on a truck.
+    """
+    return Warehouse(
+        facility=facility_id,
+        code=f'IN-TRANSIT-{facility_id}',
+        name='In Transit',
+        comment=(
+            'Virtual location holding goods between itinerary departure and delivery '
+            '(migration 011)'
+        ),
+        status=EntityStatus.ACTIVE,
+        in_transit=True,
+    )
 
 
 async def list_facilities(
@@ -82,6 +105,11 @@ async def create_facility(db: AsyncSession, data: FacilityCreate) -> Facility:
         status=data.status,
     )
     db.add(facility)
+    # Flushed, not committed: the in-transit location needs the facility's id, and both rows have
+    # to land in one transaction. A facility must never exist without its in-transit location —
+    # the alternative is a facility that looks fine until its first dispatch is refused (FR-007).
+    await db.flush()
+    db.add(_transit_warehouse_for(facility.facility_id))
     await db.commit()
     await db.refresh(facility)
     await _attach_relations(db, [facility])
@@ -115,7 +143,46 @@ async def update_facility(db: AsyncSession, facility: Facility, data: FacilityUp
     return facility
 
 
-async def delete_facility(db: AsyncSession, facility: Facility) -> None:
+async def delete_facility(db: AsyncSession, facility: Facility, *, current: CurrentUser) -> None:
+    """Remove a facility and the in-transit location the system created for it (FR-014).
+
+    The cascade is delete-then-flush rather than an `exempt` on `assert_not_referenced`: that
+    parameter is table-granular, so exempting `warehouse` would hide the facility's *real*
+    warehouses too and turn a correct 409 into a foreign-key 500 (research R5).
+
+    Ordered deliberately. The transit location's own blockers are asserted first because they are
+    the surprising ones — a caller who sees `warehouse.facility (3)` knows what to do, and one who
+    sees inventory history on a location they never created needs telling specifically (FR-015).
+
+    Nothing is committed until every check has passed. `get_db` never commits on an exception, so
+    a refusal discards the staged delete and the staged audit entry together.
+    """
+    if current.employee_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail='Your user account is not linked to an employee and cannot delete a facility',
+        )
+
+    transit = await warehouse_service.get_transit_warehouse(db, facility.facility_id)
+    if transit is not None:
+        await assert_not_referenced(db, transit)
+        await db.delete(transit)
+        # Flushed so the facility's own reference count below sees the row already gone.
+        await db.flush()
+
     await assert_not_referenced(db, facility)
+
+    incidences.record(
+        db,
+        source=SourceType.FACILITY,
+        instance_id=facility.facility_id,
+        updater=current.employee_id,
+        reason=f'Facility {facility.code} deleted',
+        context=(
+            f'In-transit location {transit.code} removed with it'
+            if transit is not None
+            else 'Facility had no in-transit location'
+        ),
+    )
     await db.delete(facility)
     await db.commit()

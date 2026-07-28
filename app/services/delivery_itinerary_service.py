@@ -22,7 +22,6 @@ from fastapi import HTTPException, status
 from sqlalchemy import Select, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.config import settings
 from app.core.deps import CurrentUser
 from app.enums import DeliveryOrderStatus as S
 from app.enums import (
@@ -32,7 +31,7 @@ from app.enums import (
     StopOutcome,
     TransactionType,
 )
-from app.models.core import Facility, Vehicle, VehicleOperator
+from app.models.core import Facility, Vehicle, VehicleOperator, Warehouse
 from app.models.logistics import (
     DeliveriesItinerary,
     DeliveriesItineraryDetail,
@@ -41,7 +40,12 @@ from app.models.logistics import (
     DeliveryOrderDetail,
 )
 from app.models.sales import SalesOrderDetail
-from app.services import delivery_events, delivery_order_service, stock_ledger
+from app.services import (
+    delivery_events,
+    delivery_order_service,
+    stock_ledger,
+    warehouse_service,
+)
 
 _BUCKETS = ('earlier', 'yesterday', 'today', 'tomorrow', 'day_after', 'later')
 
@@ -539,6 +543,37 @@ async def remove_stop(db: AsyncSession, itinerary: DeliveriesItinerary, stop_id:
 # ── Departure ─────────────────────────────────────────────────────────────────
 
 
+async def _transit_map(
+    db: AsyncSession, entries: Sequence[tuple[object, DeliveryOrderDetail]]
+) -> dict[int, int]:
+    """Dispatch warehouse → the in-transit location of the facility that owns it (spec 013).
+
+    Resolved once for the whole trip, never per line (research R2). Raises before any caller has
+    written a ledger entry, so a facility missing its location aborts the departure whole rather
+    than leaving half a trip posted.
+
+    The dispatch warehouse decides, not `delivery_order.facility`: attribution follows where the
+    goods physically were, and the two can differ (FR-002). Missing locations are refused, never
+    repaired — the system does not create one on demand (FR-009a).
+    """
+    dispatch_warehouses = {order_line.warehouse for _, order_line in entries}
+    mapping = await warehouse_service.transit_warehouses_for(db, dispatch_warehouses)
+
+    missing = sorted(dispatch_warehouses - mapping.keys())
+    if missing:
+        facilities = (
+            await db.execute(
+                select(Warehouse.facility).where(Warehouse.warehouse_id.in_(missing)).distinct()
+            )
+        ).scalars().all()
+        named = ', '.join(str(f) for f in sorted(facilities)) or 'unknown'
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=f'Facility {named} has no in-transit location',
+        )
+    return mapping
+
+
 async def depart(
     db: AsyncSession, itinerary: DeliveriesItinerary, *, current: CurrentUser
 ) -> DeliveriesItinerary:
@@ -586,6 +621,10 @@ async def depart(
     stocked = await delivery_order_service._stocked_products(
         db, {order_line.product for _, order_line in entries}
     )
+    # Resolved for the whole trip before a single entry is written, so a facility missing its
+    # in-transit location fails the departure entirely rather than half-posting it. A trip may
+    # span facilities (FR-005); each line settles against the facility its goods left (FR-002).
+    transit = await _transit_map(db, entries)
     sales_orders: set[int] = set()
 
     for entry, order_line in entries:
@@ -605,7 +644,7 @@ async def depart(
                 source=TransactionType.DELIVERY_ORDER,
                 reference=itinerary.deliveries_itinerary_id,
                 product=order_line.product,
-                warehouse=settings.in_transit_warehouse_id,
+                warehouse=transit[order_line.warehouse],
                 quantity=entry.sent_quantity,
                 outbound=False,
             )
@@ -731,6 +770,11 @@ async def close_stop(
 
     all_products = {ol.product for lines in per_order.values() for _, ol, _ in lines}
     stocked_cache = await delivery_order_service._stocked_products(db, all_products)
+    # Goods come out of the same facility's in-transit location they went into at departure.
+    # Resolved before the loop for the same reason it is at departure: all lines settle or none.
+    transit = await _transit_map(
+        db, [(entry, order_line) for lines in per_order.values() for entry, order_line, _ in lines]
+    )
 
     for lines in per_order.values():
         for entry, order_line, delivered in lines:
@@ -743,7 +787,7 @@ async def close_stop(
                     source=TransactionType.DELIVERY_ORDER,
                     reference=itinerary.deliveries_itinerary_id,
                     product=order_line.product,
-                    warehouse=settings.in_transit_warehouse_id,
+                    warehouse=transit[order_line.warehouse],
                     quantity=entry.sent_quantity,
                     outbound=True,
                 )

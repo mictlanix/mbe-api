@@ -6,6 +6,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from fastapi import HTTPException
 from httpx import ASGITransport, AsyncClient
 from PIL import Image
 
@@ -98,6 +99,8 @@ def _warehouse_summary(warehouse_id: int = 1) -> SimpleNamespace:
         name='Main Warehouse',
         comment=None,
         status=0,
+        # Read by the endpoint's `_addressable` guard, not serialised into the response.
+        in_transit=False,
     )
 
 
@@ -105,6 +108,15 @@ def _warehouse(warehouse_id: int = 1) -> SimpleNamespace:
     """Top-level Warehouse shape (as returned by /warehouses) — facility expanded."""
     w = _warehouse_summary(warehouse_id)
     w.facility = _facility_summary()
+    return w
+
+
+def _transit_warehouse(warehouse_id: int = 20) -> SimpleNamespace:
+    """A system-owned in-transit location — exists, but may not be addressed (spec 013)."""
+    w = _warehouse(warehouse_id)
+    w.code = 'IN-TRANSIT-1'
+    w.name = 'In Transit'
+    w.in_transit = True
     return w
 
 
@@ -244,6 +256,66 @@ async def test_delete_facility_returns_404() -> None:
 
 
 @pytest.mark.asyncio
+async def test_delete_facility_passes_the_actor_to_the_service() -> None:
+    """FR-015a — the deletion is audited, so the endpoint must not discard `CurrentUser`."""
+    _auth()
+    deleter = AsyncMock(return_value=None)
+    with (
+        patch(
+            'app.services.facility_service.get_facility', new=AsyncMock(return_value=_facility())
+        ),
+        patch('app.services.facility_service.delete_facility', new=deleter),
+    ):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as c:
+            r = await c.delete('/api/v1/facilities/1')
+    assert r.status_code == 204
+    assert deleter.await_args.kwargs['current'].user_id == 'tester'
+
+
+@pytest.mark.asyncio
+async def test_delete_facility_surfaces_the_in_transit_history_conflict() -> None:
+    """FR-015 — a location carrying inventory history blocks, like any other warehouse."""
+    _auth()
+    conflict = HTTPException(
+        status_code=409, detail='Still referenced by lot_serial_tracking.warehouse (4)'
+    )
+    with (
+        patch(
+            'app.services.facility_service.get_facility', new=AsyncMock(return_value=_facility())
+        ),
+        patch('app.services.facility_service.delete_facility', new=AsyncMock(side_effect=conflict)),
+    ):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as c:
+            r = await c.delete('/api/v1/facilities/1')
+    assert r.status_code == 409
+    assert 'lot_serial_tracking' in r.json()['detail']
+
+
+@pytest.mark.asyncio
+async def test_create_facility_response_does_not_expose_the_in_transit_location() -> None:
+    """The location is created alongside (FR-007) but is not part of the contract."""
+    _auth()
+    with patch(
+        'app.services.facility_service.create_facility', new=AsyncMock(return_value=_facility())
+    ):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as c:
+            r = await c.post(
+                '/api/v1/facilities',
+                json={
+                    'code': 'S1',
+                    'name': 'Main Store',
+                    'type': 0,
+                    'location': 'Downtown',
+                    'address': 1,
+                    'taxpayer': 'RFC123456789A',
+                    'logo': 'logo.png',
+                },
+            )
+    assert r.status_code == 201
+    assert 'in_transit' not in r.text
+
+
+@pytest.mark.asyncio
 async def test_list_facilities_requires_auth() -> None:
     async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as c:
         r = await c.get('/api/v1/facilities')
@@ -329,6 +401,67 @@ async def test_get_warehouse_returns_404() -> None:
         async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as c:
             r = await c.get('/api/v1/warehouses/999')
     assert r.status_code == 404
+
+
+# ── Spec 013: in-transit locations are system-owned (FR-010, FR-011, FR-013, FR-013a) ─────────
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('method,kwargs', [('get', {}), ('put', {'json': {'name': 'Renamed'}})])
+async def test_addressing_an_in_transit_warehouse_is_forbidden(method, kwargs) -> None:
+    """403, not 404 — the row exists and the refusal has to say so (FR-013a)."""
+    _auth()
+    with patch(
+        'app.services.warehouse_service.get_warehouse',
+        new=AsyncMock(return_value=_transit_warehouse()),
+    ):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as c:
+            r = await getattr(c, method)('/api/v1/warehouses/20', **kwargs)
+    assert r.status_code == 403
+    assert r.json()['detail'] == 'In-transit locations are managed by the system'
+
+
+@pytest.mark.asyncio
+async def test_deleting_an_in_transit_warehouse_is_forbidden() -> None:
+    _auth()
+    with patch(
+        'app.services.warehouse_service.get_warehouse',
+        new=AsyncMock(return_value=_transit_warehouse()),
+    ) as _get:
+        delete = AsyncMock()
+        with patch('app.services.warehouse_service.delete_warehouse', new=delete):
+            async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as c:
+                r = await c.delete('/api/v1/warehouses/20')
+    assert r.status_code == 403
+    delete.assert_not_awaited(), 'the guard must refuse before the service is reached'
+
+
+@pytest.mark.asyncio
+async def test_re_parenting_an_in_transit_warehouse_is_forbidden() -> None:
+    """Moving one to another facility would silently move that facility's in-transit stock."""
+    _auth()
+    with patch(
+        'app.services.warehouse_service.get_warehouse',
+        new=AsyncMock(return_value=_transit_warehouse()),
+    ):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as c:
+            r = await c.put('/api/v1/warehouses/20', json={'facility': 53})
+    assert r.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_an_id_naming_no_warehouse_is_still_404_not_403() -> None:
+    """The control case, and the one that matters.
+
+    A guard answering 403 for everything would satisfy every other assertion above while
+    destroying the distinction FR-013a exists for.
+    """
+    _auth()
+    with patch('app.services.warehouse_service.get_warehouse', new=AsyncMock(return_value=None)):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as c:
+            r = await c.get('/api/v1/warehouses/999999')
+    assert r.status_code == 404
+    assert r.json()['detail'] == 'Warehouse not found'
 
 
 @pytest.mark.asyncio

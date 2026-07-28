@@ -39,41 +39,6 @@ async def ensure_system_employee() -> None:
         await employee_service.ensure_system_employee(db)
 
 
-async def verify_in_transit_warehouse() -> None:
-    """Refuse to serve until the in-transit warehouse is configured and exists.
-
-    Delivery movements post outbound from the dispatch warehouse and inbound to this one. With
-    the setting left at its `0` default the inbound half would be written against a warehouse
-    that does not exist — stock silently misfiled rather than an error anyone would notice. The
-    id is created by migration 008 and cannot be defaulted, so this is checked here instead.
-    """
-    from sqlalchemy import select
-
-    from app.db.session import AsyncSessionLocal
-    from app.models.core import Warehouse
-
-    if not settings.in_transit_warehouse_id:
-        raise RuntimeError(
-            'IN_TRANSIT_WAREHOUSE_ID is not set. Migration 008 seeds the warehouse; recover its '
-            "id with: SELECT warehouse_id FROM warehouse WHERE code = 'IN-TRANSIT';"
-        )
-
-    async with AsyncSessionLocal() as db:
-        found = (
-            await db.execute(
-                select(Warehouse.warehouse_id).where(
-                    Warehouse.warehouse_id == settings.in_transit_warehouse_id
-                )
-            )
-        ).scalar_one_or_none()
-
-    if found is None:
-        raise RuntimeError(
-            f'IN_TRANSIT_WAREHOUSE_ID={settings.in_transit_warehouse_id} names no warehouse. '
-            'Point it at the row migration 008 created.'
-        )
-
-
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     """Run the startup checks, then serve.
@@ -82,11 +47,13 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     matters is preserved: an exception raised here still aborts the boot, so a misconfigured
     deployment fails to start rather than starting and misfiling stock.
 
-    Ordered — the system employee is created first, because it is the row a later failure would
-    otherwise leave for the expiry sweep to trip over.
+    Spec 013 removed the second check. It verified `IN_TRANSIT_WAREHOUSE_ID`, which existed only
+    because migration 008's single in-transit warehouse got an id that could not be defaulted.
+    There is one location per facility now, found by its flag, so there is no setting left to
+    misconfigure. The failure it guarded moved to the point of use, where it belongs: a dispatch
+    from a facility with no in-transit location is refused by name (FR-006, FR-009).
     """
     await ensure_system_employee()
-    await verify_in_transit_warehouse()
     yield
 
 

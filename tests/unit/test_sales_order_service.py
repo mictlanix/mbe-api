@@ -326,12 +326,17 @@ class TestProductLookupReportsWhatCanBeSold:
         assert "'available': held - claimed" in source
         assert "'on_hand': held" in source
 
-    def test_the_in_transit_warehouse_is_not_offered(self) -> None:
-        """It is an ordinary warehouse row, so it would otherwise appear as pickable stock —
-        goods already on a truck (spec 012, research R3)."""
+    def test_the_in_transit_warehouses_are_not_offered(self) -> None:
+        """They are ordinary warehouse rows, so they would otherwise appear as pickable stock —
+        goods already on a truck (spec 012, research R3).
+
+        Excluded by flag rather than by a configured id: spec 013 made one per facility, so
+        excluding a single id would leave thirteen of them offerable (FR-012).
+        """
         source = inspect.getsource(sales_order_service.lookup_products)
 
-        assert 'in_transit_warehouse_id' in source
+        assert 'in_transit.is_(False)' in source
+        assert 'in_transit_warehouse_id' not in source
 
     def test_stock_figures_are_batched_not_per_product(self) -> None:
         """Reporting two figures per warehouse per product would otherwise double an N+1."""
