@@ -21,7 +21,7 @@ def _clear_overrides() -> Generator[None, None, None]:
     app.dependency_overrides.clear()
 
 
-def _auth(*, employee_id: int | None = 7, point_sale_id: int | None = 3) -> None:
+def _auth(*, employee_id: int = 7, point_sale_id: int | None = 3) -> None:
     app.dependency_overrides[get_current_user] = lambda: CurrentUser(
         user_id='tester',
         session_version=1,

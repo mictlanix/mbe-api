@@ -27,7 +27,7 @@ def _clear_overrides() -> Generator[None, None, None]:
     app.dependency_overrides.clear()
 
 
-def _auth(*, employee_id: int | None = 7, point_sale_id: int | None = 3) -> None:
+def _auth(*, employee_id: int = 7, point_sale_id: int | None = 3) -> None:
     app.dependency_overrides[get_current_user] = lambda: CurrentUser(
         user_id='tester',
         session_version=1,
@@ -295,24 +295,8 @@ async def test_confirming_with_zero_priced_lines_names_them() -> None:
 
 
 @pytest.mark.asyncio
-async def test_create_without_an_employee_is_422() -> None:
-    """FR-002 — a user with no employee cannot author a document."""
-    _auth(employee_id=None)
-    error = HTTPException(
-        status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-        detail='Your user account is not linked to an employee and cannot author documents',
-    )
-    with patch('app.services.sales_order_service.create_order', AsyncMock(side_effect=error)):
-        async with await _client() as client:
-            response = await client.post('/api/v1/sales-orders', json={})
-
-    assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
-    assert 'employee' in response.json()['detail'].lower()
-
-
-@pytest.mark.asyncio
 async def test_create_without_a_point_of_sale_is_422_distinguishably() -> None:
-    """FR-004a — a different message from the missing-employee case, so the client can act."""
+    """FR-004a — `sales_order.point_sale` is NOT NULL but the user's setting is optional."""
     _auth(point_sale_id=None)
     error = HTTPException(
         status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,

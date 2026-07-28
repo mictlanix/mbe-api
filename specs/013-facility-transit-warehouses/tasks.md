@@ -149,11 +149,11 @@ when attribution is impossible.
 
 - [X] T034 [P] [US4] Write failing unit tests in `tests/unit/test_facility_service.py` for `delete_facility`: a facility whose only reference is its in-transit location deletes with `204` and **both** rows go (FR-014); a facility whose transit location carries `lot_serial_tracking` history raises `409` naming `lot_serial_tracking.warehouse` **first** (FR-015); a facility blocked by real warehouses raises the unchanged `409`
 - [X] T035 [US4] Write a failing unit test in `tests/unit/test_facility_service.py` asserting that after a `409`, **the in-transit warehouse row still exists and no `incidence` row was written**. The delete and the audit entry are both staged before the assert, so a missing rollback would destroy the row and log a deletion that never happened, while appearing to refuse — this is the test that catches a future change to session handling
-- [X] T036 [P] [US4] Write failing unit tests in `tests/unit/test_facility_service.py` for the audit entry (FR-015a): a successful delete stages exactly one `incidence` under `SourceType.FACILITY`, keyed to the facility id, attributed to the acting user's employee id, naming the removed in-transit location in its context; and a delete attempted by a user with **no** employee record raises `422` rather than inventing an attribution (research R8)
+- [X] T036 [P] [US4] Write failing unit tests in `tests/unit/test_facility_service.py` for the audit entry (FR-015a): a successful delete stages exactly one `incidence` under `SourceType.FACILITY`, keyed to the facility id, attributed to the acting user's employee id, naming the removed in-transit location in its context; and a delete attempted by a user with **no** employee record raises `422` rather than inventing an attribution (research R8) — *that test is removed by #127; `user.employee` is `NOT NULL` from migration 012*
 - [X] T037 [P] [US4] Add `FACILITY = 10` to `SourceType` in `app/enums.py` — the next free value after `PRODUCT = 9` (research R8)
 - [X] T038 [US4] Implement the cascade in `delete_facility` in `app/services/facility_service.py` per research R5: resolve the transit location, `assert_not_referenced` on **it** first, `db.delete()` it, `await db.flush()`, then the existing `assert_not_referenced(db, facility)` and delete, unchanged. Do **not** add an `exempt` parameter — it is table-granular and would hide the facility's real warehouses
-- [X] T039 [US4] **(after T037 — needs `SourceType.FACILITY`)** Add the acting user to `delete_facility`'s signature in `app/services/facility_service.py` and stage the `incidences.record` entry in the same transaction as the deletes, refusing with `422` when the employee id is absent. Update the call site in `app/api/v1/endpoints/facilities.py` to pass its `CurrentUser` through instead of discarding it (FR-015a)
-- [X] T040 [P] [US4] Add an API test to `tests/api/test_facilities.py` covering `DELETE /facilities/{id}` returning `204`, the in-transit `409`, and the `422` for a user with no employee record, per the response table in [contracts/README.md](./contracts/README.md)
+- [X] T039 [US4] **(after T037 — needs `SourceType.FACILITY`)** Add the acting user to `delete_facility`'s signature in `app/services/facility_service.py` and stage the `incidences.record` entry in the same transaction as the deletes, refusing with `422` when the employee id is absent — *the refusal is removed by #127; the column is `NOT NULL` from migration 012*. Update the call site in `app/api/v1/endpoints/facilities.py` to pass its `CurrentUser` through instead of discarding it (FR-015a)
+- [X] T040 [P] [US4] Add an API test to `tests/api/test_facilities.py` covering `DELETE /facilities/{id}` returning `204`, the in-transit `409`, and the `422` for a user with no employee record — *that case is removed by #127* — per the response table in [contracts/README.md](./contracts/README.md)
 
 **Checkpoint**: all four user stories complete.
 
@@ -163,7 +163,7 @@ when attribution is impossible.
 
 - [X] T041 [P] Update `CHANGELOG.md` under `[Unreleased]`: **Changed** — one in-transit location per facility, replacing the system-wide one; in-transit locations now answer `403` rather than being addressable; **Added** — an audit entry on facility deletion (`SourceType.FACILITY`); **Removed** — `IN_TRANSIT_WAREHOUSE_ID` and its startup check; **Fixed** — the automatic dispatch fallback could return the virtual warehouse. Note that migration 011 needs **no** follow-up id capture, unlike 008
 - [X] T042 [P] Add a note to `docs/specs/06a-delivery-flow-v2.md` recording that the single in-transit warehouse it describes is now one per facility, so the document does not keep teaching the superseded shape
-- [X] T043 Confirm against the live `user` table that every user with facility-delete privilege has an employee record. `user.employee` is nullable, so the clarified invariant is policy rather than a schema guarantee — if it does not hold, T039's `422` turns a working deletion into a failure for those users (plan.md, third risk)
+- [X] T043 Confirm against the live `user` table that every user with facility-delete privilege has an employee record. `user.employee` is nullable, so the clarified invariant is policy rather than a schema guarantee *(no longer: #127 made it `NOT NULL`)* — if it does not hold, T039's `422` turns a working deletion into a failure for those users (plan.md, third risk)
 - [X] T044 Run the full [quickstart.md](./quickstart.md) — all seven scenarios plus the migration and rollback checks
 - [X] T045 Final gates: `uv run ruff check app/ migrations/ tests/` clean and `uv run pytest -q` green
 
@@ -242,6 +242,13 @@ delete stages a row deletion *and* an audit entry *before* the check that might 
 T043 is a check, not a code change, and it gates a behaviour regression rather than a bug: if any
 privileged user lacks an employee record, T039 turns a working facility deletion into a `422` for
 them. Do it before release, not after.
+
+**T043 found the invariant false** — 2 of 34 active users had no employee record, one an
+administrator (#127). Fixed by purging those accounts and making `user.employee` `NOT NULL`
+(migration 012), which promotes the clarified invariant from deployment policy to a schema
+guarantee. The `422` that T036, T039 and T040 specify is therefore **removed**: the state it
+guarded cannot occur, and `CurrentUser.employee_id` is now `int`. Those three tasks are left as
+the record of what was delivered here; the deletion is #127's, not this feature's.
 
 ## Task Count
 

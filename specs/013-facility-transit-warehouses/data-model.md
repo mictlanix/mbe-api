@@ -133,10 +133,12 @@ is for.
 
 Deletion answers, in order:
 
-1. Acting user has no employee record → `422`. Audit attribution is never invented (research R8)
-2. In-transit location carries ledger history → `409 Still referenced by lot_serial_tracking.warehouse (n)`
-3. Facility referenced by anything else → `409 Still referenced by warehouse.facility (n), …` — unchanged from today
-4. Otherwise → `204`, both rows gone **and one audit entry written**
+1. In-transit location carries ledger history → `409 Still referenced by lot_serial_tracking.warehouse (n)`
+2. Facility referenced by anything else → `409 Still referenced by warehouse.facility (n), …` — unchanged from today
+3. Otherwise → `204`, both rows gone **and one audit entry written**
+
+A fourth answer, decided first, was a `422` when the acting user had no employee record. Removed by
+#127: `user.employee` is `NOT NULL` from migration 012, so the acting user always has one.
 
 ### The audit entry (FR-015a)
 

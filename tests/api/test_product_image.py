@@ -38,7 +38,7 @@ def _static_dir(tmp_path):
 
 def _auth() -> None:
     app.dependency_overrides[get_current_user] = lambda: CurrentUser(
-        user_id='tester', session_version=1, administrator=True, facility_id=None
+        user_id='tester', session_version=1, administrator=True, facility_id=None, employee_id=7
     )
 
     async def _noop_db():

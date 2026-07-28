@@ -21,7 +21,7 @@ from app.services.customer_payment_service import (
 )
 
 
-def _current(employee_id: int | None = 7) -> CurrentUser:
+def _current(employee_id: int = 7) -> CurrentUser:
     return CurrentUser(
         user_id='super',
         session_version=1,
@@ -114,15 +114,6 @@ class TestVerify:
             await verify_payment(db, _payment(verifier=9), current=_current())
 
         assert exc.value.status_code == 409
-
-    @pytest.mark.asyncio
-    async def test_a_user_with_no_employee_cannot_verify(self) -> None:
-        db = AsyncMock()
-
-        with pytest.raises(HTTPException) as exc:
-            await verify_payment(db, _payment(), current=_current(employee_id=None))
-
-        assert exc.value.status_code == 422
 
 
 class TestReject:

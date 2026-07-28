@@ -20,7 +20,7 @@ from app.models.incidence import Incidence
 from app.services import facility_service
 
 
-def _current(employee_id: int | None = 7) -> CurrentUser:
+def _current(employee_id: int = 7) -> CurrentUser:
     return CurrentUser(
         user_id='tester',
         session_version=1,
@@ -287,19 +287,3 @@ class TestDeleteFacilityIsAudited:
         assert not [o for o in db.added if isinstance(o, Incidence)], (
             'a refused deletion must not be logged as having happened'
         )
-
-    @pytest.mark.asyncio
-    async def test_a_user_without_an_employee_record_is_refused(self):
-        """Attribution is never invented (research R8).
-
-        The clarified invariant is that every authenticated user has an employee record, so this
-        is a broken state rather than a supported path — and falling back to the system employee
-        would record a person-shaped lie.
-        """
-        db = _Db()
-        with pytest.raises(HTTPException) as exc:
-            await facility_service.delete_facility(db, _facility(), current=_current(None))
-
-        assert exc.value.status_code == 422
-        assert 'employee' in exc.value.detail
-        assert db.deleted == [], 'the refusal must come before anything is staged'

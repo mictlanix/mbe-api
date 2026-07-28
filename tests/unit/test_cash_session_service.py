@@ -13,7 +13,7 @@ from fastapi import HTTPException
 
 from app.core.deps import CurrentUser
 from app.schemas.cash_session import SessionState
-from app.services.cash_session_service import _drawer, _employee, session_state
+from app.services.cash_session_service import _drawer, session_state
 
 TODAY = date(2026, 7, 25)
 
@@ -53,41 +53,38 @@ class TestSessionState:
 
 
 class TestContextResolution:
-    def test_employee_is_required(self) -> None:
-        current = CurrentUser(
-            user_id='t', session_version=1, administrator=True, facility_id=1, employee_id=None
-        )
-
-        with pytest.raises(HTTPException) as exc:
-            _employee(current)
-
-        assert exc.value.status_code == 422
-        assert 'employee' in exc.value.detail.lower()
-
-    def test_employee_is_returned_when_present(self) -> None:
-        current = CurrentUser(
-            user_id='t', session_version=1, administrator=True, facility_id=1, employee_id=7
-        )
-
-        assert _employee(current) == 7
-
     def test_drawer_falls_back_to_the_users_setting(self) -> None:
         current = CurrentUser(
-            user_id='t', session_version=1, administrator=True, facility_id=1, cash_drawer_id=5
+            user_id='t',
+            session_version=1,
+            administrator=True,
+            facility_id=1,
+            employee_id=7,
+            cash_drawer_id=5,
         )
 
         assert _drawer(current, None) == 5
 
     def test_explicit_drawer_wins_over_the_setting(self) -> None:
         current = CurrentUser(
-            user_id='t', session_version=1, administrator=True, facility_id=1, cash_drawer_id=5
+            user_id='t',
+            session_version=1,
+            administrator=True,
+            facility_id=1,
+            employee_id=7,
+            cash_drawer_id=5,
         )
 
         assert _drawer(current, 9) == 9
 
     def test_no_drawer_anywhere_is_refused(self) -> None:
         current = CurrentUser(
-            user_id='t', session_version=1, administrator=True, facility_id=1, cash_drawer_id=None
+            user_id='t',
+            session_version=1,
+            administrator=True,
+            facility_id=1,
+            employee_id=7,
+            cash_drawer_id=None,
         )
 
         with pytest.raises(HTTPException) as exc:

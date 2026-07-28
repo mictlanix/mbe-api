@@ -56,8 +56,9 @@ Privileges unchanged.
 | `404` | No such facility | `Facility not found` — unchanged |
 | `409` | The facility's in-transit location carries inventory history | `Still referenced by lot_serial_tracking.warehouse (n) — remove those records first` (FR-015) |
 | `409` | The facility is referenced by anything else | `Still referenced by warehouse.facility (n), … — remove those records first` — unchanged |
-| `422` | The acting user has no employee record | `A reason is required and cannot be blank` is *not* the answer here — the refusal names the missing employee record. Audit attribution cannot be invented (FR-015a, research R8) |
 | `204` | None of the above | Facility and its in-transit location both gone, audit entry written (FR-014, FR-015a) |
+
+> **A `422` for an acting user with no employee record was specified here and shipped, then removed by #127.** `user.employee` is `NOT NULL` from migration 012, so the state the refusal guarded cannot occur — the clarified invariant became a schema guarantee instead of deployment policy. Audit attribution is still never invented; there is no longer a case in which it could be.
 
 The in-transit blocker is reported **first** because it is the surprising one; a caller who sees
 `warehouse.facility (3)` knows what to do, and a caller who sees inventory history on a location

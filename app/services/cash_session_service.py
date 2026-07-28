@@ -42,14 +42,6 @@ def session_state(session: object | None, *, today: date) -> SessionState:
 # ── Context ───────────────────────────────────────────────────────────────────
 
 
-def _employee(current: CurrentUser) -> int:
-    if current.employee_id is None:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail='Your user account is not linked to an employee and cannot open a session',
-        )
-    return current.employee_id
-
 
 def _drawer(current: CurrentUser, requested: int | None) -> int:
     drawer = requested if requested is not None else current.cash_drawer_id
@@ -179,7 +171,7 @@ async def open_session(
     db: AsyncSession, data: CashSessionOpen, *, current: CurrentUser
 ) -> CashSession:
     """One open session per drawer and one per cashier (FR-050)."""
-    cashier = _employee(current)
+    cashier = current.employee_id
     drawer_id = _drawer(current, data.cash_drawer)
 
     if await db.get(CashDrawer, drawer_id) is None:
@@ -222,7 +214,7 @@ async def close_session(
     db: AsyncSession, session: CashSession, data: CashSessionClose, *, current: CurrentUser
 ) -> CashSession:
     """Record the denomination counts and end the shift (FR-052)."""
-    employee = _employee(current)
+    employee = current.employee_id
 
     if session.end is not None:
         raise HTTPException(
@@ -249,7 +241,7 @@ async def close_session(
 async def current_session(
     db: AsyncSession, *, current: CurrentUser
 ) -> tuple[SessionState, CashSession | None]:
-    cashier = _employee(current)
+    cashier = current.employee_id
     session = await open_session_for_cashier(db, cashier)
     state = session_state(session, today=date.today())
     if session is not None:

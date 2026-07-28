@@ -139,7 +139,9 @@ facility whose in-transit row has the lowest id.
 | Never traded | Create a facility, then delete it | `204`. Facility **and** its in-transit location gone, **plus an `incidence` row** under `SourceType.FACILITY` naming the acting user and the removed location (FR-015a) |
 | Has dispatched before | Delete a facility whose transit location carries ledger history | `409 Still referenced by lot_serial_tracking.warehouse (n)` — named first, before any other blocker. **No audit entry** is left behind |
 | Blocked for other reasons | Delete a facility with real warehouses | `409 Still referenced by warehouse.facility (n), …` — unchanged from today |
-| Acting user has no employee record | Delete any deletable facility | `422` naming the missing employee record. Attribution is never invented (research R8) |
+
+The `422` this table also listed — acting user with no employee record — is no longer reachable and
+no longer implemented: `user.employee` is `NOT NULL` from migration 012 (#127).
 
 **The one to actually verify**: after a `409`, confirm the in-transit location is **still there**
 and no `incidence` row was written. The delete and the audit entry are both staged before the
