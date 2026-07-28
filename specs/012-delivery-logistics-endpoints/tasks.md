@@ -421,3 +421,36 @@ opposite: of 15,527 orders with `partial_deliveries = 1` (`DeliveryMode.PickUp`)
 delivery order** — those are precisely the counter pickups. Implementing FR-011 would have broken
 the entire `COUNTER_PICKUP` branch. The requirement is removed from the spec; FR-005's ship-to detection and
 FR-005a's explicit override are what distinguish the two fulfilment types.
+
+---
+
+## After merge (2026-07-28)
+
+The 108 tasks above were complete at PR #120. What followed came out of the feature being used and
+measured, not from the plan, and is logged here so the trail does not stop at the merge.
+
+- [X] **Release reservations per line, not per order** (PR #120). `release_reservations` gave back
+      an order's whole claim; an order reserves one row per line, so departing one line released
+      the rest — leaving them sellable twice. Departure and counter pickup now release only what
+      moved; returns re-reserve, because the sale still owes the goods.
+- [X] **Expire abandoned orders** (#118, PR #121). A sweep cancels an order still neither paid nor
+      delivered after `UNPAID_ORDER_EXPIRY_DAYS` (default 2) **and still holding a reservation**.
+      Scoping to reservation holders is load-bearing: without it, 1,363 historical orders matched
+      and not one held stock.
+- [X] **Seed a system employee** (PR #122). `sales_order.updater` is an enforced FK; an automated
+      cancellation needs an actor that is not a salesperson. Migration `010`, id `-1` — negative so
+      employee `AUTO_INCREMENT` is untouched.
+- [X] **Make it a constant, create it at startup** (PR #123). One correct value, nothing to decide,
+      and a wrong one fails a sweep partway through. Moved to `app/core/constants.py`;
+      `ensure_system_employee` creates the row when absent.
+
+**Known and deliberately open**
+
+- `lookup_products` reports raw on-hand rather than availability, so a salesperson can see stock
+  that confirmation will refuse. Left because it changes a spec 011 response's meaning.
+- `@app.on_event('startup')` is deprecated by FastAPI in favour of `lifespan`; two hooks in
+  `app/main.py` use it. Worth its own change rather than smuggling an app-wide boot change into an
+  unrelated PR.
+- Production cutover for migrations `008`, `009` and `010` — all applied to `mbe_demo` only, which
+  was designated a development copy.
+- `mbe-ui` must stop sending and reading the removed sales-order line `delivery` field.

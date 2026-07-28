@@ -721,6 +721,37 @@ back a complete, ordered history of its transitions.
   confirmation posted; no reservation is backfilled and no entry is reversed, because those goods
   were already decremented and reconstructing the history would rewrite on-hand system-wide.
 
+## After merge
+
+The feature merged as PR #120 on 2026-07-28. Three things changed afterwards; each is recorded
+here because a spec that stops at the merge describes a system that no longer exists.
+
+**The reservation lifecycle gained an expiry (#118, PR #121).** FR-055 reserves stock at
+confirmation and FR-056 releases it on cancellation, but nothing released it for an order that was
+simply abandoned — confirmed, never paid, never delivered. Stock stayed unavailable indefinitely,
+visible on the shelf and missing from availability, and nothing made the leak visible because
+on-hand remained correct. A scheduled sweep (`uv run python -m app.jobs.expire_orders`) now cancels
+an order still neither paid nor delivered `UNPAID_ORDER_EXPIRY_DAYS` (default 2) after its date
+**and still holding a reservation**, which releases the stock through FR-056's path.
+
+> The reservation condition is not an optimisation. Reservations exist only for orders confirmed
+> after this feature shipped — none were backfilled (see the R11 clarification). Without it the
+> sweep matched **1,363 historical orders, none of which held a reservation**: a mass retirement of
+> documents that released nothing.
+
+**Automated actions have an actor (PR #122, #123).** Cancelling writes `sales_order.updater`, an
+enforced foreign key, and attributing an automated cancellation to the salesperson would read in
+the audit trail as their decision. `SYSTEM_EMPLOYEE_ID` is a **constant**, not a setting — a wrong
+value is not a preference but a sweep that fails partway through — fixed at `-1` and seeded by
+migration `010`, or created at API startup for a database that never ran it. Negative because
+employee 0 cannot exist and a high id would push employee `AUTO_INCREMENT` past it.
+
+**Releases became per-line (PR #120).** `release_reservations` gave back an order's whole claim,
+but an order reserves one row per line, so departing one line released the reservations for all of
+them — leaving the untouched lines sellable a second time. Departure and counter pickup now release
+only the product, warehouse and quantity that moved, and goods that come back from a refusal or a
+failed stop **re-reserve**, because the sale still owes them.
+
 ## Divergences from the source documents
 
 - **A pickup sales order is not refused; it is exactly what produces a counter pickup.**
