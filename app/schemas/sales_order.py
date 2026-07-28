@@ -166,7 +166,13 @@ class SalesOrderSummary(BaseModel):
 class ProductStockResponse(BaseModel):
     warehouse: int
     warehouse_name: str | None = None
+    #: What is physically there.
     on_hand: Decimal
+    #: What can still be promised: on-hand less what confirmed orders have reserved. This is the
+    #: figure confirmation checks against, so it is the one that predicts whether a sale will go
+    #: through. `on_hand` is kept beside it because "we have five, three are spoken for" is more
+    #: use to a salesperson than either number alone.
+    available: Decimal
 
 
 class ProductLookupResponse(BaseModel):

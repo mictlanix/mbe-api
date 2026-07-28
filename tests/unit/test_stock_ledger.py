@@ -17,11 +17,13 @@ from app.models.inventory import LotSerialRqmt, LotSerialTracking
 from app.services.stock_ledger import (
     available,
     on_hand,
+    on_hand_by_warehouse,
     post_movement,
     release_reservation,
     release_reservations,
     reserve,
     reserved,
+    reserved_by_warehouse,
 )
 
 
@@ -433,3 +435,44 @@ class TestPartialRelease:
         ) == Decimal(0)
         assert row.quantity == Decimal('10')
         assert deleted == []
+
+
+class TestBatchedTotals:
+    """One aggregate query for a whole result set, not one per product per warehouse.
+
+    The per-product helpers are fine for a confirmation checking a handful of lines. A product
+    search asking them per product per warehouse turns one screen into dozens of round trips, and
+    reporting availability beside on-hand would have doubled that again.
+    """
+
+    def _rows(self, rows):
+        db = AsyncMock()
+        db.execute = AsyncMock(return_value=SimpleNamespace(all=lambda: rows))
+        return db
+
+    @pytest.mark.asyncio
+    async def test_on_hand_is_keyed_by_product_and_warehouse(self) -> None:
+        db = self._rows([(1, 7, Decimal('5')), (1, 8, Decimal('2')), (2, 7, Decimal('9'))])
+
+        totals = await on_hand_by_warehouse(db, products={1, 2})
+
+        assert totals == {(1, 7): Decimal('5'), (1, 8): Decimal('2'), (2, 7): Decimal('9')}
+        assert db.execute.await_count == 1
+
+    @pytest.mark.asyncio
+    async def test_reserved_counts_only_our_namespace(self) -> None:
+        db = self._rows([(1, 7, Decimal('3'))])
+
+        totals = await reserved_by_warehouse(db, products={1})
+
+        assert totals == {(1, 7): Decimal('3')}
+        sql = str(db.execute.await_args.args[0])
+        assert 'lot_serial_rqmt' in sql
+
+    @pytest.mark.asyncio
+    async def test_an_empty_product_set_asks_nothing(self) -> None:
+        db = self._rows([])
+
+        assert await on_hand_by_warehouse(db, products=set()) == {}
+        assert await reserved_by_warehouse(db, products=set()) == {}
+        db.execute.assert_not_awaited()

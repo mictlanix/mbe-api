@@ -381,7 +381,7 @@ async def test_product_lookup_returns_price_and_stock() -> None:
         'min_order_qty': 1,
         'stock_required': True,
         'stockable': True,
-        'stock': [{'warehouse': 2, 'on_hand': Decimal('5')}],
+        'stock': [{'warehouse': 2, 'on_hand': Decimal('5'), 'available': Decimal('2')}],
     }
     with patch(
         'app.services.sales_order_service.lookup_products', AsyncMock(return_value=[row])
@@ -395,6 +395,9 @@ async def test_product_lookup_returns_price_and_stock() -> None:
     body = response.json()
     assert body[0]['price'] == '99.00'
     assert body[0]['stock'][0]['on_hand'] == '5'
+    # Availability is the figure confirmation checks, so it is the one that predicts a sale:
+    # five on the shelf, three already reserved by other orders, two actually sellable.
+    assert body[0]['stock'][0]['available'] == '2'
 
 
 @pytest.mark.asyncio
