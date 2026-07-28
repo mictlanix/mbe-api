@@ -30,6 +30,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import settings
 from app.core.deps import CurrentUser
 from app.enums import TransactionType
+from app.models.core import Employee
 from app.models.inventory import LotSerialRqmt
 from app.models.sales import SalesOrder
 from app.services import sales_order_service
@@ -98,6 +99,24 @@ async def find_expired(
     )
 
 
+async def _assert_employee_exists(db: AsyncSession, employee: int) -> None:
+    """Fail before the first cancellation, not during it.
+
+    `sales_order.updater` is an enforced foreign key, so a missing employee surfaces as error 1452
+    partway through the sweep — after some orders have already been cancelled and others have not.
+    Checking once up front makes the run all-or-nothing.
+    """
+    found = (
+        await db.execute(select(Employee.employee_id).where(Employee.employee_id == employee))
+    ).scalar_one_or_none()
+
+    if found is None:
+        raise RuntimeError(
+            f'SYSTEM_EMPLOYEE_ID={employee} names no employee. Migration 010 seeds the system '
+            'employee at -1; point the setting at it, or at a real employee.'
+        )
+
+
 async def expire_unpaid_orders(
     db: AsyncSession,
     *,
@@ -112,11 +131,7 @@ async def expire_unpaid_orders(
         return ExpiryReport(cancelled=[], skipped=[])
 
     employee = settings.system_employee_id if employee is None else employee
-    if not employee:
-        raise RuntimeError(
-            'SYSTEM_EMPLOYEE_ID is not set. The sweep records who cancelled each order, and '
-            'attributing it to the salesperson would misread as their decision.'
-        )
+    await _assert_employee_exists(db, employee)
 
     orders = await find_expired(db, days=days, now=now)
     if dry_run:
