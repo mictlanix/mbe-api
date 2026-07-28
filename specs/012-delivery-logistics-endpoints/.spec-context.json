@@ -1,0 +1,37 @@
+{
+  "workflow": "speckit",
+  "specName": "Delivery & Logistics Endpoints",
+  "branch": "012-delivery-logistics-endpoints",
+  "currentStep": "implement",
+  "status": "implemented",
+  "history": [
+    {
+      "step": "specify",
+      "substep": null,
+      "kind": "start",
+      "by": "extension",
+      "at": "2026-07-26T20:28:50.090Z"
+    },
+    {
+      "step": "plan",
+      "substep": null,
+      "kind": "start",
+      "by": "extension",
+      "at": "2026-07-27T01:51:04.808Z"
+    },
+    {
+      "step": "tasks",
+      "substep": null,
+      "kind": "start",
+      "by": "extension",
+      "at": "2026-07-27T03:30:01.241Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "kind": "start",
+      "by": "extension",
+      "at": "2026-07-28T00:13:23.438Z"
+    }
+  ]
+}
