@@ -103,7 +103,6 @@ class SalesOrderDetail(Base):
     tax_rate: Mapped[Decimal] = mapped_column(Numeric(5, 4))
     product_code: Mapped[str] = mapped_column(String(25))
     product_name: Mapped[str] = mapped_column(String(250))
-    delivery: Mapped[bool] = mapped_column(Boolean)
     warehouse: Mapped[int | None] = mapped_column(Integer, ForeignKey('warehouse.warehouse_id'))
     exchange_rate: Mapped[Decimal] = mapped_column(Numeric(8, 4))
     currency: Mapped[CurrencyCode] = mapped_column(Integer)

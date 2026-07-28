@@ -1,0 +1,35 @@
+-- 009 Drop the per-line delivery flag (specs/012-delivery-logistics-endpoints)
+--
+-- `sales_order_detail.delivery` is removed. It was written by this API and read by nothing.
+--
+-- WHY IT IS GOING. `docs/specs/06-logistics.md` describes the flag as selecting which lines a
+-- delivery order covers, and spec 012 originally implemented that (FR-012). Measured on
+-- 2026-07-27 the rule selects nothing: the column is **0 on all 910,891 rows**, including the
+-- 54,741 lines the 26,763 legacy delivery orders were actually raised from. The legacy
+-- application never wrote it, and honouring it made every attempt to raise a delivery order fail
+-- as "already fully delivered" -- and, because the same predicate appeared in two more queries,
+-- silently disabled the sales-order `delivered` write-back (FR-071) and the derived coverage
+-- figures (FR-070) as well.
+--
+-- Spec 012 now bounds a delivery order by coverage instead, so nothing reads the column. Leaving
+-- a write-only field that *looks* authoritative is a trap: the next person comparing the code to
+-- `06-logistics.md` restores the filter and breaks three requirements at once. That already
+-- happened once during development.
+--
+-- WHAT THIS COSTS. The column was the only way to say "this line is not for delivery". A sales
+-- order is marked delivered only when every line is fully delivered (FR-071), so an order where
+-- the customer collects one item at the counter and has the rest shipped cannot currently read as
+-- delivered. The v2 answer is a COUNTER_PICKUP delivery order for the collected line, but
+-- fulfilment type is derived per order from the ship-to address (FR-005), so one sales order
+-- cannot yet produce both kinds. That gap is filed separately; it predates this migration and is
+-- not created by it.
+--
+-- BREAKING: `delivery` disappears from the sales-order line request and response bodies. Clients
+-- sending it will have it ignored by FastAPI; clients reading it must stop.
+--
+-- No data is transformed -- every row holds the same value (0), so nothing is lost that was not
+-- already uniform. The rollback restores the column with that value.
+--
+-- MariaDB 10.11. Rollback: 009_drop_sales_order_detail_delivery_rollback.sql
+
+ALTER TABLE `sales_order_detail` DROP COLUMN `delivery`;
