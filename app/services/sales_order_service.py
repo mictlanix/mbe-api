@@ -914,27 +914,44 @@ async def lookup_products(
     products = (await db.execute(query.limit(limit))).scalars().all()
     customer = await _customer_or_404(db, customer_id)
 
+    # The in-transit location is an ordinary warehouse row so `on_hand` reports its balance with
+    # no new mechanism (spec 012, research R3). Goods on a truck are not pickable, so offering it
+    # here would invite a salesperson to promise stock that has already left.
+    warehouses = (
+        [warehouse]
+        if warehouse is not None
+        else (
+            await db.execute(
+                select(Warehouse.warehouse_id).where(
+                    Warehouse.warehouse_id > 0,
+                    Warehouse.warehouse_id != settings.in_transit_warehouse_id,
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+
+    # Two aggregate queries for the whole result set, not two per product per warehouse.
+    stockable = {p.product_id for p in products if p.stockable}
+    on_hand_totals = await stock_ledger.on_hand_by_warehouse(db, products=stockable)
+    reserved_totals = await stock_ledger.reserved_by_warehouse(db, products=stockable)
+
     results: list[dict] = []
     for product in products:
         listed = await _price_for(db, product, customer.price_list)
         stock: list[dict] = []
-        warehouses = (
-            [warehouse]
-            if warehouse is not None
-            else (
-                await db.execute(select(Warehouse.warehouse_id).where(Warehouse.warehouse_id > 0))
-            )
-            .scalars()
-            .all()
-        )
         if product.stockable:
             for wid in warehouses:
+                held = on_hand_totals.get((product.product_id, wid), Decimal(0))
+                claimed = reserved_totals.get((product.product_id, wid), Decimal(0))
                 stock.append(
                     {
                         'warehouse': wid,
-                        'on_hand': await stock_ledger.on_hand(
-                            db, product=product.product_id, warehouse=wid
-                        ),
+                        'on_hand': held,
+                        # What confirmation will actually allow: a salesperson shown raw on-hand
+                        # sees five units and is refused, because those five are reserved.
+                        'available': held - claimed,
                     }
                 )
 

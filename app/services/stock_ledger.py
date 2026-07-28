@@ -192,3 +192,55 @@ async def release_reservation(
             await db.delete(row)
 
     return quantity - outstanding
+
+
+async def on_hand_by_warehouse(
+    db: AsyncSession, *, products: set[int]
+) -> dict[tuple[int, int], Decimal]:
+    """On-hand for many products at once, keyed by `(product, warehouse)`.
+
+    One aggregate query for the whole set. The per-product form is fine for a confirmation
+    checking a handful of lines; a product search asking it per product per warehouse turns a
+    single screen into dozens of round trips.
+    """
+    if not products:
+        return {}
+
+    rows = (
+        await db.execute(
+            select(
+                LotSerialTracking.product,
+                LotSerialTracking.warehouse,
+                func.sum(LotSerialTracking.quantity),
+            )
+            .where(LotSerialTracking.product.in_(products))
+            .group_by(LotSerialTracking.product, LotSerialTracking.warehouse)
+        )
+    ).all()
+
+    return {(product, warehouse): total for product, warehouse, total in rows}
+
+
+async def reserved_by_warehouse(
+    db: AsyncSession, *, products: set[int]
+) -> dict[tuple[int, int], Decimal]:
+    """Reserved quantity for many products at once, keyed by `(product, warehouse)`."""
+    if not products:
+        return {}
+
+    rows = (
+        await db.execute(
+            select(
+                LotSerialRqmt.product,
+                LotSerialRqmt.warehouse,
+                func.sum(LotSerialRqmt.quantity),
+            )
+            .where(
+                LotSerialRqmt.source == int(TransactionType.SALES_ORDER_RESERVATION),
+                LotSerialRqmt.product.in_(products),
+            )
+            .group_by(LotSerialRqmt.product, LotSerialRqmt.warehouse)
+        )
+    ).all()
+
+    return {(product, warehouse): total for product, warehouse, total in rows}

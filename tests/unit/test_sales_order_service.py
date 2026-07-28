@@ -310,3 +310,33 @@ class TestTheDeliveryFlagIsGone:
         from app.models.sales import SalesOrderDetail
 
         assert 'delivery' not in SalesOrderDetail.__table__.columns
+
+
+class TestProductLookupReportsWhatCanBeSold:
+    """Raw on-hand misleads a salesperson once confirmation checks availability instead.
+
+    They see five units, promise them, and confirmation refuses — because those five are reserved
+    by other confirmed orders. `available` is the figure that predicts the sale. `on_hand` stays
+    beside it, because "we have five, three are spoken for" is more use than either alone.
+    """
+
+    def test_it_reports_availability_next_to_on_hand(self) -> None:
+        source = inspect.getsource(sales_order_service.lookup_products)
+
+        assert "'available': held - claimed" in source
+        assert "'on_hand': held" in source
+
+    def test_the_in_transit_warehouse_is_not_offered(self) -> None:
+        """It is an ordinary warehouse row, so it would otherwise appear as pickable stock —
+        goods already on a truck (spec 012, research R3)."""
+        source = inspect.getsource(sales_order_service.lookup_products)
+
+        assert 'in_transit_warehouse_id' in source
+
+    def test_stock_figures_are_batched_not_per_product(self) -> None:
+        """Reporting two figures per warehouse per product would otherwise double an N+1."""
+        source = inspect.getsource(sales_order_service.lookup_products)
+
+        assert 'on_hand_by_warehouse(' in source
+        assert 'reserved_by_warehouse(' in source
+        assert 'await stock_ledger.on_hand(' not in source
