@@ -104,6 +104,13 @@ Sales Order (completed, not cancelled)
 - **INV — two-step inventory move.** Warehouse → `IN_TRANSIT` virtual location at
   departure; `IN_TRANSIT` → consumed on delivery. On-hand stays honest while the
   truck is on the road, and returns are a simple reverse move.
+
+  > **Superseded in part by spec 013.** This document describes *one* `IN_TRANSIT`
+  > virtual location. There is now **one per facility**, and a line settles against
+  > the location belonging to the facility that owns its dispatch warehouse. A single
+  > global location had to be parented on an arbitrary facility, which put every
+  > facility's in-transit stock on one facility's books. The two-step move itself is
+  > unchanged — only which location the second step names.
 - **POD — proof of delivery.** At every terminal handover (delivery *and* counter
   pickup): receiver name, timestamp, signature or photo, plus per-line
   `DeliveredQuantity` and a reason code for any shortfall. A status flip alone is
