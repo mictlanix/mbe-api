@@ -355,3 +355,45 @@ async def test_create_employee_invalid_status_returns_422() -> None:
             },
         )
     assert r.status_code == 422
+
+
+class TestEnsureSystemEmployee:
+    """The actor for automated actions is created rather than configured.
+
+    `sales_order.updater` is an enforced foreign key, so a missing row fails the expiry sweep
+    partway through with a constraint violation instead of at boot. Migration 010 seeds it; this
+    covers a database that has not run the migration.
+    """
+
+    @pytest.mark.asyncio
+    async def test_returns_the_existing_row_without_writing(self) -> None:
+        from app.core.constants import SYSTEM_EMPLOYEE_ID
+        from app.services.employee_service import ensure_system_employee
+
+        existing = object()
+        db = AsyncMock()
+        db.get = AsyncMock(return_value=existing)
+        db.add = lambda _obj: pytest.fail('must not insert when the row already exists')
+
+        assert await ensure_system_employee(db) is existing
+        db.get.assert_awaited_once()
+        assert db.get.await_args.args[1] == SYSTEM_EMPLOYEE_ID
+
+    @pytest.mark.asyncio
+    async def test_creates_it_archived_when_missing(self) -> None:
+        from app.core.constants import SYSTEM_EMPLOYEE_ID
+        from app.enums import EntityStatus
+        from app.services.employee_service import ensure_system_employee
+
+        added = []
+        db = AsyncMock()
+        db.get = AsyncMock(return_value=None)
+        db.add = added.append
+
+        await ensure_system_employee(db)
+
+        (employee,) = added
+        assert employee.employee_id == SYSTEM_EMPLOYEE_ID
+        # Archived so it never shows up in an employee picker
+        assert employee.status == EntityStatus.ARCHIVED
+        assert employee.sales_person is False
