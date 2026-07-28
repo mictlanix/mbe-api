@@ -106,6 +106,12 @@ class TestRealCorpus:
         versions = [m.version for m in discover(Path('migrations'))]
         assert '008_delivery_flow_v2_rollback' not in versions
 
+    def test_010_is_discovered_and_ordered_after_009(self):
+        versions = [m.version for m in discover(Path('migrations'))]
+        assert versions.index('010_system_employee') > versions.index(
+            '009_drop_sales_order_detail_delivery'
+        )
+
     def test_009_is_discovered_and_ordered_after_008(self):
         versions = [m.version for m in discover(Path('migrations'))]
         assert versions.index('009_drop_sales_order_detail_delivery') > versions.index(

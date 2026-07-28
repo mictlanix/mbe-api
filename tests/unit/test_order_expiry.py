@@ -23,7 +23,20 @@ def _order(order_id: int) -> SimpleNamespace:
     return SimpleNamespace(sales_order_id=order_id)
 
 
-def _db(rows: list) -> AsyncMock:
+def _db(rows: list, *, employee_exists: bool = True) -> AsyncMock:
+    """A session that answers the employee-existence probe, then the order query."""
+    db = AsyncMock()
+    db.execute = AsyncMock(
+        side_effect=[
+            SimpleNamespace(scalar_one_or_none=lambda: -1 if employee_exists else None),
+            SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: rows)),
+        ]
+    )
+    return db
+
+
+def _query_db(rows: list) -> AsyncMock:
+    """For calling `find_expired` directly, which does not probe the employee."""
     db = AsyncMock()
     db.execute = AsyncMock(
         return_value=SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: rows))
@@ -34,7 +47,7 @@ def _db(rows: list) -> AsyncMock:
 class TestSelection:
     @pytest.mark.asyncio
     async def test_filters_on_completed_uncancelled_unpaid_undelivered_and_the_cutoff(self) -> None:
-        db = _db([])
+        db = _query_db([])
 
         await find_expired(db, days=2, now=NOW)
 
@@ -51,7 +64,7 @@ class TestSelection:
         measured on the live database, 1,363 matched the age and payment rules and **not one held
         a reservation**. That is a mass retirement of historical documents releasing nothing.
         """
-        db = _db([])
+        db = _query_db([])
 
         await find_expired(db, days=2, now=NOW)
 
@@ -61,7 +74,7 @@ class TestSelection:
 
     @pytest.mark.asyncio
     async def test_the_cutoff_moves_with_the_window(self) -> None:
-        db = _db([])
+        db = _query_db([])
 
         await find_expired(db, days=5, now=NOW)
         five = db.execute.await_args.args[0].compile().params
@@ -137,10 +150,30 @@ class TestGuards:
         db.execute.assert_not_awaited()
 
     @pytest.mark.asyncio
-    async def test_refuses_to_run_without_a_system_employee(self) -> None:
-        """Attributing an automated cancellation to the salesperson would misread as their act."""
-        with pytest.raises(RuntimeError, match='SYSTEM_EMPLOYEE_ID'):
-            await expire_unpaid_orders(_db([]), days=2, employee=0, now=NOW)
+    async def test_refuses_when_the_system_employee_does_not_exist(self) -> None:
+        """`sales_order.updater` is an enforced FK, so a missing employee is error 1452 partway
+        through the sweep — after some orders are cancelled and others are not. Checked once up
+        front so a run is all-or-nothing."""
+        db = AsyncMock()
+        db.execute = AsyncMock(
+            return_value=SimpleNamespace(scalar_one_or_none=lambda: None)
+        )
+
+        with pytest.raises(RuntimeError, match='names no employee'):
+            await expire_unpaid_orders(db, days=2, employee=999, now=NOW)
+
+    @pytest.mark.asyncio
+    async def test_the_check_happens_before_any_cancellation(self) -> None:
+        db = AsyncMock()
+        db.execute = AsyncMock(
+            return_value=SimpleNamespace(scalar_one_or_none=lambda: None)
+        )
+
+        with patch(f'{SERVICE}.sales_order_service.cancel_order', AsyncMock()) as cancel:
+            with pytest.raises(RuntimeError):
+                await expire_unpaid_orders(db, days=2, employee=999, now=NOW)
+
+        cancel.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_dry_run_reports_without_cancelling(self) -> None:

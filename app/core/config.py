@@ -55,9 +55,11 @@ class Settings(BaseSettings):
     # An order confirmed this many days ago that is still neither paid nor delivered is cancelled
     # by the expiry sweep, releasing the stock it reserved. 0 disables the sweep entirely.
     unpaid_order_expiry_days: int = 2
-    # Employee recorded as having cancelled an order the expiry sweep retires. Required by the
-    # sweep: attributing an automated cancellation to the salesperson would misread as their act.
-    system_employee_id: int = 0
+    # Employee recorded as the actor for automated actions such as the expiry sweep. Seeded by
+    # migration 010 at -1: `sales_order.updater` is an enforced FK so the row must exist, and a
+    # negative id stays out of band without pushing employee AUTO_INCREMENT past it. Attributing
+    # an automated cancellation to a salesperson would read as their decision.
+    system_employee_id: int = -1
 
     # Directory where uploaded product images are stored
     images_dir: str = 'images'
