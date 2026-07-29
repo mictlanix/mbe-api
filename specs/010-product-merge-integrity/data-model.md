@@ -67,7 +67,7 @@ duplicate is not carried over. Set it on the canonical before merging if it shou
 | | Modelled | Enforced by the database |
 |---|---|---|
 | Foreign keys to `product` | 19 | 17 |
-| The two that differ | — | `commission_product`, `commissions_history` declare a `ForeignKey` in `app/models/commission.py` and have no constraint in `mbe_demo` |
+| The two that differ | — | `commission_product`, `commissions_history` declare a `ForeignKey` in `app/models/commission.py` and have no constraint in `mbe_dev` |
 
 The merge reads the modelled set, which is the wider one. Before this feature the unenforced
 pair produced the quieter failure: nothing stopped the deletion, so commission rows were left

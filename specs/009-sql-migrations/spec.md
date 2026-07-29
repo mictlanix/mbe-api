@@ -93,7 +93,7 @@ starts, and passes its test suite.
 
 ### Edge Cases
 
-- **Two databases at different versions**: `mbe_demo` has already received some changes
+- **Two databases at different versions**: `mbe_dev` has already received some changes
   by hand while another database has not. The first run against each must apply only what
   that database is missing, without assuming a shared starting point.
 - **Migration already applied by hand**: A change was applied manually before this feature
@@ -199,7 +199,7 @@ starts, and passes its test suite.
   provided, matching how rollback files are already used.
 - The two existing migrations (`005_unified_entity_status`, `006_facility_logo_nullable`)
   and the standalone `facility_rename` script are moved as-is; their SQL is not rewritten.
-- The `mbe_demo` database has already received some of these changes by hand, so the
+- The `mbe_dev` database has already received some of these changes by hand, so the
   mark-as-applied capability (FR-011) is needed on first adoption rather than
   hypothetically.
 - The retired framework never produced a versioned migration, so there is no migration

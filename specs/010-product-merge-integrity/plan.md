@@ -33,7 +33,7 @@ correction that followed #112.
 relations are read from SQLAlchemy's `Base.metadata`, the same source feature 006 established.
 
 **Testing**: pytest + pytest-asyncio + httpx `ASGITransport`, plus a merge executed against the
-populated `mbe_demo` database inside a transaction that is rolled back
+populated `mbe_dev` database inside a transaction that is rolled back
 
 **Target Platform**: Linux server (FastAPI/ASGI)
 
@@ -65,7 +65,7 @@ shape a delete guard already issues. Merges are rare and administrator-initiated
 | I. Simplicity First | ✅ | The rewrite is shorter than what it replaced: one loop over the metadata, one `frozenset` naming the exception. The intermediate `UPDATE IGNORE` + `DELETE` pair and the separate `product_price_service` call were both removed, not added to. |
 | II. Think Before Coding | ✅ | Three decisions were taken deliberately and are recorded in research: fiscal history follows rather than blocks (R4), the four configuration relations are discarded rather than partially moved (R5, which reverses the first answer), and the preview reports a superset rather than only what is reassigned (R6). |
 | III. Surgical Changes | ✅ | `referencing_columns` is an extraction, not a rewrite — `find_blocking_references` keeps its behaviour and its only caller change is to call the extracted function. No adjacent service was touched. |
-| IV. Goal-Driven Execution | ✅ | Success = quickstart scenarios: suite green, the preview/merge invariant asserted by test, and a real merge of the most-referenced product against `mbe_demo` leaving no orphans. |
+| IV. Goal-Driven Execution | ✅ | Success = quickstart scenarios: suite green, the preview/merge invariant asserted by test, and a real merge of the most-referenced product against `mbe_dev` leaving no orphans. |
 | V. Reuse Over Rebuild | ✅ | No new module. The reference-counting machinery from feature 006 is reused in both directions; the merge borrows the scan the delete guards already trusted rather than keeping its own list. |
 | VI. Async-First | ✅ | Both service functions are `async def` taking `AsyncSession`; the endpoint is `async def`. |
 | VII. Security by Default | ✅ | The preview is gated by `require_privilege(SystemObject.PRODUCTS_MERGE, AccessRight.READ)` — the same object as the merge, at read level, because it discloses history volumes for a product. |

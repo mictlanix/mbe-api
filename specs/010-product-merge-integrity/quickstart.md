@@ -6,7 +6,7 @@ it, and run it against a database you are willing to hold a large transaction op
 ## Prerequisites
 
 - `uv sync`
-- `.env` pointing at a populated database (the counts below come from `mbe_demo`)
+- `.env` pointing at a populated database (the counts below come from `mbe_dev`)
 
 ## 1. Test suite
 
@@ -149,7 +149,7 @@ Expected: `duplicate rows remaining: 0  orphans: 0`, every line `ok`, and specif
 - each `history` line lands on exactly canonical + duplicate (FR-001),
 - nothing remains pointing at the duplicate (FR-003).
 
-Against `mbe_demo`, merging 18829 into 8 moves 67,920 rows across 15 relations. Running the same
+Against `mbe_dev`, merging 18829 into 8 moves 67,920 rows across 15 relations. Running the same
 script against the pre-#112 code fails on `customer_refund_detail` instead.
 
 ## 5. Lint and types

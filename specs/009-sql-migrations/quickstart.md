@@ -1,7 +1,7 @@
 # Quickstart: Validating SQL Migrations
 
 End-to-end validation of the acceptance scenarios in [spec.md](./spec.md). Run against a
-**scratch database**, never `mbe` or `mbe_demo`.
+**scratch database**, never `mbe` or `mbe_dev`.
 
 ## Prerequisites
 
@@ -121,7 +121,7 @@ Following only the README, add `migrations/007_quickstart_probe.sql` containing 
 
 ## Scenario 7 — Adopting an already-migrated database (FR-011, Phase D)
 
-Rehearse on scratch before touching `mbe_demo`:
+Rehearse on scratch before touching `mbe_dev`:
 
 ```bash
 mysql mbe_scratch -e "DROP TABLE schema_migrations"

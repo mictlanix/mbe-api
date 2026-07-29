@@ -45,7 +45,7 @@ mysql <db> < migrations/sql/005_unified_entity_status.sql           # migrate
 mysql <db> < migrations/sql/005_unified_entity_status_rollback.sql  # roll back if needed
 ```
 
-Executed against the real `mbe_demo` DB on 2026-07-19: 53,582 rows / 13 tables, zero mapping
+Executed against the real `mbe_dev` DB on 2026-07-19: 53,582 rows / 13 tables, zero mapping
 mismatches vs. a pre-migration snapshot. Spot-check backfill (expected: rows previously
 disabled/deactivated/not-active → status=1, everything else → status=0):
 

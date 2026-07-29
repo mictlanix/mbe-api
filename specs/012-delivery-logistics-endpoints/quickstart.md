@@ -36,8 +36,8 @@ alias api='curl -s -H "Authorization: Bearer $TOKEN" -H "Content-Type: applicati
 > order. Take a backup and schedule it for a quiet period.
 
 ```bash
-mysql mbe_demo < migrations/008_delivery_flow_v2.sql
-# rollback: mysql mbe_demo < migrations/008_delivery_flow_v2_rollback.sql
+mysql mbe_dev < migrations/008_delivery_flow_v2.sql
+# rollback: mysql mbe_dev < migrations/008_delivery_flow_v2_rollback.sql
 ```
 
 Verify:

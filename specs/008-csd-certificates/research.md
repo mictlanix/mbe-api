@@ -64,7 +64,7 @@ reject a valid certificate.
 
 **Decision**: `America/Mexico_City` local time, not the UTC the certificate carries.
 
-**How it was found**: the parser was verified against the 17 real certificates in `mbe_demo`,
+**How it was found**: the parser was verified against the 17 real certificates in `mbe_dev`,
 whose stored columns the legacy system populated and which are therefore ground truth. The
 certificate number matched on 17 of 17, the owner on 17 of 17, and the password/key checks
 passed on 17 of 17 — **and the validity window matched on 0 of 17**, every one off by a

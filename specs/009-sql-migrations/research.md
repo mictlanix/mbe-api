@@ -110,7 +110,7 @@ acquiring a `--force` escape hatch, which Principle I would rightly object to.
 **Decision**: `migrate mark <version>...` records the named migrations as applied without
 executing them. No "mark everything currently on disk" shortcut.
 
-**Rationale**: FR-011 exists for one concrete situation — `mbe_demo` received 004/005/006 by
+**Rationale**: FR-011 exists for one concrete situation — `mbe_dev` received 004/005/006 by
 hand before this feature existed. That is a one-time, small, known list. A bulk baseline
 command is a loaded gun: run it against the wrong database and the schema silently never
 gets built, with the ledger asserting otherwise. Naming versions explicitly makes the

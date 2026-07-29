@@ -5,7 +5,7 @@ Every scenario is read-only against the database except where noted. Run from th
 ## Prerequisites
 
 - `uv sync`
-- `.env` pointing at a populated database (the counts below come from `mbe_demo`)
+- `.env` pointing at a populated database (the counts below come from `mbe_dev`)
 
 ## 1. Test suite
 

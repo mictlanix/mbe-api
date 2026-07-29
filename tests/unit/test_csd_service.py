@@ -76,7 +76,7 @@ async def test_parses_number_rfc_and_validity_from_the_certificate() -> None:
 @pytest.mark.asyncio
 async def test_validity_is_converted_to_mexico_city_local_time() -> None:
     """Matches the convention of every row the legacy system wrote (verified against
-    mbe_demo): storing UTC would put new certificates 6 hours off from the existing ones."""
+    mbe_dev): storing UTC would put new certificates 6 hours off from the existing ones."""
     certificate_data, key_data = _make_csd()
 
     parsed = await parse_csd(certificate_data, key_data, _PASSWORD)

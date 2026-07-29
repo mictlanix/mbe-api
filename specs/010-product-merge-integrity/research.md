@@ -1,6 +1,6 @@
 # Phase 0 Research: Product Merge Integrity
 
-Every question here was settled by measuring the mapped metadata and the populated `mbe_demo`
+Every question here was settled by measuring the mapped metadata and the populated `mbe_dev`
 database. The first measurement alone reversed the assumption the merge had been built on.
 
 ## R1 — How many relations actually reference `product`?
@@ -27,7 +27,7 @@ being wrong *is* the defect. A twentieth foreign key would reproduce it.
 
 **Decision**: Two distinct failures, both severe, and the second is silent.
 
-**Rationale**: Nine of the eleven have an enforced foreign key in `mbe_demo`, so the final
+**Rationale**: Nine of the eleven have an enforced foreign key in `mbe_dev`, so the final
 deletion of the duplicate failed, the transaction rolled back, and the client received the
 generic backstop conflict from `app.main` — which by design names nothing. Counted against live
 rows, that is **13,248 of 21,542 products**: any product ever quoted, delivered, invoiced,
@@ -132,7 +132,7 @@ create as too narrow for a read.
 
 ## R8 — How is a destructive, irreversible operation verified against real data?
 
-**Decision**: Run it against `mbe_demo` inside a transaction that is never committed.
+**Decision**: Run it against `mbe_dev` inside a transaction that is never committed.
 
 **Rationale**: Mocks prove the loop covers what the metadata says; they cannot prove the
 statements execute against a real schema or that the deletion at the end succeeds. Both fixes

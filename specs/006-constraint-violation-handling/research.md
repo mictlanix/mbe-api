@@ -1,6 +1,6 @@
 # Phase 0 Research: Constraint Violation Handling
 
-All unknowns were resolved by measuring the live `mbe_demo` database rather than by reasoning
+All unknowns were resolved by measuring the live `mbe_dev` database rather than by reasoning
 about the schema, because the first two measurements both contradicted the assumption they
 were meant to confirm.
 
@@ -8,7 +8,7 @@ were meant to confirm.
 
 **Decision**: Real, and larger than expected. Guards are warranted on 17 delete endpoints.
 
-**Rationale**: `mbe_demo` is InnoDB with 209 foreign key constraints — enforced, not
+**Rationale**: `mbe_dev` is InnoDB with 209 foreign key constraints — enforced, not
 decorative. 14 of 20 delete endpoints target a table with inbound references and had no
 guard. Counted against live rows: 14 facilities referenced by a warehouse, 15 warehouses by a
 point of sale, 12 employees by a vehicle operator, 210 suppliers by a product, 14 addresses
