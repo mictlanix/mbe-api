@@ -32,7 +32,7 @@ and `tests/{api,unit}` at repository root. Migrations are raw SQL in `migrations
 
 ---
 
-> **Verified against a running application on 2026-07-27** (`mbe_demo`, every created row removed
+> **Verified against a running application on 2026-07-27** (`mbe_dev`, every created row removed
 > afterwards): scenarios 1, 2, 3, 4, 5, 7 and 8. The concurrency race was run three times against
 > live MariaDB and yielded exactly one winner each time; the stock table held at every point.
 >
@@ -451,6 +451,6 @@ measured, not from the plan, and is logged here so the trail does not stop at th
 - `@app.on_event('startup')` is deprecated by FastAPI in favour of `lifespan`; two hooks in
   `app/main.py` use it. Worth its own change rather than smuggling an app-wide boot change into an
   unrelated PR.
-- Production cutover for migrations `008`, `009` and `010` — all applied to `mbe_demo` only, which
+- Production cutover for migrations `008`, `009` and `010` — all applied to `mbe_dev` only, which
   was designated a development copy.
 - `mbe-ui` must stop sending and reading the removed sales-order line `delivery` field.

@@ -78,7 +78,7 @@ Drift is called out inline and summarised at the end:
 
 ## `migrate mark <version>...` — record without executing (FR-011)
 
-For migrations already applied by hand before this feature existed — specifically `mbe_demo`.
+For migrations already applied by hand before this feature existed — specifically `mbe_dev`.
 
 ```
 $ uv run python -m app.db.migrate mark 004_facility_rename 005_unified_entity_status

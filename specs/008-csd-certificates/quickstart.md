@@ -6,7 +6,7 @@ they print derived comparisons only, never a password or key byte.
 ## Prerequisites
 
 - `uv sync`
-- `.env` pointing at a populated database (17 certificates in `mbe_demo`)
+- `.env` pointing at a populated database (17 certificates in `mbe_dev`)
 
 ## 1. Test suite
 
@@ -96,7 +96,7 @@ asyncio.run(main())
 PY
 ```
 
-Expected on `mbe_demo` (17 certificates):
+Expected on `mbe_dev` (17 certificates):
 
 ```
   parse    17/17     password opens the key and the key matches the certificate

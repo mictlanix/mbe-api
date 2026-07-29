@@ -11,7 +11,7 @@
 --    sales order. Cancelled delivery orders do not count as coverage, so re-raising produces
 --    the correct lines. Schedule for a quiet period and take a backup first.
 -- 2. Seven columns are dropped. A reader that still expects them will break. This was
---    authorised against `mbe_demo`, which is a development copy; the production cutover is a
+--    authorised against `mbe_dev`, which is a development copy; the production cutover is a
 --    separate decision and MUST confirm no other application still reads these columns.
 --
 -- Audit figures (measured 2026-07-27, research R12) that this migration relies on:

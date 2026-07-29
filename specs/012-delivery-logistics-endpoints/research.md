@@ -1,7 +1,7 @@
 # Phase 0 Research: Delivery & Logistics Endpoints
 
 Twelve decisions, three of them revised after the post-tasks review (R2, R3, R9). Each records what was chosen, why, and what was rejected. Findings marked
-**[data]** were checked against the `mbe_demo` database on 2026-07-26.
+**[data]** were checked against the `mbe_dev` database on 2026-07-26.
 
 > **Audit interrupted.** The database went offline part-way through this audit (the
 > `/tmp/mysql-xolotl.sock` socket disappeared). The figures below are from queries that completed;
@@ -291,7 +291,7 @@ period.
 
 ## R12 — Pre-migration data audit  ✅ COMPLETE (2026-07-27)
 
-All four checks ran against `mbe_demo`. **Three of them overturned a design decision** — this is
+All four checks ran against `mbe_dev`. **Three of them overturned a design decision** — this is
 what the audit was for.
 
 | Check | Result | Consequence |

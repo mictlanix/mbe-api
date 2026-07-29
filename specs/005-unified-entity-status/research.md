@@ -55,7 +55,7 @@ state), drop `status`.
   (`EntityStatus.ACTIVE`).
 - MariaDB DDL is not transactional; the script is ordered so each table is migrated completely
   before the next, making a mid-script failure recoverable per table.
-- Executed and verified against the real `mbe_demo` database on 2026-07-19: 53,582 rows across
+- Executed and verified against the real `mbe_dev` database on 2026-07-19: 53,582 rows across
   13 tables, row-by-row comparison against a pre-migration snapshot showed zero mapping
   mismatches.
 

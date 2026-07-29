@@ -156,7 +156,7 @@ Phases map to the spec's user stories and are independently verifiable.
    and pytest results match the pre-change baseline (SC-006)
 
 **Phase D — Adopt on existing databases (FR-011)**
-9. On `mbe_demo`, mark the already-hand-applied migrations rather than executing them
+9. On `mbe_dev`, mark the already-hand-applied migrations rather than executing them
    → verify: `... migrate status` shows all applied and `... migrate` reports the database current
 
 ## Complexity Tracking

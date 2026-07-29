@@ -32,7 +32,7 @@ column, table or index. It reads `information_schema`-equivalent knowledge from 
 own `Base.metadata`, which the 209 existing foreign keys are already modelled in.
 
 **Testing**: pytest + pytest-asyncio + httpx `ASGITransport`, plus a read-only verification
-pass against the populated `mbe_demo` database
+pass against the populated `mbe_dev` database
 
 **Target Platform**: Linux server (FastAPI/ASGI)
 

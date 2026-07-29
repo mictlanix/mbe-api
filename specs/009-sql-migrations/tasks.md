@@ -118,8 +118,8 @@ tasks are deliberately sequential. Marking them `[P]` would invite write conflic
 ## Phase 6: Polish & Cross-Cutting Concerns
 
 - [X] T026 Rehearse adoption on the scratch database using [quickstart.md](./quickstart.md) scenario 7 — drop the ledger, `mark` all three versions, confirm `status` shows all applied and `migrate` executes nothing
-- [X] T027 Determine what `mbe_demo` has **actually** received, before marking anything: `SHOW TABLES LIKE 'store'` (empty ⇒ 004 applied), `DESCRIBE facility` — a `status` column ⇒ 005 applied, `logo` nullable ⇒ 006 applied. Record the observed list; do not infer it from the CHANGELOG or from memory
-- [X] T028 Adopt on `mbe_demo`: run `uv run python -m app.db.migrate mark <only the versions confirmed in T027>`, then `status` to confirm. Any version T027 did **not** confirm must be left pending so `migrate` applies it normally (FR-011, plan Phase D). **Do this only after T026 passes** — marking an unapplied migration is silent and permanent: the schema change never lands while `status` reports the database current
+- [X] T027 Determine what `mbe_dev` has **actually** received, before marking anything: `SHOW TABLES LIKE 'store'` (empty ⇒ 004 applied), `DESCRIBE facility` — a `status` column ⇒ 005 applied, `logo` nullable ⇒ 006 applied. Record the observed list; do not infer it from the CHANGELOG or from memory
+- [X] T028 Adopt on `mbe_dev`: run `uv run python -m app.db.migrate mark <only the versions confirmed in T027>`, then `status` to confirm. Any version T027 did **not** confirm must be left pending so `migrate` applies it normally (FR-011, plan Phase D). **Do this only after T026 passes** — marking an unapplied migration is silent and permanent: the schema change never lands while `status` reports the database current
 - [X] T029 [P] Update `CHANGELOG.md` `[Unreleased]`: **Added** the migration runner and `schema_migrations` ledger; **Changed** SQL migrations relocated to flat `migrations/` with `facility_rename` renumbered to 004; **Removed** Alembic (config, env, dependency); **Docs** README migration workflow rewritten (constitution: Development Workflow → Changelog)
 - [X] T030 [P] Check `docs/` for references to `migrations/sql/`, `scripts/`, or Alembic and update any that are now wrong
 - [X] T031 Drop the scratch database per the [quickstart.md](./quickstart.md) teardown
@@ -186,7 +186,7 @@ Task: "git mv migrations/sql/006_facility_logo_nullable.sql and its rollback to 
 2. US1 → apply/status/mark work → **MVP**
 3. US2 → README documents the convention → a second developer can author migrations
 4. US3 → Alembic gone → one mechanism
-5. Polish → `mbe_demo` adopted, CHANGELOG updated
+5. Polish → `mbe_dev` adopted, CHANGELOG updated
 
 ### Risk Notes
 

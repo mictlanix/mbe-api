@@ -38,7 +38,7 @@ Single project at repository root: `app/`, `tests/`.
 **Purpose**: Establish the ground truth. Every later decision rests on these two measurements.
 
 - [x] T001 Enumerate the mapped foreign keys pointing at `product.product_id` and compare against what `merge_products` handled — 19 modelled, 8 handled (`specs/010-product-merge-integrity/research.md` R1)
-- [x] T002 Measure what the eleven unhandled relations cost against `mbe_demo`: 13,248 of 21,542 products unmergeable, plus 1,008 and 248 products carrying commission rows orphaned by the two unenforced foreign keys (research R2)
+- [x] T002 Measure what the eleven unhandled relations cost against `mbe_dev`: 13,248 of 21,542 products unmergeable, plus 1,008 and 248 products carrying commission rows orphaned by the two unenforced foreign keys (research R2)
 - [x] T003 Confirm which of the 19 the database actually enforces — 17, with `commission_product` and `commissions_history` modelled only (research R2, quickstart step 3)
 
 ---
@@ -78,7 +78,7 @@ deleted and nothing points at it.
 
 - [x] T010 [US1] Rewrite `merge_products` in `app/services/product_service.py` as one loop over `referencing_columns(Product)`, replacing the six-table list, the `product_price_service.delete_for_product` call and the `product_label` special case
 - [x] T011 [US1] Remap `fiscal_document_detail` like any other reference, documenting in the docstring why the CFDI snapshot makes this safe (research R4)
-- [x] T012 [US1] Verify against `mbe_demo` inside a rolled-back transaction: merge the product with the most fiscal history (83,488 rows across 13 relations), confirm the deletion succeeds and no orphan remains
+- [x] T012 [US1] Verify against `mbe_dev` inside a rolled-back transaction: merge the product with the most fiscal history (83,488 rows across 13 relations), confirm the deletion succeeds and no orphan remains
 
 **Checkpoint**: Every mapped reference moves; the merge no longer fails on `customer_refund_detail`.
 
@@ -104,7 +104,7 @@ assignment; the canonical's counts for those four relations are unchanged.
 - [x] T018 [US2] Declare `_MERGE_DISCARD` in `app/services/product_service.py` — `product_price`, `product_label`, `commission_product`, `customer_discount` — with the comment recording that each has a unique key covering the product column and why the set is declared rather than derived (research R5)
 - [x] T019 [US2] Branch the loop in `merge_products` on `_MERGE_DISCARD` membership: `DELETE` for configuration, `UPDATE` for history — the only thing that varies per relation
 - [x] T020 [US2] Remove the `UPDATE IGNORE` + blanket `DELETE` pair introduced by #112, along with the unique-key set it required
-- [x] T021 [US2] Verify against `mbe_demo` inside a rolled-back transaction: merge 18829 (67,920 rows across 15 relations) into 8 where both sides carry a label, a commission row and prices; confirm each configuration relation leaves the canonical untouched and each history relation lands on canonical + duplicate
+- [x] T021 [US2] Verify against `mbe_dev` inside a rolled-back transaction: merge 18829 (67,920 rows across 15 relations) into 8 where both sides carry a label, a commission row and prices; confirm each configuration relation leaves the canonical untouched and each history relation lands on canonical + duplicate
 
 **Checkpoint**: The outcome of a merge is statable in one sentence, independent of which rows collided.
 

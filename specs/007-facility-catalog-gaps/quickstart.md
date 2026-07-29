@@ -5,7 +5,7 @@ Run from the repo root. Steps 3–5 are read-only against a populated database.
 ## Prerequisites
 
 - `uv sync`
-- `.env` pointing at a populated database (counts below come from `mbe_demo`)
+- `.env` pointing at a populated database (counts below come from `mbe_dev`)
 
 ## 1. Test suite
 
