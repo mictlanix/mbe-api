@@ -87,7 +87,7 @@ re-apply, gated additionally by `PAYMENTS_EDITOR` (100) for cross-facility searc
 | Method | Path | Right | Notes |
 |---|---|---|---|
 | GET | `/cash-sessions/current` | READ | Three states: none, open-today, open-stale (FR-053) |
-| GET | `/cash-sessions` | READ | Filters: `cash_drawer`, `cashier`, `facility`, `status` = `open` \| `stale` \| `closed`, `date_from` / `date_to` over `start`. `sort` = `-id` (default) \| `start` \| `-start` (FR-051b). Not scoped to the caller's facility |
+| GET | `/cash-sessions` | READ | Filters: `cash_drawer`, `cashier`, `facility`, `status` = `open` \| `stale` \| `closed`, `date_from` / `date_to` over `start`. `sort` = `-id` \| `start` \| `-start`, omitted means `-id` (FR-051b); the default is applied server-side and deliberately **not** declared in the OpenAPI schema (#144). Not scoped to the caller's facility |
 | POST | `/cash-sessions` | CREATE | Body: `cash_drawer`, `opening_amount`. 409 if the drawer or the cashier already has one open |
 | GET | `/cash-sessions/{id}` | READ | Opening amount plus payments summarised by method (FR-051) |
 | POST | `/cash-sessions/{id}/close` | UPDATE | Body: denomination counts. Gated by (111) |

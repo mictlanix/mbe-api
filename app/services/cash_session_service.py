@@ -317,7 +317,7 @@ async def list_sessions(
     session_status: CashSessionStatus | None = None,
     date_from: datetime | None = None,
     date_to: datetime | None = None,
-    sort: CashSessionSort = CashSessionSort.ID_DESC,
+    sort: CashSessionSort | None = None,
     skip: int = 0,
     limit: int = 20,
 ) -> tuple[Sequence[CashSession], int]:
@@ -353,7 +353,8 @@ async def list_sessions(
         both(_status_clause(session_status, today=date.today()))
 
     total: int = (await db.execute(count_q)).scalar_one()
-    page = base.order_by(*_ORDERINGS[sort]).offset(skip).limit(limit)
+    ordering = _ORDERINGS[sort if sort is not None else CashSessionSort.ID_DESC]
+    page = base.order_by(*ordering).offset(skip).limit(limit)
     items = (await db.execute(page)).scalars().all()
     await attach_summary_amounts(db, items)
     await attach_relations(db, items)

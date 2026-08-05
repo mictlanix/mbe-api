@@ -341,7 +341,20 @@ async def test_no_facet_defaults_to_a_filter() -> None:
     assert kwargs['session_status'] is None
     assert kwargs['date_from'] is None
     assert kwargs['date_to'] is None
-    assert kwargs['sort'] is CashSessionSort.ID_DESC
+    # `-id` is applied by the service, not declared as a schema default (#144).
+    assert kwargs['sort'] is None
+
+
+@pytest.mark.asyncio
+async def test_sort_declares_no_schema_default() -> None:
+    """#144 — a declared `-id` default makes dart-dio codegen emit invalid Dart."""
+    async with await _client() as client:
+        schema = (await client.get('/openapi.json')).json()
+
+    params = schema['paths']['/api/v1/cash-sessions']['get']['parameters']
+    sort = next(p for p in params if p['name'] == 'sort')
+    assert 'default' not in sort['schema']
+    assert 'default' not in schema['components']['schemas']['CashSessionSort']
 
 
 @pytest.mark.asyncio

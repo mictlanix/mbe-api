@@ -46,7 +46,10 @@ async def list_cash_sessions(
     session_status: CashSessionStatus | None = Query(None, alias='status'),
     date_from: datetime | None = Query(None),
     date_to: datetime | None = Query(None),
-    sort: CashSessionSort = Query(CashSessionSort.ID_DESC),
+    # No schema-level default on purpose (#144): a declared default of `-id` makes
+    # openapi-generator's dart-dio codegen emit `sort = -id`, invalid Dart. The service
+    # applies `-id` when nothing is passed instead.
+    sort: CashSessionSort | None = Query(None),
     skip: int = Query(0, ge=0),
     limit: int = Query(20, ge=1, le=100),
     current: CurrentUser = Depends(_READ),
