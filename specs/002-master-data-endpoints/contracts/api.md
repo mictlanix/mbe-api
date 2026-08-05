@@ -611,7 +611,17 @@ PaymentMethodOptionResponse:
   payment_method: int
   commission: Decimal
   enabled: bool
+  requires_reference: bool    # derived, never stored (#137)
 ```
+
+`requires_reference` says whether this tender needs a reference or authorization number before it
+can be recorded. It is **derived from the SAT `payment_method` code, not stored**, so it cannot drift
+from the catalog — a client enforcing "card, transfer and cheque need one, cash does not" reads it
+here instead of keeping its own copy of a mapping this API owns. A code the `PaymentMethod` enum does
+not name reports `false`: the permissive default is deliberate, since an unclassified SAT code must
+not stop a cashier taking money until someone classifies it. **Nothing is enforced on write** —
+recording a card payment with no reference still succeeds. A stored per-facility override was
+considered and deferred; see #137.
 
 ---
 
