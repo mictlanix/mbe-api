@@ -492,6 +492,7 @@ async def list_orders(
     date_from: datetime | None = None,
     date_to: datetime | None = None,
     facility: int | None = None,
+    point_sale: int | None = None,
     search: str | None = None,
     skip: int = 0,
     limit: int = 20,
@@ -519,6 +520,8 @@ async def list_orders(
         both(SalesOrder.customer == customer)
     if salesperson is not None:
         both(SalesOrder.salesperson == salesperson)
+    if point_sale is not None:
+        both(SalesOrder.point_sale == point_sale)
     if date_from is not None:
         both(SalesOrder.date >= date_from)
     if date_to is not None:

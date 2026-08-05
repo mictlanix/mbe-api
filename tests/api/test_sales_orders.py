@@ -391,3 +391,95 @@ async def test_product_lookup_requires_a_pattern() -> None:
         response = await client.get('/api/v1/sales-orders/product-lookup?customer=2')
 
     assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
+
+
+# ── Point-of-sale scoping and applied payments ────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_list_passes_the_point_sale_filter_through() -> None:
+    """#136 — a register's own open sales, not every sale this employee touched here."""
+    _auth()
+    listing = AsyncMock(return_value=([], 0))
+    with patch('app.services.sales_order_service.list_orders', listing):
+        async with await _client() as client:
+            await client.get('/api/v1/sales-orders?point_sale=3')
+
+    assert listing.await_args.kwargs['point_sale'] == 3
+
+
+@pytest.mark.asyncio
+async def test_list_leaves_point_sale_unset_when_not_asked_for() -> None:
+    _auth()
+    listing = AsyncMock(return_value=([], 0))
+    with patch('app.services.sales_order_service.list_orders', listing):
+        async with await _client() as client:
+            await client.get('/api/v1/sales-orders')
+
+    assert listing.await_args.kwargs['point_sale'] is None
+
+
+@pytest.mark.asyncio
+async def test_order_payments_flatten_each_payment_onto_its_application() -> None:
+    """#134 — one request renders the applied-payments panel, cancelled rows included."""
+    _auth()
+    rows = [
+        {
+            'sales_order_payment_id': 9,
+            'sales_order': 1,
+            'customer_payment': 4,
+            'amount': Decimal('100.00'),
+            'amount_change': Decimal('0'),
+            'applier': 7,
+            'date': '2026-07-26T00:00:00',
+            'cancelled': False,
+            'method': 4,
+            'currency': 0,
+            'reference': 'AUTH-771',
+            'payment_date': '2026-07-25T00:00:00',
+            'payment_type': 1,
+            'verifier': None,
+        },
+        {
+            'sales_order_payment_id': 10,
+            'sales_order': 1,
+            'customer_payment': 5,
+            'amount': Decimal('32.00'),
+            'amount_change': Decimal('0'),
+            'applier': 7,
+            'date': '2026-07-26T00:00:00',
+            'cancelled': True,
+            'method': 1,
+            'currency': 0,
+            'reference': None,
+            'payment_date': '2026-07-26T00:00:00',
+            'payment_type': 1,
+            'verifier': 8,
+        },
+    ]
+    with patch(
+        'app.services.sales_order_service.get_order', AsyncMock(return_value=_order())
+    ), patch(
+        'app.services.customer_payment_service.list_order_applications',
+        AsyncMock(return_value=rows),
+    ):
+        async with await _client() as client:
+            response = await client.get('/api/v1/sales-orders/1/payments')
+
+    assert response.status_code == status.HTTP_200_OK
+    body = response.json()
+    assert [a['cancelled'] for a in body] == [False, True]
+    assert body[0]['reference'] == 'AUTH-771'
+    # The application's date and its payment's are distinct fields, because they differ.
+    assert body[0]['date'] == '2026-07-26T00:00:00'
+    assert body[0]['payment_date'] == '2026-07-25T00:00:00'
+
+
+@pytest.mark.asyncio
+async def test_order_payments_404_when_the_order_does_not_exist() -> None:
+    _auth()
+    with patch('app.services.sales_order_service.get_order', AsyncMock(return_value=None)):
+        async with await _client() as client:
+            response = await client.get('/api/v1/sales-orders/999/payments')
+
+    assert response.status_code == status.HTTP_404_NOT_FOUND

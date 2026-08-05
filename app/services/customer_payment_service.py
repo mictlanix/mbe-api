@@ -273,6 +273,45 @@ async def list_applications(
     )
 
 
+async def list_order_applications(db: AsyncSession, sales_order_id: int) -> list[dict]:
+    """The payments standing against one order — the reverse of `list_applications` (#134).
+
+    Cancelled applications are included for the same reason they are there in the other
+    direction: a reversal stays visible. Each row carries its payment's own fields so a caller
+    rendering the list does not need one follow-up request per application.
+    """
+    rows = (
+        await db.execute(
+            select(SalesOrderPayment, CustomerPayment)
+            .join(
+                CustomerPayment,
+                CustomerPayment.customer_payment_id == SalesOrderPayment.customer_payment,
+            )
+            .where(SalesOrderPayment.sales_order == sales_order_id)
+            .order_by(SalesOrderPayment.sales_order_payment_id)
+        )
+    ).all()
+    return [
+        {
+            'sales_order_payment_id': application.sales_order_payment_id,
+            'sales_order': application.sales_order,
+            'customer_payment': application.customer_payment,
+            'amount': application.amount,
+            'amount_change': application.amount_change,
+            'applier': application.applier,
+            'date': application.date,
+            'cancelled': application.cancelled,
+            'method': payment.method,
+            'currency': payment.currency,
+            'reference': payment.reference,
+            'payment_date': payment.date,
+            'payment_type': payment.payment_type,
+            'verifier': payment.verifier,
+        }
+        for application, payment in rows
+    ]
+
+
 async def apply_payment(
     db: AsyncSession,
     payment: CustomerPayment,

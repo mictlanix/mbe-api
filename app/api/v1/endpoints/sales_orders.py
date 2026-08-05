@@ -7,6 +7,7 @@ from app.core.deps import CurrentUser, require_privilege
 from app.db.session import get_db
 from app.enums import AccessRight, SystemObject
 from app.schemas import ListResponse
+from app.schemas.customer_payment import OrderApplicationResponse
 from app.schemas.sales_order import (
     ProductLookupResponse,
     SalesOrderCreate,
@@ -16,13 +17,15 @@ from app.schemas.sales_order import (
     SalesOrderSummary,
     SalesOrderUpdate,
 )
-from app.services import sales_order_service
+from app.services import customer_payment_service, sales_order_service
 
 router = APIRouter()
 
 _READ = require_privilege(SystemObject.SALES_ORDERS, AccessRight.READ)
 _CREATE = require_privilege(SystemObject.SALES_ORDERS, AccessRight.CREATE)
 _UPDATE = require_privilege(SystemObject.SALES_ORDERS, AccessRight.UPDATE)
+# Payment data, so it answers to the payments privilege rather than the order's own (#134).
+_PAYMENTS_READ = require_privilege(SystemObject.CUSTOMER_PAYMENTS, AccessRight.READ)
 
 
 async def _order_or_404(db: AsyncSession, sales_order_id: int):  # noqa: ANN202
@@ -41,6 +44,7 @@ async def list_sales_orders(
     date_from: datetime | None = Query(None),
     date_to: datetime | None = Query(None),
     facility: int | None = Query(None),
+    point_sale: int | None = Query(None),
     search: str | None = Query(None),
     skip: int = Query(0, ge=0),
     limit: int = Query(20, ge=1, le=100),
@@ -57,6 +61,7 @@ async def list_sales_orders(
         date_from=date_from,
         date_to=date_to,
         facility=facility,
+        point_sale=point_sale,
         search=search,
         skip=skip,
         limit=limit,
@@ -109,6 +114,18 @@ async def update_sales_order(
     order = await _order_or_404(db, sales_order_id)
     order = await sales_order_service.update_order(db, order, data, current=current)
     return SalesOrderResponse.model_validate(order)
+
+
+@router.get('/{sales_order_id}/payments', response_model=list[OrderApplicationResponse])
+async def list_sales_order_payments(
+    sales_order_id: int,
+    _: CurrentUser = Depends(_PAYMENTS_READ),
+    db: AsyncSession = Depends(get_db),
+) -> list[OrderApplicationResponse]:
+    """Includes cancelled applications — reversals stay visible, as on the payment side (#134)."""
+    order = await _order_or_404(db, sales_order_id)
+    rows = await customer_payment_service.list_order_applications(db, order.sales_order_id)
+    return [OrderApplicationResponse.model_validate(r) for r in rows]
 
 
 @router.post('/{sales_order_id}/confirm', response_model=SalesOrderResponse)
