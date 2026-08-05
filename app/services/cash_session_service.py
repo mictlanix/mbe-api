@@ -17,9 +17,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.deps import CurrentUser
 from app.enums import CashCountType
-from app.models.core import CashCount, CashDrawer, CashSession
+from app.models.core import CashCount, CashDrawer, CashSession, Employee
 from app.models.sales import CustomerPayment
 from app.schemas.cash_session import CashSessionClose, CashSessionOpen, SessionState
+from app.services.fk_expansion import batch_fetch
 
 # ── Decision rules (pure) ─────────────────────────────────────────────────────
 
@@ -115,9 +116,37 @@ async def payments_by_method(db: AsyncSession, cash_session_id: int) -> list[dic
     return [{'method': method, 'total': total or Decimal(0)} for method, total in rows]
 
 
+async def attach_relations(db: AsyncSession, sessions: Sequence[CashSession]) -> None:
+    """Expand the drawer and both employee FKs for a whole page, in two queries (#141).
+
+    Every read path returns these expanded, so a client listing shifts can show a drawer and a
+    cashier name without resolving three ids per row.
+    """
+    if not sessions:
+        return
+
+    drawers = await batch_fetch(
+        db, CashDrawer, CashDrawer.cash_drawer_id, (s.cash_drawer for s in sessions)
+    )
+    employees = await batch_fetch(
+        db,
+        Employee,
+        Employee.employee_id,
+        [s.cashier for s in sessions] + [s.cash_supervisor for s in sessions],
+    )
+
+    for session in sessions:
+        # Written under separate keys: the mapped columns are shared through the session
+        # identity map, so overwriting them corrupts every reader of the raw FK (#95, #104).
+        session.__dict__['cash_drawer_detail'] = drawers.get(session.cash_drawer)
+        session.__dict__['cashier_detail'] = employees.get(session.cashier)
+        session.__dict__['cash_supervisor_detail'] = employees.get(session.cash_supervisor)
+
+
 async def attach_derived(db: AsyncSession, session: CashSession) -> CashSession:
     session.__dict__['opening_amount'] = await opening_amount(db, session.cash_session_id)
     session.__dict__['payments_by_method'] = await payments_by_method(db, session.cash_session_id)
+    await attach_relations(db, [session])
     return session
 
 
@@ -267,4 +296,5 @@ async def list_sessions(
     page = base.order_by(CashSession.cash_session_id.desc()).offset(skip).limit(limit)
     items = (await db.execute(page)).scalars().all()
     await attach_summary_amounts(db, items)
+    await attach_relations(db, items)
     return items, total

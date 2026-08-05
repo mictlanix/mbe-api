@@ -91,6 +91,9 @@ re-apply, gated additionally by `PAYMENTS_EDITOR` (100) for cross-facility searc
 | GET | `/cash-sessions/{id}` | READ | Opening amount plus payments summarised by method (FR-051) |
 | POST | `/cash-sessions/{id}/close` | UPDATE | Body: denomination counts. Gated by (111) |
 
+Every cash-session response expands `cash_drawer`, `cashier` and `cash_supervisor` as objects
+rather than ids (FR-051a) — `cash_supervisor` stays `null` until the session is closed.
+
 ## `/customer-refunds` — SystemObject `CUSTOMER_REFUNDS` (22); confirm gated by (110)
 
 | Method | Path | Right | Notes |

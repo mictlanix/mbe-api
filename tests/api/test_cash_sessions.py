@@ -1,7 +1,7 @@
 """Tests for the /cash-sessions endpoints."""
 
 from collections.abc import Generator
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
@@ -12,6 +12,7 @@ from httpx import ASGITransport, AsyncClient
 
 from app.core.deps import CurrentUser, get_current_user
 from app.db.session import get_db
+from app.enums import EntityStatus
 from app.main import app
 from app.schemas.cash_session import SessionState
 
@@ -42,14 +43,47 @@ async def _client() -> AsyncClient:
     return AsyncClient(transport=ASGITransport(app=app), base_url='http://test')
 
 
+def _drawer(cash_drawer_id: int = 5) -> SimpleNamespace:
+    return SimpleNamespace(
+        cash_drawer_id=cash_drawer_id,
+        facility=1,
+        code='CAJA1',
+        name='Caja 1',
+        comment=None,
+        status=EntityStatus.ACTIVE,
+    )
+
+
+def _employee(employee_id: int = 7, first_name: str = 'Ana') -> SimpleNamespace:
+    return SimpleNamespace(
+        employee_id=employee_id,
+        first_name=first_name,
+        last_name='Ruiz',
+        nickname='ana',
+        gender=2,
+        birthday=date(1990, 4, 3),
+        taxpayer_id=None,
+        sales_person=False,
+        status=EntityStatus.ACTIVE,
+        personal_id=None,
+        start_job_date=date(2020, 1, 15),
+        enroll_number=None,
+        comment=None,
+    )
+
+
 def _session(**overrides) -> SimpleNamespace:
+    """A session as the service hands it over — FK details already expanded (#141)."""
     base = dict(
         cash_session_id=1,
         cash_drawer=5,
+        cash_drawer_detail=_drawer(),
         cashier=7,
+        cashier_detail=_employee(),
         start=datetime(2026, 7, 25, 9),
         end=None,
         cash_supervisor=None,
+        cash_supervisor_detail=None,
         opening_amount=Decimal('500.00'),
         payments_by_method=[],
     )
@@ -235,6 +269,68 @@ async def test_closing_an_unknown_session_is_404() -> None:
             response = await client.post('/api/v1/cash-sessions/999/close', json={'counts': []})
 
     assert response.status_code == status.HTTP_404_NOT_FOUND
+
+
+@pytest.mark.asyncio
+async def test_closing_expands_the_supervisor_who_closed_it() -> None:
+    """#141 — the detail view shows a supervisor name, not an id to resolve."""
+    _auth()
+    closed = _session(
+        end=datetime(2026, 7, 25, 18),
+        cash_supervisor=12,
+        cash_supervisor_detail=_employee(employee_id=12, first_name='Luis'),
+    )
+    with patch(
+        'app.services.cash_session_service.get_session', AsyncMock(return_value=_session())
+    ), patch(
+        'app.services.cash_session_service.close_session', AsyncMock(return_value=closed)
+    ):
+        async with await _client() as client:
+            response = await client.post('/api/v1/cash-sessions/1/close', json={'counts': []})
+
+    supervisor = response.json()['cash_supervisor']
+    assert supervisor['employee_id'] == 12
+    assert supervisor['first_name'] == 'Luis'
+
+
+# ── Expanded foreign keys (#141) ──────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_read_expands_the_drawer_and_the_cashier() -> None:
+    _auth()
+    with patch(
+        'app.services.cash_session_service.get_session', AsyncMock(return_value=_session())
+    ), patch('app.services.cash_session_service.attach_derived', AsyncMock()):
+        async with await _client() as client:
+            response = await client.get('/api/v1/cash-sessions/1')
+
+    body = response.json()
+    assert body['cash_drawer'] == {
+        'cash_drawer_id': 5,
+        'facility': 1,
+        'code': 'CAJA1',
+        'name': 'Caja 1',
+        'comment': None,
+        'status': 0,
+    }
+    assert body['cashier']['employee_id'] == 7
+    assert body['cashier']['last_name'] == 'Ruiz'
+    assert body['cash_supervisor'] is None
+
+
+@pytest.mark.asyncio
+async def test_list_expands_every_row() -> None:
+    _auth()
+    listing = AsyncMock(return_value=([_session(), _session(cash_session_id=2)], 2))
+    with patch('app.services.cash_session_service.list_sessions', listing):
+        async with await _client() as client:
+            response = await client.get('/api/v1/cash-sessions')
+
+    assert [row['cash_drawer']['name'] for row in response.json()['items']] == [
+        'Caja 1',
+        'Caja 1',
+    ]
 
 
 @pytest.mark.asyncio

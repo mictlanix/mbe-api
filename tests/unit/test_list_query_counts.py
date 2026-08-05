@@ -14,7 +14,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from app.services.cash_session_service import attach_summary_amounts
+from app.services.cash_session_service import attach_relations, attach_summary_amounts
 from app.services.credit_note_service import attach_summary_remaining
 from app.services.customer_payment_service import attach_summary_unapplied
 from app.services.customer_refund_service import (
@@ -199,6 +199,42 @@ class TestCashSessions:
         ]
         assert sessions[1].__dict__['opening_amount'] == Decimal('0')
         assert sessions[1].__dict__['payments_by_method'] == []
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize('size', PAGE_SIZES)
+    async def test_expanding_the_fks_costs_two_queries_regardless_of_page_size(
+        self, size: int
+    ) -> None:
+        """#141 — one drawer query and one employee query for the whole page, never per row."""
+        sessions = [
+            SimpleNamespace(cash_session_id=i, cash_drawer=i, cashier=i, cash_supervisor=None)
+            for i in range(1, size + 1)
+        ]
+        db = _db(_rows([]), _rows([]))
+
+        await attach_relations(db, sessions)
+
+        assert db.execute.await_count == 2
+
+    @pytest.mark.asyncio
+    async def test_both_employee_fks_come_from_the_one_employee_query(self) -> None:
+        """The cashier and the supervisor are the same table, so they share a single fetch."""
+        cashier = SimpleNamespace(employee_id=7)
+        supervisor = SimpleNamespace(employee_id=12)
+        drawer = SimpleNamespace(cash_drawer_id=5)
+        session = SimpleNamespace(
+            cash_session_id=1, cash_drawer=5, cashier=7, cash_supervisor=12
+        )
+        db = _db(_rows([drawer]), _rows([cashier, supervisor]))
+
+        await attach_relations(db, [session])
+
+        assert db.execute.await_count == 2
+        assert session.__dict__['cash_drawer_detail'] is drawer
+        assert session.__dict__['cashier_detail'] is cashier
+        assert session.__dict__['cash_supervisor_detail'] is supervisor
+        # The raw FKs survive untouched — see #95.
+        assert (session.cash_drawer, session.cashier, session.cash_supervisor) == (5, 7, 12)
 
 
 class TestDeliveryListsAreFlat:

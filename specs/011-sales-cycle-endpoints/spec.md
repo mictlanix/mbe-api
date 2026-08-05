@@ -542,6 +542,10 @@ order.
   has an open session, or when the cashier already has one open on another drawer.
 - **FR-051**: Users MUST be able to read their current open session, including its opening amount
   and the payments taken during it summarised by payment method.
+- **FR-051a**: Every cash-session response MUST expand its cash drawer, cashier and cash supervisor
+  rather than returning bare foreign keys, so a client can render a shift list without resolving
+  three ids per row. The employees list has no fetch-many-by-id filter and is capped at 100 rows,
+  so a client-side map is not an equivalent.
 - **FR-052**: Users MUST be able to close a session by submitting denomination counts, which MUST
   be stored and MUST set the session's end time. Closing MUST be gated by the cash session close
   system object (111).
