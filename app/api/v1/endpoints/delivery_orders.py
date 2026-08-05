@@ -145,7 +145,11 @@ async def create_delivery_order(
     db: AsyncSession = Depends(get_db),
 ) -> DeliveryOrderResponse:
     order = await delivery_order_service.create_from_sales_order(
-        db, data.sales_order, current=current, fulfillment_type=data.fulfillment_type
+        db,
+        data.sales_order,
+        current=current,
+        fulfillment_type=data.fulfillment_type,
+        lines=data.lines,
     )
     return await _with_lines(db, order)
 

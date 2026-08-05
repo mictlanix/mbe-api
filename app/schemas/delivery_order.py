@@ -40,6 +40,13 @@ class DeliveryOrderLineUpdate(BaseModel):
     quantity: Decimal = Field(gt=0)
 
 
+class DeliveryOrderLineRequest(BaseModel):
+    """One sales-order line, and how much of it this delivery should carry (#138)."""
+
+    sales_order_detail: int
+    quantity: Decimal = Field(gt=0)
+
+
 # ── Header ────────────────────────────────────────────────────────────────────
 
 
@@ -50,6 +57,10 @@ class DeliveryOrderCreate(BaseModel):
     # Omitted means "work it out from the ship-to address". Supplied when one sales order splits
     # across both kinds: part collected at the counter, the rest shipped (FR-005a).
     fulfillment_type: FulfillmentType | None = None
+    # Omitted means every quantity the sale still owes — the original and only behaviour. Supplied
+    # when one sale splits across several destinations, so this delivery must claim a named subset
+    # rather than everything left (#138).
+    lines: list[DeliveryOrderLineRequest] | None = Field(default=None, min_length=1)
 
 
 class DeliveryOrderUpdate(BaseModel):
