@@ -100,10 +100,14 @@ A cashier's shift on a drawer.
 |---|---|
 | Written on open | `start`, `cashier`, `cash_drawer` |
 | Written on close | `end`, `cash_supervisor`; one `cash_count` row per denomination (`denomination`, `quantity`, `type`) |
-| Derived | Open = `end IS NULL`; **stale** = open and `start` is before today (FR-053) |
+| Derived | Open = `end IS NULL`; **stale** = open and `start` is before today (FR-053); closed = `end IS NOT NULL`. The same three serve as the list's `status` facet (FR-051b) |
+| Expanded in responses | `cash_drawer`, `cashier` and `cash_supervisor`, batched two queries per page rather than one lookup per row (FR-051a) |
 
 The opening cash amount is recorded as a `cash_count` row rather than a column — `cash_session` has
 no amount column. `CashCountType` in `docs/constants.md` distinguishes opening from closing counts.
+
+`cash_session` carries no facility either; the drawer is what holds one, so the list's `facility`
+filter resolves through `cash_drawer.facility` (FR-051c).
 
 ### Incidence — `app/models/incidence.py`
 

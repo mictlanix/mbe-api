@@ -66,9 +66,21 @@ applying a payment to a draft returns 409.
 3. `GET /api/v1/cash-sessions/current` → open, with payments summarised by method.
 4. `POST /api/v1/cash-sessions/{id}/close` with denomination counts → `end` set; `current` now
    reports no open session.
+5. `GET /api/v1/cash-sessions` → the shift history, newest id first, every row carrying its drawer,
+   cashier and supervisor as objects rather than ids (FR-051a). `cash_supervisor` is `null` on a row
+   still open and populated on the one closed in step 4.
+6. `GET /api/v1/cash-sessions?status=open`, then `?status=closed` → a session appears in exactly one
+   of the two, and moves from the first to the second at step 4 (FR-051b).
+7. `GET /api/v1/cash-sessions?cashier={id}&date_from=…&date_to=…&sort=start` → that cashier's shifts
+   inside the range, oldest start first.
 
 To exercise the stale path (FR-053), backdate a session's `start` and confirm `current` reports it
-as stale — distinguishably from "none".
+as stale — distinguishably from "none". The list must agree with it: `?status=stale` MUST return
+that same session, and `?status=open` MUST NOT (FR-051b).
+
+To check the scoping decision (FR-051c), open sessions on drawers in two different facilities: an
+unfiltered list returns both, and `?facility=` returns only that facility's — narrowing is the
+caller's to ask for, never a default.
 
 ## Scenario 3 — The lifecycle rules (the point of the last clarification)
 
