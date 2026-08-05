@@ -76,6 +76,66 @@ class AddressResponse(BaseModel):
     status: EntityStatus
 
 
+# ── Contact ───────────────────────────────────────────────────────────────────
+
+
+class ContactCreate(BaseModel):
+    """`contact.mobile` is `NOT NULL DEFAULT ''`, so an omitted mobile is empty, not absent."""
+
+    name: str
+    job_title: str | None = None
+    phone: str | None = None
+    phone_ext: str | None = None
+    mobile: str = ''
+    fax: str | None = None
+    website: str | None = None
+    email: str | None = None
+    im: str | None = None
+    sip: str | None = None
+    birthday: dt.date | None = None
+    comment: str | None = None
+
+    @field_validator('name')
+    @classmethod
+    def validate_name(cls, v: str) -> str:
+        if not v.strip():
+            raise ValueError('Name must not be blank')
+        return v
+
+
+class ContactUpdate(BaseModel):
+    name: str | None = None
+    job_title: str | None = None
+    phone: str | None = None
+    phone_ext: str | None = None
+    mobile: str | None = None
+    fax: str | None = None
+    website: str | None = None
+    email: str | None = None
+    im: str | None = None
+    sip: str | None = None
+    birthday: dt.date | None = None
+    comment: str | None = None
+
+
+class ContactResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    contact_id: int
+    name: str
+    job_title: str | None
+    phone: str | None
+    phone_ext: str | None
+    mobile: str
+    fax: str | None
+    website: str | None
+    email: str | None
+    im: str | None
+    sip: str | None
+    birthday: dt.date | None
+    comment: str | None
+
+
 # ── Label ─────────────────────────────────────────────────────────────────────
 
 
