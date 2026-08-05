@@ -571,7 +571,10 @@ async def update_order(
 
     if 'customer' in changes and changes['customer'] is not None:
         customer = await _customer_or_404(db, changes['customer'])
+        repriced = customer.customer_id != order.customer
         order.customer = customer.customer_id
+        if repriced:
+            await _reprice_lines(db, order, customer)
     if 'payment_terms' in changes and changes['payment_terms'] is not None:
         terms = PaymentTerms(changes['payment_terms'])
         customer = await _customer_or_404(db, order.customer)
@@ -596,6 +599,56 @@ async def update_order(
     await db.commit()
     await db.refresh(order)
     return await attach_derived(db, order)
+
+
+async def _reprice_lines(db: AsyncSession, order: SalesOrder, customer: Customer) -> None:
+    """#131 — the customer changed, so every line moves to that customer's price list.
+
+    Unconditionally. A line tracks whichever customer is on the order, including one whose price
+    a salesperson typed in: `sales_order_detail` stores no marker distinguishing a hand-entered
+    price from a listed one, so "preserve the override" could only ever have been a guess at what
+    the previous customer's list would have charged.
+
+    Two things are deliberately left alone. `tax_rate` follows the product, not the customer, so a
+    customer change has no bearing on it — a per-line override (#135) is the caller's to set and
+    keep. `cost` comes from the cost price list, which is customer-independent.
+
+    A product with no row on the new list prices at zero, exactly as `add_line` would for that
+    customer; confirmation's zero-price gate is what catches it rather than a failure here.
+
+    Only ever called when the customer actually changed — repricing is a response to a change, and
+    a `PUT` that echoes back the customer already on the order has not made one.
+    """
+    lines = (
+        (
+            await db.execute(
+                select(SalesOrderDetail).where(
+                    SalesOrderDetail.sales_order == order.sales_order_id
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    if not lines:
+        return
+
+    # One query for the whole page of lines, not one per line (the N+1 rule).
+    rows = (
+        (
+            await db.execute(
+                select(ProductPrice).where(
+                    ProductPrice.product.in_({line.product for line in lines}),
+                    ProductPrice.price_list == customer.price_list,
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    listed = {row.product: row.price for row in rows}
+    for line in lines:
+        line.price = listed.get(line.product, Decimal(0))
 
 
 async def _change_currency(
@@ -661,7 +714,7 @@ async def add_line(
         cost=cost,
         price=price,
         discount_rate=data.discount_rate,
-        tax_rate=product.tax_rate,
+        tax_rate=data.tax_rate if data.tax_rate is not None else product.tax_rate,
         product_code=product.code,
         product_name=product.name,
         warehouse=data.warehouse,
@@ -709,7 +762,7 @@ async def update_line(
                 exempt=await _exempt_from_margin(db, current),
             )
         line.price = changes['price']
-    for field in ('discount_rate', 'warehouse', 'comment'):
+    for field in ('discount_rate', 'tax_rate', 'warehouse', 'comment'):
         if field in changes and changes[field] is not None:
             setattr(line, field, changes[field])
 

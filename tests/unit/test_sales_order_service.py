@@ -10,11 +10,17 @@ import inspect
 from datetime import datetime
 from decimal import Decimal
 from types import SimpleNamespace
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from fastapi import HTTPException
 
 from app.enums import PaymentTerms
+from app.schemas.sales_order import (
+    SalesOrderLineCreate,
+    SalesOrderLineUpdate,
+    SalesOrderUpdate,
+)
 from app.services import sales_order_service
 from app.services.sales_order_service import (
     assert_can_cancel,
@@ -345,3 +351,173 @@ class TestProductLookupReportsWhatCanBeSold:
         assert 'on_hand_by_warehouse(' in source
         assert 'reserved_by_warehouse(' in source
         assert 'await stock_ledger.on_hand(' not in source
+
+
+class TestRepricingOnACustomerChange:
+    """#131 — a line tracks whichever customer is on the order, unconditionally.
+
+    The alternative considered was preserving a hand-entered price. `sales_order_detail` stores no
+    marker distinguishing one from a listed price, so that could only have been a guess at what the
+    previous customer's list would have charged — and a wrong guess silently keeps the *old*
+    customer's price on the new customer's order.
+    """
+
+    @staticmethod
+    def _db(lines: list, price_rows: list) -> AsyncMock:
+        db = AsyncMock()
+        db.execute = AsyncMock(
+            side_effect=[
+                SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: lines)),
+                SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: price_rows)),
+            ]
+        )
+        return db
+
+    @staticmethod
+    def _line(product: int, price: str, tax_rate: str = '0.16') -> SimpleNamespace:
+        return SimpleNamespace(
+            product=product, price=Decimal(price), tax_rate=Decimal(tax_rate)
+        )
+
+    @pytest.mark.asyncio
+    async def test_every_line_takes_the_new_customer_price(self) -> None:
+        lines = [self._line(1, '100'), self._line(2, '50')]
+        rows = [
+            SimpleNamespace(product=1, price=Decimal('90')),
+            SimpleNamespace(product=2, price=Decimal('45')),
+        ]
+        db = self._db(lines, rows)
+
+        await sales_order_service._reprice_lines(
+            db, SimpleNamespace(sales_order_id=1), SimpleNamespace(price_list=3)
+        )
+
+        assert [line.price for line in lines] == [Decimal('90'), Decimal('45')]
+
+    @pytest.mark.asyncio
+    async def test_a_hand_entered_price_is_overwritten_too(self) -> None:
+        """The decision on #131: no override survives a customer change."""
+        negotiated = self._line(1, '73.50')
+        db = self._db([negotiated], [SimpleNamespace(product=1, price=Decimal('90'))])
+
+        await sales_order_service._reprice_lines(
+            db, SimpleNamespace(sales_order_id=1), SimpleNamespace(price_list=3)
+        )
+
+        assert negotiated.price == Decimal('90')
+
+    @pytest.mark.asyncio
+    async def test_tax_rate_is_left_alone(self) -> None:
+        """Tax follows the product, not the customer — including a per-line override (#135)."""
+        line = self._line(1, '100', tax_rate='0')
+        db = self._db([line], [SimpleNamespace(product=1, price=Decimal('90'))])
+
+        await sales_order_service._reprice_lines(
+            db, SimpleNamespace(sales_order_id=1), SimpleNamespace(price_list=3)
+        )
+
+        assert line.tax_rate == Decimal('0')
+
+    @pytest.mark.asyncio
+    async def test_a_product_absent_from_the_new_list_prices_at_zero(self) -> None:
+        """Same as `add_line` would produce for that customer; confirmation's gate catches it."""
+        line = self._line(1, '100')
+        db = self._db([line], [])
+
+        await sales_order_service._reprice_lines(
+            db, SimpleNamespace(sales_order_id=1), SimpleNamespace(price_list=3)
+        )
+
+        assert line.price == Decimal('0')
+
+    @pytest.mark.asyncio
+    async def test_an_empty_order_asks_for_no_prices(self) -> None:
+        db = self._db([], [])
+
+        await sales_order_service._reprice_lines(
+            db, SimpleNamespace(sales_order_id=1), SimpleNamespace(price_list=3)
+        )
+
+        assert db.execute.await_count == 1
+
+    @pytest.mark.asyncio
+    async def test_prices_are_fetched_in_one_query_not_one_per_line(self) -> None:
+        """A twenty-line register sale must not cost twenty round trips (the N+1 rule)."""
+        lines = [self._line(n, '100') for n in range(1, 21)]
+        rows = [SimpleNamespace(product=n, price=Decimal('90')) for n in range(1, 21)]
+        db = self._db(lines, rows)
+
+        await sales_order_service._reprice_lines(
+            db, SimpleNamespace(sales_order_id=1), SimpleNamespace(price_list=3)
+        )
+
+        # One for the lines, one for their prices — flat regardless of line count.
+        assert db.execute.await_count == 2
+
+
+class TestCustomerChangeGuard:
+    """Repricing is a response to a change; a `PUT` echoing the current customer is not one.
+
+    Without this, a client sending the whole order back to edit its comment would wipe every
+    negotiated price on it.
+    """
+
+    @staticmethod
+    async def _update(*, from_customer: int, to_customer: int) -> AsyncMock:
+        order = SimpleNamespace(
+            sales_order_id=1,
+            customer=from_customer,
+            completed=False,
+            cancelled=False,
+            date=datetime(2026, 7, 25),
+            updater=None,
+            modification_time=None,
+        )
+        reprice = AsyncMock()
+        with patch.object(
+            sales_order_service,
+            '_customer_or_404',
+            AsyncMock(return_value=SimpleNamespace(customer_id=to_customer, price_list=3)),
+        ), patch.object(sales_order_service, '_reprice_lines', reprice), patch.object(
+            sales_order_service, 'attach_derived', AsyncMock(return_value=order)
+        ):
+            await sales_order_service.update_order(
+                AsyncMock(),
+                order,
+                SalesOrderUpdate(customer=to_customer),
+                current=SimpleNamespace(employee_id=7),
+            )
+        return reprice
+
+    @pytest.mark.asyncio
+    async def test_a_real_customer_change_reprices(self) -> None:
+        reprice = await self._update(from_customer=2, to_customer=5)
+
+        assert reprice.await_count == 1
+
+    @pytest.mark.asyncio
+    async def test_resending_the_same_customer_does_not(self) -> None:
+        reprice = await self._update(from_customer=2, to_customer=2)
+
+        assert reprice.await_count == 0
+
+
+class TestPerLineTaxRateOverride:
+    """#135 — the product's rate is the default, not the only possible value."""
+
+    def test_line_creation_prefers_an_explicit_rate(self) -> None:
+        source = inspect.getsource(sales_order_service.add_line)
+
+        assert 'data.tax_rate if data.tax_rate is not None else product.tax_rate' in source
+
+    def test_it_is_an_updatable_field(self) -> None:
+        source = inspect.getsource(sales_order_service.update_line)
+
+        assert "'tax_rate'" in source
+
+    def test_the_schemas_bound_it_to_a_rate(self) -> None:
+        """A rate, not a percentage — the column is `Numeric(5, 4)`."""
+        for schema in (SalesOrderLineCreate, SalesOrderLineUpdate):
+            metadata = schema.model_fields['tax_rate'].metadata
+            assert [m.ge for m in metadata if hasattr(m, 'ge')] == [0]
+            assert [m.le for m in metadata if hasattr(m, 'le')] == [1]

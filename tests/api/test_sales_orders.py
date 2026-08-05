@@ -345,6 +345,40 @@ async def test_discount_above_one_is_rejected_by_the_schema() -> None:
     assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
 
 
+@pytest.mark.asyncio
+async def test_a_line_tax_rate_reaches_the_service() -> None:
+    """#135 — the product's rate is the default, and a caller may override it per line."""
+    _auth()
+    adding = AsyncMock(return_value=_order())
+    with patch(
+        'app.services.sales_order_service.get_order', AsyncMock(return_value=_order())
+    ), patch('app.services.sales_order_service.add_line', adding):
+        async with await _client() as client:
+            response = await client.post(
+                '/api/v1/sales-orders/1/lines',
+                json={'product': 1, 'tax_rate': '0.08'},
+            )
+
+    assert response.status_code == status.HTTP_200_OK
+    assert adding.await_args.args[2].tax_rate == Decimal('0.08')
+
+
+@pytest.mark.asyncio
+async def test_a_tax_rate_above_one_is_rejected_by_the_schema() -> None:
+    """A rate, not a percentage — 16 would mean 1600%."""
+    _auth()
+    with patch(
+        'app.services.sales_order_service.get_order', AsyncMock(return_value=_order())
+    ):
+        async with await _client() as client:
+            response = await client.post(
+                '/api/v1/sales-orders/1/lines',
+                json={'product': 1, 'tax_rate': '16'},
+            )
+
+    assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
+
+
 # ── Product lookup ────────────────────────────────────────────────────────────
 
 
