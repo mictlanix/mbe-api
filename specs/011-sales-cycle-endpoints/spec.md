@@ -78,10 +78,17 @@ receives a folio, becomes read-only, and records an outbound stock movement per 
 2. **Given** an editable order, **When** a line is added for a product, **Then** the line is stored
    with the price from the customer's price list, the product's tax rate and tax-inclusion flag,
    the cost recorded at time of sale, a quantity of at least the product's minimum order quantity,
-   and a snapshot of the product's code and name.
-3. **Given** an editable order, **When** a line's quantity, price, discount, warehouse or delivery
-   flag is changed, **Then** the change is persisted and the order's computed subtotal, taxes and
-   total reflect it.
+   and a snapshot of the product's code and name. *(Both defaults are now overridable at add-time:
+   an explicit `price` was always honoured, and an explicit `tax_rate` is since #135. The listed
+   price is also no longer permanent — see scenario 3a.)*
+3. **Given** an editable order, **When** a line's quantity, price, discount, tax rate, warehouse or
+   comment is changed, **Then** the change is persisted and the order's computed subtotal, taxes and
+   total reflect it. *(Corrected: the `delivery` flag this scenario originally named was dropped by
+   migration 009 — see spec 012's Removed note — and `tax_rate` became editable in #135.)*
+3a. **Given** an editable order carrying lines, **When** its customer is changed, **Then** every
+   line is re-priced against the new customer's price list, unconditionally — including a line whose
+   price was typed in by hand. `tax_rate` and `cost` are not touched: tax follows the product and
+   cost comes from the cost price list, so neither depends on who is buying (#131).
 4. **Given** an editable order with at least one line, **When** it is confirmed, **Then** it is
    assigned the next folio for its facility, is marked completed, records an outbound inventory
    movement for every stocked line that names a warehouse, and rejects any further edit.
@@ -390,9 +397,10 @@ order.
 - **FR-009**: Document list endpoints MUST apply no implicit scoping beyond the caller's facility.
   Narrowing MUST be expressed through explicit filter parameters — at minimum `mine` (documents the
   caller created, updated or is the salesperson for), `customer`, `salesperson`, `status` and a date
-  range — and a list given no filters MUST return every document for the caller's facility. The
-  legacy `*` wildcard MUST NOT be reproduced; widening beyond the caller's facility MUST be an
-  explicit `facility` parameter gated by the cross-facility search privilege (101).
+  range, plus `point_sale` on the sales-order list since #136 — and a list given no filters MUST
+  return every document for the caller's facility. The legacy `*` wildcard MUST NOT be reproduced;
+  widening beyond the caller's facility MUST be an explicit `facility` parameter gated by the
+  cross-facility search privilege (101).
 - **FR-009a**: The payments list MUST NOT be implicitly scoped to the caller's open cash session.
   Session scoping MUST be requested through an explicit `cash_session` filter.
 
@@ -410,7 +418,21 @@ order.
   line MUST snapshot the product's code and name, its tax rate and tax-inclusion flag, its cost
   from the cost price list, and its price from the customer's assigned price list, and MUST default
   the quantity to the product's minimum order quantity.
+- **FR-012a**: The snapshotted tax rate MUST be a default rather than a fixed value: users MUST be
+  able to state a `tax_rate` when adding a line and change it while the order is editable, as they
+  already can for `price`. The tax-inclusion flag stays derived from the product. Added by #135;
+  filed as a question (is a product's rate the single source of truth for every line that sells it?)
+  and answered no.
 - **FR-013**: The system MUST refuse a line quantity below the product's minimum order quantity.
+- **FR-013a**: Changing an editable order's customer MUST re-price every existing line against the
+  new customer's price list. Re-pricing is **unconditional** — a line tracks whichever customer is
+  on the order, including one whose price was entered by hand. `tax_rate` and `cost` MUST NOT be
+  touched: tax follows the product and cost comes from the cost price list, so neither depends on who
+  is buying. A product absent from the new price list MUST price at zero, as FR-012 would for that
+  customer, where FR-017's zero-price refusal catches it. Re-pricing MUST NOT occur when the request
+  names the customer already on the order — an update that changed nothing is not a change. Added by
+  #131, which also records the rejected alternative: preserving a hand-entered price has no stored
+  marker to read, so it could only have been a guess at what the previous customer's list charged.
 - **FR-014**: The system MUST refuse a line price outside the product's low and high profit margins
   for the applicable price list when margin validation is enabled, unless the user holds the
   price-range exemption privilege (102).
@@ -483,6 +505,12 @@ order.
   classification, and the recording cashier's open cash session where one exists.
 - **FR-041**: Users MUST be able to list and read payments, filterable by customer, cash session,
   facility, date range, payment method and verification state.
+- **FR-041a**: Users MUST be able to list the payments standing against one sales order, the reverse
+  of FR-045's payment-to-applications direction. Each row MUST carry enough of its payment's own
+  fields — method, reference, date, classification and verification state — to render a list without
+  a follow-up request per application, and MUST include cancelled applications for the same reason
+  FR-045 does. Added by #134; the order's `balance` was always correct regardless, so what was
+  missing was the itemisation, never the gate.
 - **FR-042**: Users MUST be able to apply a payment to a confirmed, uncancelled order for the same
   customer, for an amount not exceeding the payment's unapplied amount, recording the applying
   employee and the application date. An order that is not completed, or that is cancelled, MUST NOT

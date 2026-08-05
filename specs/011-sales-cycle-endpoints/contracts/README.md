@@ -34,18 +34,21 @@ lines names those lines (FR-017), and cancelling an order with live applications
 
 | Method | Path | Right | Notes |
 |---|---|---|---|
-| GET | `/sales-orders` | READ | Filters: `mine`, `customer`, `salesperson`, `status`, `date_from`, `date_to`, `facility` (needs privilege 101), `search` |
+| GET | `/sales-orders` | READ | Filters: `mine`, `customer`, `salesperson`, `status`, `date_from`, `date_to`, `facility` (needs privilege 101), `point_sale` (#136), `search` |
 | POST | `/sales-orders` | CREATE | Body may omit everything; defaults per FR-010. 422 when the caller has no employee (FR-002) or no point of sale (FR-004a), distinguishably |
 | GET | `/sales-orders/{id}` | READ | Includes computed subtotal, tax, total, balance |
-| PUT | `/sales-orders/{id}` | UPDATE | 409 once completed or cancelled, except `priority` (FR-011) |
+| PUT | `/sales-orders/{id}` | UPDATE | 409 once completed or cancelled, except `priority` (FR-011). Changing `customer` re-prices every line against the new customer's price list, unconditionally (FR-013a, #131) |
 | POST | `/sales-orders/{id}/confirm` | UPDATE | Assigns folio, posts stock, marks completed (FR-017) |
 | POST | `/sales-orders/{id}/cancel` | UPDATE | 409 if paid → "refund it instead"; 409 if live applications exist, naming them |
+| GET | `/sales-orders/{id}/payments` | READ¹ | The applications standing against this order, each with its payment's method, reference, date and verification state. **Includes cancelled** (FR-041a, #134) |
 | GET | `/sales-orders/{id}/lines` | READ | |
-| POST | `/sales-orders/{id}/lines` | UPDATE | Snapshots code/name/tax/cost; price from customer's list |
-| PUT | `/sales-orders/{id}/lines/{line_id}` | UPDATE | |
+| POST | `/sales-orders/{id}/lines` | UPDATE | Snapshots code/name/cost; price from customer's list and tax rate from the product, both overridable by an explicit `price` / `tax_rate` (#135) |
+| PUT | `/sales-orders/{id}/lines/{line_id}` | UPDATE | Mutable: `quantity`, `price`, `discount_rate`, `tax_rate` (#135), `warehouse`, `comment` |
 | DELETE | `/sales-orders/{id}/lines/{line_id}` | UPDATE | Permitted only while editable |
 | GET | `/sales-orders/product-lookup` | READ | `pattern`, `customer`, `warehouse`. A 13-digit numeric pattern matches barcode (FR-021) |
 | GET | `/sales-orders/outstanding` | READ | Unpaid confirmed orders with balances (FR-046) |
+
+¹ `/sales-orders/{id}/payments` is gated by `CUSTOMER_PAYMENTS` (8) READ, not `SALES_ORDERS` (7): it returns payment data, so a caller who may read orders but not payments is refused.
 
 ## `/sales-quotes` — SystemObject `SALES_QUOTES` (30)
 

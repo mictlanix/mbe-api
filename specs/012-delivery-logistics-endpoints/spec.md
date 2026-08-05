@@ -380,8 +380,8 @@ back a complete, ordered history of its transitions.
 ### Edge Cases
 
 - A sales order whose lines are split across several delivery orders: each new order's lines are
-  sized by what remains uncovered, and the last one to exhaust the order is followed by a refusal
-  for any further attempt.
+  sized by what remains uncovered *by default, or by the subset the caller names (FR-005b)*, and the
+  last one to exhaust the order is followed by a refusal for any further attempt.
 - A delivery order raised from a sales order whose delivery mode is pickup: refused, because that
   order is collected at the counter without a delivery document.
 - A partial delivery whose child order is itself partially delivered: the child splits again,
@@ -423,9 +423,22 @@ back a complete, ordered history of its transitions.
 - **FR-005a**: Users MUST be able to state the fulfilment type when raising a delivery order,
   overriding the default. **One sales order can split across both kinds** — the customer collects
   part of it at the counter and has the rest shipped — so the type is a property of the delivery
-  order, not of the sale. Splitting is: raise one order, drop the lines that belong to the other
-  kind while it is still a draft, then raise a second order for what is left, stating its type.
-  Coverage keeps the two from overlapping.
+  order, not of the sale. Coverage keeps the two from overlapping.
+- **FR-005b**: Users MUST be able to raise a delivery order covering a **named subset** of the
+  sale's undelivered quantities, stating a `sales_order_detail` and a `quantity` per line. Omitting
+  the subset MUST keep FR-008's behaviour of claiming every uncovered quantity. Each requested
+  quantity MUST be bounded by the same coverage figure FR-008 uses, and over-claiming a line, naming
+  one twice, or naming a line of another sale MUST each be refused, saying which line and by how
+  much. Added by #138.
+
+  > **Superseding FR-005a's original splitting procedure.** This requirement read: *"Splitting is:
+  > raise one order, drop the lines that belong to the other kind while it is still a draft, then
+  > raise a second order for what is left, stating its type."* That worked — coverage made each step
+  > deterministic — but it forced every destination's writes to **serialise**, because a fresh create
+  > would otherwise claim what the previous order was supposed to keep, and it put the arithmetic
+  > that must sum exactly to the ordered amount in the client. The procedure is recorded here rather
+  > than deleted because it is what any client written against this spec before #138 is still doing,
+  > and it continues to work; it is no longer the only way, or the recommended one.
 - **FR-006**: System MUST allow header and line edits only while an order is in `DRAFT`.
 - **FR-007**: System MUST allow cancellation with a mandatory non-blank reason from any
   non-terminal status except `IN_TRANSIT`, releasing any commitment the order holds.

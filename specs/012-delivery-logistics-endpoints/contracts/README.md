@@ -36,7 +36,7 @@ Three error shapes carry detail rather than a bare message:
 | Method | Path | Right | Notes |
 |---|---|---|---|
 | GET | `/delivery-orders` | READ | Filters: `status`, `customer`, `facility`, `fulfillment_type`, `date_from`, `date_to`, `mine`, `search` (folio, customer name, sales order). `mine` is how a rejected draft is found — no notification is sent (FR-067) |
-| POST | `/delivery-orders` | CREATE | Body: `{sales_order: int}` or `{sales_order_folio, facility}`. Creates in `DRAFT`. 409 when the sales order is not completed / is cancelled / is pickup mode / is already fully delivered; 422 when the paid-or-credit rule is on and unmet (FR-008 – FR-014) |
+| POST | `/delivery-orders` | CREATE | Body: `{sales_order: int}` or `{sales_order_folio, facility}`, plus optional `fulfillment_type` (FR-005a) and optional `lines: [{sales_order_detail, quantity}]` to claim a named subset instead of everything uncovered (FR-005b, #138). Creates in `DRAFT`. 409 when the sales order is not completed / is cancelled / is pickup mode / is already fully delivered; 422 when the paid-or-credit rule is on and unmet (FR-008 – FR-014), when a requested line over-claims its uncovered quantity, is named twice, or belongs to another sale, and when `lines` is present but empty |
 | GET | `/delivery-orders/{id}` | READ | Includes lines with their four quantities, dispatch warehouse and derived `open_quantity` |
 | PUT | `/delivery-orders/{id}` | UPDATE | Header edits. 409 outside `DRAFT` (FR-006) |
 | PUT | `/delivery-orders/{id}/lines/{line_id}` | UPDATE | Quantity edit. 422 above the sales order's remaining deliverable quantity (FR-016) |
