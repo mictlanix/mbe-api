@@ -2,9 +2,17 @@ import datetime as dt
 from datetime import datetime
 from decimal import Decimal
 
-from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import (
+    AliasChoices,
+    BaseModel,
+    ConfigDict,
+    Field,
+    computed_field,
+    field_validator,
+    model_validator,
+)
 
-from app.enums import AddressType, EntityStatus, FacilityType
+from app.enums import AddressType, EntityStatus, FacilityType, PaymentMethod
 from app.schemas.sat_catalog import SatCatalogResponse
 from app.services.image_service import image_url
 
@@ -404,6 +412,17 @@ class PaymentMethodOptionResponse(BaseModel):
     payment_method: int
     commission: Decimal
     status: EntityStatus
+
+    @computed_field
+    @property
+    def requires_reference(self) -> bool:
+        """Whether this tender needs a reference before it can be recorded (#137).
+
+        Derived from the SAT code rather than stored, so it cannot drift from the catalog. A
+        client enforcing "card and transfer need an authorization number, cash does not" reads it
+        from here instead of keeping its own copy of a mapping mbe-api owns and can change.
+        """
+        return PaymentMethod.requires_reference(self.payment_method)
 
 
 # ── Vehicle ───────────────────────────────────────────────────────────────────
