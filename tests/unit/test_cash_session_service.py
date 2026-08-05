@@ -5,15 +5,21 @@ from yesterday" need different remedies from the client, so they must not collap
 answer.
 """
 
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, time, timedelta
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
 from fastapi import HTTPException
 
 from app.core.deps import CurrentUser
-from app.schemas.cash_session import SessionState
-from app.services.cash_session_service import _drawer, session_state
+from app.schemas.cash_session import CashSessionSort, CashSessionStatus, SessionState
+from app.services.cash_session_service import (
+    _drawer,
+    _status_clause,
+    list_sessions,
+    session_state,
+)
 
 TODAY = date(2026, 7, 25)
 
@@ -145,3 +151,124 @@ class TestLegacyMultipleOpenSessions:
         sql = str(db.execute.await_args.args[0]).lower()
         assert 'order by' in sql
         assert 'limit' in sql
+
+
+class TestStatusFacet:
+    """The list facet must classify a row exactly as `session_state` classifies one (#142).
+
+    The two are written against different things — one against a loaded object, one against the
+    columns — so a paged "show me open sessions" would otherwise disagree with the badge the
+    current-session endpoint puts on the very same row.
+    """
+
+    @pytest.mark.parametrize(
+        ('wanted', 'expected'),
+        [
+            (CashSessionStatus.CLOSED, 'is not null'),
+            (CashSessionStatus.STALE, 'start < '),
+            (CashSessionStatus.OPEN, 'start >= '),
+        ],
+    )
+    def test_each_status_narrows_on_the_expected_columns(
+        self, wanted: CashSessionStatus, expected: str
+    ) -> None:
+        sql = str(_status_clause(wanted, today=TODAY)).lower()
+
+        assert expected in sql
+
+    @pytest.mark.parametrize('wanted', [CashSessionStatus.OPEN, CashSessionStatus.STALE])
+    def test_open_and_stale_both_require_an_unset_end(self, wanted: CashSessionStatus) -> None:
+        # `end` is a reserved word, so SQLAlchemy quotes it.
+        assert '"end" is null' in str(_status_clause(wanted, today=TODAY)).lower()
+
+    def test_closed_does_not_look_at_start_at_all(self) -> None:
+        """A session closed yesterday is closed, not stale."""
+        assert 'start' not in str(_status_clause(CashSessionStatus.CLOSED, today=TODAY)).lower()
+
+    def test_the_stale_boundary_is_midnight_today(self) -> None:
+        """The boundary `session_state` applies — 00:00 today is open, a second earlier is stale."""
+        stale = _status_clause(CashSessionStatus.STALE, today=TODAY)
+
+        assert str(datetime.combine(TODAY, time.min)) in str(
+            stale.compile(compile_kwargs={'literal_binds': True})
+        )
+
+
+class TestListFacets:
+    @staticmethod
+    def _db() -> AsyncMock:
+        db = AsyncMock()
+        db.execute = AsyncMock(
+            side_effect=[
+                SimpleNamespace(scalar_one=lambda: 0),
+                SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: [])),
+            ]
+        )
+        return db
+
+    @staticmethod
+    def _current() -> CurrentUser:
+        return CurrentUser(
+            user_id='t',
+            session_version=1,
+            administrator=True,
+            facility_id=1,
+            employee_id=7,
+            cash_drawer_id=5,
+        )
+
+    async def _page_sql(self, **kwargs) -> str:
+        db = self._db()
+        await list_sessions(db, current=self._current(), **kwargs)
+        return str(db.execute.await_args_list[1].args[0]).lower()
+
+    @pytest.mark.asyncio
+    async def test_no_facets_scans_unfiltered(self) -> None:
+        assert 'where' not in await self._page_sql()
+
+    @pytest.mark.asyncio
+    async def test_facility_is_not_defaulted_to_the_callers_own(self) -> None:
+        """#142 — reconciling a day is a cross-facility job, so nothing is scoped implicitly."""
+        assert 'facility' not in await self._page_sql()
+
+    @pytest.mark.asyncio
+    async def test_facility_narrows_through_the_drawer(self) -> None:
+        sql = await self._page_sql(facility=3)
+
+        assert 'facility' in sql
+        assert 'cash_drawer' in sql
+
+    @pytest.mark.asyncio
+    async def test_cashier_narrows_on_the_cashier_column(self) -> None:
+        assert 'cashier' in await self._page_sql(cashier=17)
+
+    @pytest.mark.asyncio
+    async def test_a_date_range_narrows_on_start(self) -> None:
+        sql = await self._page_sql(
+            date_from=datetime(2026, 7, 1), date_to=datetime(2026, 7, 31, 23, 59)
+        )
+
+        assert sql.count('start') >= 2
+
+    @pytest.mark.asyncio
+    async def test_status_narrows_on_end(self) -> None:
+        assert 'end' in await self._page_sql(session_status=CashSessionStatus.CLOSED)
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ('sort', 'expected'),
+        [
+            (CashSessionSort.ID_DESC, 'cash_session_id desc'),
+            (CashSessionSort.START_ASC, 'start asc'),
+            (CashSessionSort.START_DESC, 'start desc'),
+        ],
+    )
+    async def test_sort_drives_the_ordering(
+        self, sort: CashSessionSort, expected: str
+    ) -> None:
+        assert expected in await self._page_sql(sort=sort)
+
+    @pytest.mark.asyncio
+    async def test_the_default_ordering_is_unchanged(self) -> None:
+        """Newest id first, as the list has always returned."""
+        assert 'cash_session_id desc' in await self._page_sql()

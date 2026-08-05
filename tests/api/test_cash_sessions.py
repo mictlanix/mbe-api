@@ -14,7 +14,7 @@ from app.core.deps import CurrentUser, get_current_user
 from app.db.session import get_db
 from app.enums import EntityStatus
 from app.main import app
-from app.schemas.cash_session import SessionState
+from app.schemas.cash_session import CashSessionSort, CashSessionStatus, SessionState
 
 
 @pytest.fixture(autouse=True)
@@ -291,6 +291,75 @@ async def test_closing_expands_the_supervisor_who_closed_it() -> None:
     supervisor = response.json()['cash_supervisor']
     assert supervisor['employee_id'] == 12
     assert supervisor['first_name'] == 'Luis'
+
+
+# ── List facets (#142) ────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_every_facet_reaches_the_service() -> None:
+    _auth()
+    listing = AsyncMock(return_value=([], 0))
+    with patch('app.services.cash_session_service.list_sessions', listing):
+        async with await _client() as client:
+            await client.get(
+                '/api/v1/cash-sessions',
+                params={
+                    'cash_drawer': 5,
+                    'cashier': 17,
+                    'facility': 3,
+                    'status': 'stale',
+                    'date_from': '2026-07-01T00:00:00',
+                    'date_to': '2026-07-31T23:59:59',
+                    'sort': '-start',
+                },
+            )
+
+    kwargs = listing.await_args.kwargs
+    assert kwargs['cash_drawer'] == 5
+    assert kwargs['cashier'] == 17
+    assert kwargs['facility'] == 3
+    assert kwargs['session_status'] is CashSessionStatus.STALE
+    assert kwargs['date_from'] == datetime(2026, 7, 1)
+    assert kwargs['date_to'] == datetime(2026, 7, 31, 23, 59, 59)
+    assert kwargs['sort'] is CashSessionSort.START_DESC
+
+
+@pytest.mark.asyncio
+async def test_no_facet_defaults_to_a_filter() -> None:
+    """#142 — in particular `facility`, so a supervisor still sees every facility's shifts."""
+    _auth()
+    listing = AsyncMock(return_value=([], 0))
+    with patch('app.services.cash_session_service.list_sessions', listing):
+        async with await _client() as client:
+            await client.get('/api/v1/cash-sessions')
+
+    kwargs = listing.await_args.kwargs
+    assert kwargs['cash_drawer'] is None
+    assert kwargs['cashier'] is None
+    assert kwargs['facility'] is None
+    assert kwargs['session_status'] is None
+    assert kwargs['date_from'] is None
+    assert kwargs['date_to'] is None
+    assert kwargs['sort'] is CashSessionSort.ID_DESC
+
+
+@pytest.mark.asyncio
+async def test_an_unknown_status_is_rejected() -> None:
+    _auth()
+    async with await _client() as client:
+        response = await client.get('/api/v1/cash-sessions', params={'status': 'none'})
+
+    assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
+
+
+@pytest.mark.asyncio
+async def test_an_unknown_sort_is_rejected() -> None:
+    _auth()
+    async with await _client() as client:
+        response = await client.get('/api/v1/cash-sessions', params={'sort': 'cashier'})
+
+    assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
 
 
 # ── Expanded foreign keys (#141) ──────────────────────────────────────────────

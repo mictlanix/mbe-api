@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -9,6 +11,8 @@ from app.schemas.cash_session import (
     CashSessionClose,
     CashSessionOpen,
     CashSessionResponse,
+    CashSessionSort,
+    CashSessionStatus,
     CurrentSessionResponse,
 )
 from app.services import cash_session_service
@@ -37,13 +41,29 @@ async def get_current_session(
 @router.get('', response_model=ListResponse[CashSessionResponse])
 async def list_cash_sessions(
     cash_drawer: int | None = Query(None),
+    cashier: int | None = Query(None),
+    facility: int | None = Query(None),
+    session_status: CashSessionStatus | None = Query(None, alias='status'),
+    date_from: datetime | None = Query(None),
+    date_to: datetime | None = Query(None),
+    sort: CashSessionSort = Query(CashSessionSort.ID_DESC),
     skip: int = Query(0, ge=0),
     limit: int = Query(20, ge=1, le=100),
     current: CurrentUser = Depends(_READ),
     db: AsyncSession = Depends(get_db),
 ) -> ListResponse[CashSessionResponse]:
     items, total = await cash_session_service.list_sessions(
-        db, current=current, cash_drawer=cash_drawer, skip=skip, limit=limit
+        db,
+        current=current,
+        cash_drawer=cash_drawer,
+        cashier=cashier,
+        facility=facility,
+        session_status=session_status,
+        date_from=date_from,
+        date_to=date_to,
+        sort=sort,
+        skip=skip,
+        limit=limit,
     )
     return ListResponse(
         items=[CashSessionResponse.model_validate(s) for s in items], total=total

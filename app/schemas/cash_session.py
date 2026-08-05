@@ -19,6 +19,30 @@ class SessionState(StrEnum):
     STALE = 'stale'
 
 
+class CashSessionStatus(StrEnum):
+    """A stored session's own state, used as a list facet (#142).
+
+    Deliberately not `SessionState`: `NONE` describes a cashier with no session, which no row can
+    be, and a stored session can be closed, which `SessionState` has no member for. The three
+    members here derive from `end` and `start` exactly as `session_state` does.
+    """
+
+    OPEN = 'open'
+    STALE = 'stale'
+    CLOSED = 'closed'
+
+
+class CashSessionSort(StrEnum):
+    """Ordering for the session list; a `-` prefix reads descending.
+
+    `ID_DESC` is the default because it is the ordering the list has always had.
+    """
+
+    ID_DESC = '-id'
+    START_ASC = 'start'
+    START_DESC = '-start'
+
+
 class DenominationCount(BaseModel):
     denomination: Decimal = Field(gt=0)
     quantity: int = Field(ge=0)

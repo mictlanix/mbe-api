@@ -546,6 +546,14 @@ order.
   rather than returning bare foreign keys, so a client can render a shift list without resolving
   three ids per row. The employees list has no fetch-many-by-id filter and is capped at 100 rows,
   so a client-side map is not an equivalent.
+- **FR-051b**: Users MUST be able to list sessions filtered by cash drawer, cashier, facility, a
+  date range over the start time, and status — open, stale or closed, derived exactly as FR-053
+  derives it — and MUST be able to order by start time in either direction as well as by the
+  default newest-id-first. Client-side filtering is not an equivalent: it is wrong across page
+  boundaries, and it cannot reach the extra open sessions FR-053's most-recent-only rule hides.
+- **FR-051c**: The session list MUST NOT be implicitly scoped to the caller's facility. Reconciling
+  a day is a cross-facility task, so facility narrowing MUST be requested through an explicit
+  `facility` filter — which resolves through the drawer, as `cash_session` stores no facility.
 - **FR-052**: Users MUST be able to close a session by submitting denomination counts, which MUST
   be stored and MUST set the session's end time. Closing MUST be gated by the cash session close
   system object (111).
