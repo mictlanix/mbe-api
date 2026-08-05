@@ -3,7 +3,7 @@ from decimal import Decimal
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator
 
 from app.enums import EntityStatus
-from app.schemas.core import EmployeeResponse
+from app.schemas.core import AddressResponse, ContactResponse, EmployeeResponse
 from app.schemas.product import PriceListResponse
 from app.schemas.sat_catalog import SatCatalogResponse
 
@@ -54,6 +54,10 @@ class CustomerCreate(BaseModel):
     salesperson: int | None = None
     status: EntityStatus = EntityStatus.ACTIVE
     comment: str | None = None
+    #: Existing address and contact ids to link (#132, #133). Replace-all: omitted leaves the
+    #: links alone, `[]` unlinks everything. Create the rows themselves via /addresses, /contacts.
+    addresses: list[int] | None = None
+    contacts: list[int] | None = None
 
     @field_validator('code')
     @classmethod
@@ -75,6 +79,8 @@ class CustomerUpdate(BaseModel):
     salesperson: int | None = None
     status: EntityStatus | None = None
     comment: str | None = None
+    addresses: list[int] | None = None
+    contacts: list[int] | None = None
 
 
 class CustomerListItem(BaseModel):
@@ -114,3 +120,6 @@ class CustomerResponse(BaseModel):
     )
     status: EntityStatus
     comment: str | None
+    # Detail only — a page of customers must not cost two extra queries per row.
+    addresses: list[AddressResponse] = []
+    contacts: list[ContactResponse] = []

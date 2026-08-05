@@ -30,6 +30,7 @@ from app.models.logistics import (
     ProofOfDelivery,
 )
 from app.models.sales import SalesOrder, SalesOrderDetail
+from app.schemas.delivery_order import DeliveryOrderLineRequest
 from app.services import delivery_events, documents, stock_ledger
 
 TERMINAL = delivery_events.TERMINAL
@@ -55,6 +56,60 @@ def assert_editable(order: DeliveryOrder) -> None:
             status_code=status.HTTP_409_CONFLICT,
             detail=f'A delivery order in {S(order.status).name} can no longer be edited',
         )
+
+
+def narrow_to_requested(
+    deliverable: Sequence[tuple[SalesOrderDetail, Decimal]],
+    requested: Sequence[DeliveryOrderLineRequest],
+) -> list[tuple[SalesOrderDetail, Decimal]]:
+    """Narrow "everything the sale still owes" to a named subset, or refuse and say why (#138).
+
+    Without this, splitting one sale across several destinations meant create-then-trim: create
+    (which claimed every uncovered quantity), `PUT`/`DELETE` its lines down to what that
+    destination should carry, then create the next against whatever was left. That forced every
+    destination's writes to serialise — the next create would otherwise claim what the previous one
+    was supposed to keep — and put the arithmetic that must sum exactly to the ordered amount in
+    the client.
+
+    Pure, and it takes the already-computed uncovered quantities rather than reading them, so the
+    arithmetic is testable without a database. The bound is the same `_covered_quantities` figure
+    the default path uses; only the scope differs.
+    """
+    uncovered = {line.sales_order_detail_id: (line, remaining) for line, remaining in deliverable}
+
+    chosen: list[tuple[SalesOrderDetail, Decimal]] = []
+    seen: set[int] = set()
+    for item in requested:
+        if item.sales_order_detail in seen:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail=f'Line {item.sales_order_detail} was requested more than once',
+            )
+        seen.add(item.sales_order_detail)
+
+        found = uncovered.get(item.sales_order_detail)
+        if found is None:
+            # Covers both "not a line of this sale" and "already fully covered elsewhere". The
+            # client cannot act differently on the two, and distinguishing them would leak which
+            # ids exist.
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail=(
+                    f'Line {item.sales_order_detail} is not an undelivered line of this sales '
+                    f'order'
+                ),
+            )
+        line, remaining = found
+        if item.quantity > remaining:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail=(
+                    f'Line {item.sales_order_detail} has {remaining} undelivered, '
+                    f'{item.quantity} requested'
+                ),
+            )
+        chosen.append((line, item.quantity))
+    return chosen
 
 
 # ── Creation from a sales order ───────────────────────────────────────────────
@@ -130,6 +185,7 @@ async def create_from_sales_order(
     *,
     current: CurrentUser,
     fulfillment_type: FulfillmentType | None = None,
+    lines: Sequence[DeliveryOrderLineRequest] | None = None,
 ) -> DeliveryOrder:
     """Raise a delivery order for what the sale still owes the customer (FR-008 – FR-015).
 
@@ -137,6 +193,10 @@ async def create_from_sales_order(
     across both kinds — the customer collects part of it at the counter and has the rest shipped —
     so the type belongs to the delivery order, not to the sale. Detection is the default because
     it is right for the ordinary case, not because it is the rule (FR-005, FR-005a).
+
+    `lines` narrows the delivery to a named subset of the sale's undelivered quantities, for the
+    same reason: one sale can split across several destinations. Omitting it keeps the original
+    behaviour of claiming everything uncovered, so existing callers are unaffected (#138).
     """
     employee = current.employee_id
 
@@ -187,6 +247,9 @@ async def create_from_sales_order(
             status_code=status.HTTP_409_CONFLICT,
             detail='This sales order is already fully delivered',
         )
+
+    if lines is not None:
+        deliverable = narrow_to_requested(deliverable, lines)
 
     if fulfillment_type is None:
         detected = await _is_facility_address(db, order.ship_to)

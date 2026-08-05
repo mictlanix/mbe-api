@@ -159,6 +159,88 @@ async def test_create_when_already_fully_delivered_is_409() -> None:
 
 
 @pytest.mark.asyncio
+async def test_create_passes_a_requested_line_subset_through() -> None:
+    """#138 — splitting a sale across destinations no longer needs create-then-trim."""
+    _auth()
+    creating = AsyncMock(return_value=_order())
+    with patch(f'{SERVICE}.create_from_sales_order', creating), patch(
+        f'{SERVICE}.lines_of', AsyncMock(return_value=[_line()])
+    ):
+        async with _client() as client:
+            response = await client.post(
+                '/api/v1/delivery-orders',
+                json={
+                    'sales_order': 42,
+                    'lines': [
+                        {'sales_order_detail': 7, 'quantity': '4'},
+                        {'sales_order_detail': 8, 'quantity': '1'},
+                    ],
+                },
+            )
+
+    assert response.status_code == 201
+    requested = creating.await_args.kwargs['lines']
+    assert [(item.sales_order_detail, item.quantity) for item in requested] == [
+        (7, Decimal('4')),
+        (8, Decimal('1')),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_create_without_lines_still_claims_everything_uncovered() -> None:
+    """The default is unchanged, so every existing caller is unaffected."""
+    _auth()
+    creating = AsyncMock(return_value=_order())
+    with patch(f'{SERVICE}.create_from_sales_order', creating), patch(
+        f'{SERVICE}.lines_of', AsyncMock(return_value=[_line()])
+    ):
+        async with _client() as client:
+            response = await client.post('/api/v1/delivery-orders', json={'sales_order': 42})
+
+    assert response.status_code == 201
+    assert creating.await_args.kwargs['lines'] is None
+
+
+@pytest.mark.asyncio
+async def test_an_empty_line_list_is_rejected_by_the_schema() -> None:
+    """"Deliver nothing" is not a request; omitting `lines` is how you ask for everything."""
+    _auth()
+    async with _client() as client:
+        response = await client.post(
+            '/api/v1/delivery-orders', json={'sales_order': 42, 'lines': []}
+        )
+
+    assert response.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_a_zero_line_quantity_is_rejected_by_the_schema() -> None:
+    _auth()
+    async with _client() as client:
+        response = await client.post(
+            '/api/v1/delivery-orders',
+            json={'sales_order': 42, 'lines': [{'sales_order_detail': 7, 'quantity': '0'}]},
+        )
+
+    assert response.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_overclaiming_a_line_surfaces_the_services_422() -> None:
+    _auth()
+    refusal = HTTPException(status_code=422, detail='Line 7 has 4 undelivered, 5 requested')
+    with patch(f'{SERVICE}.create_from_sales_order', AsyncMock(side_effect=refusal)):
+        async with _client() as client:
+            response = await client.post(
+                '/api/v1/delivery-orders',
+                json={'sales_order': 42, 'lines': [{'sales_order_detail': 7, 'quantity': '5'}]},
+            )
+
+    assert response.status_code == 422
+    assert '4 undelivered' in response.json()['detail']
+
+
+@pytest.mark.asyncio
 async def test_unknown_order_is_404() -> None:
     _auth()
     with patch(f'{SERVICE}.get_order', AsyncMock(return_value=None)):

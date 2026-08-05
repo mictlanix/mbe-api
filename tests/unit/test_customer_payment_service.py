@@ -6,6 +6,7 @@ application restores an order's balance *exactly*, so the set/clear logic is sym
 
 from decimal import Decimal
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
 from fastapi import HTTPException
@@ -17,6 +18,7 @@ from app.services.customer_payment_service import (
     assert_same_customer,
     assert_within_unapplied,
     covers_total,
+    list_order_applications,
 )
 
 
@@ -108,3 +110,69 @@ class TestCoversTotal:
         total = Decimal('100.00')
         assert covers_total(Decimal('100.00'), total) is True
         assert covers_total(Decimal('0'), total) is False
+
+
+class TestListOrderApplications:
+    """#134 — the order→payments direction, flattened so a list renders in one request."""
+
+    @staticmethod
+    def _db(rows: list) -> AsyncMock:
+        db = AsyncMock()
+        db.execute = AsyncMock(return_value=SimpleNamespace(all=lambda: rows))
+        return db
+
+    @pytest.mark.asyncio
+    async def test_projects_the_payment_fields_a_row_needs(self) -> None:
+        application = SimpleNamespace(
+            sales_order_payment_id=9,
+            sales_order=1,
+            customer_payment=4,
+            amount=Decimal('100'),
+            amount_change=Decimal('0'),
+            applier=7,
+            date='applied-on',
+            cancelled=False,
+        )
+        payment = SimpleNamespace(
+            method=4,
+            currency=CurrencyCode.MXN,
+            reference='AUTH-771',
+            date='taken-on',
+            payment_type=1,
+            verifier=None,
+        )
+        db = self._db([(application, payment)])
+
+        rows = await list_order_applications(db, 1)
+
+        assert len(rows) == 1
+        assert rows[0]['reference'] == 'AUTH-771'
+        assert rows[0]['method'] == 4
+        # The application's date and the payment's are separate keys — they differ whenever a
+        # payment is applied later than it was taken.
+        assert rows[0]['date'] == 'applied-on'
+        assert rows[0]['payment_date'] == 'taken-on'
+
+    @pytest.mark.asyncio
+    async def test_one_query_regardless_of_how_many_applications(self) -> None:
+        """The join is the point — no follow-up fetch per application (the N+1 rule)."""
+        application = SimpleNamespace(
+            sales_order_payment_id=9,
+            sales_order=1,
+            customer_payment=4,
+            amount=Decimal('100'),
+            amount_change=Decimal('0'),
+            applier=7,
+            date=None,
+            cancelled=False,
+        )
+        payment = SimpleNamespace(
+            method=1, currency=CurrencyCode.MXN, reference=None, date=None,
+            payment_type=1, verifier=None,
+        )
+        db = self._db([(application, payment)] * 25)
+
+        rows = await list_order_applications(db, 1)
+
+        assert len(rows) == 25
+        assert db.execute.await_count == 1

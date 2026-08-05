@@ -56,6 +56,22 @@ class ApplicationResponse(BaseModel):
     cancelled: bool
 
 
+class OrderApplicationResponse(ApplicationResponse):
+    """An application seen from the order's side, with its payment flattened onto it (#134).
+
+    The payment fields are the ones needed to render a row — how it was tendered, what identifies
+    it, and whether verification has passed. `date` stays the application's; the payment's own is
+    `payment_date`, because the two differ whenever a payment is applied later than it was taken.
+    """
+
+    method: PaymentMethod
+    currency: CurrencyCode
+    reference: str | None
+    payment_date: datetime
+    payment_type: PaymentType
+    verifier: int | None
+
+
 class ReversalRequest(BaseModel):
     """The reason is mandatory — SC-009 allows no anonymous or unexplained reversal."""
 

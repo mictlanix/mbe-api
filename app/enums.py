@@ -64,6 +64,39 @@ class PaymentMethod(IntEnum):
     TO_BE_DEFINED = 99
     GOVERNMENT_FUNDING = 1001
 
+    @classmethod
+    def requires_reference(cls, code: int) -> bool:
+        """Whether recording money this way needs a reference or authorization number (#137).
+
+        The rule lives here rather than in each client because the catalog is ours: a client that
+        hardcodes the mapping goes stale the moment a code is added or reclassified, with no
+        signal that it has.
+
+        Takes a plain `int` because the columns holding these codes are plain ints and this enum
+        names only the SAT codes the system uses — a legacy row can carry one it does not name.
+        """
+        return code in _METHODS_REQUIRING_REFERENCE
+
+
+#: Money that arrives through a bank, a card network or a voucher scheme carries an external
+#: identifier, and that identifier is what reconciliation matches against — so recording one
+#: without it is a dead end. Cash and the in-kind settlements leave no such document.
+#:
+#: Anything absent defaults to *not* required. That direction is deliberate: an unclassified new
+#: SAT code should not stop a cashier from taking money until someone gets round to placing it.
+_METHODS_REQUIRING_REFERENCE = frozenset(
+    {
+        PaymentMethod.CHECK,
+        PaymentMethod.EFT,
+        PaymentMethod.CREDIT_CARD,
+        PaymentMethod.ELECTRONIC_PURSE,
+        PaymentMethod.ELECTRONIC_MONEY,
+        PaymentMethod.FOOD_VOUCHERS,
+        PaymentMethod.DEBIT_CARD,
+        PaymentMethod.SERVICE_CARD,
+    }
+)
+
 
 class PaymentType(IntEnum):
     """`customer_payment.payment_type` — what the payment record represents.

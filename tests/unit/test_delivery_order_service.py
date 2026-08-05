@@ -14,6 +14,7 @@ from fastapi import HTTPException
 
 from app.enums import DeliveryOrderStatus as S
 from app.enums import FulfillmentType
+from app.schemas.delivery_order import DeliveryOrderLineRequest
 from app.services import delivery_order_service as service
 
 
@@ -270,3 +271,99 @@ class TestFulfillmentTypeIsPerDeliveryOrder:
         source = inspect.getsource(service.update_order)
 
         assert 'fulfillment_type' not in source
+
+
+class TestNarrowingToARequestedSubset:
+    """#138 — one sale splitting across several destinations, without create-then-trim.
+
+    The property that has to hold across a split is that every destination's quantities sum to the
+    ordered amount, no more and no less. The bound each request is checked against is the same
+    uncovered figure the default path uses, so the two cannot disagree.
+    """
+
+    @staticmethod
+    def _deliverable(*pairs: tuple[int, str]) -> list:
+        return [
+            (SimpleNamespace(sales_order_detail_id=line_id), Decimal(remaining))
+            for line_id, remaining in pairs
+        ]
+
+    @staticmethod
+    def _request(sales_order_detail: int, quantity: str) -> DeliveryOrderLineRequest:
+        return DeliveryOrderLineRequest(
+            sales_order_detail=sales_order_detail, quantity=Decimal(quantity)
+        )
+
+    def test_it_keeps_only_the_named_lines_at_the_named_quantities(self) -> None:
+        chosen = service.narrow_to_requested(
+            self._deliverable((1, '10'), (2, '5'), (3, '4')),
+            [self._request(1, '4'), self._request(3, '4')],
+        )
+
+        assert [(line.sales_order_detail_id, qty) for line, qty in chosen] == [
+            (1, Decimal('4')),
+            (3, Decimal('4')),
+        ]
+
+    def test_a_partial_quantity_of_one_line_is_allowed(self) -> None:
+        """The whole point: this destination takes six of ten, the next takes the rest."""
+        chosen = service.narrow_to_requested(
+            self._deliverable((1, '10')), [self._request(1, '6')]
+        )
+
+        assert chosen[0][1] == Decimal('6')
+
+    def test_two_destinations_can_between_them_claim_the_whole_line(self) -> None:
+        first = service.narrow_to_requested(self._deliverable((1, '10')), [self._request(1, '6')])
+        # The second create sees what the first left uncovered.
+        second = service.narrow_to_requested(self._deliverable((1, '4')), [self._request(1, '4')])
+
+        assert first[0][1] + second[0][1] == Decimal('10')
+
+    def test_asking_for_more_than_is_undelivered_is_refused(self) -> None:
+        with pytest.raises(HTTPException) as exc:
+            service.narrow_to_requested(self._deliverable((1, '4')), [self._request(1, '5')])
+
+        assert exc.value.status_code == 422
+        assert '4 undelivered' in exc.value.detail
+        assert '5 requested' in exc.value.detail
+
+    def test_a_line_from_another_sale_is_refused(self) -> None:
+        with pytest.raises(HTTPException) as exc:
+            service.narrow_to_requested(self._deliverable((1, '10')), [self._request(99, '1')])
+
+        assert exc.value.status_code == 422
+        assert 'not an undelivered line' in exc.value.detail
+
+    def test_a_line_already_covered_elsewhere_is_refused_the_same_way(self) -> None:
+        """It is absent from `deliverable`, so it is indistinguishable from a foreign id — and the
+        client can act no differently on the two."""
+        with pytest.raises(HTTPException) as exc:
+            service.narrow_to_requested(self._deliverable((2, '5')), [self._request(1, '1')])
+
+        assert 'not an undelivered line' in exc.value.detail
+
+    def test_naming_the_same_line_twice_is_refused(self) -> None:
+        """Otherwise the second entry silently replaces the first, or double-claims the line."""
+        with pytest.raises(HTTPException) as exc:
+            service.narrow_to_requested(
+                self._deliverable((1, '10')), [self._request(1, '4'), self._request(1, '4')]
+            )
+
+        assert exc.value.status_code == 422
+        assert 'more than once' in exc.value.detail
+
+    def test_claiming_exactly_what_is_left_is_allowed(self) -> None:
+        """The boundary: `>` not `>=`, so the last destination can take the remainder."""
+        chosen = service.narrow_to_requested(
+            self._deliverable((1, '4')), [self._request(1, '4')]
+        )
+
+        assert chosen[0][1] == Decimal('4')
+
+    def test_omitting_lines_leaves_the_default_path_untouched(self) -> None:
+        """Existing callers must be unaffected — the narrowing is skipped, not applied empty."""
+        source = inspect.getsource(service.create_from_sales_order)
+
+        assert 'if lines is not None:' in source
+        assert 'narrow_to_requested(deliverable, lines)' in source

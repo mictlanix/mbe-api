@@ -1,12 +1,12 @@
 from collections.abc import Sequence
 
 from fastapi import HTTPException, status
-from sqlalchemy import func, or_, select
+from sqlalchemy import delete, func, insert, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.enums import EntityStatus
-from app.models.core import Employee
-from app.models.customer import Customer
+from app.models.core import Address, Contact, Employee
+from app.models.customer import Customer, customer_address, customer_contact
 from app.models.product import PriceList
 from app.schemas.customer import CustomerCreate, CustomerUpdate
 from app.services.references import assert_not_referenced
@@ -40,6 +40,84 @@ async def _attach_customer_relations(db: AsyncSession, customers: Sequence[Custo
         c.__dict__['salesperson_detail'] = (
             employees_by_id.get(c.salesperson) if c.salesperson is not None else None
         )
+
+
+async def _get_links(db: AsyncSession, customer_id: int) -> tuple[list[Address], list[Contact]]:
+    """A customer's linked addresses and contacts (#132, #133).
+
+    `customer_address` and `customer_contact` are real junction tables with real rows that nothing
+    exposed: a client needing "one of this customer's addresses" as a delivery destination had to
+    fall back to an unfiltered global address search, and a per-destination contact had nowhere to
+    go but a delivery order's free-text comment.
+
+    Attached to the detail response only, never to `CustomerListItem` — a page of customers must
+    not cost two queries per row.
+    """
+    addresses = (
+        (
+            await db.execute(
+                select(Address)
+                .join(customer_address, customer_address.c['address'] == Address.address_id)
+                .where(customer_address.c['customer'] == customer_id)
+                .order_by(Address.address_id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    contacts = (
+        (
+            await db.execute(
+                select(Contact)
+                .join(customer_contact, customer_contact.c['contact'] == Contact.contact_id)
+                .where(customer_contact.c['customer'] == customer_id)
+                .order_by(Contact.contact_id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    return list(addresses), list(contacts)
+
+
+async def _attach_links(db: AsyncSession, customer: Customer) -> None:
+    addresses, contacts = await _get_links(db, customer.customer_id)
+    # Written under a separate key for consistency with the FK details above, though these two
+    # shadow no mapped column.
+    customer.__dict__['addresses'] = addresses
+    customer.__dict__['contacts'] = contacts
+
+
+async def _set_links(
+    db: AsyncSession,
+    customer_id: int,
+    *,
+    addresses: list[int] | None,
+    contacts: list[int] | None,
+) -> None:
+    """Replace-all, and only for a collection the caller actually sent.
+
+    `None` means "leave the links alone", which is what makes an ordinary `PUT` that does not
+    mention addresses safe. An empty list is a real instruction: unlink everything.
+    """
+    if addresses is not None:
+        await db.execute(
+            delete(customer_address).where(customer_address.c['customer'] == customer_id)
+        )
+        if addresses:
+            await db.execute(
+                insert(customer_address),
+                [{'customer': customer_id, 'address': a} for a in addresses],
+            )
+    if contacts is not None:
+        await db.execute(
+            delete(customer_contact).where(customer_contact.c['customer'] == customer_id)
+        )
+        if contacts:
+            await db.execute(
+                insert(customer_contact),
+                [{'customer': customer_id, 'contact': c} for c in contacts],
+            )
 
 
 async def list_customers(
@@ -86,6 +164,7 @@ async def get_customer(db: AsyncSession, customer_id: int) -> Customer | None:
     if customer is None:
         return None
     await _attach_customer_relations(db, [customer])
+    await _attach_links(db, customer)
     return customer
 
 
@@ -104,9 +183,12 @@ async def create_customer(db: AsyncSession, data: CustomerCreate) -> Customer:
         status=data.status,
     )
     db.add(customer)
+    await db.flush()  # get customer_id before writing the junction rows
+    await _set_links(db, customer.customer_id, addresses=data.addresses, contacts=data.contacts)
     await db.commit()
     await db.refresh(customer)
     await _attach_customer_relations(db, [customer])
+    await _attach_links(db, customer)
     return customer
 
 
@@ -133,9 +215,11 @@ async def update_customer(db: AsyncSession, customer: Customer, data: CustomerUp
         customer.status = data.status
     if data.comment is not None:
         customer.comment = data.comment
+    await _set_links(db, customer.customer_id, addresses=data.addresses, contacts=data.contacts)
     await db.commit()
     await db.refresh(customer)
     await _attach_customer_relations(db, [customer])
+    await _attach_links(db, customer)
     return customer
 
 

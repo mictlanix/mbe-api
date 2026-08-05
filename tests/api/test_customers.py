@@ -541,3 +541,111 @@ async def test_create_customer_without_status_defaults_to_active() -> None:
             )
     assert r.status_code == 201
     assert r.json()['status'] == 0
+
+
+# ── Customer addresses and contacts (#132, #133) ──────────────────────────────
+
+
+def _linked_address(address_id: int = 4) -> SimpleNamespace:
+    return SimpleNamespace(
+        address_id=address_id,
+        nickname='Bodega',
+        type=1,
+        street='Main St',
+        exterior_number='123',
+        interior_number=None,
+        postal_code='06000',
+        neighborhood='Centro',
+        locality=None,
+        borough='Cuauhtemoc',
+        state='CDMX',
+        city='Mexico City',
+        country='MX',
+        url_address=None,
+        comment=None,
+        status=0,
+    )
+
+
+def _linked_contact(contact_id: int = 9) -> SimpleNamespace:
+    return SimpleNamespace(
+        contact_id=contact_id,
+        name='Juan Pérez',
+        job_title=None,
+        phone=None,
+        phone_ext=None,
+        mobile='5559876543',
+        fax=None,
+        website=None,
+        email=None,
+        im=None,
+        sip=None,
+        birthday=None,
+        comment=None,
+    )
+
+
+@pytest.mark.asyncio
+async def test_customer_detail_carries_its_addresses_and_contacts() -> None:
+    """#132, #133 — a delivery-destination picker reads these instead of searching globally."""
+    _auth()
+    customer = _customer()
+    customer.addresses = [_linked_address()]
+    customer.contacts = [_linked_contact()]
+    with patch(
+        'app.services.customer_service.get_customer', new=AsyncMock(return_value=customer)
+    ):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as c:
+            r = await c.get('/api/v1/customers/1')
+
+    assert r.status_code == 200
+    body = r.json()
+    assert [a['address_id'] for a in body['addresses']] == [4]
+    assert [k['name'] for k in body['contacts']] == ['Juan Pérez']
+
+
+@pytest.mark.asyncio
+async def test_a_customer_with_no_links_reports_empty_collections() -> None:
+    _auth()
+    with patch(
+        'app.services.customer_service.get_customer', new=AsyncMock(return_value=_customer())
+    ):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as c:
+            r = await c.get('/api/v1/customers/1')
+
+    assert r.status_code == 200
+    assert r.json()['addresses'] == []
+    assert r.json()['contacts'] == []
+
+
+@pytest.mark.asyncio
+async def test_link_ids_reach_the_service_on_update() -> None:
+    _auth()
+    updating = AsyncMock(return_value=_customer())
+    with patch(
+        'app.services.customer_service.get_customer', new=AsyncMock(return_value=_customer())
+    ), patch('app.services.customer_service.update_customer', new=updating):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as c:
+            r = await c.put('/api/v1/customers/1', json={'addresses': [4], 'contacts': [9]})
+
+    assert r.status_code == 200
+    data = updating.await_args.args[2]
+    assert data.addresses == [4]
+    assert data.contacts == [9]
+
+
+@pytest.mark.asyncio
+async def test_an_update_that_says_nothing_about_links_leaves_them_unset() -> None:
+    """`None`, not `[]` — the service reads that as "leave the links alone"."""
+    _auth()
+    updating = AsyncMock(return_value=_customer())
+    with patch(
+        'app.services.customer_service.get_customer', new=AsyncMock(return_value=_customer())
+    ), patch('app.services.customer_service.update_customer', new=updating):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as c:
+            r = await c.put('/api/v1/customers/1', json={'zone': 'Norte'})
+
+    assert r.status_code == 200
+    data = updating.await_args.args[2]
+    assert data.addresses is None
+    assert data.contacts is None
