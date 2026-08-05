@@ -374,6 +374,19 @@ class CashDrawerUpdate(BaseModel):
     status: EntityStatus | None = None
 
 
+class CashDrawerSummary(BaseModel):
+    """Flat CashDrawer representation used when embedded as another resource's FK."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    cash_drawer_id: int
+    facility: int
+    code: str
+    name: str
+    comment: str | None
+    status: EntityStatus
+
+
 class CashDrawerResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

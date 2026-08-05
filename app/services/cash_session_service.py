@@ -8,18 +8,25 @@ starting-cash type, which is how the legacy schema records it.
 """
 
 from collections.abc import Sequence
-from datetime import date, datetime
+from datetime import date, datetime, time
 from decimal import Decimal
 
 from fastapi import HTTPException, status
-from sqlalchemy import func, select
+from sqlalchemy import and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.deps import CurrentUser
 from app.enums import CashCountType
-from app.models.core import CashCount, CashDrawer, CashSession
+from app.models.core import CashCount, CashDrawer, CashSession, Employee
 from app.models.sales import CustomerPayment
-from app.schemas.cash_session import CashSessionClose, CashSessionOpen, SessionState
+from app.schemas.cash_session import (
+    CashSessionClose,
+    CashSessionOpen,
+    CashSessionSort,
+    CashSessionStatus,
+    SessionState,
+)
+from app.services.fk_expansion import batch_fetch
 
 # ── Decision rules (pure) ─────────────────────────────────────────────────────
 
@@ -37,6 +44,29 @@ def session_state(session: object | None, *, today: date) -> SessionState:
     if start is not None and start.date() < today:
         return SessionState.STALE
     return SessionState.OPEN
+
+
+def _status_clause(wanted: CashSessionStatus, *, today: date):  # noqa: ANN202
+    """`session_state`'s rule expressed over the columns, for the list facet (#142).
+
+    Compared against midnight rather than casting `start` to a date so the comparison stays
+    index-friendly and dialect-agnostic; the boundary is the same one `session_state` applies.
+    """
+    if wanted is CashSessionStatus.CLOSED:
+        return CashSession.end.is_not(None)
+
+    midnight = datetime.combine(today, time.min)
+    if wanted is CashSessionStatus.STALE:
+        return and_(CashSession.end.is_(None), CashSession.start < midnight)
+    return and_(CashSession.end.is_(None), CashSession.start >= midnight)
+
+
+# The id tie-breaker keeps paging stable when two sessions share a `start`.
+_ORDERINGS = {
+    CashSessionSort.ID_DESC: (CashSession.cash_session_id.desc(),),
+    CashSessionSort.START_ASC: (CashSession.start.asc(), CashSession.cash_session_id.asc()),
+    CashSessionSort.START_DESC: (CashSession.start.desc(), CashSession.cash_session_id.desc()),
+}
 
 
 # ── Context ───────────────────────────────────────────────────────────────────
@@ -115,9 +145,37 @@ async def payments_by_method(db: AsyncSession, cash_session_id: int) -> list[dic
     return [{'method': method, 'total': total or Decimal(0)} for method, total in rows]
 
 
+async def attach_relations(db: AsyncSession, sessions: Sequence[CashSession]) -> None:
+    """Expand the drawer and both employee FKs for a whole page, in two queries (#141).
+
+    Every read path returns these expanded, so a client listing shifts can show a drawer and a
+    cashier name without resolving three ids per row.
+    """
+    if not sessions:
+        return
+
+    drawers = await batch_fetch(
+        db, CashDrawer, CashDrawer.cash_drawer_id, (s.cash_drawer for s in sessions)
+    )
+    employees = await batch_fetch(
+        db,
+        Employee,
+        Employee.employee_id,
+        [s.cashier for s in sessions] + [s.cash_supervisor for s in sessions],
+    )
+
+    for session in sessions:
+        # Written under separate keys: the mapped columns are shared through the session
+        # identity map, so overwriting them corrupts every reader of the raw FK (#95, #104).
+        session.__dict__['cash_drawer_detail'] = drawers.get(session.cash_drawer)
+        session.__dict__['cashier_detail'] = employees.get(session.cashier)
+        session.__dict__['cash_supervisor_detail'] = employees.get(session.cash_supervisor)
+
+
 async def attach_derived(db: AsyncSession, session: CashSession) -> CashSession:
     session.__dict__['opening_amount'] = await opening_amount(db, session.cash_session_id)
     session.__dict__['payments_by_method'] = await payments_by_method(db, session.cash_session_id)
+    await attach_relations(db, [session])
     return session
 
 
@@ -254,17 +312,49 @@ async def list_sessions(
     *,
     current: CurrentUser,
     cash_drawer: int | None = None,
+    cashier: int | None = None,
+    facility: int | None = None,
+    session_status: CashSessionStatus | None = None,
+    date_from: datetime | None = None,
+    date_to: datetime | None = None,
+    sort: CashSessionSort = CashSessionSort.ID_DESC,
     skip: int = 0,
     limit: int = 20,
 ) -> tuple[Sequence[CashSession], int]:
+    """Every narrowing is explicit — including facility, which is not defaulted (#142).
+
+    A supervisor reconciling a day works across facilities, so this list stays unscoped unless
+    `facility` is passed; that differs from `list_orders` and `list_payments` on purpose.
+    """
     base = select(CashSession)
     count_q = select(func.count()).select_from(CashSession)
+
+    def both(clause):  # noqa: ANN001, ANN202 — local helper, mirrors existing services
+        nonlocal base, count_q
+        base = base.where(clause)
+        count_q = count_q.where(clause)
+
     if cash_drawer is not None:
-        base = base.where(CashSession.cash_drawer == cash_drawer)
-        count_q = count_q.where(CashSession.cash_drawer == cash_drawer)
+        both(CashSession.cash_drawer == cash_drawer)
+    if cashier is not None:
+        both(CashSession.cashier == cashier)
+    if facility is not None:
+        # `cash_session` has no facility column; the drawer is what carries one.
+        both(
+            CashSession.cash_drawer.in_(
+                select(CashDrawer.cash_drawer_id).where(CashDrawer.facility == facility)
+            )
+        )
+    if date_from is not None:
+        both(CashSession.start >= date_from)
+    if date_to is not None:
+        both(CashSession.start <= date_to)
+    if session_status is not None:
+        both(_status_clause(session_status, today=date.today()))
 
     total: int = (await db.execute(count_q)).scalar_one()
-    page = base.order_by(CashSession.cash_session_id.desc()).offset(skip).limit(limit)
+    page = base.order_by(*_ORDERINGS[sort]).offset(skip).limit(limit)
     items = (await db.execute(page)).scalars().all()
     await attach_summary_amounts(db, items)
+    await attach_relations(db, items)
     return items, total
