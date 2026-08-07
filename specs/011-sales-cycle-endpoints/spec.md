@@ -468,6 +468,17 @@ order.
   matching salable products with the price for a given customer and the available stock per
   warehouse. A 13-digit numeric pattern MUST be matched against the product's barcode instead of
   the free-text fields.
+- **FR-021a**: The product lookup **and** a sales order's line responses MUST each report the
+  product's unit of measurement, in the same full SAT-record shape the product endpoints return.
+  Added by #145.
+
+  > **Both, not either.** A capture grid shows a unit per line, and the lookup alone would let a
+  > client cache one per product at scan time — but a resumed sale re-reads its lines and never
+  > re-runs the lookup, so the rows already captured, exactly the ones a resume exists to show, would
+  > be the blank ones. `sales_order_detail` snapshots the product's code and name and nothing else,
+  > so the line's unit is read through the product; a product whose unit has no SAT catalog row
+  > reports `null` rather than a fabricated value. Batched into one query per line set and per lookup
+  > page, never one per row.
 
 - **FR-022**: Folio uniqueness MUST be enforced by a unique database constraint on
   `(facility, serial)` for sales orders, quotes and refunds, in addition to the application-level
