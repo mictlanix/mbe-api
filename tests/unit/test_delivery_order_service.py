@@ -367,3 +367,18 @@ class TestNarrowingToARequestedSubset:
 
         assert 'if lines is not None:' in source
         assert 'narrow_to_requested(deliverable, lines)' in source
+
+    def test_the_requested_lines_are_not_rebound_before_the_narrowing(self) -> None:
+        """The bug this pins: the sale's own lines were read into `lines`, shadowing the argument.
+
+        `if lines is not None` then tested the query result, which is a list and never `None`, so
+        the narrowing ran on every create — and ran against `SalesOrderDetail` rows, which carry no
+        `sales_order_detail` attribute. `POST /delivery-orders` raised `AttributeError` for every
+        caller, subset or not. Neither existing test caught it: the API tests patch the service out,
+        and the unit tests call `narrow_to_requested` directly.
+        """
+        source = inspect.getsource(service.create_from_sales_order)
+
+        assert 'sales_lines = list(' in source
+        # Leading space, so `sales_lines` does not satisfy it.
+        assert ' lines = list(' not in source

@@ -223,7 +223,10 @@ async def create_from_sales_order(
     # system took the whole order: of 23,774 sales orders that produced a delivery order, 22,976
     # carried *every* line, and the ~3% left out are spread evenly across stockable and
     # non-stockable products — operational noise, not a rule.
-    lines = list(
+    # Not `lines`: that is the caller's requested subset, and rebinding it here made the narrowing
+    # below read the sale's own lines instead — every create then failed on the first request
+    # object it expected and did not have.
+    sales_lines = list(
         (
             await db.execute(
                 select(SalesOrderDetail).where(
@@ -238,7 +241,7 @@ async def create_from_sales_order(
 
     deliverable = [
         (line, line.quantity - covered.get(line.sales_order_detail_id, Decimal(0)))
-        for line in lines
+        for line in sales_lines
     ]
     deliverable = [(line, remaining) for line, remaining in deliverable if remaining > 0]
 
