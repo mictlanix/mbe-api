@@ -43,6 +43,7 @@ async def _order_or_404(db: AsyncSession, delivery_order_id: int):  # noqa: ANN2
 
 
 async def _with_lines(db: AsyncSession, order) -> DeliveryOrderResponse:  # noqa: ANN001
+    await delivery_order_service.attach_sales_order(db, [order])
     body = DeliveryOrderResponse.model_validate(order)
     body.lines = [
         DeliveryOrderLineResponse.model_validate(line)
@@ -72,6 +73,7 @@ async def list_approval_queue(
         skip=skip,
         limit=limit,
     )
+    await delivery_order_service.attach_sales_order(db, items)
     return ListResponse(
         items=[DeliveryOrderSummary.model_validate(o) for o in items], total=total
     )
@@ -109,6 +111,7 @@ async def list_delivery_orders(
     customer: int | None = Query(None),
     facility: int | None = Query(None),
     fulfillment_type: FulfillmentType | None = Query(None),
+    sales_order: int | None = Query(None),
     date_from: datetime | None = Query(None),
     date_to: datetime | None = Query(None),
     mine: bool = Query(False),
@@ -118,7 +121,10 @@ async def list_delivery_orders(
     current: CurrentUser = Depends(_READ),
     db: AsyncSession = Depends(get_db),
 ) -> ListResponse[DeliveryOrderSummary]:
-    """`mine` is how an author finds a rejected draft — no notification is sent (FR-067)."""
+    """`mine` is how an author finds a rejected draft — no notification is sent (FR-067).
+
+    `sales_order` answers "which deliveries belong to this sale?" in one call (#147).
+    """
     items, total = await delivery_order_service.list_orders(
         db,
         current=current,
@@ -126,6 +132,7 @@ async def list_delivery_orders(
         customer=customer,
         facility=facility,
         fulfillment_type=fulfillment_type,
+        sales_order=sales_order,
         date_from=date_from,
         date_to=date_to,
         mine=mine,
@@ -133,6 +140,7 @@ async def list_delivery_orders(
         skip=skip,
         limit=limit,
     )
+    await delivery_order_service.attach_sales_order(db, items)
     return ListResponse(
         items=[DeliveryOrderSummary.model_validate(o) for o in items], total=total
     )
@@ -150,6 +158,10 @@ async def create_delivery_order(
         current=current,
         fulfillment_type=data.fulfillment_type,
         lines=data.lines,
+        ship_to=data.ship_to,
+        contact=data.contact,
+        date=data.date,
+        comment=data.comment,
     )
     return await _with_lines(db, order)
 

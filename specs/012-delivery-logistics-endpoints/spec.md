@@ -439,6 +439,18 @@ back a complete, ordered history of its transitions.
   > that must sum exactly to the ordered amount in the client. The procedure is recorded here rather
   > than deleted because it is what any client written against this spec before #138 is still doing,
   > and it continues to work; it is no longer the only way, or the recommended one.
+- **FR-005c**: Users MUST be able to state a delivery order's own `ship_to`, `contact`, `date` and
+  `comment` when raising it, each falling back to the originating sale's value when omitted. Same
+  reason as FR-005a and FR-005b: one sale can split across **several destinations**, and each
+  destination needs its own address, and often its own contact, date and instructions. The
+  fulfilment-type detection of FR-005 MUST read the stated destination rather than the sale's, since
+  a counter pickup is one because of where the goods end up. Added by #146.
+
+  > **What this removes.** These four were settable only afterwards, through the header edit of
+  > FR-006, so every destination after the first cost two calls with a partial-failure window
+  > between them: a `POST` that succeeded followed by a `PUT` that failed left a draft holding
+  > committed quantities and pointing at the **wrong address**, which the client then had to detect
+  > and cancel. FR-006 is unchanged and still owns genuine post-creation edits.
 - **FR-006**: System MUST allow header and line edits only while an order is in `DRAFT`.
 - **FR-007**: System MUST allow cancellation with a mandatory non-blank reason from any
   non-terminal status except `IN_TRANSIT`, releasing any commitment the order holds.
@@ -624,6 +636,19 @@ back a complete, ordered history of its transitions.
 - **FR-067**: Users MUST be able to list delivery orders filtered by status, customer, facility,
   fulfilment type, scheduled-date range and whether the caller created them, and to search by
   folio, customer name or the originating sales order, with paging and a total count.
+- **FR-067a**: System MUST report the sales order a delivery order was raised from on both the
+  delivery-order response and its summary, and users MUST be able to **filter** the list on it.
+  Added by #147.
+
+  > **Derived, not stored.** The link lives on the lines — `delivery_order_detail.sales_order_detail`
+  > — and a child order raised by a partial delivery inherits it with its lines, so deriving it is
+  > the version that cannot drift from the data. Before this, "which delivery orders belong to sale
+  > *N*?" had no answer: the filters of FR-067 do not include the sale and neither shape carried it,
+  > so a client resuming a part-distributed sale had to list every delivery order of that customer,
+  > read each one back for its lines, and keep the ones whose lines pointed at this sale's — one
+  > request per candidate, unbounded for an active customer, and wrong whenever paging cut off
+  > first. A delivery order is raised from exactly one sale, so the reported value is scalar; a
+  > legacy row whose lines span two reports the lower id, and the filter still finds it under both.
 - **FR-068**: Users MUST be able to list itineraries filtered by date range, vehicle, operator,
   dispatch warehouse and open-or-closed state, with paging and a total count.
 - **FR-069**: System MUST answer a request naming a delivery order, itinerary, stop or line that

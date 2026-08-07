@@ -5,6 +5,7 @@ from enum import StrEnum
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.enums import CurrencyCode, PaymentTerms, Priority
+from app.schemas.sat_catalog import SatUnitOfMeasurementResponse
 
 # ── Lifecycle ─────────────────────────────────────────────────────────────────
 
@@ -62,6 +63,11 @@ class SalesOrderLineResponse(BaseModel):
     product: int
     product_code: str
     product_name: str
+    # The product's unit, in the same full shape the product endpoints return (#145). Not stored on
+    # the line: `sales_order_detail` snapshots the code and the name and nothing else, so this is
+    # read through the product and attached by `attach_derived`. `null` only if the SAT catalog has
+    # no row for the product's unit.
+    unit_of_measurement: SatUnitOfMeasurementResponse | None = None
     quantity: Decimal
     cost: Decimal
     price: Decimal
@@ -186,6 +192,9 @@ class ProductLookupResponse(BaseModel):
     brand: str | None
     model: str | None
     bar_code: str | None
+    #: So a capture grid can show the unit on the row it just scanned, without a second call per
+    #: product to `/products` (#145).
+    unit_of_measurement: SatUnitOfMeasurementResponse | None = None
     price: Decimal
     tax_rate: Decimal
     tax_included: bool

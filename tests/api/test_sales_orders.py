@@ -517,3 +517,100 @@ async def test_order_payments_404_when_the_order_does_not_exist() -> None:
             response = await client.get('/api/v1/sales-orders/999/payments')
 
     assert response.status_code == status.HTTP_404_NOT_FOUND
+
+
+# ── Unit of measurement (#145) ─────────────────────────────────────────────────
+
+
+def _unit() -> dict:
+    return {'id': 'H87', 'name': 'Pieza', 'description': None, 'symbol': None}
+
+
+def _sales_line(**overrides) -> SimpleNamespace:
+    base = dict(
+        sales_order_detail_id=11,
+        product=1,
+        product_code='W-1',
+        product_name='Widget',
+        unit_of_measurement=_unit(),
+        quantity=Decimal('2'),
+        cost=Decimal('50'),
+        price=Decimal('100'),
+        discount_rate=Decimal('0'),
+        tax_rate=Decimal('0.16'),
+        tax_included=False,
+        currency=0,
+        exchange_rate=Decimal('1'),
+        warehouse=2,
+        comment=None,
+        subtotal=Decimal('200.00'),
+        tax_total=Decimal('32.00'),
+        total=Decimal('232.00'),
+    )
+    base.update(overrides)
+    return SimpleNamespace(**base)
+
+
+@pytest.mark.asyncio
+async def test_a_line_reports_the_products_unit() -> None:
+    """The capture grid shows a unit column, and a resumed sale reads its lines from here."""
+    _auth()
+    order = _order(lines=[_sales_line()])
+    with patch('app.services.sales_order_service.get_order', AsyncMock(return_value=order)), patch(
+        'app.services.sales_order_service.attach_derived', AsyncMock(return_value=order)
+    ):
+        async with await _client() as client:
+            response = await client.get('/api/v1/sales-orders/1')
+
+    assert response.status_code == status.HTTP_200_OK
+    assert response.json()['lines'][0]['unit_of_measurement']['name'] == 'Pieza'
+
+
+@pytest.mark.asyncio
+async def test_product_lookup_reports_the_unit() -> None:
+    """So a scanned row shows its unit without a second call to `/products` per product."""
+    _auth()
+    row = {
+        'product': 1,
+        'code': 'W-1',
+        'name': 'Widget',
+        'sku': None,
+        'brand': None,
+        'model': None,
+        'bar_code': None,
+        'unit_of_measurement': _unit(),
+        'price': Decimal('99.00'),
+        'tax_rate': Decimal('0.16'),
+        'tax_included': False,
+        'min_order_qty': 1,
+        'stock_required': True,
+        'stockable': True,
+        'stock': [],
+    }
+    with patch(
+        'app.services.sales_order_service.lookup_products', AsyncMock(return_value=[row])
+    ):
+        async with await _client() as client:
+            response = await client.get(
+                '/api/v1/sales-orders/product-lookup?pattern=widget&customer=2'
+            )
+
+    assert response.status_code == status.HTTP_200_OK
+    assert response.json()[0]['unit_of_measurement']['id'] == 'H87'
+
+
+@pytest.mark.asyncio
+async def test_a_line_with_no_unit_attached_serialises_as_null_rather_than_failing() -> None:
+    """The field is derived, so an unattached one answers `null` instead of breaking the read."""
+    _auth()
+    bare = _sales_line()
+    del bare.unit_of_measurement
+    order = _order(lines=[bare])
+    with patch('app.services.sales_order_service.get_order', AsyncMock(return_value=order)), patch(
+        'app.services.sales_order_service.attach_derived', AsyncMock(return_value=order)
+    ):
+        async with await _client() as client:
+            response = await client.get('/api/v1/sales-orders/1')
+
+    assert response.status_code == status.HTTP_200_OK
+    assert response.json()['lines'][0]['unit_of_measurement'] is None

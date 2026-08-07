@@ -186,6 +186,10 @@ async def create_from_sales_order(
     current: CurrentUser,
     fulfillment_type: FulfillmentType | None = None,
     lines: Sequence[DeliveryOrderLineRequest] | None = None,
+    ship_to: int | None = None,
+    contact: int | None = None,
+    date: datetime | None = None,
+    comment: str | None = None,
 ) -> DeliveryOrder:
     """Raise a delivery order for what the sale still owes the customer (FR-008 – FR-015).
 
@@ -197,6 +201,13 @@ async def create_from_sales_order(
     `lines` narrows the delivery to a named subset of the sale's undelivered quantities, for the
     same reason: one sale can split across several destinations. Omitting it keeps the original
     behaviour of claiming everything uncovered, so existing callers are unaffected (#138).
+
+    `ship_to`, `contact`, `date` and `comment` are the destination's own header, for that same
+    split: each destination needs its own address, and often its own contact, date and
+    instructions. Each falls back to the sale's value when omitted, so existing callers are
+    unaffected, and each is the field `update_order` already accepts — this only removes the
+    follow-up `PUT` that used to be the sole way to set them, and the window in which a draft
+    holding committed quantities pointed at the wrong address (#146).
     """
     employee = current.employee_id
 
@@ -223,7 +234,10 @@ async def create_from_sales_order(
     # system took the whole order: of 23,774 sales orders that produced a delivery order, 22,976
     # carried *every* line, and the ~3% left out are spread evenly across stockable and
     # non-stockable products — operational noise, not a rule.
-    lines = list(
+    # Not `lines`: that is the caller's requested subset, and rebinding it here made the narrowing
+    # below read the sale's own lines instead — every create then failed on the first request
+    # object it expected and did not have.
+    sales_lines = list(
         (
             await db.execute(
                 select(SalesOrderDetail).where(
@@ -238,7 +252,7 @@ async def create_from_sales_order(
 
     deliverable = [
         (line, line.quantity - covered.get(line.sales_order_detail_id, Decimal(0)))
-        for line in lines
+        for line in sales_lines
     ]
     deliverable = [(line, remaining) for line, remaining in deliverable if remaining > 0]
 
@@ -251,8 +265,13 @@ async def create_from_sales_order(
     if lines is not None:
         deliverable = narrow_to_requested(deliverable, lines)
 
+    destination = ship_to if ship_to is not None else order.ship_to
+
     if fulfillment_type is None:
-        detected = await _is_facility_address(db, order.ship_to)
+        # Detection reads the destination this delivery is actually going to, which is the supplied
+        # address when there is one: a counter pickup is a counter pickup because of where the goods
+        # end up, not because of what the sale's header happened to say.
+        detected = await _is_facility_address(db, destination)
         fulfillment_type = (
             FulfillmentType.COUNTER_PICKUP if detected else FulfillmentType.DELIVERY
         )
@@ -267,11 +286,11 @@ async def create_from_sales_order(
         facility=order.facility,
         serial=None,
         customer=order.customer,
-        ship_to=order.ship_to,
-        contact=order.contact,
-        date=order.promise_date,
+        ship_to=destination,
+        contact=contact if contact is not None else order.contact,
+        date=date if date is not None else order.promise_date,
         priority=order.priority,
-        comment=None,
+        comment=comment,
         status=S.DRAFT,
         fulfillment_type=fulfillment_type,
     )
@@ -321,6 +340,50 @@ async def lines_of(db: AsyncSession, delivery_order_id: int) -> Sequence[Deliver
     )
 
 
+async def sales_orders_of(
+    db: AsyncSession, delivery_order_ids: Sequence[int]
+) -> dict[int, int]:
+    """Which sale each delivery order was raised from, keyed by delivery order id (#147).
+
+    Derived rather than stored: the link lives on the lines, and a child order raised by a partial
+    delivery inherits it with its lines, so there is nothing to keep in step. One query for a whole
+    page, not one per row.
+
+    A delivery order is raised from exactly one sale, so `min` is picking from a single value. It is
+    there because nothing in the schema enforces that — a legacy row whose lines span two sales
+    reports the lower id rather than failing, and the `sales_order` filter still finds it under
+    both.
+    """
+    if not delivery_order_ids:
+        return {}
+    rows = (
+        await db.execute(
+            select(
+                DeliveryOrderDetail.delivery_order,
+                func.min(SalesOrderDetail.sales_order),
+            )
+            .join(
+                SalesOrderDetail,
+                SalesOrderDetail.sales_order_detail_id == DeliveryOrderDetail.sales_order_detail,
+            )
+            .where(DeliveryOrderDetail.delivery_order.in_(set(delivery_order_ids)))
+            .group_by(DeliveryOrderDetail.delivery_order)
+        )
+    ).all()
+    return {delivery_order: sales_order for delivery_order, sales_order in rows}
+
+
+async def attach_sales_order(db: AsyncSession, orders: Sequence[DeliveryOrder]) -> None:
+    """Attach the originating sale to each order, for `DeliveryOrderSummary.sales_order` (#147).
+
+    Written under a `__dict__` key, following `fk_expansion`: `delivery_order` has no such column,
+    and an instance shared through the identity map must keep its raw values.
+    """
+    origins = await sales_orders_of(db, [order.delivery_order_id for order in orders])
+    for order in orders:
+        order.__dict__['sales_order'] = origins.get(order.delivery_order_id)
+
+
 async def list_orders(
     db: AsyncSession,
     *,
@@ -329,6 +392,7 @@ async def list_orders(
     customer: int | None = None,
     facility: int | None = None,
     fulfillment_type: FulfillmentType | None = None,
+    sales_order: int | None = None,
     date_from: datetime | None = None,
     date_to: datetime | None = None,
     mine: bool = False,
@@ -352,6 +416,20 @@ async def list_orders(
         both(DeliveryOrder.customer == customer)
     if fulfillment_type is not None:
         both(DeliveryOrder.fulfillment_type == fulfillment_type)
+    if sales_order is not None:
+        # "Which deliveries belong to sale N?" — one call, through the per-line link, rather than
+        # listing the customer's every delivery order and reconciling their lines client-side
+        # (#147). Cancelled orders are included: the filter answers what exists, and the status
+        # filter is how a caller narrows that.
+        both(
+            DeliveryOrder.delivery_order_id.in_(
+                select(DeliveryOrderDetail.delivery_order).join(
+                    SalesOrderDetail,
+                    SalesOrderDetail.sales_order_detail_id
+                    == DeliveryOrderDetail.sales_order_detail,
+                ).where(SalesOrderDetail.sales_order == sales_order)
+            )
+        )
     if date_from is not None:
         both(DeliveryOrder.date >= date_from)
     if date_to is not None:
@@ -830,6 +908,7 @@ async def delivery_coverage(db: AsyncSession, sales_order_id: int) -> list[dict[
 __all__ = [
     'approve',
     'assert_editable',
+    'attach_sales_order',
     'build_proof',
     'cancel',
     'confirm',
@@ -846,6 +925,7 @@ __all__ = [
     'refresh_sales_order_delivered',
     'reject',
     'requeue',
+    'sales_orders_of',
     'update_line',
     'update_order',
 ]

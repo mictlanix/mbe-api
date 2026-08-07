@@ -8,6 +8,7 @@ those two ever disagree, a partial delivery double-counts its remainder.
 import inspect
 from decimal import Decimal
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
 from fastapi import HTTPException
@@ -367,3 +368,114 @@ class TestNarrowingToARequestedSubset:
 
         assert 'if lines is not None:' in source
         assert 'narrow_to_requested(deliverable, lines)' in source
+
+    def test_the_requested_lines_are_not_rebound_before_the_narrowing(self) -> None:
+        """The bug this pins: the sale's own lines were read into `lines`, shadowing the argument.
+
+        `if lines is not None` then tested the query result, which is a list and never `None`, so
+        the narrowing ran on every create — and ran against `SalesOrderDetail` rows, which carry no
+        `sales_order_detail` attribute. `POST /delivery-orders` raised `AttributeError` for every
+        caller, subset or not. Neither existing test caught it: the API tests patch the service out,
+        and the unit tests call `narrow_to_requested` directly.
+        """
+        source = inspect.getsource(service.create_from_sales_order)
+
+        assert 'sales_lines = list(' in source
+        # Leading space, so `sales_lines` does not satisfy it.
+        assert ' lines = list(' not in source
+
+
+class TestTheDestinationHeaderAtCreation:
+    """#146 — one sale sending goods to several addresses, each created complete in one call.
+
+    `ship_to` was inherited from the sale, so every destination after the first had to be corrected
+    with a follow-up `PUT`: two calls, with a window in which a draft holding committed quantities
+    pointed at the wrong address.
+    """
+
+    def test_creation_accepts_the_four_header_fields(self) -> None:
+        parameters = inspect.signature(service.create_from_sales_order).parameters
+
+        for field in ('ship_to', 'contact', 'date', 'comment'):
+            assert field in parameters
+            assert parameters[field].default is None
+
+    def test_each_one_falls_back_to_the_sale(self) -> None:
+        """Omitting them all must leave an existing caller with exactly what it had before."""
+        source = inspect.getsource(service.create_from_sales_order)
+
+        assert 'ship_to if ship_to is not None else order.ship_to' in source
+        assert 'contact if contact is not None else order.contact' in source
+        assert 'date if date is not None else order.promise_date' in source
+
+    def test_detection_reads_the_destination_rather_than_the_sale(self) -> None:
+        """A counter pickup is one because of where the goods end up (FR-005, FR-005a)."""
+        source = inspect.getsource(service.create_from_sales_order)
+
+        assert '_is_facility_address(db, destination)' in source
+        assert '_is_facility_address(db, order.ship_to)' not in source
+
+    def test_the_header_is_still_editable_afterwards(self) -> None:
+        """`PUT` keeps its job: this adds a creation path, it does not replace later edits."""
+        source = inspect.getsource(service.update_order)
+
+        for field in ('ship_to', 'contact', 'date', 'comment'):
+            assert field in source
+
+
+class TestTheOriginatingSaleIsDerived:
+    """#147 — "which delivery orders belong to sale N?", answerable at last.
+
+    Nothing stores the link on the header: it lives on the lines, and a child order raised by a
+    partial delivery inherits it with its lines. Deriving it is therefore the version that cannot
+    drift; the cost is one query, which must stay one query for a whole page.
+    """
+
+    @staticmethod
+    def _db(rows: list) -> AsyncMock:
+        db = AsyncMock()
+        db.execute = AsyncMock(
+            return_value=SimpleNamespace(all=lambda: rows, scalars=lambda: None)
+        )
+        return db
+
+    @pytest.mark.asyncio
+    async def test_it_maps_each_delivery_order_to_its_sale(self) -> None:
+        db = self._db([(1, 42), (2, 42), (3, 51)])
+
+        assert await service.sales_orders_of(db, [1, 2, 3]) == {1: 42, 2: 42, 3: 51}
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize('size', [1, 5, 50])
+    async def test_one_query_regardless_of_page_size(self, size: int) -> None:
+        db = self._db([])
+
+        await service.sales_orders_of(db, list(range(1, size + 1)))
+
+        assert db.execute.await_count == 1
+
+    @pytest.mark.asyncio
+    async def test_an_empty_page_issues_no_query(self) -> None:
+        db = self._db([])
+
+        assert await service.sales_orders_of(db, []) == {}
+        assert db.execute.await_count == 0
+
+    @pytest.mark.asyncio
+    async def test_attaching_writes_the_sale_onto_every_order(self) -> None:
+        db = self._db([(1, 42)])
+        orders = [_order(), SimpleNamespace(delivery_order_id=2)]
+
+        await service.attach_sales_order(db, orders)
+
+        assert orders[0].sales_order == 42
+        # Not in the result set: no line of it links to a sale, which is `null`, not a failure.
+        assert orders[1].sales_order is None
+
+    @pytest.mark.asyncio
+    async def test_the_filter_matches_through_the_lines(self) -> None:
+        """The header has no `sales_order` column, so the filter has to reach the sale's lines."""
+        source = inspect.getsource(service.list_orders)
+
+        assert 'if sales_order is not None:' in source
+        assert 'SalesOrderDetail.sales_order == sales_order' in source
