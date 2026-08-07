@@ -25,12 +25,14 @@ from app.models.core import ExchangeRate, Warehouse
 from app.models.customer import Customer
 from app.models.product import Product, ProductPrice
 from app.models.sales import SalesOrder, SalesOrderDetail, SalesOrderPayment
+from app.models.sat_catalog import SatUnitOfMeasurement
 from app.schemas.sales_order import (
     SalesOrderCreate,
     SalesOrderLineCreate,
     SalesOrderLineUpdate,
     SalesOrderUpdate,
 )
+from app.schemas.sat_catalog import SatUnitOfMeasurementResponse
 from app.services import documents, stock_ledger, totals
 
 # ── Decision rules (pure) ─────────────────────────────────────────────────────
@@ -205,6 +207,39 @@ def _line_totals(line: SalesOrderDetail) -> None:
     line.__dict__['total'] = line.__dict__['subtotal'] + line.__dict__['tax_total']
 
 
+async def units_by_product(
+    db: AsyncSession, product_ids: Iterable[int]
+) -> dict[int, SatUnitOfMeasurementResponse]:
+    """The SAT unit of measurement of each product, keyed by product id (#145).
+
+    One query for a whole line set, joined rather than fetched per line. The full record is returned
+    rather than a flattened string so this reads the same as `unit_of_measurement` on the product
+    endpoints — a client that has both in hand compares them field for field.
+    """
+    ids = {i for i in product_ids if i is not None}
+    if not ids:
+        return {}
+    rows = (
+        await db.execute(
+            select(Product.product_id, SatUnitOfMeasurement)
+            .join(
+                SatUnitOfMeasurement,
+                SatUnitOfMeasurement.sat_unit_of_measurement_id == Product.unit_of_measurement,
+            )
+            .where(Product.product_id.in_(ids))
+        )
+    ).all()
+    return {
+        product_id: SatUnitOfMeasurementResponse(
+            id=unit.sat_unit_of_measurement_id,
+            name=unit.name,
+            description=unit.description,
+            symbol=unit.symbol,
+        )
+        for product_id, unit in rows
+    }
+
+
 async def attach_derived(db: AsyncSession, order: SalesOrder) -> SalesOrder:
     """Attach lines, computed money and the single lifecycle status.
 
@@ -222,8 +257,12 @@ async def attach_derived(db: AsyncSession, order: SalesOrder) -> SalesOrder:
         .scalars()
         .all()
     )
+    units = await units_by_product(db, {line.product for line in lines})
     for line in lines:
         _line_totals(line)
+        # A resumed sale re-reads its lines and never re-runs the product lookup, so the unit has to
+        # come with them or the column is blank on exactly the rows already captured (#145).
+        line.__dict__['unit_of_measurement'] = units.get(line.product)
 
     computed = totals.document_totals(
         [
@@ -984,6 +1023,7 @@ async def lookup_products(
     stockable = {p.product_id for p in products if p.stockable}
     on_hand_totals = await stock_ledger.on_hand_by_warehouse(db, products=stockable)
     reserved_totals = await stock_ledger.reserved_by_warehouse(db, products=stockable)
+    units = await units_by_product(db, {p.product_id for p in products})
 
     results: list[dict] = []
     for product in products:
@@ -1012,6 +1052,7 @@ async def lookup_products(
                 'brand': product.brand,
                 'model': product.model,
                 'bar_code': product.bar_code,
+                'unit_of_measurement': units.get(product.product_id),
                 'price': listed.price if listed else Decimal(0),
                 'tax_rate': product.tax_rate,
                 'tax_included': product.tax_included,

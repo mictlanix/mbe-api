@@ -521,3 +521,73 @@ class TestPerLineTaxRateOverride:
             metadata = schema.model_fields['tax_rate'].metadata
             assert [m.ge for m in metadata if hasattr(m, 'ge')] == [0]
             assert [m.le for m in metadata if hasattr(m, 'le')] == [1]
+
+
+class TestTheUnitOfMeasurementIsProjectedOntoWhatThePointOfSaleReads:
+    """#145 — a capture grid shows a unit per line, and neither shape it reads carried one.
+
+    `product_lookup` alone would let a client cache it per product at scan time, but a resumed sale
+    re-reads its lines through `attach_derived` and never re-runs the lookup — so the rows already
+    captured, the ones a resume exists to show, are exactly the ones that would be blank. Both
+    shapes are needed for the column to be reliable.
+    """
+
+    @staticmethod
+    def _db(rows: list) -> AsyncMock:
+        db = AsyncMock()
+        db.execute = AsyncMock(return_value=SimpleNamespace(all=lambda: rows))
+        return db
+
+    @staticmethod
+    def _unit(code: str = 'H87', name: str = 'Pieza') -> SimpleNamespace:
+        return SimpleNamespace(
+            sat_unit_of_measurement_id=code, name=name, description=None, symbol=None
+        )
+
+    @pytest.mark.asyncio
+    async def test_it_returns_the_full_record_keyed_by_product(self) -> None:
+        """The same shape `unit_of_measurement` has on the product endpoints, not a bare string."""
+        db = self._db([(1, self._unit()), (2, self._unit('ROL', 'Rollo'))])
+
+        units = await sales_order_service.units_by_product(db, [1, 2])
+
+        assert units[1].id == 'H87'
+        assert units[1].name == 'Pieza'
+        assert units[2].name == 'Rollo'
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize('size', [1, 5, 50])
+    async def test_one_query_regardless_of_how_many_products(self, size: int) -> None:
+        """A line-by-line read would be an N+1 on every order read and every lookup page."""
+        db = self._db([])
+
+        await sales_order_service.units_by_product(db, range(1, size + 1))
+
+        assert db.execute.await_count == 1
+
+    @pytest.mark.asyncio
+    async def test_no_products_issues_no_query(self) -> None:
+        db = self._db([])
+
+        assert await sales_order_service.units_by_product(db, []) == {}
+        assert db.execute.await_count == 0
+
+    @pytest.mark.asyncio
+    async def test_a_product_with_no_catalog_row_maps_to_nothing(self) -> None:
+        """An inner join drops it, and the field is `None` rather than a fabricated unit."""
+        db = self._db([(1, self._unit())])
+
+        units = await sales_order_service.units_by_product(db, [1, 2])
+
+        assert units.get(2) is None
+
+    def test_order_reads_attach_it_to_every_line(self) -> None:
+        source = inspect.getsource(sales_order_service.attach_derived)
+
+        assert 'units_by_product(' in source
+        assert "line.__dict__['unit_of_measurement'] = units.get(line.product)" in source
+
+    def test_the_lookup_reports_it_too(self) -> None:
+        source = inspect.getsource(sales_order_service.lookup_products)
+
+        assert "'unit_of_measurement': units.get(product.product_id)" in source
