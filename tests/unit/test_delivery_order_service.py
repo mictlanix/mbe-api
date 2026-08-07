@@ -8,6 +8,7 @@ those two ever disagree, a partial delivery double-counts its remainder.
 import inspect
 from decimal import Decimal
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
 from fastapi import HTTPException
@@ -420,3 +421,61 @@ class TestTheDestinationHeaderAtCreation:
 
         for field in ('ship_to', 'contact', 'date', 'comment'):
             assert field in source
+
+
+class TestTheOriginatingSaleIsDerived:
+    """#147 — "which delivery orders belong to sale N?", answerable at last.
+
+    Nothing stores the link on the header: it lives on the lines, and a child order raised by a
+    partial delivery inherits it with its lines. Deriving it is therefore the version that cannot
+    drift; the cost is one query, which must stay one query for a whole page.
+    """
+
+    @staticmethod
+    def _db(rows: list) -> AsyncMock:
+        db = AsyncMock()
+        db.execute = AsyncMock(
+            return_value=SimpleNamespace(all=lambda: rows, scalars=lambda: None)
+        )
+        return db
+
+    @pytest.mark.asyncio
+    async def test_it_maps_each_delivery_order_to_its_sale(self) -> None:
+        db = self._db([(1, 42), (2, 42), (3, 51)])
+
+        assert await service.sales_orders_of(db, [1, 2, 3]) == {1: 42, 2: 42, 3: 51}
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize('size', [1, 5, 50])
+    async def test_one_query_regardless_of_page_size(self, size: int) -> None:
+        db = self._db([])
+
+        await service.sales_orders_of(db, list(range(1, size + 1)))
+
+        assert db.execute.await_count == 1
+
+    @pytest.mark.asyncio
+    async def test_an_empty_page_issues_no_query(self) -> None:
+        db = self._db([])
+
+        assert await service.sales_orders_of(db, []) == {}
+        assert db.execute.await_count == 0
+
+    @pytest.mark.asyncio
+    async def test_attaching_writes_the_sale_onto_every_order(self) -> None:
+        db = self._db([(1, 42)])
+        orders = [_order(), SimpleNamespace(delivery_order_id=2)]
+
+        await service.attach_sales_order(db, orders)
+
+        assert orders[0].sales_order == 42
+        # Not in the result set: no line of it links to a sale, which is `null`, not a failure.
+        assert orders[1].sales_order is None
+
+    @pytest.mark.asyncio
+    async def test_the_filter_matches_through_the_lines(self) -> None:
+        """The header has no `sales_order` column, so the filter has to reach the sale's lines."""
+        source = inspect.getsource(service.list_orders)
+
+        assert 'if sales_order is not None:' in source
+        assert 'SalesOrderDetail.sales_order == sales_order' in source

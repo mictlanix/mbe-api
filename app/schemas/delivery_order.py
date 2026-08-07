@@ -91,6 +91,11 @@ class DeliveryOrderSummary(BaseModel):
     facility: int
     serial: int | None
     customer: int
+    # The sale this delivery was raised from, derived from the lines and attached by
+    # `attach_sales_order` (#147). Defaulted rather than required so a path that has not attached it
+    # answers `null` instead of failing serialisation; `null` also covers a line set with no
+    # sales-order link at all.
+    sales_order: int | None = None
     ship_to: int | None
     date: datetime | None
     priority: int

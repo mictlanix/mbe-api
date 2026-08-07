@@ -340,6 +340,50 @@ async def lines_of(db: AsyncSession, delivery_order_id: int) -> Sequence[Deliver
     )
 
 
+async def sales_orders_of(
+    db: AsyncSession, delivery_order_ids: Sequence[int]
+) -> dict[int, int]:
+    """Which sale each delivery order was raised from, keyed by delivery order id (#147).
+
+    Derived rather than stored: the link lives on the lines, and a child order raised by a partial
+    delivery inherits it with its lines, so there is nothing to keep in step. One query for a whole
+    page, not one per row.
+
+    A delivery order is raised from exactly one sale, so `min` is picking from a single value. It is
+    there because nothing in the schema enforces that — a legacy row whose lines span two sales
+    reports the lower id rather than failing, and the `sales_order` filter still finds it under
+    both.
+    """
+    if not delivery_order_ids:
+        return {}
+    rows = (
+        await db.execute(
+            select(
+                DeliveryOrderDetail.delivery_order,
+                func.min(SalesOrderDetail.sales_order),
+            )
+            .join(
+                SalesOrderDetail,
+                SalesOrderDetail.sales_order_detail_id == DeliveryOrderDetail.sales_order_detail,
+            )
+            .where(DeliveryOrderDetail.delivery_order.in_(set(delivery_order_ids)))
+            .group_by(DeliveryOrderDetail.delivery_order)
+        )
+    ).all()
+    return {delivery_order: sales_order for delivery_order, sales_order in rows}
+
+
+async def attach_sales_order(db: AsyncSession, orders: Sequence[DeliveryOrder]) -> None:
+    """Attach the originating sale to each order, for `DeliveryOrderSummary.sales_order` (#147).
+
+    Written under a `__dict__` key, following `fk_expansion`: `delivery_order` has no such column,
+    and an instance shared through the identity map must keep its raw values.
+    """
+    origins = await sales_orders_of(db, [order.delivery_order_id for order in orders])
+    for order in orders:
+        order.__dict__['sales_order'] = origins.get(order.delivery_order_id)
+
+
 async def list_orders(
     db: AsyncSession,
     *,
@@ -348,6 +392,7 @@ async def list_orders(
     customer: int | None = None,
     facility: int | None = None,
     fulfillment_type: FulfillmentType | None = None,
+    sales_order: int | None = None,
     date_from: datetime | None = None,
     date_to: datetime | None = None,
     mine: bool = False,
@@ -371,6 +416,20 @@ async def list_orders(
         both(DeliveryOrder.customer == customer)
     if fulfillment_type is not None:
         both(DeliveryOrder.fulfillment_type == fulfillment_type)
+    if sales_order is not None:
+        # "Which deliveries belong to sale N?" — one call, through the per-line link, rather than
+        # listing the customer's every delivery order and reconciling their lines client-side
+        # (#147). Cancelled orders are included: the filter answers what exists, and the status
+        # filter is how a caller narrows that.
+        both(
+            DeliveryOrder.delivery_order_id.in_(
+                select(DeliveryOrderDetail.delivery_order).join(
+                    SalesOrderDetail,
+                    SalesOrderDetail.sales_order_detail_id
+                    == DeliveryOrderDetail.sales_order_detail,
+                ).where(SalesOrderDetail.sales_order == sales_order)
+            )
+        )
     if date_from is not None:
         both(DeliveryOrder.date >= date_from)
     if date_to is not None:
@@ -849,6 +908,7 @@ async def delivery_coverage(db: AsyncSession, sales_order_id: int) -> list[dict[
 __all__ = [
     'approve',
     'assert_editable',
+    'attach_sales_order',
     'build_proof',
     'cancel',
     'confirm',
@@ -865,6 +925,7 @@ __all__ = [
     'refresh_sales_order_delivered',
     'reject',
     'requeue',
+    'sales_orders_of',
     'update_line',
     'update_order',
 ]
