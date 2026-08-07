@@ -202,6 +202,55 @@ async def test_create_without_lines_still_claims_everything_uncovered() -> None:
 
 
 @pytest.mark.asyncio
+async def test_create_passes_the_destination_header_through() -> None:
+    """#146 — a destination is created complete, with no follow-up `PUT` to correct its address."""
+    _auth()
+    creating = AsyncMock(return_value=_order())
+    with patch(f'{SERVICE}.create_from_sales_order', creating), patch(
+        f'{SERVICE}.lines_of', AsyncMock(return_value=[_line()])
+    ):
+        async with _client() as client:
+            response = await client.post(
+                '/api/v1/delivery-orders',
+                json={
+                    'sales_order': 42,
+                    'ship_to': 91,
+                    'contact': 12,
+                    'date': '2026-08-10T15:00:00',
+                    'comment': 'Leave with the porter',
+                },
+            )
+
+    assert response.status_code == 201
+    passed = creating.await_args.kwargs
+    assert passed['ship_to'] == 91
+    assert passed['contact'] == 12
+    assert passed['date'] == datetime(2026, 8, 10, 15, 0)
+    assert passed['comment'] == 'Leave with the porter'
+
+
+@pytest.mark.asyncio
+async def test_create_without_a_destination_header_falls_back_to_the_sale() -> None:
+    """Every existing caller is unaffected: nothing supplied means nothing overridden."""
+    _auth()
+    creating = AsyncMock(return_value=_order())
+    with patch(f'{SERVICE}.create_from_sales_order', creating), patch(
+        f'{SERVICE}.lines_of', AsyncMock(return_value=[_line()])
+    ):
+        async with _client() as client:
+            response = await client.post('/api/v1/delivery-orders', json={'sales_order': 42})
+
+    assert response.status_code == 201
+    passed = creating.await_args.kwargs
+    assert (passed['ship_to'], passed['contact'], passed['date'], passed['comment']) == (
+        None,
+        None,
+        None,
+        None,
+    )
+
+
+@pytest.mark.asyncio
 async def test_an_empty_line_list_is_rejected_by_the_schema() -> None:
     """"Deliver nothing" is not a request; omitting `lines` is how you ask for everything."""
     _auth()

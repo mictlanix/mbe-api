@@ -382,3 +382,41 @@ class TestNarrowingToARequestedSubset:
         assert 'sales_lines = list(' in source
         # Leading space, so `sales_lines` does not satisfy it.
         assert ' lines = list(' not in source
+
+
+class TestTheDestinationHeaderAtCreation:
+    """#146 — one sale sending goods to several addresses, each created complete in one call.
+
+    `ship_to` was inherited from the sale, so every destination after the first had to be corrected
+    with a follow-up `PUT`: two calls, with a window in which a draft holding committed quantities
+    pointed at the wrong address.
+    """
+
+    def test_creation_accepts_the_four_header_fields(self) -> None:
+        parameters = inspect.signature(service.create_from_sales_order).parameters
+
+        for field in ('ship_to', 'contact', 'date', 'comment'):
+            assert field in parameters
+            assert parameters[field].default is None
+
+    def test_each_one_falls_back_to_the_sale(self) -> None:
+        """Omitting them all must leave an existing caller with exactly what it had before."""
+        source = inspect.getsource(service.create_from_sales_order)
+
+        assert 'ship_to if ship_to is not None else order.ship_to' in source
+        assert 'contact if contact is not None else order.contact' in source
+        assert 'date if date is not None else order.promise_date' in source
+
+    def test_detection_reads_the_destination_rather_than_the_sale(self) -> None:
+        """A counter pickup is one because of where the goods end up (FR-005, FR-005a)."""
+        source = inspect.getsource(service.create_from_sales_order)
+
+        assert '_is_facility_address(db, destination)' in source
+        assert '_is_facility_address(db, order.ship_to)' not in source
+
+    def test_the_header_is_still_editable_afterwards(self) -> None:
+        """`PUT` keeps its job: this adds a creation path, it does not replace later edits."""
+        source = inspect.getsource(service.update_order)
+
+        for field in ('ship_to', 'contact', 'date', 'comment'):
+            assert field in source

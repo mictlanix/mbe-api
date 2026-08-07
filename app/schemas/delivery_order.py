@@ -61,6 +61,13 @@ class DeliveryOrderCreate(BaseModel):
     # when one sale splits across several destinations, so this delivery must claim a named subset
     # rather than everything left (#138).
     lines: list[DeliveryOrderLineRequest] | None = Field(default=None, min_length=1)
+    # The destination's own header, for that same split: each address needs its own contact, date
+    # and instructions. Each falls back to the sale's value when omitted, so a caller that sets
+    # none of them gets exactly what it got before (#146).
+    ship_to: int | None = None
+    contact: int | None = None
+    date: datetime | None = None
+    comment: str | None = None
 
 
 class DeliveryOrderUpdate(BaseModel):

@@ -186,6 +186,10 @@ async def create_from_sales_order(
     current: CurrentUser,
     fulfillment_type: FulfillmentType | None = None,
     lines: Sequence[DeliveryOrderLineRequest] | None = None,
+    ship_to: int | None = None,
+    contact: int | None = None,
+    date: datetime | None = None,
+    comment: str | None = None,
 ) -> DeliveryOrder:
     """Raise a delivery order for what the sale still owes the customer (FR-008 – FR-015).
 
@@ -197,6 +201,13 @@ async def create_from_sales_order(
     `lines` narrows the delivery to a named subset of the sale's undelivered quantities, for the
     same reason: one sale can split across several destinations. Omitting it keeps the original
     behaviour of claiming everything uncovered, so existing callers are unaffected (#138).
+
+    `ship_to`, `contact`, `date` and `comment` are the destination's own header, for that same
+    split: each destination needs its own address, and often its own contact, date and
+    instructions. Each falls back to the sale's value when omitted, so existing callers are
+    unaffected, and each is the field `update_order` already accepts — this only removes the
+    follow-up `PUT` that used to be the sole way to set them, and the window in which a draft
+    holding committed quantities pointed at the wrong address (#146).
     """
     employee = current.employee_id
 
@@ -254,8 +265,13 @@ async def create_from_sales_order(
     if lines is not None:
         deliverable = narrow_to_requested(deliverable, lines)
 
+    destination = ship_to if ship_to is not None else order.ship_to
+
     if fulfillment_type is None:
-        detected = await _is_facility_address(db, order.ship_to)
+        # Detection reads the destination this delivery is actually going to, which is the supplied
+        # address when there is one: a counter pickup is a counter pickup because of where the goods
+        # end up, not because of what the sale's header happened to say.
+        detected = await _is_facility_address(db, destination)
         fulfillment_type = (
             FulfillmentType.COUNTER_PICKUP if detected else FulfillmentType.DELIVERY
         )
@@ -270,11 +286,11 @@ async def create_from_sales_order(
         facility=order.facility,
         serial=None,
         customer=order.customer,
-        ship_to=order.ship_to,
-        contact=order.contact,
-        date=order.promise_date,
+        ship_to=destination,
+        contact=contact if contact is not None else order.contact,
+        date=date if date is not None else order.promise_date,
         priority=order.priority,
-        comment=None,
+        comment=comment,
         status=S.DRAFT,
         fulfillment_type=fulfillment_type,
     )

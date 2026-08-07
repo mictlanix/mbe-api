@@ -150,6 +150,10 @@ async def create_delivery_order(
         current=current,
         fulfillment_type=data.fulfillment_type,
         lines=data.lines,
+        ship_to=data.ship_to,
+        contact=data.contact,
+        date=data.date,
+        comment=data.comment,
     )
     return await _with_lines(db, order)
 
