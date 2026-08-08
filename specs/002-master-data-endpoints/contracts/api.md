@@ -4,7 +4,19 @@
 **Auth**: All endpoints require `Authorization: Bearer <jwt>` header.  
 **Pagination**: All list endpoints accept `skip: int = 0` and `limit: int = 1..100` query params
 and return `{"items": [...], "total": N}`.  
+**Shape of a resource**: every section below is standard CRUD — `GET` the collection, `POST` to
+create, and `GET` / `PUT` / `DELETE` by id — so only the filters and the payload shapes are spelled
+out. Exceptions (uploads, merge, facets, read-only catalogs) are named where they occur.  
 **Error format**: FastAPI default `{"detail": "..."}`.
+
+> **Reconciled against the running application on 2026-08-07**, field by field, from
+> `GET /openapi.json`. This document was written before spec 005 (which replaced every
+> `disabled`/`deactivated`/`active`/`enabled` boolean with the unified `status: EntityStatus`),
+> before FR-039's FK expansion reached most resources, and before #132/#133/#150 added a customer's
+> linked collections — so it described shapes no endpoint had returned for some time. Every
+> pseudo-schema below now matches the live component of the same name, including nested types.
+>
+> `EntityStatus` is an **integer** enum: `0` ACTIVE, `1` INACTIVE, `2` ARCHIVED.
 
 ---
 
@@ -36,8 +48,9 @@ matching the operation (`READ` for GETs, `CREATE` for POST, `UPDATE` for PUT and
 ### `GET /api/v1/products`
 
 Query params: `search` (code, name, model, sku, brand), `label` (int, repeatable — e.g.
-`?label=2&label=5`; when repeated, a product must carry **all** given labels), `deactivated` (bool),
-`stockable` (bool), `salable` (bool), `purchasable` (bool), `supplier` (int), `skip`, `limit`.
+`?label=2&label=5`; when repeated, a product must carry **all** given labels), `status`
+(EntityStatus), `stockable` (bool), `salable` (bool), `purchasable` (bool), `supplier` (int),
+`skip`, `limit`.
 
 Response `200`: `{"items": [ProductListItem, ...], "total": N}`
 
@@ -52,13 +65,13 @@ ProductListItem:
   model: str | null
   unit_of_measurement: SatUnitOfMeasurementResponse   # {id, name, description, symbol}
   tax_rate: Decimal
-  deactivated: bool
+  status: EntityStatus
 ```
 
 ### `GET /api/v1/products/labels/facets`
 
 Added for the faceted product-filter UI (GH #78). Accepts the **same filter query params** as
-`GET /api/v1/products` — `search`, `label` (repeatable), `deactivated`, `stockable`, `salable`,
+`GET /api/v1/products` — `search`, `label` (repeatable), `status`, `stockable`, `salable`,
 `purchasable`, `supplier` — but **no `skip`/`limit`**: it summarizes the whole matching set, not a
 page. The `label` filter is applied with the same AND semantics as the list endpoint, so passing
 `label=3` restricts the base set before computing co-occurring labels.
@@ -139,8 +152,8 @@ ProductResponse:
   purchasable: bool
   salable: bool
   invoiceable: bool
-  stock_required: bool     # alias for stock_verification
-  deactivated: bool
+  stock_verification: bool   # the column's own name; `stock_required` is the *request* field
+  status: EntityStatus
   comment: str | null
   labels: [LabelResponse, ...]
 ```
@@ -151,8 +164,13 @@ Per-product prices are **not** embedded in `ProductResponse` — fetch them via
 ### `PUT /api/v1/products/{product_id}`
 
 Body: `ProductUpdate` (same fields as `ProductCreate`, all optional, plus `min_order_qty: int | null`
-and `deactivated: bool | null`)  
+and `status: EntityStatus | null`)  
 Response `200`: `ProductResponse`
+
+### `POST /api/v1/products/{product_id}/image`
+
+Multipart `image` upload (`UPDATE` right); returns the updated `ProductResponse` with `photo` set to
+the absolute URL. See `specs/003-product-image-upload` for the accepted types and size limit.
 
 ### `DELETE /api/v1/products/{product_id}`
 
@@ -235,7 +253,8 @@ Error `409` if any Customer references this price list.
 
 ### `GET /api/v1/customers`
 
-Query: `search` (code, name, zone), `disabled` (bool), `price_list` (int), `salesperson` (int), `skip`, `limit`  
+Query: `search` (code, name, zone), `status` (EntityStatus), `price_list` (int),
+`salesperson` (int), `skip`, `limit`  
 Response `200`: `{"items": [CustomerListItem, ...], "total": N}`
 
 ```
@@ -246,10 +265,13 @@ CustomerListItem:
   zone: str | null
   credit_limit: Decimal
   credit_days: int
-  price_list: int
-  salesperson: int | null
-  disabled: bool | null
+  price_list: PriceListResponse            # expanded per FR-039
+  salesperson: EmployeeResponse | null     # expanded per FR-039
+  status: EntityStatus
 ```
+
+The linked collections are **detail only** — a page of customers must not cost a query per row for
+each of them, so they appear on `CustomerResponse` and not here.
 
 ### `POST /api/v1/customers`
 
@@ -266,8 +288,19 @@ CustomerCreate:
   shipping: bool
   shipping_required_document: bool
   salesperson: int | null
+  status: EntityStatus
   comment: str | null
+  addresses: [int, ...] | null      # existing address ids to link (#132)
+  contacts: [int, ...] | null       # existing contact ids to link (#133)
+  taxpayers: [str, ...] | null      # RFCs this customer invoices under (#150)
 ```
+
+The three link collections are **replace-all for a collection the caller actually sent**: omitting
+one leaves those links alone, `[]` unlinks everything. Without that distinction an ordinary `PUT`
+editing a comment would silently unlink every address, contact and RFC on the customer. The rows
+themselves are created through `/api/v1/addresses`, `/api/v1/contacts` and
+`/api/v1/taxpayer-recipients`; an id or RFC that does not exist is refused by the foreign key and
+reaches the client as `409` (#107).
 
 Response `201`: `CustomerResponse`
 
@@ -283,12 +316,15 @@ CustomerResponse:
   zone: str | null
   credit_limit: Decimal
   credit_days: int
-  price_list: int
+  price_list: PriceListResponse            # expanded per FR-039
   shipping: bool
   shipping_required_document: bool
-  salesperson: int | null
-  disabled: bool | null
+  salesperson: EmployeeResponse | null     # expanded per FR-039
+  status: EntityStatus
   comment: str | null
+  addresses: [AddressResponse, ...]        # #132
+  contacts: [ContactResponse, ...]         # #133
+  taxpayers: [TaxpayerRecipientResponse, ...]   # #150 — a list: customer_taxpayer is many-to-many
 ```
 
 ### `PUT /api/v1/customers/{customer_id}`
@@ -359,9 +395,12 @@ TaxpayerRecipientResponse:
   taxpayer_recipient_id: str
   name: str | null
   email: str
-  postal_code: str | null
-  regime: str | null
+  postal_code: SatCatalogResponse | null   # expanded per FR-039 — {id, description}
+  regime: SatCatalogResponse | null        # expanded per FR-039 — {id, description}
 ```
+
+Both are **sent as codes and returned as objects**, which is why a recipient embedded elsewhere —
+`CustomerResponse.taxpayers` — carries the same expansion rather than the raw codes.
 
 ---
 
@@ -369,7 +408,7 @@ TaxpayerRecipientResponse:
 
 **Prefix**: `/api/v1/suppliers`
 
-Standard CRUD. Search by `code`, `name`, `zone`.
+Filters: `search` (code, name, zone).
 
 ```
 SupplierCreate / SupplierUpdate:
@@ -396,7 +435,8 @@ SupplierResponse:
 
 **Prefix**: `/api/v1/employees`
 
-Search: `first_name`, `last_name`, `nickname`. Filters: `active` (bool), `sales_person` (bool).
+Filters: `search` (first name, last name, nickname), `status` (EntityStatus),
+`sales_person` (bool).
 
 ```
 EmployeeCreate / EmployeeUpdate:
@@ -407,7 +447,7 @@ EmployeeCreate / EmployeeUpdate:
   birthday: date
   taxpayer_id: str | null
   sales_person: bool
-  active: bool
+  status: EntityStatus
   personal_id: str | null
   start_job_date: date
   enroll_number: int | null
@@ -422,12 +462,11 @@ EmployeeResponse:
   birthday: date
   taxpayer_id: str | null
   sales_person: bool
-  active: bool
   personal_id: str | null
   start_job_date: date
   enroll_number: int | null
   comment: str | null
-  disabled: bool | null
+  status: EntityStatus
 ```
 
 ---
@@ -436,7 +475,9 @@ EmployeeResponse:
 
 **Prefix**: `/api/v1/warehouses`
 
-Standard CRUD. Filter by `facility`.
+**Privileges**: `WAREHOUSES (4)`, access right matching the operation; `403` without it.
+
+Filters: `search` (code, name), `facility` (int), `status` (EntityStatus).
 
 ```
 WarehouseCreate / WarehouseUpdate:
@@ -444,15 +485,15 @@ WarehouseCreate / WarehouseUpdate:
   code: str
   name: str
   comment: str | null
-  disabled: bool | null
+  status: EntityStatus
 
 WarehouseResponse:
   warehouse_id: int
-  facility: int
+  facility: FacilitySummary        # expanded per FR-039
   code: str
   name: str
   comment: str | null
-  disabled: bool | null
+  status: EntityStatus
 ```
 
 ---
@@ -461,7 +502,9 @@ WarehouseResponse:
 
 **Prefix**: `/api/v1/points-of-sale`
 
-List filter params: `facility` (int), `warehouse` (int), `skip`, `limit`.
+**Privileges**: `POINTS_OF_SALE (9)`, access right matching the operation; `403` without it.
+
+Filters: `search` (code, name), `facility` (int), `warehouse` (int), `status` (EntityStatus).
 
 ```
 PointSaleCreate / PointSaleUpdate:
@@ -470,16 +513,16 @@ PointSaleCreate / PointSaleUpdate:
   name: str
   warehouse: int
   comment: str | null
-  disabled: bool | null
+  status: EntityStatus
 
 PointSaleResponse:
   point_sale_id: int
-  facility: int
+  facility: FacilitySummary        # expanded per FR-039
   code: str
   name: str
-  warehouse: int
+  warehouse: WarehouseSummary      # expanded per FR-039
   comment: str | null
-  disabled: bool | null
+  status: EntityStatus
 ```
 
 ---
@@ -488,7 +531,9 @@ PointSaleResponse:
 
 **Prefix**: `/api/v1/cash-drawers`
 
-List filter params: `facility` (int), `skip`, `limit`.
+**Privileges**: `CASH_DRAWERS (10)`, access right matching the operation; `403` without it.
+
+Filters: `search` (code, name), `facility` (int), `status` (EntityStatus).
 
 ```
 CashDrawerCreate / CashDrawerUpdate:
@@ -496,15 +541,15 @@ CashDrawerCreate / CashDrawerUpdate:
   code: str
   name: str
   comment: str | null
-  disabled: bool | null
+  status: EntityStatus
 
 CashDrawerResponse:
   cash_drawer_id: int
-  facility: int
+  facility: FacilitySummary        # expanded per FR-039
   code: str
   name: str
   comment: str | null
-  disabled: bool | null
+  status: EntityStatus
 ```
 
 ---
@@ -513,31 +558,42 @@ CashDrawerResponse:
 
 **Prefix**: `/api/v1/facilities`
 
+**Privileges**: `FACILITIES (29)`, access right matching the operation; `403` without it. Logo
+upload answers to `UPDATE`.
+
+Filters: `search` (code, name), `status` (EntityStatus).
+
+### `POST /api/v1/facilities/{facility_id}/logo`
+
+Multipart `image` upload; returns the updated `FacilityResponse` with `logo` set to the stored
+filename. Deleting a facility also retires its in-transit warehouse and writes an `incidence` row
+(spec 013).
+
 ```
 FacilityCreate / FacilityUpdate:
   code: str
   name: str
-  type: int               # FacilityType: 0 = store | 1 = production_site; defaults to 0
+  type: FacilityType     # 0 = store | 1 = production_site; defaults to 0
   location: str          # FK sat_postal_code
   address: int           # FK address
   taxpayer: str          # FK taxpayer_issuer
   logo: str
   receipt_message: str | null
   default_batch: str | null
-  disabled: bool | null
+  status: EntityStatus
 
 FacilityResponse:
   facility_id: int
   code: str
   name: str
-  type: str
-  location: str
-  address: int
-  taxpayer: str
+  type: FacilityType
+  location: SatCatalogResponse     # expanded per FR-039 — the postal code
+  address: AddressResponse         # expanded per FR-039
+  taxpayer: str                    # RFC of the issuer, not expanded
   logo: str
   receipt_message: str | null
   default_batch: str | null
-  disabled: bool | null
+  status: EntityStatus
 ```
 
 ---
@@ -571,6 +627,8 @@ Conflict `409` on duplicate `(date, base, target)`.
 
 **Prefix**: `/api/v1/expenses`
 
+Filters: `search` (expense name).
+
 ```
 ExpenseCreate / ExpenseUpdate:
   name: str       # maps to expense.expense column
@@ -578,7 +636,7 @@ ExpenseCreate / ExpenseUpdate:
 
 ExpenseResponse:
   expense_id: int
-  name: str
+  expense: str   # the column's own name; `name` is the *request* field
   comment: str | null
 ```
 
@@ -588,7 +646,7 @@ ExpenseResponse:
 
 **Prefix**: `/api/v1/payment-method-options`
 
-Filter by `facility`.
+Filters: `facility` (int), `status` (EntityStatus).
 
 ```
 PaymentMethodOptionCreate / PaymentMethodOptionUpdate:
@@ -599,18 +657,18 @@ PaymentMethodOptionCreate / PaymentMethodOptionUpdate:
   display_on_ticket: bool
   payment_method: int
   commission: Decimal
-  enabled: bool
+  status: EntityStatus
 
 PaymentMethodOptionResponse:
   payment_method_option_id: int
-  facility: int
-  warehouse: int | null
+  facility: FacilitySummary            # expanded per FR-039
+  warehouse: WarehouseSummary | null   # expanded per FR-039
   name: str
   number_of_payments: int
   display_on_ticket: bool
   payment_method: int
   commission: Decimal
-  enabled: bool
+  status: EntityStatus
   requires_reference: bool    # derived, never stored (#137)
 ```
 
@@ -629,13 +687,15 @@ considered and deferred; see #137.
 
 **Prefix**: `/api/v1/vehicles`
 
+Filters: `search` (license plate, name, nickname), `status` (EntityStatus).
+
 ```
 VehicleCreate / VehicleUpdate:
   license_plate: str   # unique
   name: str
   nickname: str
   tons_capacity: int
-  active: bool
+  status: EntityStatus
 
 VehicleResponse:
   vehicle_id: int
@@ -643,7 +703,7 @@ VehicleResponse:
   name: str
   nickname: str
   tons_capacity: int
-  active: bool
+  status: EntityStatus
 ```
 
 ---
@@ -652,7 +712,8 @@ VehicleResponse:
 
 **Prefix**: `/api/v1/vehicle-operators`
 
-List filter params: `employee` (int — filters by `VehicleOperator.driver`), `skip`, `limit`.
+Filters: `search` (licence number, issuing location), `employee` (int — filters by
+`VehicleOperator.driver`), `status` (EntityStatus).
 
 ```
 VehicleOperatorCreate / VehicleOperatorUpdate:
@@ -662,18 +723,22 @@ VehicleOperatorCreate / VehicleOperatorUpdate:
   issue_date: date
   expiration_date: date
   issuing_location: str
-  active: bool
+  status: EntityStatus
 
 VehicleOperatorResponse:
   vehicle_operator_id: int
-  driver: int
+  driver: EmployeeResponse    # expanded per FR-039
   license_type: str
   driver_license_number: str
   issue_date: date
   expiration_date: date
   issuing_location: str
-  active: bool
+  status: EntityStatus
   days_until_expiry: int   # computed: negative = expired
+  creation_time: datetime
+  modification_time: datetime
+  creator: EmployeeResponse   # expanded per FR-039
+  updater: EmployeeResponse   # expanded per FR-039
 ```
 
 ---
@@ -700,16 +765,22 @@ All 8 SAT catalogs follow the same pattern — list and get-by-id only. No write
 ```
 GET /api/v1/sat/{resource}
   Query: skip (int, default 0), limit (int, 1–100, default 20)
-  Response 200: {"items": [SatXxxResponse, ...], "total": N}
+  Response 200: {"items": [SatCatalogResponse, ...], "total": N}
   Response 401: unauthenticated
 
 GET /api/v1/sat/{resource}/{id}
-  Response 200: SatXxxResponse
+  Response 200: SatCatalogResponse
   Response 404: {"detail": "Not found"}
   Response 401: unauthenticated
 
-SatXxxResponse:
-  id: str   # the PK value (e.g. "H87", "MXN", "G01")
+SatCatalogResponse:            # one shape for all 8 catalogs
+  id: str            # the PK value (e.g. "H87", "MXN", "G01")
+  description: str | null
 ```
+
+`SatCatalogResponse` is also the shape every expanded SAT foreign key takes elsewhere in this
+document — `ProductResponse.key`, `TaxpayerRecipientResponse.postal_code` and `.regime`. The one
+exception is a product's unit of measurement, which embeds the fuller
+`SatUnitOfMeasurementResponse` (`{id, name, description, symbol}`).
 
 **Write operations**: POST, PUT, DELETE are not registered. FastAPI returns 405 Method Not Allowed automatically.
