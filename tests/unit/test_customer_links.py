@@ -67,15 +67,19 @@ class TestSetLinks:
 
     @pytest.mark.asyncio
     async def test_taxpayers_are_set_independently_too(self) -> None:
-        """Keyed by RFC, which is the taxpayer's own primary key rather than a surrogate id."""
+        """Keyed on `taxpayer`, the junction's own column, holding the RFC (#154).
+
+        This assertion said `taxpayer_recipient` and passed, because a mocked session accepts any
+        key — it pinned the wrong column name rather than catching it. `tests/unit/
+        test_model_schema.py` now checks the mapping against the schema, which is the level at
+        which that is checkable at all.
+        """
         db = _db(None, None)
 
         await _set_links(db, 1, addresses=None, contacts=None, taxpayers=['AAA010101AAA'])
 
         assert db.execute.await_count == 2
-        assert db.execute.await_args.args[1] == [
-            {'customer': 1, 'taxpayer_recipient': 'AAA010101AAA'}
-        ]
+        assert db.execute.await_args.args[1] == [{'customer': 1, 'taxpayer': 'AAA010101AAA'}]
 
     @pytest.mark.asyncio
     async def test_more_than_one_rfc_can_be_linked(self) -> None:
@@ -87,8 +91,8 @@ class TestSetLinks:
         )
 
         assert db.execute.await_args.args[1] == [
-            {'customer': 1, 'taxpayer_recipient': 'AAA010101AAA'},
-            {'customer': 1, 'taxpayer_recipient': 'BBB020202BB1'},
+            {'customer': 1, 'taxpayer': 'AAA010101AAA'},
+            {'customer': 1, 'taxpayer': 'BBB020202BB1'},
         ]
 
     @pytest.mark.asyncio

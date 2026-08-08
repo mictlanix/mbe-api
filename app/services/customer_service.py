@@ -94,8 +94,7 @@ async def _get_links(
                 select(TaxpayerRecipient)
                 .join(
                     customer_taxpayer,
-                    customer_taxpayer.c['taxpayer_recipient']
-                    == TaxpayerRecipient.taxpayer_recipient_id,
+                    customer_taxpayer.c['taxpayer'] == TaxpayerRecipient.taxpayer_recipient_id,
                 )
                 .where(customer_taxpayer.c['customer'] == customer_id)
                 .order_by(TaxpayerRecipient.taxpayer_recipient_id)
@@ -157,7 +156,7 @@ async def _set_links(
         if taxpayers:
             await db.execute(
                 insert(customer_taxpayer),
-                [{'customer': customer_id, 'taxpayer_recipient': t} for t in taxpayers],
+                [{'customer': customer_id, 'taxpayer': t} for t in taxpayers],
             )
 
 

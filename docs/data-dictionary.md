@@ -391,8 +391,18 @@ Customer / buyer entity.
 ### `customer_address`
 Many-to-many customer ↔ address.
 
+| Column | Type | Description |
+|--------|------|-------------|
+| `customer` | int(11) | FK → `customer` |
+| `address` | int(11) | FK → `address` |
+
 ### `customer_contact`
 Many-to-many customer ↔ contact.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `customer` | int(11) | FK → `customer` |
+| `contact` | int(11) | FK → `contact` |
 
 ### `customer_discount`
 Per-product custom discount for a customer.
@@ -406,6 +416,16 @@ Per-product custom discount for a customer.
 
 ### `customer_taxpayer`
 Many-to-many customer ↔ taxpayer_recipient (RFC for invoicing).
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `customer` | int(11) | FK → `customer` |
+| `taxpayer` | varchar(13) | FK → `taxpayer_recipient`.`taxpayer_recipient_id` |
+
+The second column is **`taxpayer`**, named after this table rather than after the target's
+primary key — the same convention as `customer_address` and `customer_contact` above. Mapping it
+as `taxpayer_recipient` is what broke every customer read and write in #154, so the columns are
+spelled out here for all three.
 
 ### `taxpayer_recipient`
 RFC (tax ID) of a customer entity, used as invoice recipient.

@@ -25,8 +25,12 @@ customer_taxpayer = Table(
     'customer_taxpayer',
     Base.metadata,
     Column('customer', Integer, ForeignKey('customer.customer_id'), primary_key=True),
+    # `taxpayer`, not `taxpayer_recipient`: this is a legacy table no migration creates, and it
+    # names its column after itself the way `customer_address` and `customer_contact` do — not after
+    # the target's primary key. The wrong name went unnoticed until #150 first joined through it,
+    # and then failed every read *and* every write of a customer (#154).
     Column(
-        'taxpayer_recipient',
+        'taxpayer',
         String(13),
         ForeignKey('taxpayer_recipient.taxpayer_recipient_id'),
         primary_key=True,
