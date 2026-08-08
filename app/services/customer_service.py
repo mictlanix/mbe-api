@@ -6,9 +6,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.enums import EntityStatus
 from app.models.core import Address, Contact, Employee
-from app.models.customer import Customer, customer_address, customer_contact
+from app.models.customer import (
+    Customer,
+    TaxpayerRecipient,
+    customer_address,
+    customer_contact,
+    customer_taxpayer,
+)
 from app.models.product import PriceList
 from app.schemas.customer import CustomerCreate, CustomerUpdate
+from app.services import taxpayer_recipient_service
 from app.services.references import assert_not_referenced
 
 
@@ -42,16 +49,20 @@ async def _attach_customer_relations(db: AsyncSession, customers: Sequence[Custo
         )
 
 
-async def _get_links(db: AsyncSession, customer_id: int) -> tuple[list[Address], list[Contact]]:
-    """A customer's linked addresses and contacts (#132, #133).
+async def _get_links(
+    db: AsyncSession, customer_id: int
+) -> tuple[list[Address], list[Contact], list[TaxpayerRecipient]]:
+    """A customer's linked addresses, contacts and taxpayers (#132, #133, #150).
 
-    `customer_address` and `customer_contact` are real junction tables with real rows that nothing
-    exposed: a client needing "one of this customer's addresses" as a delivery destination had to
-    fall back to an unfiltered global address search, and a per-destination contact had nowhere to
-    go but a delivery order's free-text comment.
+    `customer_address`, `customer_contact` and `customer_taxpayer` are real junction tables with
+    real rows that nothing exposed: a client needing "one of this customer's addresses" as a
+    delivery destination had to fall back to an unfiltered global address search, a per-destination
+    contact had nowhere to go but a delivery order's free-text comment, and a customer's tax
+    registration could not be recorded at all — both records could be created and nothing could
+    associate them.
 
     Attached to the detail response only, never to `CustomerListItem` — a page of customers must
-    not cost two queries per row.
+    not cost three queries per row.
     """
     addresses = (
         (
@@ -77,15 +88,35 @@ async def _get_links(db: AsyncSession, customer_id: int) -> tuple[list[Address],
         .scalars()
         .all()
     )
-    return list(addresses), list(contacts)
+    taxpayers = (
+        (
+            await db.execute(
+                select(TaxpayerRecipient)
+                .join(
+                    customer_taxpayer,
+                    customer_taxpayer.c['taxpayer_recipient']
+                    == TaxpayerRecipient.taxpayer_recipient_id,
+                )
+                .where(customer_taxpayer.c['customer'] == customer_id)
+                .order_by(TaxpayerRecipient.taxpayer_recipient_id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    return list(addresses), list(contacts), list(taxpayers)
 
 
 async def _attach_links(db: AsyncSession, customer: Customer) -> None:
-    addresses, contacts = await _get_links(db, customer.customer_id)
-    # Written under a separate key for consistency with the FK details above, though these two
+    addresses, contacts, taxpayers = await _get_links(db, customer.customer_id)
+    # The recipients carry their own FK expansions, and `TaxpayerRecipientResponse` cannot be
+    # validated without them, so they go through the owning service rather than being expanded here.
+    await taxpayer_recipient_service.attach_relations(db, taxpayers)
+    # Written under a separate key for consistency with the FK details above, though these three
     # shadow no mapped column.
     customer.__dict__['addresses'] = addresses
     customer.__dict__['contacts'] = contacts
+    customer.__dict__['taxpayers'] = taxpayers
 
 
 async def _set_links(
@@ -94,6 +125,7 @@ async def _set_links(
     *,
     addresses: list[int] | None,
     contacts: list[int] | None,
+    taxpayers: list[str] | None,
 ) -> None:
     """Replace-all, and only for a collection the caller actually sent.
 
@@ -117,6 +149,15 @@ async def _set_links(
             await db.execute(
                 insert(customer_contact),
                 [{'customer': customer_id, 'contact': c} for c in contacts],
+            )
+    if taxpayers is not None:
+        await db.execute(
+            delete(customer_taxpayer).where(customer_taxpayer.c['customer'] == customer_id)
+        )
+        if taxpayers:
+            await db.execute(
+                insert(customer_taxpayer),
+                [{'customer': customer_id, 'taxpayer_recipient': t} for t in taxpayers],
             )
 
 
@@ -184,7 +225,13 @@ async def create_customer(db: AsyncSession, data: CustomerCreate) -> Customer:
     )
     db.add(customer)
     await db.flush()  # get customer_id before writing the junction rows
-    await _set_links(db, customer.customer_id, addresses=data.addresses, contacts=data.contacts)
+    await _set_links(
+        db,
+        customer.customer_id,
+        addresses=data.addresses,
+        contacts=data.contacts,
+        taxpayers=data.taxpayers,
+    )
     await db.commit()
     await db.refresh(customer)
     await _attach_customer_relations(db, [customer])
@@ -215,7 +262,13 @@ async def update_customer(db: AsyncSession, customer: Customer, data: CustomerUp
         customer.status = data.status
     if data.comment is not None:
         customer.comment = data.comment
-    await _set_links(db, customer.customer_id, addresses=data.addresses, contacts=data.contacts)
+    await _set_links(
+        db,
+        customer.customer_id,
+        addresses=data.addresses,
+        contacts=data.contacts,
+        taxpayers=data.taxpayers,
+    )
     await db.commit()
     await db.refresh(customer)
     await _attach_customer_relations(db, [customer])

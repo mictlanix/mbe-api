@@ -54,10 +54,12 @@ class CustomerCreate(BaseModel):
     salesperson: int | None = None
     status: EntityStatus = EntityStatus.ACTIVE
     comment: str | None = None
-    #: Existing address and contact ids to link (#132, #133). Replace-all: omitted leaves the
-    #: links alone, `[]` unlinks everything. Create the rows themselves via /addresses, /contacts.
+    #: Existing address and contact ids to link (#132, #133), and the RFCs this customer invoices
+    #: under (#150). Replace-all: omitted leaves the links alone, `[]` unlinks everything. Create
+    #: the rows themselves via /addresses, /contacts, /taxpayer-recipients.
     addresses: list[int] | None = None
     contacts: list[int] | None = None
+    taxpayers: list[str] | None = None
 
     @field_validator('code')
     @classmethod
@@ -81,6 +83,7 @@ class CustomerUpdate(BaseModel):
     comment: str | None = None
     addresses: list[int] | None = None
     contacts: list[int] | None = None
+    taxpayers: list[str] | None = None
 
 
 class CustomerListItem(BaseModel):
@@ -120,6 +123,9 @@ class CustomerResponse(BaseModel):
     )
     status: EntityStatus
     comment: str | None
-    # Detail only — a page of customers must not cost two extra queries per row.
+    # Detail only — a page of customers must not cost an extra query per row for each of these.
     addresses: list[AddressResponse] = []
     contacts: list[ContactResponse] = []
+    # A list, not a scalar: `customer_taxpayer` is many-to-many and the legacy data uses it that
+    # way — a customer may invoice under more than one RFC (#150).
+    taxpayers: list[TaxpayerRecipientResponse] = []

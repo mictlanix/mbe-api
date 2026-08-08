@@ -302,7 +302,7 @@ async def test_taxpayer_recipient_expansion_leaves_mapped_fks_intact() -> None:
         regime='601',
     )
 
-    await taxpayer_recipient_service._attach_relations(
+    await taxpayer_recipient_service.attach_relations(
         _db_returning(
             [SatPostalCode(sat_postal_code_id='55620', state='MEX')],
             [SatTaxRegime(sat_tax_regime_id='601', description='General')],
