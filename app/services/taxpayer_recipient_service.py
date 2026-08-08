@@ -10,7 +10,13 @@ from app.services.references import assert_not_referenced
 from app.services.sat_catalog_service import SAT_CATALOG_MAP, to_response
 
 
-async def _attach_relations(db: AsyncSession, recipients: Sequence[TaxpayerRecipient]) -> None:
+async def attach_relations(db: AsyncSession, recipients: Sequence[TaxpayerRecipient]) -> None:
+    """Public because `customer_service` embeds this same shape on a customer's `taxpayers` (#150).
+
+    `TaxpayerRecipientResponse` expands `postal_code` and `regime` into SAT catalog objects, so a
+    recipient that has not been through here cannot be serialised into that shape at all — the
+    expansion is part of the response, not a decoration on it.
+    """
     if not recipients:
         return
     postal_config = SAT_CATALOG_MAP['postal-codes']
@@ -76,7 +82,7 @@ async def list_taxpayer_recipients(
 
     total: int = (await db.execute(count_q)).scalar_one()
     items = (await db.execute(base.offset(skip).limit(limit))).scalars().all()
-    await _attach_relations(db, items)
+    await attach_relations(db, items)
     return items, total
 
 
@@ -84,7 +90,7 @@ async def get_taxpayer_recipient(db: AsyncSession, rfc: str) -> TaxpayerRecipien
     tr = await db.get(TaxpayerRecipient, rfc)
     if tr is None:
         return None
-    await _attach_relations(db, [tr])
+    await attach_relations(db, [tr])
     return tr
 
 
@@ -101,7 +107,7 @@ async def create_taxpayer_recipient(
     db.add(tr)
     await db.commit()
     await db.refresh(tr)
-    await _attach_relations(db, [tr])
+    await attach_relations(db, [tr])
     return tr
 
 
@@ -118,7 +124,7 @@ async def update_taxpayer_recipient(
         tr.regime = data.regime
     await db.commit()
     await db.refresh(tr)
-    await _attach_relations(db, [tr])
+    await attach_relations(db, [tr])
     return tr
 
 

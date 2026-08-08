@@ -543,7 +543,7 @@ async def test_create_customer_without_status_defaults_to_active() -> None:
     assert r.json()['status'] == 0
 
 
-# ── Customer addresses and contacts (#132, #133) ──────────────────────────────
+# ── Customer addresses, contacts and taxpayers (#132, #133, #150) ─────────────
 
 
 def _linked_address(address_id: int = 4) -> SimpleNamespace:
@@ -585,6 +585,18 @@ def _linked_contact(contact_id: int = 9) -> SimpleNamespace:
     )
 
 
+def _linked_taxpayer(rfc: str = 'AAA010101AAA') -> SimpleNamespace:
+    return SimpleNamespace(
+        taxpayer_recipient_id=rfc,
+        name='Acme SA de CV',
+        email='facturas@acme.mx',
+        # The expanded shapes `attach_relations` writes; the raw FKs alone cannot be validated
+        # into `TaxpayerRecipientResponse`.
+        postal_code_detail={'id': '06000', 'description': 'Cuauhtémoc, CDMX'},
+        regime_detail={'id': '601', 'description': 'General de Ley Personas Morales'},
+    )
+
+
 @pytest.mark.asyncio
 async def test_customer_detail_carries_its_addresses_and_contacts() -> None:
     """#132, #133 — a delivery-destination picker reads these instead of searching globally."""
@@ -616,6 +628,65 @@ async def test_a_customer_with_no_links_reports_empty_collections() -> None:
     assert r.status_code == 200
     assert r.json()['addresses'] == []
     assert r.json()['contacts'] == []
+    assert r.json()['taxpayers'] == []
+
+
+@pytest.mark.asyncio
+async def test_customer_detail_carries_its_tax_registrations() -> None:
+    """#150 — the RFC a counter-created customer will be invoiced under (spec 020 FR-013)."""
+    _auth()
+    customer = _customer()
+    customer.taxpayers = [_linked_taxpayer()]
+    with patch(
+        'app.services.customer_service.get_customer', new=AsyncMock(return_value=customer)
+    ):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as c:
+            r = await c.get('/api/v1/customers/1')
+
+    assert r.status_code == 200
+    taxpayer = r.json()['taxpayers'][0]
+    assert taxpayer['taxpayer_recipient_id'] == 'AAA010101AAA'
+    # Expanded the way the standalone recipient endpoints return it, not as a bare code.
+    assert taxpayer['regime']['id'] == '601'
+
+
+@pytest.mark.asyncio
+async def test_more_than_one_tax_registration_is_reported() -> None:
+    """`customer_taxpayer` is many-to-many: a customer may invoice under several RFCs."""
+    _auth()
+    customer = _customer()
+    customer.taxpayers = [_linked_taxpayer(), _linked_taxpayer('BBB020202BB1')]
+    with patch(
+        'app.services.customer_service.get_customer', new=AsyncMock(return_value=customer)
+    ):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as c:
+            r = await c.get('/api/v1/customers/1')
+
+    assert [t['taxpayer_recipient_id'] for t in r.json()['taxpayers']] == [
+        'AAA010101AAA',
+        'BBB020202BB1',
+    ]
+
+
+@pytest.mark.asyncio
+async def test_taxpayer_ids_reach_the_service_on_create() -> None:
+    """The point of the issue: a customer registered at the counter carries its RFC in one call."""
+    _auth()
+    creating = AsyncMock(return_value=_customer())
+    with patch('app.services.customer_service.create_customer', new=creating):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as c:
+            r = await c.post(
+                '/api/v1/customers',
+                json={
+                    'code': 'CUST1',
+                    'name': 'Acme Corp',
+                    'price_list': 1,
+                    'taxpayers': ['AAA010101AAA'],
+                },
+            )
+
+    assert r.status_code == 201
+    assert creating.await_args.args[1].taxpayers == ['AAA010101AAA']
 
 
 @pytest.mark.asyncio
@@ -626,12 +697,16 @@ async def test_link_ids_reach_the_service_on_update() -> None:
         'app.services.customer_service.get_customer', new=AsyncMock(return_value=_customer())
     ), patch('app.services.customer_service.update_customer', new=updating):
         async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as c:
-            r = await c.put('/api/v1/customers/1', json={'addresses': [4], 'contacts': [9]})
+            r = await c.put(
+                '/api/v1/customers/1',
+                json={'addresses': [4], 'contacts': [9], 'taxpayers': ['AAA010101AAA']},
+            )
 
     assert r.status_code == 200
     data = updating.await_args.args[2]
     assert data.addresses == [4]
     assert data.contacts == [9]
+    assert data.taxpayers == ['AAA010101AAA']
 
 
 @pytest.mark.asyncio
@@ -649,3 +724,19 @@ async def test_an_update_that_says_nothing_about_links_leaves_them_unset() -> No
     data = updating.await_args.args[2]
     assert data.addresses is None
     assert data.contacts is None
+    assert data.taxpayers is None
+
+
+@pytest.mark.asyncio
+async def test_an_empty_taxpayer_list_is_an_instruction_to_unlink() -> None:
+    """`[]` must reach the service as `[]`, distinct from the omission above."""
+    _auth()
+    updating = AsyncMock(return_value=_customer())
+    with patch(
+        'app.services.customer_service.get_customer', new=AsyncMock(return_value=_customer())
+    ), patch('app.services.customer_service.update_customer', new=updating):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as c:
+            r = await c.put('/api/v1/customers/1', json={'taxpayers': []})
+
+    assert r.status_code == 200
+    assert updating.await_args.args[2].taxpayers == []
