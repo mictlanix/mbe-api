@@ -114,7 +114,12 @@ class LotSerialTracking(Base):
     product: Mapped[int] = mapped_column(Integer, ForeignKey('product.product_id'))
     quantity: Mapped[Decimal] = mapped_column(Numeric(18, 4))
     lot_number: Mapped[str | None] = mapped_column(String(50))
-    expiration_date: Mapped[date | None] = mapped_column(Date)
+    # `nullable=True` stated rather than inferred: `date` is a *column* on this class (above), so
+    # inside the class body the annotation `date | None` resolves to that column rather than to
+    # `datetime.date` — SQLAlchemy cannot read it as optional and falls back to NOT NULL. The
+    # deployed column is `date DEFAULT NULL`. Harmless on MariaDB, which takes the NULL either way,
+    # but a schema built from these models refused every ledger row a departure writes.
+    expiration_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     serial_number: Mapped[str | None] = mapped_column(String(50))
 
 

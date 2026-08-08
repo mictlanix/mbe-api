@@ -41,6 +41,16 @@ and corrects the legacy rows blocking it (research R1).
 `tests/api/` pattern (FastAPI `dependency_overrides` over mocked services, no live database) and
 `tests/unit/` for service-level logic.
 
+> **A third layer was added after two 500s shipped through this one.** #149 and #154 were both
+> endpoint bugs whose endpoints had passing tests: mocking the service means the service never runs,
+> and mocking `db.execute` means the SQL never reaches a database. `tests/integration/` now drives
+> the API with a real session over in-memory SQLite (`aiosqlite`, dev dependency), schema built from
+> the model metadata and seeded once into a template file each test copies. **"No live database"
+> still holds** — nothing has to be provisioned and the suite runs on a bare checkout. The two
+> earlier layers keep their jobs: `tests/api/` pins status codes and authorisation cheaply, and
+> `tests/unit/` pins decision rules without I/O. What the new layer adds is the assertion that the
+> code path runs at all.
+
 **Target Platform**: Linux server, ASGI (uvicorn)
 
 **Project Type**: Web service — REST API under `/api/v1/`
