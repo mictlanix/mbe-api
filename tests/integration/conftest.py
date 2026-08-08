@@ -36,6 +36,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from sqlalchemy.pool import StaticPool
 
 import app.models
+from app.core.config import settings
 from app.core.deps import CurrentUser, get_current_user
 from app.db.base import Base
 from app.db.session import get_db
@@ -162,3 +163,18 @@ async def seeded(db: AsyncSession) -> None:
     query = select(Customer.customer_id).where(Customer.customer_id == 1)
     found = (await db.execute(query)).first()
     assert found is not None, 'the template database is missing its baseline rows'
+
+
+@pytest.fixture(autouse=True)
+def _write_files_under_tmp(tmp_path: Path) -> AsyncIterator[None]:
+    """Redirect the image directories at a temporary path for the duration of each test.
+
+    The proof-of-delivery route writes a real file, and settling a stop is part of the itinerary
+    flow, so without this the suite drops PNGs into the repository's own `pod/` — untracked rubbish
+    in a working tree, and a test that passes for the wrong reason if the directory is missing.
+    """
+    original = (settings.images_dir, settings.pod_dir)
+    settings.images_dir = str(tmp_path / 'images')
+    settings.pod_dir = str(tmp_path / 'pod')
+    yield
+    settings.images_dir, settings.pod_dir = original

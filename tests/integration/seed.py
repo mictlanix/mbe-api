@@ -216,8 +216,14 @@ async def seed_baseline(db: AsyncSession) -> None:
     await db.commit()
 
 
-async def seed_sales_order(db: AsyncSession, *, completed: bool = False) -> int:
-    """A sales order with one line, so the delivery flow has something to be raised from."""
+async def seed_sales_order(
+    db: AsyncSession, *, completed: bool = False, paid: bool = False
+) -> int:
+    """A sales order with one line, so the delivery flow has something to be raised from.
+
+    `completed` and `paid` are separate because the guards are: a delivery needs a completed sale, a
+    refund needs a paid one, and "completed but not paid" is the state that tells the two apart.
+    """
     now = datetime(2026, 8, 1, 10, 0)
     order = SalesOrder(
         creator=1,
@@ -237,7 +243,7 @@ async def seed_sales_order(db: AsyncSession, *, completed: bool = False) -> int:
         priority=Priority.NORMAL,
         completed=completed,
         cancelled=False,
-        paid=completed,
+        paid=paid,
         delivered=False,
         serial=1 if completed else None,
     )
