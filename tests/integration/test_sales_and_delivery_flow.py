@@ -37,6 +37,8 @@ async def test_a_sales_order_is_opened_lined_and_read(client: AsyncClient, seede
     assert line['product_code'] == 'P1'
     # #145 — the unit is read through the product and attached, not stored on the line.
     assert line['unit_of_measurement']['id'] == 'H87'
+    # #157 — so is the photo, resolved to the URL the product endpoints serve.
+    assert line['photo'] == '/images/p1.png'
 
     read = await client.get(f'/api/v1/sales-orders/{order_id}')
     assert read.status_code == 200, read.text
@@ -55,6 +57,7 @@ async def test_the_product_lookup_answers_with_price_and_unit(
     row = response.json()[0]
     assert row['price'] == '100.0000'
     assert row['unit_of_measurement']['id'] == 'H87'
+    assert row['photo'] == '/images/p1.png'
 
 
 async def test_raising_a_delivery_order_from_a_sale(

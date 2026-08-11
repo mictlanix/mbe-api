@@ -188,6 +188,7 @@ async def seed_baseline(db: AsyncSession) -> None:
                 product_id=1,
                 code='P1',
                 name='Producto Uno',
+                photo='p1.png',
                 unit_of_measurement=UNIT,
                 stockable=True,
                 perishable=False,

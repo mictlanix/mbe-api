@@ -591,3 +591,62 @@ class TestTheUnitOfMeasurementIsProjectedOntoWhatThePointOfSaleReads:
         source = inspect.getsource(sales_order_service.lookup_products)
 
         assert "'unit_of_measurement': units.get(product.product_id)" in source
+
+
+class TestThePhotoIsProjectedOntoWhatThePointOfSaleReads:
+    """#157 — the capture grid reserves a thumbnail beside each line and neither shape carried one.
+
+    Both shapes again, for the reason the unit needed both (#145): the lookup covers a scan, and a
+    resumed sale reads its lines through `attach_derived` without re-running the lookup. Only
+    `products` resolved a photo before this, and that is a privilege a cashier need not hold.
+    """
+
+    @staticmethod
+    def _db(rows: list) -> AsyncMock:
+        db = AsyncMock()
+        db.execute = AsyncMock(return_value=SimpleNamespace(all=lambda: rows))
+        return db
+
+    @pytest.mark.asyncio
+    async def test_it_returns_a_resolved_url_keyed_by_product(self) -> None:
+        """A URL, not the stored filename — the client renders it directly."""
+        db = self._db([(1, 'a.png'), (2, 'b.png')])
+
+        photos = await sales_order_service.photos_by_product(db, [1, 2])
+
+        assert photos[1] == '/images/a.png'
+        assert photos[2] == '/images/b.png'
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize('size', [1, 5, 50])
+    async def test_one_query_regardless_of_how_many_products(self, size: int) -> None:
+        db = self._db([])
+
+        await sales_order_service.photos_by_product(db, range(1, size + 1))
+
+        assert db.execute.await_count == 1
+
+    @pytest.mark.asyncio
+    async def test_no_products_issues_no_query(self) -> None:
+        db = self._db([])
+
+        assert await sales_order_service.photos_by_product(db, []) == {}
+        assert db.execute.await_count == 0
+
+    @pytest.mark.asyncio
+    async def test_a_product_with_no_photo_maps_to_none(self) -> None:
+        """The column is nullable, and nothing is fabricated in its place."""
+        db = self._db([(1, None)])
+
+        assert await sales_order_service.photos_by_product(db, [1]) == {1: None}
+
+    def test_order_reads_attach_it_to_every_line(self) -> None:
+        source = inspect.getsource(sales_order_service.attach_derived)
+
+        assert 'photos_by_product(' in source
+        assert "line.__dict__['photo'] = photos.get(line.product)" in source
+
+    def test_the_lookup_reports_it_too(self) -> None:
+        source = inspect.getsource(sales_order_service.lookup_products)
+
+        assert "'photo': image_service.image_url(product.photo)" in source
