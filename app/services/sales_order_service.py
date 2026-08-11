@@ -33,7 +33,7 @@ from app.schemas.sales_order import (
     SalesOrderUpdate,
 )
 from app.schemas.sat_catalog import SatUnitOfMeasurementResponse
-from app.services import documents, stock_ledger, totals
+from app.services import documents, image_service, stock_ledger, totals
 
 # ── Decision rules (pure) ─────────────────────────────────────────────────────
 
@@ -240,6 +240,23 @@ async def units_by_product(
     }
 
 
+async def photos_by_product(db: AsyncSession, product_ids: Iterable[int]) -> dict[int, str | None]:
+    """The photo URL of each product, keyed by product id (#157).
+
+    Resolved through `image_service` so a line reads the same URL the product endpoints return,
+    and batched for the same reason `units_by_product` is — one query for a whole line set.
+    """
+    ids = {i for i in product_ids if i is not None}
+    if not ids:
+        return {}
+    rows = (
+        await db.execute(
+            select(Product.product_id, Product.photo).where(Product.product_id.in_(ids))
+        )
+    ).all()
+    return {product_id: image_service.image_url(photo) for product_id, photo in rows}
+
+
 async def attach_derived(db: AsyncSession, order: SalesOrder) -> SalesOrder:
     """Attach lines, computed money and the single lifecycle status.
 
@@ -257,12 +274,16 @@ async def attach_derived(db: AsyncSession, order: SalesOrder) -> SalesOrder:
         .scalars()
         .all()
     )
-    units = await units_by_product(db, {line.product for line in lines})
+    products = {line.product for line in lines}
+    units = await units_by_product(db, products)
+    photos = await photos_by_product(db, products)
     for line in lines:
         _line_totals(line)
         # A resumed sale re-reads its lines and never re-runs the product lookup, so the unit has to
-        # come with them or the column is blank on exactly the rows already captured (#145).
+        # come with them or the column is blank on exactly the rows already captured (#145). The
+        # thumbnail slot beside each row is blank for the same reason without the photo (#157).
         line.__dict__['unit_of_measurement'] = units.get(line.product)
+        line.__dict__['photo'] = photos.get(line.product)
 
     computed = totals.document_totals(
         [
@@ -1053,6 +1074,9 @@ async def lookup_products(
                 'model': product.model,
                 'bar_code': product.bar_code,
                 'unit_of_measurement': units.get(product.product_id),
+                # The row is already loaded, so the photo needs no second query — only the same
+                # resolution the product endpoints apply (#157).
+                'photo': image_service.image_url(product.photo),
                 'price': listed.price if listed else Decimal(0),
                 'tax_rate': product.tax_rate,
                 'tax_included': product.tax_included,

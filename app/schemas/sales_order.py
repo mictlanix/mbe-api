@@ -68,6 +68,10 @@ class SalesOrderLineResponse(BaseModel):
     # read through the product and attached by `attach_derived`. `null` only if the SAT catalog has
     # no row for the product's unit.
     unit_of_measurement: SatUnitOfMeasurementResponse | None = None
+    # The product's photo as a resolved URL (#157). Read through the product and attached by
+    # `attach_derived` for the same reason the unit is: a resumed sale re-reads its lines and never
+    # re-runs the lookup. `null` if the product has no photo.
+    photo: str | None = None
     quantity: Decimal
     cost: Decimal
     price: Decimal
@@ -195,6 +199,10 @@ class ProductLookupResponse(BaseModel):
     #: So a capture grid can show the unit on the row it just scanned, without a second call per
     #: product to `/products` (#145).
     unit_of_measurement: SatUnitOfMeasurementResponse | None = None
+    #: The product's photo as a resolved URL, for the thumbnail beside the row a capture grid just
+    #: scanned — same reason as the unit above, and reading `/products` for it asks a cashier to
+    #: hold a privilege the sale itself does not need (#157). `null` if the product has no photo.
+    photo: str | None = None
     price: Decimal
     tax_rate: Decimal
     tax_included: bool

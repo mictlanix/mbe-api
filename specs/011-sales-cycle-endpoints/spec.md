@@ -480,6 +480,17 @@ order.
   > reports `null` rather than a fabricated value. Batched into one query per line set and per lookup
   > page, never one per row.
 
+- **FR-021b**: The product lookup **and** a sales order's line responses MUST each report the
+  product's photo, as the same resolved URL the product endpoints return. Added by #157.
+
+  > Both shapes, for the reason FR-021a needed both: a resumed sale re-reads its lines without
+  > re-running the lookup, so the rows already captured would be the ones with an empty thumbnail.
+  > The photo is read through the product — `sales_order_detail` stores no image — and batched into
+  > one query per line set; a lookup page needs no query at all, since it already holds the product
+  > rows. A product with no photo reports `null`. `products` already resolved one, but reading it
+  > from a point of sale asks a cashier to hold the products privilege and costs a call per line on
+  > the one screen whose premise is speed.
+
 - **FR-022**: Folio uniqueness MUST be enforced by a unique database constraint on
   `(facility, serial)` for sales orders, quotes and refunds, in addition to the application-level
   serialisation that assigns them. Draft documents carry no folio and MUST NOT collide with one
