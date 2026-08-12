@@ -30,6 +30,7 @@ from app.api.v1.endpoints import (
     taxpayer_certificates,
     taxpayer_issuers,
     taxpayer_recipients,
+    user_profiles,
     users,
     vehicle_operators,
     vehicles,
@@ -40,6 +41,9 @@ api_router = APIRouter()
 api_router.include_router(health.router, prefix='/health', tags=['health'])
 api_router.include_router(auth.router, prefix='/auth', tags=['auth'])
 api_router.include_router(users.router, prefix='/users', tags=['users'])
+api_router.include_router(
+    user_profiles.router, prefix='/user-profiles', tags=['user-profiles']
+)
 api_router.include_router(products.router, prefix='/products', tags=['products'])
 api_router.include_router(price_lists.router, prefix='/price-lists', tags=['price-lists'])
 api_router.include_router(product_prices.router, prefix='/product-prices', tags=['product-prices'])

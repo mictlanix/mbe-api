@@ -127,3 +127,12 @@ class TestRealCorpus:
     def test_011_rollback_is_not_applied_automatically(self):
         versions = [m.version for m in discover(Path('migrations'))]
         assert '011_facility_transit_warehouses_rollback' not in versions
+
+    def test_014_is_discovered_and_ordered_after_013(self):
+        versions = [m.version for m in discover(Path('migrations'))]
+        # 013 is the highest applied before this one; there is no 013_*.sql, so 012 is the anchor
+        assert versions.index('014_user_profiles') > versions.index('012_user_employee_required')
+
+    def test_014_rollback_is_not_applied_automatically(self):
+        versions = [m.version for m in discover(Path('migrations'))]
+        assert '014_user_profiles_rollback' not in versions

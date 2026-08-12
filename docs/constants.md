@@ -362,7 +362,9 @@ Controls how each user's facility/POS/drawer context is set.
 
 Complete permission gate catalog. Every `SystemObjects` value maps to a feature or sub-feature that can be independently gated by `AccessRight` bitmask per user.
 
-Commented-out entries (31, 70, 76, 77, 78, 104, 105) are **disabled/unused** in the codebase.
+Commented-out entries (31, 70, 76, 77, 78, 104, 105) are **disabled/unused** in the codebase, and
+`SystemObject` omits exactly those. `access_privilege` still holds 88 rows against 70, 104 and 105 —
+grants that outlived the features — and an applied user profile removes them (spec 014, research R9).
 
 | Value | Name | Module | Description |
 |-------|------|--------|-------------|
@@ -466,6 +468,7 @@ Commented-out entries (31, 70, 76, 77, 78, 104, 105) are **disabled/unused** in 
 | 102 | ExcludePriceRangeValidation | Sales | Bypass price range validation on SO lines |
 | 103 | IssuedLocationId | Fiscal | Set issued-location on fiscal documents |
 | 106 | Pricing | Master Data | Price management / pricing tool |
+| 107 | ProductionSites | Master Data | Production site catalog (legacy-only; no API endpoint) |
 | 108 | PaymentsVerification | Sales | Validate/verify received payments |
 | 109 | ReceivedPaymentsSummary | Reports | Received payments summary report |
 | 110 | CustomerRefundConfirm | Sales | Confirm customer refund (separate gate) |
