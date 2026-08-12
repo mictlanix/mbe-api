@@ -32,7 +32,7 @@ System login account.
 | Column | Type | Null | Description |
 |--------|------|------|-------------|
 | `user_id` | varchar(20) | NO | Username / login identifier (PK) |
-| `password` | varchar(40) | NO | SHA1 hashed password |
+| `password` | varchar(255) | NO | SHA1 hashed password (40 chars). Widened by migration `016` (#161) for a future bcrypt migration that has not happened — `passlib[bcrypt]` is a declared dependency and imported nowhere. See `docs/specs/12-users.md` |
 | `email` | varchar(250) | NO | Contact email |
 | `employee` | int(11) | YES | Linked employee record |
 | `administrator` | bit(1) | NO | Full admin flag — bypasses all privilege checks |
@@ -50,10 +50,12 @@ Per-user, per-object (SystemObject enum) permission bits (read/write/etc.).
 | `object` | int(11) | NO | SystemObject enum value (menu entry identifier) |
 | `privileges` | int(11) | NO | Bitmask: AllowRead, AllowCreate, AllowEdit, AllowDelete |
 
-**Dense**: one row per `SystemObject` (107), including the objects a user is denied. There is **no
-unique index on `(user, object)`**, and `deps.py` reads a privilege with `scalar_one_or_none()`,
-which raises on two matching rows — a duplicate would answer 500 for every request gated on that
-object. Measured zero in the deployment database; see spec 014 research R2.
+**Dense**: one row per `SystemObject` (107), including the objects a user is denied.
+
+`UNIQUE (user, object)` since migration `015` (#160). Both readers assume it and neither degrades
+without it — `deps.py` uses `scalar_one_or_none()` and the legacy user-edit screen uses
+`SingleOrDefault`, so a duplicate would answer 500 for every request gated on that object rather
+than resolving to either mask.
 
 Rows also exist against objects `SystemObject` does *not* define — 70, 104 and 105, which are
 commented out in the legacy catalog. Those are grants that outlived their features, and applying a

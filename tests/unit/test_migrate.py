@@ -136,3 +136,15 @@ class TestRealCorpus:
     def test_014_rollback_is_not_applied_automatically(self):
         versions = [m.version for m in discover(Path('migrations'))]
         assert '014_user_profiles_rollback' not in versions
+
+    def test_015_and_016_are_discovered_and_ordered_after_014(self):
+        versions = [m.version for m in discover(Path('migrations'))]
+        assert versions.index('015_access_privilege_unique') > versions.index('014_user_profiles')
+        assert versions.index('016_user_password_width') > versions.index(
+            '015_access_privilege_unique'
+        )
+
+    def test_015_and_016_rollbacks_are_not_applied_automatically(self):
+        versions = [m.version for m in discover(Path('migrations'))]
+        assert '015_access_privilege_unique_rollback' not in versions
+        assert '016_user_password_width_rollback' not in versions

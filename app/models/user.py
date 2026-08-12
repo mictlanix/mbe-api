@@ -1,4 +1,4 @@
-from sqlalchemy import Boolean, ForeignKey, Integer, String
+from sqlalchemy import Boolean, ForeignKey, Integer, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -49,6 +49,12 @@ class User(Base):
 
 class AccessPrivilege(Base):
     __tablename__ = 'access_privilege'
+    # One row per (user, object) — added by migration 015 (issue #160). Both applications that read
+    # this table assume it: `deps.py` uses `scalar_one_or_none()` and the legacy user-edit screen
+    # uses `SingleOrDefault`, and neither degrades on a duplicate — both raise. Declared here as
+    # well as in the schema so `tests/integration/`, whose SQLite schema is built from this
+    # metadata, enforces it too.
+    __table_args__ = (UniqueConstraint('user', 'object', name='access_privilege_user_object_uq'),)
 
     access_privilege_id: Mapped[int] = mapped_column(Integer, primary_key=True)
     user_id: Mapped[str] = mapped_column('user', String(20), ForeignKey('user.user_id'))
