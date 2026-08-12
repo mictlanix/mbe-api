@@ -94,8 +94,16 @@ SELECT COUNT(*) FROM `user_profile`;                 -- 0 — profiles are autho
 SELECT COUNT(*) FROM `user` WHERE `profile` IS NOT NULL;  -- 0 — no account is migrated
 ```
 
-**Idempotence**: re-applying `014` changes nothing (`CREATE TABLE IF NOT EXISTS`,
-`ADD COLUMN IF NOT EXISTS`).
+**Idempotence**: re-applying `014` changes nothing — **verified on `mbe_dev` 2026-08-12**, all five
+statements re-run as no-ops (warnings only: "already exists", "Duplicate column/key name"), with the
+two tables still at two rather than duplicated. Note the runner records the version in
+`schema_migrations`, so `python -m app.db.migrate` will report "up to date" and skip; re-running the
+file's statements directly is what tests idempotence.
+
+**Syntax note**: `ADD CONSTRAINT ... FOREIGN KEY IF NOT EXISTS` is MariaDB-specific and was verified
+by parse probe against 10.11 before the file was applied — running each `ALTER` against a nonexistent
+table returns 1146 (table absent) rather than 1064 (syntax error), which validates the grammar without
+writing anything.
 
 **Rollback** (`014_user_profiles_rollback.sql`): drops the column first, then
 `user_profile_privilege`, then `user_profile` — FK order matters. Rolling back **discards every
