@@ -283,7 +283,11 @@ class SystemObject(IntEnum):
     ISSUED_LOCATION_ID = 103
     # 104, 105 absent
     PRICING = 106
-    # 107 absent
+    # Was `# 107 absent` until spec 014. The legacy catalog has `ProductionSites = 107` NOT
+    # commented out, and 29 of 31 accounts already held an access_privilege row for it -- so the
+    # comment asserted an absence the data contradicted. The other absences here (31, 70, 76-78,
+    # 104, 105) do mirror legacy's commented-out entries and are correct as they stand.
+    PRODUCTION_SITES = 107
     PAYMENTS_VERIFICATION = 108
     RECEIVED_PAYMENTS_SUMMARY = 109
     CUSTOMER_REFUND_CONFIRM = 110

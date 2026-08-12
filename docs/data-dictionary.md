@@ -38,6 +38,7 @@ System login account.
 | `administrator` | bit(1) | NO | Full admin flag — bypasses all privilege checks |
 | `session_version` | int(11) | NO | Incremented to invalidate existing sessions |
 | `status` | smallint(6) | NO | `EntityStatus` — `0` active, `1` inactive, `2` archived |
+| `profile` | int(11) | YES | FK → `user_profile.user_profile_id` — the profile this account was last provisioned from. **Provenance only**: no authorization decision reads it, a hand-edit of privileges does not clear it, and it goes stale by design (spec 014) |
 
 ### `access_privilege`
 Per-user, per-object (SystemObject enum) permission bits (read/write/etc.).
@@ -48,6 +49,43 @@ Per-user, per-object (SystemObject enum) permission bits (read/write/etc.).
 | `user` | varchar(20) | NO | FK → `user.user_id` |
 | `object` | int(11) | NO | SystemObject enum value (menu entry identifier) |
 | `privileges` | int(11) | NO | Bitmask: AllowRead, AllowCreate, AllowEdit, AllowDelete |
+
+**Dense**: one row per `SystemObject` (107), including the objects a user is denied. There is **no
+unique index on `(user, object)`**, and `deps.py` reads a privilege with `scalar_one_or_none()`,
+which raises on two matching rows — a duplicate would answer 500 for every request gated on that
+object. Measured zero in the deployment database; see spec 014 research R2.
+
+Rows also exist against objects `SystemObject` does *not* define — 70, 104 and 105, which are
+commented out in the legacy catalog. Those are grants that outlived their features, and applying a
+user profile removes them for the account it touches (spec 014, research R9).
+
+### `user_profile`
+A named, reusable permission template (spec 014). A **template, not a grouping**: applying one
+copies its masks into `access_privilege`, and the copy is the account's own — editing a profile
+afterwards reaches nobody. Nothing here is read when a request is authorized.
+
+| Column | Type | Null | Description |
+|--------|------|------|-------------|
+| `user_profile_id` | int(11) | NO | PK |
+| `name` | varchar(100) | NO | UNIQUE, case-insensitive (`utf8mb3_unicode_ci`; the service also compares on `LOWER()` so SQLite agrees) |
+| `description` | varchar(250) | YES | Optional |
+| `status` | int(11) | NO | `EntityStatus`; only ACTIVE can be applied, INACTIVE/ARCHIVED stay readable |
+
+### `user_profile_privilege`
+The masks a profile grants. Column names mirror `access_privilege` so the copy reads as a
+field-for-field transfer.
+
+| Column | Type | Null | Description |
+|--------|------|------|-------------|
+| `user_profile_privilege_id` | int(11) | NO | PK |
+| `user_profile` | int(11) | NO | FK → `user_profile.user_profile_id` |
+| `object` | int(11) | NO | SystemObject enum value |
+| `privileges` | int(11) | NO | Bitmask, 0–15 |
+
+**Sparse — and this is the asymmetry to hold on to.** A row exists only for an object the profile
+grants something on; absence means denied, and a zero mask is dropped on write so "no entry" is the
+single representation. `access_privilege` is the opposite: all 107 rows, always. The apply is the
+translation between the two shapes, and reversing them is the likeliest way to misread this schema.
 
 ### `user_settings`
 Per-user default facility/POS/cash drawer context.

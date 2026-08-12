@@ -1,0 +1,37 @@
+{
+  "workflow": "speckit",
+  "specName": "User Profiles as Permission Templates",
+  "branch": "014-user-profiles",
+  "currentStep": "implement",
+  "status": "implemented",
+  "history": [
+    {
+      "step": "specify",
+      "substep": null,
+      "kind": "start",
+      "by": "extension",
+      "at": "2026-08-12T02:46:47.054Z"
+    },
+    {
+      "step": "plan",
+      "substep": null,
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-08-12T07:20:39.478Z"
+    },
+    {
+      "step": "tasks",
+      "substep": null,
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-08-12T07:59:58.970Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-08-12T09:06:36.984Z"
+    }
+  ]
+}
