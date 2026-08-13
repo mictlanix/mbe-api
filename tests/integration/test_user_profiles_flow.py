@@ -195,6 +195,32 @@ class TestApply:
         assert objects.isdisjoint({70, 104, 105})
         assert len(rows) == OBJECT_COUNT
 
+    async def test_applying_twice_does_not_violate_the_unique_constraint(
+        self, client: AsyncClient, db: AsyncSession, seeded: None
+    ) -> None:
+        """Regression for issue #160's constraint meeting spec 014's apply.
+
+        `UNIQUE (user, object)` and a clear-then-re-append implementation are incompatible:
+        SQLAlchemy emits INSERTs before DELETEs within one flush, so re-inserting the same pairs
+        collides with the rows being deleted and every apply raises `IntegrityError`. That is why
+        `_write_privileges_from` updates in place. Applying twice is the shortest reproduction —
+        the second apply is entirely re-writes of rows that already exist.
+        """
+        profile = await _new_profile(client)
+        pid = profile['user_profile_id']
+        assert (await _new_user(client, 'qsuniq', profile_id=pid)).status_code == 201
+
+        for attempt in range(3):
+            applied = await client.post(f'/api/v1/user-profiles/{pid}/apply/qsuniq')
+            assert applied.status_code == 200, f'apply #{attempt + 2}: {applied.text}'
+
+        rows = (
+            await db.execute(select(AccessPrivilege).where(AccessPrivilege.user_id == 'qsuniq'))
+        ).scalars().all()
+        assert len(rows) == OBJECT_COUNT
+        pairs = {(r.user_id, r.system_object) for r in rows}
+        assert len(pairs) == OBJECT_COUNT, 'a duplicate pair survived the constraint'
+
     async def test_applying_invalidates_sessions(
         self, client: AsyncClient, db: AsyncSession, seeded: None
     ) -> None:

@@ -81,6 +81,10 @@ class Column(NamedTuple):
     #: A `NOT NULL` column with a default can still be inserted without naming it, so a model that
     #: leaves it out is not making a claim the database will refuse.
     has_default: bool
+    #: The declared width of a `varchar`/`char`, or `None` for a type that has none. A model that
+    #: claims more room than the column has writes a row the database refuses — see
+    #: `test_no_mapped_column_claims_more_room_than_the_column_has`.
+    length: int | None
 
 
 def _columns_in(sql: str) -> dict[str, dict[str, Column]]:
@@ -89,16 +93,25 @@ def _columns_in(sql: str) -> dict[str, dict[str, Column]]:
         columns = {}
         for column in COLUMN_SPEC.finditer(table.group(2)):
             spec = column.group(2).upper()
+            width = re.match(r'\s*(?:VAR)?CHAR\((\d+)\)', spec)
             columns[column.group(1)] = Column(
                 nullable='NOT NULL' not in spec,
                 has_default='DEFAULT' in spec or 'AUTO_INCREMENT' in spec,
+                length=int(width.group(1)) if width else None,
             )
         tables[table.group(1)] = columns
     return tables
 
 
+#: Forward migrations only. A `*_rollback.sql` is never applied automatically — `discover()`
+#: excludes them — so letting one inform what the deployed schema looks like exempts columns no
+#: applied migration ever touched. Measured when this was narrowed: 11 columns were being exempted
+#: on the strength of a rollback alone (`active`, `cancelled`, `completed`, `disabled` and the rest
+#: of 005's reverted status columns), which silently switched the checks off for them.
 MIGRATION_SQL = '\n'.join(
-    path.read_text() for path in sorted(MIGRATIONS.glob('*.sql'))
+    path.read_text()
+    for path in sorted(MIGRATIONS.glob('*.sql'))
+    if not path.name.endswith('_rollback.sql')
 )
 DUMPED = _tables_in(SCHEMA_DUMP.read_text())
 CREATED_BY_MIGRATION = _tables_in(MIGRATION_SQL)
@@ -124,18 +137,24 @@ def test_the_schema_sources_were_actually_read() -> None:
 
 
 def test_the_column_specifications_were_parsed_too() -> None:
-    """The nullability checks say nothing unless the text after each column name was read.
+    """The nullability and width checks say nothing unless the text after each name was read.
 
-    A `NOT NULL` that fails to parse reads as "nullable", which would make both of those checks
-    agree with anything. Pinned on definitions that are not going to change.
+    A `NOT NULL` that fails to parse reads as "nullable", which would make both nullability checks
+    agree with anything; a width that fails to parse reads as `None`, which makes the width check
+    skip the column silently. Pinned on definitions that are not going to change.
     """
     customer = DUMPED_COLUMNS['customer']
 
-    assert customer['code'] == Column(nullable=False, has_default=False)
+    assert customer['code'] == Column(nullable=False, has_default=False, length=25)
     assert customer['comment'].nullable
+    assert customer['comment'].length == 1024
     assert DUMPED_COLUMNS['lot_serial_tracking']['expiration_date'].nullable
+    # A type with no width at all must read as None rather than as 0.
+    assert DUMPED_COLUMNS['lot_serial_tracking']['expiration_date'].length is None
     # `NOT NULL DEFAULT '0'` — the case the second direction has to forgive.
-    assert DUMPED_COLUMNS['commission']['comment'] == Column(nullable=False, has_default=True)
+    assert DUMPED_COLUMNS['commission']['comment'] == Column(
+        nullable=False, has_default=True, length=50
+    )
 
 
 def test_junctions_were_found() -> None:
@@ -238,4 +257,43 @@ def test_no_mapped_column_permits_what_the_schema_refuses(table) -> None:  # noq
     assert not too_permissive, (
         f'`{table.name}` maps {too_permissive} as optional, but the schema refuses NULL and gives '
         f'no default — writing one of these without a value fails at the database.'
+    )
+
+
+@pytest.mark.parametrize('table', TABLES, ids=lambda t: t.name)
+def test_no_mapped_column_claims_more_room_than_the_column_has(table) -> None:  # noqa: ANN001
+    """A model declaring `String(n)` wider than the column writes a row the database refuses.
+
+    This is the `user.password` case (issue #161). The model has declared `String(255)` since it was
+    written, anticipating a bcrypt migration; the column was `varchar(40)` until migration 016. The
+    name matched and the nullability matched, so neither existing check could see it, and SQLAlchemy
+    does not enforce length on insert — so nothing failed locally either.
+
+    Worse, `tests/integration/` builds its schema from this metadata, so there the column was
+    `VARCHAR(255)`: a 60-character bcrypt hash would have fitted and passed the whole suite, then
+    raised error 1406 against MariaDB. The test environment was more permissive than production,
+    which is the same shape as spec 014 research R4.
+
+    Measured when this was written: with migrations accounted for, **zero** columns disagree, so it
+    is precise rather than a standing source of noise. A model narrower than the column is fine and
+    not checked — it only means the code cannot use all the room available.
+    """
+    known = DUMPED_COLUMNS.get(table.name)
+    if not known:
+        pytest.skip(f'{table.name} is not in the schema dump')
+
+    overclaimed = sorted(
+        f'{column.name} String({declared}) > varchar({spec.length})'
+        for column in table.columns
+        if (spec := known.get(column.name))
+        and spec.length is not None
+        and (declared := getattr(column.type, 'length', None)) is not None
+        and declared > spec.length
+        and column.name not in ALTERED_BY_MIGRATION
+    )
+
+    assert not overclaimed, (
+        f'`{table.name}` maps {overclaimed} — the model claims more room than the column has, so a '
+        f'value that fits the model is refused by the database with error 1406. Either narrow the '
+        f'model or add a migration widening the column.'
     )

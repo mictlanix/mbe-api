@@ -1,0 +1,46 @@
+-- 016 Widen user.password to varchar(255) -- issue #161
+--
+-- `app/models/user.py` has declared `String(255)` since it was written, commented "extended to 255
+-- for bcrypt migration". The column is `varchar(40)`. The widening migration that comment
+-- anticipates was never written, so the model and the database have disagreed all along.
+--
+-- WHAT THE DISAGREEMENT COSTS TODAY: nothing, because nothing writes a hash longer than 40
+-- characters. SHA1 hex is exactly 40. What it costs the moment anything does: `sql_mode` here
+-- includes STRICT_TRANS_TABLES, so a 60-character bcrypt hash raises error 1406, "Data too long for
+-- column" -- a 500 at the point of the write.
+--
+-- THAT IS THE GOOD FAILURE, and worth stating because the alternative is much worse. Without strict
+-- mode the value would be silently truncated, a truncated hash never verifies, and the account would
+-- be locked out with nothing logged anywhere. The protection is a server setting rather than
+-- anything this repository controls, which is a reason to fix the column rather than rely on it.
+--
+-- MEASURED against the deployment database 2026-08-12:
+--
+--   user rows                                            31
+--   LENGTH(password), min and max                     40, 40   <-- all SHA1 hex, nothing near 255
+--
+-- Widening a varchar is lossless and rewrites no row.
+--
+-- THE OTHER WRITER, checked rather than assumed. `mbe/Model/User.cs` declares
+-- `[StringLength (40, MinimumLength = 4)]` on `Password`, so the legacy application validates a
+-- stricter bound than this column and cannot be broken by relaxing it -- it simply never writes more
+-- than 40. Note the corollary for whoever does the bcrypt work: the legacy application would REFUSE
+-- a bcrypt hash at validation, so its own annotation has to change before both applications can read
+-- the same credential. That is issue #161 part 2 and is not attempted here.
+--
+-- WHAT THIS IS NOT. This does not migrate the hashing. `docs/specs/12-users.md` describes that work
+-- -- rehash on successful SHA1 login, a `password_scheme` column, reject SHA1-only accounts after a
+-- window -- and it needs its own spec because it changes authentication behaviour. `passlib[bcrypt]`
+-- is already a declared dependency and still imported nowhere. This migration only makes the column
+-- agree with the model it has always disagreed with, so that work does not also have to carry a
+-- schema change.
+--
+-- Idempotent: MODIFY to a definition the column may already have changes nothing.
+--
+-- MariaDB 10.11. Rollback: 016_user_password_width_rollback.sql
+
+-- MODIFY, not a drop and re-add: nothing else is on this column, and only the width changes.
+-- NOT NULL is preserved deliberately -- every account has a password and none may be without one.
+
+ALTER TABLE `user`
+  MODIFY COLUMN `password` VARCHAR(255) NOT NULL;

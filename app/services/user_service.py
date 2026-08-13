@@ -96,25 +96,48 @@ async def to_list_items(db: AsyncSession, users: Sequence[User]) -> list[UserLis
 
 
 def _write_privileges_from(user: User, profile: UserProfile | None) -> None:
-    """Replace every one of the user's privilege rows from `profile` (spec 014, FR-013).
+    """Replace the user's whole permission set from `profile` (spec 014, FR-013).
 
-    **A blanket replace, not an upsert.** Full replace is a statement about all 107 system objects,
-    so a profile granting three of them denies the other 104 explicitly. This is also what removes
-    the rows on objects the enum omits — 70, 104 and 105 are features commented out in the legacy
-    catalog, and 88 rows of grants outlived them (research R9). The clear is a real delete:
-    `User.privileges` carries `cascade='all, delete-orphan'`.
+    Every one of the 107 `SystemObject` values ends at the profile's mask or at 0, and any row on an
+    object outside the enum is removed — 70, 104 and 105 are features commented out in the legacy
+    catalog whose grants outlived them (research R9). `profile=None` denies everything, which is
+    what `create_user` did before this feature existed.
 
-    `profile=None` denies everything, which is what `create_user` did before this feature existed.
+    **Why this updates in place rather than clearing and re-inserting.** The obvious implementation
+    is `user.privileges.clear()` plus 107 appends, and that is what shipped first. Migration 015
+    then added `UNIQUE (user, object)`, and SQLAlchemy's unit of work emits INSERTs before DELETEs
+    within one flush — so re-inserting the same pairs collides with the rows being deleted and every
+    apply raises `IntegrityError`. Caught by `tests/integration/`, whose SQLite schema is built from
+    this metadata and therefore carries the constraint.
+
+    Updating the row that already exists sidesteps the ordering question, and is cheaper: most masks
+    are already 0 and stay 0, so SQLAlchemy issues no UPDATE for them, where the previous version
+    wrote 107 rows unconditionally.
+
+    The observable result is unchanged — this is a different mechanism for the same decision, not a
+    revision of it (research R3).
 
     Stages only — the caller commits, so a create can validate, write and commit in one transaction
     (research R8).
     """
     masks = user_profile_service.masks_of(profile) if profile is not None else {}
-    user.privileges.clear()
-    for obj in SystemObject:
-        user.privileges.append(
-            AccessPrivilege(system_object=int(obj), privileges=masks.get(int(obj), 0))
-        )
+    known = {int(obj) for obj in SystemObject}
+    existing = {entry.system_object: entry for entry in user.privileges}
+
+    for obj in known:
+        entry = existing.get(obj)
+        if entry is None:
+            user.privileges.append(
+                AccessPrivilege(system_object=obj, privileges=masks.get(obj, 0))
+            )
+        else:
+            entry.privileges = masks.get(obj, 0)
+
+    # Objects this API does not define. Removing them from the collection is a real DELETE —
+    # `User.privileges` carries `cascade='all, delete-orphan'`.
+    for obj, entry in existing.items():
+        if obj not in known:
+            user.privileges.remove(entry)
 
 
 async def create_user(
