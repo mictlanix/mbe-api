@@ -200,7 +200,11 @@ async def create_from_sales_order(
 
     `lines` narrows the delivery to a named subset of the sale's undelivered quantities, for the
     same reason: one sale can split across several destinations. Omitting it keeps the original
-    behaviour of claiming everything uncovered, so existing callers are unaffected (#138).
+    behaviour of claiming everything uncovered, so existing callers are unaffected (#138). An empty
+    list narrows to nothing and creates the destination carrying no lines, to be filled afterwards
+    with `add_line` — the point-of-sale delivery step creates a destination from its address and
+    date before any quantity has been assigned to it (#165). The test below is `is not None` and
+    must stay that way: `if lines:` would read the empty list as omitted and claim the whole sale.
 
     `ship_to`, `contact`, `date` and `comment` are the destination's own header, for that same
     split: each destination needs its own address, and often its own contact, date and

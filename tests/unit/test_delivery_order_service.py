@@ -370,6 +370,23 @@ class TestNarrowingToARequestedSubset:
         assert 'if lines is not None:' in source
         assert 'narrow_to_requested(deliverable, lines)' in source
 
+    def test_an_empty_request_narrows_to_nothing_rather_than_everything(self) -> None:
+        """#165 — `lines: []` means "carry nothing yet", the opposite of omitting the field."""
+        assert service.narrow_to_requested(self._deliverable((1, '10'), (2, '5')), []) == []
+
+    def test_the_two_are_distinguished_by_identity_not_truthiness(self) -> None:
+        """The regression this pins: `if lines:` reads `[]` as omitted and claims the whole sale.
+
+        Both cases are falsy, and the difference between them is the whole of #165 — an empty
+        destination versus one carrying every quantity the sale still owes. Nothing else in the
+        function would fail if the test were loosened, so it is pinned here.
+        """
+        # The body only: the docstring names the mistake in order to warn against it.
+        body = inspect.getsource(service.create_from_sales_order).split('"""')[-1]
+
+        assert 'if lines is not None:' in body
+        assert 'if lines:' not in body
+
     def test_the_requested_lines_are_not_rebound_before_the_narrowing(self) -> None:
         """The bug this pins: the sale's own lines were read into `lines`, shadowing the argument.
 

@@ -243,6 +243,86 @@ async def test_adding_more_than_the_sale_still_owes_is_refused_with_422(
     assert response.json()['detail'].startswith('The sales order line has 6')
 
 
+async def test_a_destination_is_created_from_its_header_and_filled_afterwards(
+    client: AsyncClient, db: AsyncSession, seeded: None
+) -> None:
+    """#165 with #163 — the point-of-sale delivery step, end to end.
+
+    The destination is created from where it goes, who receives it and any instructions, with no
+    quantity decided yet; each sale line's quantity is assigned into it afterwards. Neither half was
+    possible before: `min_length=1` refused the empty create, and nothing could add a line to an
+    existing order.
+    """
+    sales_order = await seed_sales_order(db, completed=True)
+    from app.models.sales import SalesOrderDetail
+
+    sales_line = (
+        await db.execute(
+            select(SalesOrderDetail.sales_order_detail_id).where(
+                SalesOrderDetail.sales_order == sales_order
+            )
+        )
+    ).scalar_one()
+
+    created = await client.post(
+        '/api/v1/delivery-orders',
+        json={
+            'sales_order': sales_order,
+            'lines': [],
+            'ship_to': 1,
+            'contact': 1,
+            'comment': 'Deja con el portero',
+        },
+    )
+
+    assert created.status_code == 201, created.text
+    body = created.json()
+    assert body['lines'] == []
+    assert body['status'] == DeliveryOrderStatus.DRAFT.value
+    assert (body['ship_to'], body['comment']) == (1, 'Deja con el portero')
+    delivery = body['delivery_order_id']
+
+    # An empty destination carries nothing, so there is nothing to confirm yet.
+    premature = await client.post(f'/api/v1/delivery-orders/{delivery}/confirm')
+    assert premature.status_code == 409, premature.text
+
+    filled = await client.post(
+        f'/api/v1/delivery-orders/{delivery}/lines',
+        json={'sales_order_detail': sales_line, 'quantity': '10'},
+    )
+
+    assert filled.status_code == 201, filled.text
+    assert [line['quantity'] for line in filled.json()['lines']] == ['10.0000']
+    # The header the side sheet supplied survives the fill.
+    assert filled.json()['comment'] == 'Deja con el portero'
+
+    confirmed = await client.post(f'/api/v1/delivery-orders/{delivery}/confirm')
+    assert confirmed.status_code == 200, confirmed.text
+
+
+async def test_an_empty_create_still_claims_nothing_from_the_sale(
+    client: AsyncClient, db: AsyncSession, seeded: None
+) -> None:
+    """The distinction, where confusing the two would be silent: omitting `lines` takes all ten.
+
+    If `lines: []` were ever read as omitted, this destination would come out carrying the whole
+    sale and the next create would report the sale fully delivered — with nothing to show that the
+    caller asked for the opposite.
+    """
+    sales_order = await seed_sales_order(db, completed=True)
+
+    empty = await client.post(
+        '/api/v1/delivery-orders', json={'sales_order': sales_order, 'lines': []}
+    )
+    assert empty.status_code == 201, empty.text
+    assert empty.json()['lines'] == []
+
+    everything = await client.post('/api/v1/delivery-orders', json={'sales_order': sales_order})
+
+    assert everything.status_code == 201, everything.text
+    assert [line['quantity'] for line in everything.json()['lines']] == ['10.0000']
+
+
 async def test_the_destination_header_is_applied_at_creation(
     client: AsyncClient, db: AsyncSession, seeded: None
 ) -> None:
