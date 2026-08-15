@@ -381,6 +381,73 @@ async def test_unknown_order_is_404() -> None:
             assert (await client.get('/api/v1/delivery-orders/999')).status_code == 404
 
 
+# ── Adding a line to an existing draft (#163) ─────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_adding_a_line_returns_the_order_with_it() -> None:
+    _auth()
+    with patch(f'{SERVICE}.get_order', AsyncMock(return_value=_order())), patch(
+        f'{SERVICE}.add_line', AsyncMock()
+    ) as adding, patch(f'{SERVICE}.lines_of', AsyncMock(return_value=[_line()])):
+        async with _client() as client:
+            response = await client.post(
+                '/api/v1/delivery-orders/1/lines',
+                json={'sales_order_detail': 21, 'quantity': '10'},
+            )
+
+    body = response.json()
+    assert response.status_code == 201
+    assert [line['delivery_order_detail_id'] for line in body['lines']] == [11]
+    item = adding.await_args.args[2]
+    assert (item.sales_order_detail, item.quantity) == (21, Decimal('10'))
+
+
+@pytest.mark.asyncio
+async def test_adding_a_line_to_an_unknown_order_is_404() -> None:
+    _auth()
+    with patch(f'{SERVICE}.get_order', AsyncMock(return_value=None)):
+        async with _client() as client:
+            response = await client.post(
+                '/api/v1/delivery-orders/999/lines',
+                json={'sales_order_detail': 21, 'quantity': '10'},
+            )
+
+    assert response.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_a_zero_added_quantity_is_rejected_by_the_schema() -> None:
+    _auth()
+    with patch(f'{SERVICE}.get_order', AsyncMock(return_value=_order())):
+        async with _client() as client:
+            response = await client.post(
+                '/api/v1/delivery-orders/1/lines',
+                json={'sales_order_detail': 21, 'quantity': '0'},
+            )
+
+    assert response.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_adding_a_line_that_is_already_there_surfaces_the_services_409() -> None:
+    _auth()
+    refusal = HTTPException(
+        status_code=409, detail='Line 21 is already on this delivery order as line 11'
+    )
+    with patch(f'{SERVICE}.get_order', AsyncMock(return_value=_order())), patch(
+        f'{SERVICE}.add_line', AsyncMock(side_effect=refusal)
+    ):
+        async with _client() as client:
+            response = await client.post(
+                '/api/v1/delivery-orders/1/lines',
+                json={'sales_order_detail': 21, 'quantity': '1'},
+            )
+
+    assert response.status_code == 409
+    assert 'as line 11' in response.json()['detail']
+
+
 # ── Confirmation ──────────────────────────────────────────────────────────────
 
 

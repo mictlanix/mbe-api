@@ -501,6 +501,105 @@ async def update_order(
     return order
 
 
+async def add_line(
+    db: AsyncSession, order: DeliveryOrder, item: DeliveryOrderLineRequest
+) -> DeliveryOrderDetail:
+    """Put one more of the sale's lines onto an existing draft (#163).
+
+    Until this existed, a detail row could only be born inside `create_from_sales_order`: a line
+    dropped with `DELETE` could never be restored, and a line left out at creation could never be
+    added to that destination afterwards. That forced every quantity to be decided in the same call
+    that creates the destination, which is the reverse of how the point-of-sale delivery step
+    works — the destination is created from its address and date, then each sale line's quantity is
+    assigned inside it.
+
+    The quantity bound is `_covered_quantities`, the same figure `create_from_sales_order` and
+    `update_line` use, so the three cannot between them over-claim a sales order line.
+    """
+    assert_editable(order)
+
+    sales_line = await db.get(SalesOrderDetail, item.sales_order_detail)
+    belongs = False
+    if sales_line is not None:
+        origin = (await sales_orders_of(db, [order.delivery_order_id])).get(
+            order.delivery_order_id
+        )
+        if origin is not None:
+            belongs = sales_line.sales_order == origin
+        else:
+            # An empty draft — every line deleted — has no origin to compare against, so the
+            # customer is what stops it being repointed at another party's sale.
+            sale = await db.get(SalesOrder, sales_line.sales_order)
+            belongs = sale is not None and sale.customer == order.customer
+    # One message for "no such line", "another sale's line" and "another customer's line": the
+    # client cannot act differently on the three, and separating them would leak which ids exist —
+    # the same reasoning as `narrow_to_requested`.
+    if not belongs:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=(
+                f'Line {item.sales_order_detail} is not an undelivered line of this sales order'
+            ),
+        )
+
+    # `first`, not `scalar_one_or_none`: nothing in the schema stops a legacy row set carrying the
+    # same sales-order line twice, and that should refuse rather than raise.
+    existing = (
+        (
+            await db.execute(
+                select(DeliveryOrderDetail.delivery_order_detail_id).where(
+                    DeliveryOrderDetail.delivery_order == order.delivery_order_id,
+                    DeliveryOrderDetail.sales_order_detail == item.sales_order_detail,
+                )
+            )
+        )
+        .scalars()
+        .first()
+    )
+    if existing is not None:
+        # Refused rather than folded into the existing row, so that the caller's quantity always
+        # means what it says: `PUT .../lines/{existing}` is the one way to change an amount.
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                f'Line {item.sales_order_detail} is already on this delivery order as line '
+                f'{existing}'
+            ),
+        )
+
+    covered = await _covered_quantities(db, sales_line.sales_order)
+    elsewhere = covered.get(item.sales_order_detail, Decimal(0))
+    if elsewhere + item.quantity > sales_line.quantity:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=(
+                f'The sales order line has {sales_line.quantity - elsewhere} left to '
+                f'deliver; {item.quantity} was requested'
+            ),
+        )
+
+    line = DeliveryOrderDetail(
+        delivery_order=order.delivery_order_id,
+        sales_order_detail=sales_line.sales_order_detail_id,
+        product=sales_line.product,
+        quantity=item.quantity,
+        product_code=sales_line.product_code,
+        product_name=sales_line.product_name,
+        warehouse=(
+            sales_line.warehouse
+            if sales_line.warehouse is not None
+            else await _fallback_warehouse(db, order.facility)
+        ),
+        committed_quantity=Decimal(0),
+        delivered_quantity=Decimal(0),
+        returned_quantity=Decimal(0),
+    )
+    db.add(line)
+    await db.commit()
+    await db.refresh(line)
+    return line
+
+
 async def update_line(
     db: AsyncSession, order: DeliveryOrder, line_id: int, quantity: Decimal
 ) -> DeliveryOrderDetail:

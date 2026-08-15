@@ -14,6 +14,7 @@ from app.schemas import ListResponse
 from app.schemas.delivery_order import (
     DeliveryOrderCreate,
     DeliveryOrderEventResponse,
+    DeliveryOrderLineRequest,
     DeliveryOrderLineResponse,
     DeliveryOrderLineUpdate,
     DeliveryOrderResponse,
@@ -184,6 +185,23 @@ async def update_delivery_order(
 ) -> DeliveryOrderResponse:
     order = await _order_or_404(db, delivery_order_id)
     order = await delivery_order_service.update_order(db, order, data, current=current)
+    return await _with_lines(db, order)
+
+
+@router.post(
+    '/{delivery_order_id}/lines',
+    response_model=DeliveryOrderResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def add_delivery_order_line(
+    delivery_order_id: int,
+    data: DeliveryOrderLineRequest,
+    _: CurrentUser = Depends(_UPDATE),
+    db: AsyncSession = Depends(get_db),
+) -> DeliveryOrderResponse:
+    """Add one of the sale's lines to an existing draft (#163)."""
+    order = await _order_or_404(db, delivery_order_id)
+    await delivery_order_service.add_line(db, order, data)
     return await _with_lines(db, order)
 
 
