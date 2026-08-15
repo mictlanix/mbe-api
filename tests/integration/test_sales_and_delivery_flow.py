@@ -140,6 +140,109 @@ async def test_over_claiming_a_line_is_refused_with_422(
     assert 'undelivered' in response.json()['detail']
 
 
+async def test_a_deleted_line_can_be_put_back(
+    client: AsyncClient, db: AsyncSession, seeded: None
+) -> None:
+    """#163 — the round trip that was impossible: create a subset, drop it, add it again.
+
+    Worth driving against a database rather than mocks: the re-add crosses `sales_orders_of` (which
+    finds no origin, the draft now being empty) and `_covered_quantities` (which must no longer
+    count the deleted row), and both are SQL.
+    """
+    sales_order = await seed_sales_order(db, completed=True)
+    from app.models.sales import SalesOrderDetail
+
+    sales_line = (
+        await db.execute(
+            select(SalesOrderDetail.sales_order_detail_id).where(
+                SalesOrderDetail.sales_order == sales_order
+            )
+        )
+    ).scalar_one()
+
+    raised = await client.post(
+        '/api/v1/delivery-orders',
+        json={
+            'sales_order': sales_order,
+            'lines': [{'sales_order_detail': sales_line, 'quantity': '4'}],
+        },
+    )
+    assert raised.status_code == 201, raised.text
+    delivery = raised.json()['delivery_order_id']
+    line_id = raised.json()['lines'][0]['delivery_order_detail_id']
+
+    duplicate = await client.post(
+        f'/api/v1/delivery-orders/{delivery}/lines',
+        json={'sales_order_detail': sales_line, 'quantity': '1'},
+    )
+    assert duplicate.status_code == 409, duplicate.text
+    assert f'as line {line_id}' in duplicate.json()['detail']
+
+    dropped = await client.delete(f'/api/v1/delivery-orders/{delivery}/lines/{line_id}')
+    assert dropped.status_code == 200, dropped.text
+    assert dropped.json()['lines'] == []
+
+    restored = await client.post(
+        f'/api/v1/delivery-orders/{delivery}/lines',
+        json={'sales_order_detail': sales_line, 'quantity': '10'},
+    )
+
+    assert restored.status_code == 201, restored.text
+    body = restored.json()
+    assert [line['sales_order_detail'] for line in body['lines']] == [sales_line]
+    # The whole ten, not the four the deleted row had claimed: coverage no longer counts it.
+    assert body['lines'][0]['quantity'] == '10.0000'
+    assert body['lines'][0]['open_quantity'] == '10.0000'
+
+
+async def test_adding_more_than_the_sale_still_owes_is_refused_with_422(
+    client: AsyncClient, db: AsyncSession, seeded: None
+) -> None:
+    """The bound is `_covered_quantities`, so the line already on the order counts against it."""
+    sales_order = await seed_sales_order(db, completed=True)
+    from app.models.sales import SalesOrderDetail
+
+    sales_line = (
+        await db.execute(
+            select(SalesOrderDetail.sales_order_detail_id).where(
+                SalesOrderDetail.sales_order == sales_order
+            )
+        )
+    ).scalar_one()
+
+    # Four of the ten go to the first destination and stay there.
+    first = await client.post(
+        '/api/v1/delivery-orders',
+        json={
+            'sales_order': sales_order,
+            'lines': [{'sales_order_detail': sales_line, 'quantity': '4'}],
+        },
+    )
+    assert first.status_code == 201, first.text
+
+    second = await client.post(
+        '/api/v1/delivery-orders',
+        json={
+            'sales_order': sales_order,
+            'lines': [{'sales_order_detail': sales_line, 'quantity': '6'}],
+        },
+    )
+    assert second.status_code == 201, second.text
+    delivery = second.json()['delivery_order_id']
+    line_id = second.json()['lines'][0]['delivery_order_detail_id']
+    dropped = await client.delete(f'/api/v1/delivery-orders/{delivery}/lines/{line_id}')
+    assert dropped.status_code == 200, dropped.text
+
+    response = await client.post(
+        f'/api/v1/delivery-orders/{delivery}/lines',
+        json={'sales_order_detail': sales_line, 'quantity': '7'},
+    )
+
+    assert response.status_code == 422, response.text
+    assert 'left to deliver' in response.json()['detail']
+    assert response.json()['detail'].startswith('The sales order line has 6')
+
+
 async def test_the_destination_header_is_applied_at_creation(
     client: AsyncClient, db: AsyncSession, seeded: None
 ) -> None:

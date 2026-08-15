@@ -8,13 +8,14 @@ those two ever disagree, a partial delivery double-counts its remainder.
 import inspect
 from decimal import Decimal
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from fastapi import HTTPException
 
 from app.enums import DeliveryOrderStatus as S
 from app.enums import FulfillmentType
+from app.models.sales import SalesOrder, SalesOrderDetail
 from app.schemas.delivery_order import DeliveryOrderLineRequest
 from app.services import delivery_order_service as service
 
@@ -421,6 +422,181 @@ class TestTheDestinationHeaderAtCreation:
 
         for field in ('ship_to', 'contact', 'date', 'comment'):
             assert field in source
+
+
+class TestAddingALineToAnExistingDraft:
+    """#163 — a detail row that is not born inside `create_from_sales_order`.
+
+    Before this, a line dropped with `DELETE` could never be restored and a line left out at
+    creation could never be added, so every quantity had to be decided in the create call. The
+    bound it checks against is `_covered_quantities`, the same figure create and `update_line` use:
+    the three cannot between them over-claim a sales order line.
+    """
+
+    @staticmethod
+    def _draft(status: S = S.DRAFT) -> SimpleNamespace:
+        return SimpleNamespace(delivery_order_id=1, status=status, customer=5, facility=1)
+
+    @staticmethod
+    def _db(*, sales_line, sale=None, existing: int | None = None) -> SimpleNamespace:
+        objects = {
+            (SalesOrderDetail, 21): sales_line,
+            (SalesOrder, 42): sale if sale is not None else SimpleNamespace(customer=5),
+        }
+
+        async def get(model, ident):  # noqa: ANN001, ANN202
+            return objects.get((model, ident))
+
+        db = SimpleNamespace(added=[])
+        db.get = get
+        db.execute = AsyncMock(
+            return_value=SimpleNamespace(
+                scalars=lambda: SimpleNamespace(first=lambda: existing)
+            )
+        )
+        db.add = db.added.append
+        db.commit = AsyncMock()
+        db.refresh = AsyncMock()
+        return db
+
+    @staticmethod
+    def _sales_line(ordered: str = '10') -> SimpleNamespace:
+        return SimpleNamespace(
+            sales_order_detail_id=21,
+            sales_order=42,
+            product=3,
+            product_code='ABC',
+            product_name='Widget',
+            warehouse=2,
+            quantity=Decimal(ordered),
+        )
+
+    @staticmethod
+    def _request(sales_order_detail: int = 21, quantity: str = '4') -> DeliveryOrderLineRequest:
+        return DeliveryOrderLineRequest(
+            sales_order_detail=sales_order_detail, quantity=Decimal(quantity)
+        )
+
+    async def _add(self, db, order=None, request=None, covered=None):  # noqa: ANN001, ANN202
+        with patch.object(
+            service, 'sales_orders_of', AsyncMock(return_value={1: 42})
+        ), patch.object(
+            service, '_covered_quantities', AsyncMock(return_value=covered or {})
+        ):
+            return await service.add_line(db, order or self._draft(), request or self._request())
+
+    @pytest.mark.asyncio
+    async def test_it_copies_the_sales_line_onto_a_fresh_detail_row(self) -> None:
+        db = self._db(sales_line=self._sales_line())
+
+        line = await self._add(db)
+
+        assert db.added == [line]
+        assert (line.delivery_order, line.sales_order_detail) == (1, 21)
+        assert (line.product, line.product_code, line.warehouse) == (3, 'ABC', 2)
+        assert line.quantity == Decimal('4')
+
+    @pytest.mark.asyncio
+    async def test_a_new_row_starts_with_nothing_committed_delivered_or_returned(self) -> None:
+        """Otherwise SC-003 breaks the moment the line is added."""
+        db = self._db(sales_line=self._sales_line())
+
+        line = await self._add(db)
+
+        assert service.open_quantity(line) == line.quantity
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize('status', [s for s in S if s is not S.DRAFT])
+    async def test_only_a_draft_accepts_one(self, status: S) -> None:
+        db = self._db(sales_line=self._sales_line())
+
+        with pytest.raises(HTTPException) as exc:
+            await self._add(db, order=self._draft(status))
+
+        assert exc.value.status_code == 409
+        assert db.added == []
+
+    @pytest.mark.asyncio
+    async def test_what_the_sale_no_longer_owes_is_refused(self) -> None:
+        """Six already covered elsewhere leaves four, and five is asked for."""
+        db = self._db(sales_line=self._sales_line('10'))
+
+        with pytest.raises(HTTPException) as exc:
+            await self._add(db, request=self._request(quantity='5'), covered={21: Decimal('6')})
+
+        assert exc.value.status_code == 422
+        assert '4 left to deliver' in exc.value.detail
+        assert db.added == []
+
+    @pytest.mark.asyncio
+    async def test_exactly_what_is_left_is_allowed(self) -> None:
+        """The boundary: `>` not `>=`, so the last destination can take the remainder."""
+        db = self._db(sales_line=self._sales_line('10'))
+
+        line = await self._add(db, request=self._request(quantity='4'), covered={21: Decimal('6')})
+
+        assert line.quantity == Decimal('4')
+
+    @pytest.mark.asyncio
+    async def test_a_line_this_order_already_carries_is_refused_naming_it(self) -> None:
+        """Not folded into the existing row: `PUT .../lines/{id}` is the one way to change an
+        amount, so the response says which id to use."""
+        db = self._db(sales_line=self._sales_line(), existing=11)
+
+        with pytest.raises(HTTPException) as exc:
+            await self._add(db)
+
+        assert exc.value.status_code == 409
+        assert 'as line 11' in exc.value.detail
+        assert db.added == []
+
+    @pytest.mark.asyncio
+    async def test_an_unknown_sales_order_line_is_refused(self) -> None:
+        db = self._db(sales_line=None)
+
+        with pytest.raises(HTTPException) as exc:
+            await self._add(db)
+
+        assert exc.value.status_code == 422
+        assert 'not an undelivered line' in exc.value.detail
+
+    @pytest.mark.asyncio
+    async def test_another_sales_orders_line_is_refused_the_same_way(self) -> None:
+        """The client cannot act differently on the two, and separating them leaks which ids
+        exist — the same reasoning as `narrow_to_requested`."""
+        foreign = self._sales_line()
+        foreign.sales_order = 99
+        db = self._db(sales_line=foreign)
+
+        with pytest.raises(HTTPException) as exc:
+            await self._add(db)
+
+        assert exc.value.status_code == 422
+        assert 'not an undelivered line' in exc.value.detail
+
+    @pytest.mark.asyncio
+    async def test_an_empty_draft_accepts_its_own_customers_line(self) -> None:
+        """Deleting every line leaves no origin to compare against, so the customer stands in."""
+        db = self._db(sales_line=self._sales_line())
+
+        with patch.object(service, 'sales_orders_of', AsyncMock(return_value={})), patch.object(
+            service, '_covered_quantities', AsyncMock(return_value={})
+        ):
+            line = await service.add_line(db, self._draft(), self._request())
+
+        assert line.sales_order_detail == 21
+
+    @pytest.mark.asyncio
+    async def test_an_empty_draft_still_refuses_another_customers_line(self) -> None:
+        db = self._db(sales_line=self._sales_line(), sale=SimpleNamespace(customer=999))
+
+        with patch.object(service, 'sales_orders_of', AsyncMock(return_value={})), patch.object(
+            service, '_covered_quantities', AsyncMock(return_value={})
+        ), pytest.raises(HTTPException) as exc:
+            await service.add_line(db, self._draft(), self._request())
+
+        assert exc.value.status_code == 422
+        assert db.added == []
 
 
 class TestTheOriginatingSaleIsDerived:
