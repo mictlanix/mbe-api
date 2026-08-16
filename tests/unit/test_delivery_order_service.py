@@ -455,10 +455,12 @@ class TestAddingALineToAnExistingDraft:
         return SimpleNamespace(delivery_order_id=1, status=status, customer=5, facility=1)
 
     @staticmethod
-    def _db(*, sales_line, sale=None, existing: int | None = None) -> SimpleNamespace:
-        objects = {
-            (SalesOrderDetail, 21): sales_line,
-            (SalesOrder, 42): sale if sale is not None else SimpleNamespace(customer=5),
+    def _db(*, sales_line, sales_orders=None, existing: int | None = None) -> SimpleNamespace:
+        # Sale 42 is the one the order was raised from; 99 is a second sale of the same customer,
+        # which consolidation has to accept.
+        sales = sales_orders or {42: SimpleNamespace(customer=5), 99: SimpleNamespace(customer=5)}
+        objects = {(SalesOrderDetail, 21): sales_line} | {
+            (SalesOrder, k): v for k, v in sales.items()
         }
 
         async def get(model, ident):  # noqa: ANN001, ANN202
@@ -575,53 +577,64 @@ class TestAddingALineToAnExistingDraft:
             await self._add(db)
 
         assert exc.value.status_code == 422
-        assert 'not an undelivered line' in exc.value.detail
+        assert 'not a deliverable line of this customer' in exc.value.detail
 
     @pytest.mark.asyncio
-    async def test_another_sales_orders_line_is_refused_the_same_way(self) -> None:
-        """The client cannot act differently on the two, and separating them leaks which ids
-        exist — the same reasoning as `narrow_to_requested`."""
-        foreign = self._sales_line()
-        foreign.sales_order = 99
-        db = self._db(sales_line=foreign)
+    async def test_a_second_sales_orders_line_is_accepted(self) -> None:
+        """Consolidation: one shipment carrying two of the customer's sales.
+
+        This asserted a 422 when #163 shipped — the guard compared the line's sale against the one
+        already on the order. 261 of the 27,921 sale-linked delivery orders in this database carry
+        two or three sales, so the check refused an operation the business does.
+        """
+        second = self._sales_line()
+        second.sales_order = 99
+        db = self._db(sales_line=second)
+
+        line = await self._add(db)
+
+        assert db.added == [line]
+        assert line.sales_order_detail == 21
+
+    @pytest.mark.asyncio
+    async def test_another_customers_line_is_refused(self) -> None:
+        """The one thing that does hold: no consolidated order in the database spans customers."""
+        db = self._db(
+            sales_line=self._sales_line(), sales_orders={42: SimpleNamespace(customer=999)}
+        )
 
         with pytest.raises(HTTPException) as exc:
             await self._add(db)
 
         assert exc.value.status_code == 422
-        assert 'not an undelivered line' in exc.value.detail
+        assert 'not a deliverable line of this customer' in exc.value.detail
+        assert db.added == []
 
     @pytest.mark.asyncio
-    async def test_an_empty_draft_accepts_its_own_customers_line(self) -> None:
-        """Deleting every line leaves no origin to compare against, so the customer stands in."""
+    async def test_the_customer_is_read_from_the_sale_not_the_order_it_is_already_on(self) -> None:
+        """An empty draft — every line deleted — has no sale on it, and must still work.
+
+        This was a special case with its own branch while sale identity was the rule. Now it is
+        simply what the rule already says, so the empty draft needs no branch of its own.
+        """
         db = self._db(sales_line=self._sales_line())
 
-        with patch.object(service, 'sales_orders_of', AsyncMock(return_value={})), patch.object(
-            service, '_covered_quantities', AsyncMock(return_value={})
-        ):
+        with patch.object(service, '_covered_quantities', AsyncMock(return_value={})):
             line = await service.add_line(db, self._draft(), self._request())
 
         assert line.sales_order_detail == 21
 
-    @pytest.mark.asyncio
-    async def test_an_empty_draft_still_refuses_another_customers_line(self) -> None:
-        db = self._db(sales_line=self._sales_line(), sale=SimpleNamespace(customer=999))
 
-        with patch.object(service, 'sales_orders_of', AsyncMock(return_value={})), patch.object(
-            service, '_covered_quantities', AsyncMock(return_value={})
-        ), pytest.raises(HTTPException) as exc:
-            await service.add_line(db, self._draft(), self._request())
-
-        assert exc.value.status_code == 422
-        assert db.added == []
-
-
-class TestTheOriginatingSaleIsDerived:
+class TestTheOriginatingSalesAreDerived:
     """#147 — "which delivery orders belong to sale N?", answerable at last.
 
     Nothing stores the link on the header: it lives on the lines, and a child order raised by a
     partial delivery inherits it with its lines. Deriving it is therefore the version that cannot
     drift; the cost is one query, which must stay one query for a whole page.
+
+    Nor *could* it be stored: the relation is many-to-many, so no column on `delivery_order` could
+    hold it. The line is the join row, which is why deriving was right for a stronger reason than
+    "nothing to keep in step".
     """
 
     @staticmethod
@@ -633,10 +646,18 @@ class TestTheOriginatingSaleIsDerived:
         return db
 
     @pytest.mark.asyncio
-    async def test_it_maps_each_delivery_order_to_its_sale(self) -> None:
+    async def test_it_maps_each_delivery_order_to_its_sales(self) -> None:
         db = self._db([(1, 42), (2, 42), (3, 51)])
 
-        assert await service.sales_orders_of(db, [1, 2, 3]) == {1: 42, 2: 42, 3: 51}
+        assert await service.sales_orders_of(db, [1, 2, 3]) == {1: [42], 2: [42], 3: [51]}
+
+    @pytest.mark.asyncio
+    async def test_a_consolidated_shipment_reports_every_sale_it_carries(self) -> None:
+        """`func.min` answered 42 here and dropped 51 — silently, since one int cannot show that
+        it is a truncation. 261 delivery orders in the database carry two or three sales."""
+        db = self._db([(1, 42), (1, 51), (1, 63)])
+
+        assert await service.sales_orders_of(db, [1]) == {1: [42, 51, 63]}
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize('size', [1, 5, 50])
@@ -655,15 +676,25 @@ class TestTheOriginatingSaleIsDerived:
         assert db.execute.await_count == 0
 
     @pytest.mark.asyncio
-    async def test_attaching_writes_the_sale_onto_every_order(self) -> None:
+    async def test_attaching_writes_the_sales_onto_every_order(self) -> None:
         db = self._db([(1, 42)])
         orders = [_order(), SimpleNamespace(delivery_order_id=2)]
 
-        await service.attach_sales_order(db, orders)
+        await service.attach_sales_orders(db, orders)
 
-        assert orders[0].sales_order == 42
-        # Not in the result set: no line of it links to a sale, which is `null`, not a failure.
-        assert orders[1].sales_order is None
+        assert orders[0].sales_orders == [42]
+        # Not in the result set: no line of it links to a sale — an empty list, not a failure, and
+        # not `None`, so a client can iterate the field without checking it first.
+        assert orders[1].sales_orders == []
+
+    @pytest.mark.asyncio
+    async def test_the_query_orders_the_ids_so_the_list_is_stable(self) -> None:
+        """Left to the database's row order, the same shipment could answer [42, 51] then
+        [51, 42] and a client diffing the two would see a change that did not happen."""
+        source = inspect.getsource(service.sales_orders_of)
+
+        assert '.distinct()' in source
+        assert '.order_by(' in source
 
     @pytest.mark.asyncio
     async def test_the_filter_matches_through_the_lines(self) -> None:

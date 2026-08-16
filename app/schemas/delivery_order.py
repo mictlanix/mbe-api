@@ -95,11 +95,15 @@ class DeliveryOrderSummary(BaseModel):
     facility: int
     serial: int | None
     customer: int
-    # The sale this delivery was raised from, derived from the lines and attached by
-    # `attach_sales_order` (#147). Defaulted rather than required so a path that has not attached it
-    # answers `null` instead of failing serialisation; `null` also covers a line set with no
-    # sales-order link at all.
-    sales_order: int | None = None
+    # The sales this delivery draws on, derived from the lines and attached by
+    # `attach_sales_orders` (#147). A list, not a value: a delivery order and a sales order are
+    # many-to-many — one sale splits across destinations, one shipment consolidates several of a
+    # customer's sales. This was `sales_order: int | None`, filled by `min()` over the lines, which
+    # named one sale of a consolidated shipment and dropped the rest with nothing in the response to
+    # say so. Defaulted rather than required so a path that has not attached it answers `[]` instead
+    # of failing serialisation; `[]` also covers a line set with no sales-order link at all, and a
+    # destination created empty and not yet filled.
+    sales_orders: list[int] = []
     ship_to: int | None
     date: datetime | None
     priority: int

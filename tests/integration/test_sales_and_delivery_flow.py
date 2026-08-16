@@ -74,7 +74,7 @@ async def test_raising_a_delivery_order_from_a_sale(
     # Everything the sale still owes, which is its whole line.
     assert [line['quantity'] for line in body['lines']] == ['10.0000']
     # #147 — derived from the lines, so this exercises the join as well as the create.
-    assert body['sales_order'] == sales_order
+    assert body['sales_orders'] == [sales_order]
 
 
 async def test_raising_one_for_a_named_subset(
@@ -243,6 +243,106 @@ async def test_adding_more_than_the_sale_still_owes_is_refused_with_422(
     assert response.json()['detail'].startswith('The sales order line has 6')
 
 
+async def test_one_shipment_can_consolidate_two_sales_of_the_same_customer(
+    client: AsyncClient, db: AsyncSession, seeded: None
+) -> None:
+    """A delivery order and a sales order are many-to-many, in both directions.
+
+    #163 shipped a guard comparing an added line's sale against the one already on the order, which
+    refused this outright. 261 of the 27,921 sale-linked delivery orders in the production database
+    carry two or three sales, so the check forbade an operation the business does — and the read
+    path had always allowed it: the filter matches a delivery order under *either* sale, which is
+    what this asserts at the end.
+    """
+    from app.models.sales import SalesOrderDetail
+
+    async def line_of(sales_order: int) -> int:
+        return (
+            await db.execute(
+                select(SalesOrderDetail.sales_order_detail_id).where(
+                    SalesOrderDetail.sales_order == sales_order
+                )
+            )
+        ).scalar_one()
+
+    first_sale = await seed_sales_order(db, completed=True)
+    second_sale = await seed_sales_order(db, completed=True)
+
+    raised = await client.post(
+        '/api/v1/delivery-orders',
+        json={
+            'sales_order': first_sale,
+            'lines': [{'sales_order_detail': await line_of(first_sale), 'quantity': '4'}],
+        },
+    )
+    assert raised.status_code == 201, raised.text
+    delivery = raised.json()['delivery_order_id']
+
+    added = await client.post(
+        f'/api/v1/delivery-orders/{delivery}/lines',
+        json={'sales_order_detail': await line_of(second_sale), 'quantity': '3'},
+    )
+
+    assert added.status_code == 201, added.text
+    assert sorted(line['quantity'] for line in added.json()['lines']) == ['3.0000', '4.0000']
+    # The response names both. As a scalar filled by `min()` this reported the lower id alone, and
+    # a client could not tell that from a shipment carrying one sale.
+    assert added.json()['sales_orders'] == sorted([first_sale, second_sale])
+
+    # The point of deriving the link from the lines: the shipment answers to both sales.
+    for sale in (first_sale, second_sale):
+        found = await client.get('/api/v1/delivery-orders', params={'sales_order': sale})
+        assert delivery in [o['delivery_order_id'] for o in found.json()['items']], sale
+
+
+async def test_another_customers_line_cannot_be_consolidated_in(
+    client: AsyncClient, db: AsyncSession, seeded: None
+) -> None:
+    """The invariant that survived: no consolidated order in the database spans customers."""
+    from app.enums import EntityStatus
+    from app.models.customer import Customer
+    from app.models.sales import SalesOrder, SalesOrderDetail
+
+    sale = await seed_sales_order(db, completed=True)
+    raised = await client.post('/api/v1/delivery-orders', json={'sales_order': sale})
+    assert raised.status_code == 201, raised.text
+    delivery = raised.json()['delivery_order_id']
+
+    # A second customer, with a completed sale of their own.
+    db.add(
+        Customer(
+            customer_id=2,
+            code='C2',
+            name='Cliente Dos',
+            credit_limit=Decimal('1000'),
+            credit_days=30,
+            price_list=1,
+            shipping=False,
+            shipping_required_document=False,
+            status=EntityStatus.ACTIVE,
+        )
+    )
+    other_sale = await seed_sales_order(db, completed=True)
+    (await db.get(SalesOrder, other_sale)).customer = 2
+    await db.commit()
+
+    foreign_line = (
+        await db.execute(
+            select(SalesOrderDetail.sales_order_detail_id).where(
+                SalesOrderDetail.sales_order == other_sale
+            )
+        )
+    ).scalar_one()
+
+    response = await client.post(
+        f'/api/v1/delivery-orders/{delivery}/lines',
+        json={'sales_order_detail': foreign_line, 'quantity': '1'},
+    )
+
+    assert response.status_code == 422, response.text
+    assert 'not a deliverable line of this customer' in response.json()['detail']
+
+
 async def test_a_destination_is_created_from_its_header_and_filled_afterwards(
     client: AsyncClient, db: AsyncSession, seeded: None
 ) -> None:
@@ -280,6 +380,8 @@ async def test_a_destination_is_created_from_its_header_and_filled_afterwards(
     assert body['lines'] == []
     assert body['status'] == DeliveryOrderStatus.DRAFT.value
     assert (body['ship_to'], body['comment']) == (1, 'Deja con el portero')
+    # Derived from the lines, of which there are none yet — `[]`, not a failure and not `null`.
+    assert body['sales_orders'] == []
     delivery = body['delivery_order_id']
 
     # An empty destination carries nothing, so there is nothing to confirm yet.
@@ -293,8 +395,9 @@ async def test_a_destination_is_created_from_its_header_and_filled_afterwards(
 
     assert filled.status_code == 201, filled.text
     assert [line['quantity'] for line in filled.json()['lines']] == ['10.0000']
-    # The header the side sheet supplied survives the fill.
+    # The header the side sheet supplied survives the fill, and the sale appears with the line.
     assert filled.json()['comment'] == 'Deja con el portero'
+    assert filled.json()['sales_orders'] == [sales_order]
 
     confirmed = await client.post(f'/api/v1/delivery-orders/{delivery}/confirm')
     assert confirmed.status_code == 200, confirmed.text

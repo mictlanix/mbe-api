@@ -346,46 +346,52 @@ async def lines_of(db: AsyncSession, delivery_order_id: int) -> Sequence[Deliver
 
 async def sales_orders_of(
     db: AsyncSession, delivery_order_ids: Sequence[int]
-) -> dict[int, int]:
-    """Which sale each delivery order was raised from, keyed by delivery order id (#147).
+) -> dict[int, list[int]]:
+    """Which sales each delivery order draws on, keyed by delivery order id (#147).
 
     Derived rather than stored: the link lives on the lines, and a child order raised by a partial
     delivery inherits it with its lines, so there is nothing to keep in step. One query for a whole
     page, not one per row.
 
-    A delivery order is raised from exactly one sale, so `min` is picking from a single value. It is
-    there because nothing in the schema enforces that — a legacy row whose lines span two sales
-    reports the lower id rather than failing, and the `sales_order` filter still finds it under
-    both.
+    A list, because a delivery order and a sales order are many-to-many: one sale splits across
+    destinations, and one shipment consolidates several of a customer's sales. This took `func.min`
+    until the plural landed, which answered a consolidated shipment with the lower id and dropped
+    the rest — silently, since a caller reading one int cannot tell a complete answer from a
+    truncated one. 261 of the 27,921 sale-linked delivery orders in this database carry two or
+    three.
+
+    Ordered by id, so the list a client sees is stable between calls rather than left to the
+    database's row order.
     """
     if not delivery_order_ids:
         return {}
     rows = (
         await db.execute(
-            select(
-                DeliveryOrderDetail.delivery_order,
-                func.min(SalesOrderDetail.sales_order),
-            )
+            select(DeliveryOrderDetail.delivery_order, SalesOrderDetail.sales_order)
             .join(
                 SalesOrderDetail,
                 SalesOrderDetail.sales_order_detail_id == DeliveryOrderDetail.sales_order_detail,
             )
             .where(DeliveryOrderDetail.delivery_order.in_(set(delivery_order_ids)))
-            .group_by(DeliveryOrderDetail.delivery_order)
+            .distinct()
+            .order_by(DeliveryOrderDetail.delivery_order, SalesOrderDetail.sales_order)
         )
     ).all()
-    return {delivery_order: sales_order for delivery_order, sales_order in rows}
+    found: dict[int, list[int]] = {}
+    for delivery_order, sales_order in rows:
+        found.setdefault(delivery_order, []).append(sales_order)
+    return found
 
 
-async def attach_sales_order(db: AsyncSession, orders: Sequence[DeliveryOrder]) -> None:
-    """Attach the originating sale to each order, for `DeliveryOrderSummary.sales_order` (#147).
+async def attach_sales_orders(db: AsyncSession, orders: Sequence[DeliveryOrder]) -> None:
+    """Attach the originating sales to each order, for `DeliveryOrderSummary.sales_orders` (#147).
 
     Written under a `__dict__` key, following `fk_expansion`: `delivery_order` has no such column,
     and an instance shared through the identity map must keep its raw values.
     """
     origins = await sales_orders_of(db, [order.delivery_order_id for order in orders])
     for order in orders:
-        order.__dict__['sales_order'] = origins.get(order.delivery_order_id)
+        order.__dict__['sales_orders'] = origins.get(order.delivery_order_id, [])
 
 
 async def list_orders(
@@ -518,32 +524,33 @@ async def add_line(
     assigned inside it.
 
     The quantity bound is `_covered_quantities`, the same figure `create_from_sales_order` and
-    `update_line` use, so the three cannot between them over-claim a sales order line.
+    `update_line` use, so the three cannot between them over-claim a sales order line. It is
+    computed per sale, so it stays correct when a delivery order carries lines from several: each
+    line is bounded by its own sale's coverage.
+
+    A delivery order and a sales order are many-to-many. One sale splits across destinations, and
+    one shipment consolidates several sales for the same customer — both are present in this
+    database. That is why the link lives on the line rather than the header (#147): the line is the
+    join row, and no column on `delivery_order` could hold the relation.
     """
     assert_editable(order)
 
     sales_line = await db.get(SalesOrderDetail, item.sales_order_detail)
-    belongs = False
-    if sales_line is not None:
-        origin = (await sales_orders_of(db, [order.delivery_order_id])).get(
-            order.delivery_order_id
-        )
-        if origin is not None:
-            belongs = sales_line.sales_order == origin
-        else:
-            # An empty draft — every line deleted — has no origin to compare against, so the
-            # customer is what stops it being repointed at another party's sale.
-            sale = await db.get(SalesOrder, sales_line.sales_order)
-            belongs = sale is not None and sale.customer == order.customer
-    # One message for "no such line", "another sale's line" and "another customer's line": the
-    # client cannot act differently on the three, and separating them would leak which ids exist —
-    # the same reasoning as `narrow_to_requested`.
-    if not belongs:
+    sale = await db.get(SalesOrder, sales_line.sales_order) if sales_line is not None else None
+    # The customer, and only the customer. This first shipped comparing the line's sale against the
+    # one already on the order, which forbade consolidation: 261 of the 27,921 sale-linked delivery
+    # orders in this database carry lines from two or three sales, so the check refused an
+    # operation the business does. Facility is not checked either — 6 delivery orders span
+    # facilities, 2 of them consolidated, so enforcing it would refuse real rows too. What is left
+    # holds without exception across every consolidated order.
+    #
+    # One message for "no such line" and "another customer's line": the client cannot act
+    # differently on the two, and separating them would leak which ids exist — the same reasoning
+    # as `narrow_to_requested`.
+    if sale is None or sale.customer != order.customer:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail=(
-                f'Line {item.sales_order_detail} is not an undelivered line of this sales order'
-            ),
+            detail=f'Line {item.sales_order_detail} is not a deliverable line of this customer',
         )
 
     # `first`, not `scalar_one_or_none`: nothing in the schema stops a legacy row set carrying the
@@ -1011,7 +1018,7 @@ async def delivery_coverage(db: AsyncSession, sales_order_id: int) -> list[dict[
 __all__ = [
     'approve',
     'assert_editable',
-    'attach_sales_order',
+    'attach_sales_orders',
     'build_proof',
     'cancel',
     'confirm',
