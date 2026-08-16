@@ -4,6 +4,7 @@ from decimal import Decimal
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.enums import CurrencyCode, PaymentMethod, PaymentType
+from app.schemas import CUSTOMER_DISPLAY_NAME_DESCRIPTION, CUSTOMER_NAME_DESCRIPTION
 
 
 class CustomerPaymentCreate(BaseModel):
@@ -90,10 +91,14 @@ class OutstandingOrderResponse(BaseModel):
     #: outstanding orders when #174 was raised, so a list rendering it showed a dash on every row.
     #: Read `customer_display_name` to show a customer; this only says whether the document
     #: overrides that name.
-    customer_name: str | None
+    customer_name: str | None = Field(
+        default=None, description=CUSTOMER_NAME_DESCRIPTION
+    )
     #: The customer's own name, joined from `customer` (#174). Same field name as
     #: `SalesOrderSummary.customer_display_name` (#173), so the two lists agree.
-    customer_display_name: str | None = None
+    customer_display_name: str | None = Field(
+        default=None, description=CUSTOMER_DISPLAY_NAME_DESCRIPTION
+    )
     date: datetime
     due_date: datetime
     currency: CurrencyCode
