@@ -5,6 +5,7 @@ from enum import StrEnum
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.enums import CurrencyCode, FulfillmentType, PaymentTerms, Priority
+from app.schemas import CUSTOMER_DISPLAY_NAME_DESCRIPTION, CUSTOMER_NAME_DESCRIPTION
 from app.schemas.sat_catalog import SatUnitOfMeasurementResponse
 
 # ── Lifecycle ─────────────────────────────────────────────────────────────────
@@ -110,7 +111,15 @@ class SalesOrderCreate(BaseModel):
     # How the goods reach the customer, as the cashier stated it: delivered, collected at the
     # counter, or mixed. Omitted means not recorded — the API infers nothing on the caller's behalf,
     # because the third state is exactly what cannot be inferred from the address (#170).
-    fulfillment_intent: FulfillmentType | None = None
+    fulfillment_intent: FulfillmentType | None = Field(
+        default=None,
+        description=(
+            'How the cashier said the goods would reach the customer: 0 pickup, 1 delivery, '
+            '2 mixed (part collected, the rest shipped). Null means it was never recorded — '
+            'not "delivery". Same scale as delivery_order.fulfillment_type, which never '
+            'carries 2.'
+        ),
+    )
 
 
 class SalesOrderUpdate(BaseModel):
@@ -129,7 +138,15 @@ class SalesOrderUpdate(BaseModel):
     # Editable while the sale is a draft, like every field but `priority`: the cashier can change
     # their mind about how the goods leave before the sale is confirmed. Sending `null` clears it
     # back to "not recorded", which is how the other nullable fields here behave (#170).
-    fulfillment_intent: FulfillmentType | None = None
+    fulfillment_intent: FulfillmentType | None = Field(
+        default=None,
+        description=(
+            'How the cashier said the goods would reach the customer: 0 pickup, 1 delivery, '
+            '2 mixed (part collected, the rest shipped). Null means it was never recorded — '
+            'not "delivery". Same scale as delivery_order.fulfillment_type, which never '
+            'carries 2.'
+        ),
+    )
 
 
 class SalesOrderResponse(BaseModel):
@@ -157,7 +174,15 @@ class SalesOrderResponse(BaseModel):
     comment: str | None
     # `null` for every sale that predates #170 and every one raised without stating it. A client
     # must handle that rather than read it as `delivery`.
-    fulfillment_intent: FulfillmentType | None = None
+    fulfillment_intent: FulfillmentType | None = Field(
+        default=None,
+        description=(
+            'How the cashier said the goods would reach the customer: 0 pickup, 1 delivery, '
+            '2 mixed (part collected, the rest shipped). Null means it was never recorded — '
+            'not "delivery". Same scale as delivery_order.fulfillment_type, which never '
+            'carries 2.'
+        ),
+    )
     status: DocumentStatus
     lines: list[SalesOrderLineResponse] = []
     subtotal: Decimal
@@ -177,11 +202,15 @@ class SalesOrderSummary(BaseModel):
     #: The per-document override, exactly as the data dictionary defines it — null on every sale
     #: that did not set one, which is every ordinary sale. Read `customer_display_name` to show a
     #: customer on a row; this field only says whether the document overrides that name.
-    customer_name: str | None
+    customer_name: str | None = Field(
+        default=None, description=CUSTOMER_NAME_DESCRIPTION
+    )
     #: The customer's own name, joined from `customer` (#172). A list row has no other way to it:
     #: resolving it client-side costs one `GET /customers/{id}` per distinct customer on the page,
     #: and there is no fetch-by-ids to batch that into. `null` only if the customer row is gone.
-    customer_display_name: str | None = None
+    customer_display_name: str | None = Field(
+        default=None, description=CUSTOMER_DISPLAY_NAME_DESCRIPTION
+    )
     salesperson: int
     date: datetime
     due_date: datetime
