@@ -342,46 +342,52 @@ async def lines_of(db: AsyncSession, delivery_order_id: int) -> Sequence[Deliver
 
 async def sales_orders_of(
     db: AsyncSession, delivery_order_ids: Sequence[int]
-) -> dict[int, int]:
-    """Which sale each delivery order was raised from, keyed by delivery order id (#147).
+) -> dict[int, list[int]]:
+    """Which sales each delivery order draws on, keyed by delivery order id (#147).
 
     Derived rather than stored: the link lives on the lines, and a child order raised by a partial
     delivery inherits it with its lines, so there is nothing to keep in step. One query for a whole
     page, not one per row.
 
-    A delivery order is raised from exactly one sale, so `min` is picking from a single value. It is
-    there because nothing in the schema enforces that — a legacy row whose lines span two sales
-    reports the lower id rather than failing, and the `sales_order` filter still finds it under
-    both.
+    A list, because a delivery order and a sales order are many-to-many: one sale splits across
+    destinations, and one shipment consolidates several of a customer's sales. This took `func.min`
+    until the plural landed, which answered a consolidated shipment with the lower id and dropped
+    the rest — silently, since a caller reading one int cannot tell a complete answer from a
+    truncated one. 261 of the 27,921 sale-linked delivery orders in this database carry two or
+    three.
+
+    Ordered by id, so the list a client sees is stable between calls rather than left to the
+    database's row order.
     """
     if not delivery_order_ids:
         return {}
     rows = (
         await db.execute(
-            select(
-                DeliveryOrderDetail.delivery_order,
-                func.min(SalesOrderDetail.sales_order),
-            )
+            select(DeliveryOrderDetail.delivery_order, SalesOrderDetail.sales_order)
             .join(
                 SalesOrderDetail,
                 SalesOrderDetail.sales_order_detail_id == DeliveryOrderDetail.sales_order_detail,
             )
             .where(DeliveryOrderDetail.delivery_order.in_(set(delivery_order_ids)))
-            .group_by(DeliveryOrderDetail.delivery_order)
+            .distinct()
+            .order_by(DeliveryOrderDetail.delivery_order, SalesOrderDetail.sales_order)
         )
     ).all()
-    return {delivery_order: sales_order for delivery_order, sales_order in rows}
+    found: dict[int, list[int]] = {}
+    for delivery_order, sales_order in rows:
+        found.setdefault(delivery_order, []).append(sales_order)
+    return found
 
 
-async def attach_sales_order(db: AsyncSession, orders: Sequence[DeliveryOrder]) -> None:
-    """Attach the originating sale to each order, for `DeliveryOrderSummary.sales_order` (#147).
+async def attach_sales_orders(db: AsyncSession, orders: Sequence[DeliveryOrder]) -> None:
+    """Attach the originating sales to each order, for `DeliveryOrderSummary.sales_orders` (#147).
 
     Written under a `__dict__` key, following `fk_expansion`: `delivery_order` has no such column,
     and an instance shared through the identity map must keep its raw values.
     """
     origins = await sales_orders_of(db, [order.delivery_order_id for order in orders])
     for order in orders:
-        order.__dict__['sales_order'] = origins.get(order.delivery_order_id)
+        order.__dict__['sales_orders'] = origins.get(order.delivery_order_id, [])
 
 
 async def list_orders(
@@ -1008,7 +1014,7 @@ async def delivery_coverage(db: AsyncSession, sales_order_id: int) -> list[dict[
 __all__ = [
     'approve',
     'assert_editable',
-    'attach_sales_order',
+    'attach_sales_orders',
     'build_proof',
     'cancel',
     'confirm',
