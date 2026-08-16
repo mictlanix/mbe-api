@@ -711,3 +711,75 @@ class TestTheFulfilmentIntent:
 
         assert "if 'fulfillment_intent' in changes:" in source
         assert 'None if value is None else int(value)' in source
+
+
+class TestTheListSearchMatchesTheCustomersOwnName:
+    """#172 — `search` matched only `sales_order.customer_name`, the per-document override.
+
+    That column is null on every sale that did not set one, so a cashier typing a customer's name
+    matched nothing and the list came back empty rather than erroring. The integration test proves
+    the behaviour end to end, but only against SQLite; these assert the clause the MySQL deployment
+    will actually run, which is the gap `tests/integration/conftest.py` documents.
+    """
+
+    @staticmethod
+    def _db() -> AsyncMock:
+        db = AsyncMock()
+        db.execute = AsyncMock(
+            side_effect=[
+                SimpleNamespace(scalar_one=lambda: 0),
+                SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: [])),
+            ]
+        )
+        return db
+
+    @staticmethod
+    def _current() -> object:
+        from app.core.deps import CurrentUser
+
+        return CurrentUser(
+            user_id='tester', session_version=1, administrator=True, facility_id=1, employee_id=7
+        )
+
+    @pytest.mark.asyncio
+    async def test_a_name_term_reaches_the_customer_table(self) -> None:
+        db = self._db()
+
+        await sales_order_service.list_orders(db, current=self._current(), search='Cliente')
+
+        sql = str(db.execute.await_args_list[0].args[0]).lower()
+        assert 'customer.name' in sql
+
+    @pytest.mark.asyncio
+    async def test_the_override_stays_in_the_clause(self) -> None:
+        """ORed in beside the customer's name, not swapped for it — a sale that overrides the name
+        on the document is still findable by what the document says."""
+        db = self._db()
+
+        await sales_order_service.list_orders(db, current=self._current(), search='Cliente')
+
+        sql = str(db.execute.await_args_list[0].args[0]).lower()
+        assert 'sales_order.customer_name' in sql
+
+    @pytest.mark.asyncio
+    async def test_a_numeric_term_is_still_an_identifier(self) -> None:
+        """Unchanged: digits mean an order id or folio, never a name fragment."""
+        db = self._db()
+
+        await sales_order_service.list_orders(db, current=self._current(), search='4212')
+
+        sql = str(db.execute.await_args_list[0].args[0]).lower()
+        assert 'customer.name' not in sql
+        assert 'sales_order.serial' in sql
+
+    @pytest.mark.asyncio
+    async def test_the_count_and_the_page_carry_the_same_filter(self) -> None:
+        """A filter applied to only one of the two makes `total` disagree with `items`."""
+        db = self._db()
+
+        await sales_order_service.list_orders(db, current=self._current(), search='Cliente')
+
+        count_sql = str(db.execute.await_args_list[0].args[0]).lower()
+        page_sql = str(db.execute.await_args_list[1].args[0]).lower()
+        assert 'customer.name' in count_sql
+        assert 'customer.name' in page_sql
