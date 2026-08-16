@@ -351,15 +351,37 @@ async def test_omitting_the_sales_order_filter_leaves_the_list_unfiltered() -> N
 
 
 @pytest.mark.asyncio
-async def test_an_empty_line_list_is_rejected_by_the_schema() -> None:
-    """"Deliver nothing" is not a request; omitting `lines` is how you ask for everything."""
-    _auth()
-    async with _client() as client:
-        response = await client.post(
-            '/api/v1/delivery-orders', json={'sales_order': 42, 'lines': []}
-        )
+async def test_an_empty_line_list_creates_a_destination_carrying_nothing() -> None:
+    """#165 — the third case: not "everything the sale owes", not a named subset, but nothing yet.
 
-    assert response.status_code == 422
+    This asserted a 422 until #165: `min_length=1` refused it, so the only two reachable creates
+    were "everything uncovered" and "at least one named line", and a destination could not be
+    created from its header alone.
+    """
+    _auth()
+    with patch(f'{SERVICE}.create_from_sales_order', AsyncMock(return_value=_order())) as creating:
+        with patch(f'{SERVICE}.lines_of', AsyncMock(return_value=[])):
+            async with _client() as client:
+                response = await client.post(
+                    '/api/v1/delivery-orders', json={'sales_order': 42, 'lines': []}
+                )
+
+    assert response.status_code == 201, response.text
+    assert response.json()['lines'] == []
+    # The empty list has to reach the service as itself. `None` would claim the whole sale.
+    assert creating.await_args.kwargs['lines'] == []
+
+
+@pytest.mark.asyncio
+async def test_omitting_lines_is_not_the_same_request_as_an_empty_list() -> None:
+    """The distinction the client depends on, asserted where it can actually be confused."""
+    _auth()
+    with patch(f'{SERVICE}.create_from_sales_order', AsyncMock(return_value=_order())) as creating:
+        with patch(f'{SERVICE}.lines_of', AsyncMock(return_value=[])):
+            async with _client() as client:
+                await client.post('/api/v1/delivery-orders', json={'sales_order': 42})
+
+    assert creating.await_args.kwargs['lines'] is None
 
 
 @pytest.mark.asyncio

@@ -59,8 +59,12 @@ class DeliveryOrderCreate(BaseModel):
     fulfillment_type: FulfillmentType | None = None
     # Omitted means every quantity the sale still owes — the original and only behaviour. Supplied
     # when one sale splits across several destinations, so this delivery must claim a named subset
-    # rather than everything left (#138).
-    lines: list[DeliveryOrderLineRequest] | None = Field(default=None, min_length=1)
+    # rather than everything left (#138). An explicit empty list is the third case and the opposite
+    # of omitting it: create the destination now, carrying nothing, and assign quantities into it
+    # afterwards with `POST /{id}/lines` (#163, #165). The three stay distinguishable because the
+    # service tests `lines is not None`, never truthiness — `if lines:` would fold the empty list
+    # back into the omitted case and claim everything the sale owes.
+    lines: list[DeliveryOrderLineRequest] | None = None
     # The destination's own header, for that same split: each address needs its own contact, date
     # and instructions. Each falls back to the sale's value when omitted, so a caller that sets
     # none of them gets exactly what it got before (#146).
