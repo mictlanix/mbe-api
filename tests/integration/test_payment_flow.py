@@ -166,6 +166,44 @@ async def test_an_unpaid_order_is_listed_as_outstanding(
     assert order_id in [row['sales_order_id'] for row in response.json()['items']]
 
 
+async def test_an_outstanding_row_carries_the_customers_own_name(
+    client: AsyncClient, db: AsyncSession, seeded: None
+) -> None:
+    """#174 — the mirror image of #172.
+
+    This list's *search* already matched the customer's name; only the projection read the
+    per-document override, which was null on all 1,840 outstanding orders in the deployment. So a
+    cashier could find an order by typing a customer's name and the row that came back did not say
+    that name.
+    """
+    order_id, _ = await _completed_order_with_total(client, db)
+
+    response = await client.get(
+        '/api/v1/customer-payments/outstanding-orders', params={'customer': 1}
+    )
+
+    assert response.status_code == 200, response.text
+    row = next(r for r in response.json()['items'] if r['sales_order_id'] == order_id)
+    assert row['customer_display_name'] == 'Cliente Uno'
+    # The override keeps its documented meaning: untouched, so still null.
+    assert row['customer_name'] is None
+
+
+async def test_the_outstanding_search_finds_and_then_shows_the_same_name(
+    client: AsyncClient, db: AsyncSession, seeded: None
+) -> None:
+    """The two halves agreeing is the point of #174: what you searched by is what you see."""
+    order_id, _ = await _completed_order_with_total(client, db)
+
+    response = await client.get(
+        '/api/v1/customer-payments/outstanding-orders', params={'search': 'Cliente'}
+    )
+
+    assert response.status_code == 200, response.text
+    row = next(r for r in response.json()['items'] if r['sales_order_id'] == order_id)
+    assert row['customer_display_name'] == 'Cliente Uno'
+
+
 async def test_a_cash_session_opens_reports_itself_and_closes(
     client: AsyncClient, seeded: None
 ) -> None:

@@ -86,7 +86,14 @@ class OutstandingOrderResponse(BaseModel):
     sales_order_id: int
     serial: int | None
     customer: int
+    #: The per-document override, null on every order that did not set one — which was all 1,840
+    #: outstanding orders when #174 was raised, so a list rendering it showed a dash on every row.
+    #: Read `customer_display_name` to show a customer; this only says whether the document
+    #: overrides that name.
     customer_name: str | None
+    #: The customer's own name, joined from `customer` (#174). Same field name as
+    #: `SalesOrderSummary.customer_display_name` (#173), so the two lists agree.
+    customer_display_name: str | None = None
     date: datetime
     due_date: datetime
     currency: CurrencyCode
