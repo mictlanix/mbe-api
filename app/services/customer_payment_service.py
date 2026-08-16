@@ -473,6 +473,30 @@ async def reject_payment(
 # ── Outstanding orders ────────────────────────────────────────────────────────
 
 
+async def _customer_names(db: AsyncSession, orders: Sequence[SalesOrder]) -> dict[int, str]:
+    """The customers' own names for a page of orders, in one query keyed on the distinct ids (#174).
+
+    One query, and deliberately so: the loop that builds each row already issues two of its own
+    (`_order_total` and `applied_amount`), so resolving the name per row would make it three and
+    turn a page of twenty into sixty round trips. A page of walk-in sales is one customer repeated
+    and fetches a single row.
+
+    Mirrors `sales_order_service.attach_customer_names`, which does the same job for
+    `SalesOrderSummary`; it returns a mapping rather than writing onto the instances because these
+    rows are built as dicts, not projected from the model.
+    """
+    ids = {order.customer for order in orders}
+    if not ids:
+        return {}
+    return dict(
+        (
+            await db.execute(
+                select(Customer.customer_id, Customer.name).where(Customer.customer_id.in_(ids))
+            )
+        ).all()
+    )
+
+
 async def search_outstanding(
     db: AsyncSession,
     *,
@@ -531,6 +555,7 @@ async def search_outstanding(
     total: int = (await db.execute(count_q)).scalar_one()
     page = base.order_by(SalesOrder.sales_order_id.desc()).offset(skip).limit(limit)
     orders = (await db.execute(page)).scalars().all()
+    display_names = await _customer_names(db, orders)
 
     rows: list[dict] = []
     for order in orders:
@@ -542,6 +567,7 @@ async def search_outstanding(
                 'serial': order.serial,
                 'customer': order.customer,
                 'customer_name': order.customer_name,
+                'customer_display_name': display_names.get(order.customer),
                 'date': order.date,
                 'due_date': order.due_date,
                 'currency': order.currency,
