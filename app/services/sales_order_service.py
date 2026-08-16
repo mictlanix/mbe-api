@@ -529,6 +529,12 @@ async def create_order(
         exchange_rate=await _exchange_rate(db, currency, now),
         priority=int(data.priority),
         partial_deliveries=None,
+        # Deliberately not derived from `ship_to`: the address can say delivery or counter pickup
+        # and cannot say mixed, so inferring here would record a confident wrong answer for the one
+        # case the field exists to carry (#170).
+        fulfillment_intent=(
+            None if data.fulfillment_intent is None else int(data.fulfillment_intent)
+        ),
         balance_zeroed_time=None,
     )
     db.add(order)
@@ -651,6 +657,12 @@ async def update_order(
                   'customer_name', 'comment'):
         if field in changes:
             setattr(order, field, changes[field])
+    if 'fulfillment_intent' in changes:
+        # `int()` rather than the enum member, matching `priority` below: the column is a plain
+        # SmallInteger and storing the member would leave the attribute an enum on this instance
+        # and an int on the next one read back.
+        value = changes['fulfillment_intent']
+        order.fulfillment_intent = None if value is None else int(value)
     if 'priority' in changes and changes['priority'] is not None:
         order.priority = int(changes['priority'])
 

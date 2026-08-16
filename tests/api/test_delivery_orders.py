@@ -620,7 +620,7 @@ async def test_requeue_returns_the_order_to_preparation() -> None:
 @pytest.mark.asyncio
 async def test_ready_for_pickup_on_a_delivery_order_is_409() -> None:
     _auth()
-    conflict = HTTPException(status_code=409, detail='only valid for a COUNTER_PICKUP order')
+    conflict = HTTPException(status_code=409, detail='only valid for a PICKUP order')
     with patch(f'{SERVICE}.get_order', AsyncMock(return_value=_order())), patch(
         f'{SERVICE}.mark_ready_for_pickup', AsyncMock(side_effect=conflict)
     ):
@@ -705,18 +705,21 @@ async def test_proof_images_are_not_served_from_the_public_mount() -> None:
 async def test_creation_passes_an_explicit_fulfillment_type_through() -> None:
     """Splitting a sale across both kinds is a per-delivery-order choice (FR-005a)."""
     _auth()
-    pickup = _order(fulfillment=FulfillmentType.COUNTER_PICKUP)
+    pickup = _order(fulfillment=FulfillmentType.PICKUP)
     with patch(
         f'{SERVICE}.create_from_sales_order', AsyncMock(return_value=pickup)
     ) as created, patch(f'{SERVICE}.lines_of', AsyncMock(return_value=[])):
         async with _client() as client:
             response = await client.post(
-                '/api/v1/delivery-orders', json={'sales_order': 42, 'fulfillment_type': 1}
+                # 0, not 1: migration 018 renumbered the scale so pickup leads. The literal is
+                # spelled out rather than taken from the enum because it is the value on the wire,
+                # which is what a client sends and what the renumbering changed.
+                '/api/v1/delivery-orders', json={'sales_order': 42, 'fulfillment_type': 0}
             )
 
     assert response.status_code == 201
-    assert created.await_args.kwargs['fulfillment_type'] == FulfillmentType.COUNTER_PICKUP
-    assert response.json()['fulfillment_type'] == FulfillmentType.COUNTER_PICKUP
+    assert created.await_args.kwargs['fulfillment_type'] == FulfillmentType.PICKUP
+    assert response.json()['fulfillment_type'] == FulfillmentType.PICKUP
 
 
 @pytest.mark.asyncio

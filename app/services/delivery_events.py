@@ -41,10 +41,10 @@ LEGAL: dict[S, frozenset[S]] = {
 #: Transitions only one fulfilment type may take. Everything else is legal for both.
 TYPE_RESTRICTED: dict[tuple[S, S], FulfillmentType] = {
     (S.DRAFT, S.IN_PREPARATION): FulfillmentType.DELIVERY,
-    (S.DRAFT, S.APPROVED): FulfillmentType.COUNTER_PICKUP,
+    (S.DRAFT, S.APPROVED): FulfillmentType.PICKUP,
     (S.PENDING_APPROVAL, S.IN_PREPARATION): FulfillmentType.DELIVERY,
-    (S.PENDING_APPROVAL, S.APPROVED): FulfillmentType.COUNTER_PICKUP,
-    (S.APPROVED, S.READY_FOR_PICKUP): FulfillmentType.COUNTER_PICKUP,
+    (S.PENDING_APPROVAL, S.APPROVED): FulfillmentType.PICKUP,
+    (S.APPROVED, S.READY_FOR_PICKUP): FulfillmentType.PICKUP,
 }
 
 #: Landing on one of these without saying why is refused. A status flip alone explains nothing.

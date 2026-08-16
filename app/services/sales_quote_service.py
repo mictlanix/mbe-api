@@ -548,6 +548,10 @@ async def convert_to_order(
         customer_shipto=None,
         priority=1,
         partial_deliveries=None,
+        # A quote has no fulfilment intent to carry: it is asked at the counter when the sale is
+        # taken, which is after this. The order starts "not recorded" and the point of sale sets it
+        # with a `PUT` (#170).
+        fulfillment_intent=None,
     )
     db.add(order)
     await db.flush()

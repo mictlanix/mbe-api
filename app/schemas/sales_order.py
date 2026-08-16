@@ -4,7 +4,7 @@ from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.enums import CurrencyCode, PaymentTerms, Priority
+from app.enums import CurrencyCode, FulfillmentType, PaymentTerms, Priority
 from app.schemas.sat_catalog import SatUnitOfMeasurementResponse
 
 # ── Lifecycle ─────────────────────────────────────────────────────────────────
@@ -107,6 +107,10 @@ class SalesOrderCreate(BaseModel):
     customer_name: str | None = Field(default=None, max_length=100)
     priority: Priority = Priority.NORMAL
     comment: str | None = None
+    # How the goods reach the customer, as the cashier stated it: delivered, collected at the
+    # counter, or mixed. Omitted means not recorded — the API infers nothing on the caller's behalf,
+    # because the third state is exactly what cannot be inferred from the address (#170).
+    fulfillment_intent: FulfillmentType | None = None
 
 
 class SalesOrderUpdate(BaseModel):
@@ -122,6 +126,10 @@ class SalesOrderUpdate(BaseModel):
     # The one field that stays editable after completion (FR-011)
     priority: Priority | None = None
     comment: str | None = None
+    # Editable while the sale is a draft, like every field but `priority`: the cashier can change
+    # their mind about how the goods leave before the sale is confirmed. Sending `null` clears it
+    # back to "not recorded", which is how the other nullable fields here behave (#170).
+    fulfillment_intent: FulfillmentType | None = None
 
 
 class SalesOrderResponse(BaseModel):
@@ -147,6 +155,9 @@ class SalesOrderResponse(BaseModel):
     exchange_rate: Decimal
     priority: Priority
     comment: str | None
+    # `null` for every sale that predates #170 and every one raised without stating it. A client
+    # must handle that rather than read it as `delivery`.
+    fulfillment_intent: FulfillmentType | None = None
     status: DocumentStatus
     lines: list[SalesOrderLineResponse] = []
     subtotal: Decimal
