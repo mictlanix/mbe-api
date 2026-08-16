@@ -514,32 +514,33 @@ async def add_line(
     assigned inside it.
 
     The quantity bound is `_covered_quantities`, the same figure `create_from_sales_order` and
-    `update_line` use, so the three cannot between them over-claim a sales order line.
+    `update_line` use, so the three cannot between them over-claim a sales order line. It is
+    computed per sale, so it stays correct when a delivery order carries lines from several: each
+    line is bounded by its own sale's coverage.
+
+    A delivery order and a sales order are many-to-many. One sale splits across destinations, and
+    one shipment consolidates several sales for the same customer — both are present in this
+    database. That is why the link lives on the line rather than the header (#147): the line is the
+    join row, and no column on `delivery_order` could hold the relation.
     """
     assert_editable(order)
 
     sales_line = await db.get(SalesOrderDetail, item.sales_order_detail)
-    belongs = False
-    if sales_line is not None:
-        origin = (await sales_orders_of(db, [order.delivery_order_id])).get(
-            order.delivery_order_id
-        )
-        if origin is not None:
-            belongs = sales_line.sales_order == origin
-        else:
-            # An empty draft — every line deleted — has no origin to compare against, so the
-            # customer is what stops it being repointed at another party's sale.
-            sale = await db.get(SalesOrder, sales_line.sales_order)
-            belongs = sale is not None and sale.customer == order.customer
-    # One message for "no such line", "another sale's line" and "another customer's line": the
-    # client cannot act differently on the three, and separating them would leak which ids exist —
-    # the same reasoning as `narrow_to_requested`.
-    if not belongs:
+    sale = await db.get(SalesOrder, sales_line.sales_order) if sales_line is not None else None
+    # The customer, and only the customer. This first shipped comparing the line's sale against the
+    # one already on the order, which forbade consolidation: 261 of the 27,921 sale-linked delivery
+    # orders in this database carry lines from two or three sales, so the check refused an
+    # operation the business does. Facility is not checked either — 6 delivery orders span
+    # facilities, 2 of them consolidated, so enforcing it would refuse real rows too. What is left
+    # holds without exception across every consolidated order.
+    #
+    # One message for "no such line" and "another customer's line": the client cannot act
+    # differently on the two, and separating them would leak which ids exist — the same reasoning
+    # as `narrow_to_requested`.
+    if sale is None or sale.customer != order.customer:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail=(
-                f'Line {item.sales_order_detail} is not an undelivered line of this sales order'
-            ),
+            detail=f'Line {item.sales_order_detail} is not a deliverable line of this customer',
         )
 
     # `first`, not `scalar_one_or_none`: nothing in the schema stops a legacy row set carrying the
