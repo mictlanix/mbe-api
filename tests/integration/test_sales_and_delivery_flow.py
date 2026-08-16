@@ -74,7 +74,7 @@ async def test_raising_a_delivery_order_from_a_sale(
     # Everything the sale still owes, which is its whole line.
     assert [line['quantity'] for line in body['lines']] == ['10.0000']
     # #147 — derived from the lines, so this exercises the join as well as the create.
-    assert body['sales_order'] == sales_order
+    assert body['sales_orders'] == [sales_order]
 
 
 async def test_raising_one_for_a_named_subset(
@@ -285,6 +285,9 @@ async def test_one_shipment_can_consolidate_two_sales_of_the_same_customer(
 
     assert added.status_code == 201, added.text
     assert sorted(line['quantity'] for line in added.json()['lines']) == ['3.0000', '4.0000']
+    # The response names both. As a scalar filled by `min()` this reported the lower id alone, and
+    # a client could not tell that from a shipment carrying one sale.
+    assert added.json()['sales_orders'] == sorted([first_sale, second_sale])
 
     # The point of deriving the link from the lines: the shipment answers to both sales.
     for sale in (first_sale, second_sale):

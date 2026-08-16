@@ -31,9 +31,9 @@ def _clear_overrides() -> Generator[None, None, None]:
 
 @pytest.fixture(autouse=True)
 def _no_origin_lookup() -> Generator[AsyncMock, None, None]:
-    """Stub the one query `attach_sales_order` issues, since the database here is `None` (#147).
+    """Stub the one query `attach_sales_orders` issues, since the database here is `None` (#147).
 
-    Patched at `sales_orders_of` rather than at `attach_sales_order` so the attaching itself still
+    Patched at `sales_orders_of` rather than at `attach_sales_orders` so the attaching itself still
     runs on every response — a test asserting `sales_order` is exercising the real path, and one
     that says nothing about it gets `null` rather than a skipped call.
     """
@@ -266,12 +266,12 @@ async def test_create_without_a_destination_header_falls_back_to_the_sale() -> N
 
 
 @pytest.mark.asyncio
-async def test_the_response_says_which_sale_the_delivery_came_from(
+async def test_the_response_says_which_sales_the_delivery_draws_on(
     _no_origin_lookup: AsyncMock,
 ) -> None:
     """Without this the relationship is only recoverable line by line, per delivery order."""
     _auth()
-    _no_origin_lookup.return_value = {1: 42}
+    _no_origin_lookup.return_value = {1: [42]}
     with patch(f'{SERVICE}.get_order', AsyncMock(return_value=_order())), patch(
         f'{SERVICE}.lines_of', AsyncMock(return_value=[_line()])
     ):
@@ -279,25 +279,41 @@ async def test_the_response_says_which_sale_the_delivery_came_from(
             response = await client.get('/api/v1/delivery-orders/1')
 
     assert response.status_code == 200
-    assert response.json()['sales_order'] == 42
+    assert response.json()['sales_orders'] == [42]
+
+
+@pytest.mark.asyncio
+async def test_a_consolidated_shipment_names_every_sale(_no_origin_lookup: AsyncMock) -> None:
+    """The reason the field is a list. As a scalar filled by `min()` this answered 42 alone, and
+    a client had no way to tell that from a shipment carrying only 42."""
+    _auth()
+    _no_origin_lookup.return_value = {1: [42, 51]}
+    with patch(f'{SERVICE}.get_order', AsyncMock(return_value=_order())), patch(
+        f'{SERVICE}.lines_of', AsyncMock(return_value=[_line()])
+    ):
+        async with _client() as client:
+            response = await client.get('/api/v1/delivery-orders/1')
+
+    assert response.json()['sales_orders'] == [42, 51]
 
 
 @pytest.mark.asyncio
 async def test_a_summary_says_it_too(_no_origin_lookup: AsyncMock) -> None:
     """The list is where the resume flow reads it, so the summary carrying it is the point."""
     _auth()
-    _no_origin_lookup.return_value = {1: 42}
+    _no_origin_lookup.return_value = {1: [42]}
     with patch(f'{SERVICE}.list_orders', AsyncMock(return_value=([_order()], 1))):
         async with _client() as client:
             response = await client.get('/api/v1/delivery-orders')
 
     assert response.status_code == 200
-    assert response.json()['items'][0]['sales_order'] == 42
+    assert response.json()['items'][0]['sales_orders'] == [42]
 
 
 @pytest.mark.asyncio
-async def test_an_order_with_no_sales_order_line_reports_null() -> None:
-    """`null`, not a failure: the field is derived, and a line set may carry no link at all."""
+async def test_an_order_with_no_sales_order_line_reports_an_empty_list() -> None:
+    """`[]`, not a failure and not `null`: the field is derived, a line set may carry no link at
+    all, and a client should be able to iterate it without checking it first."""
     _auth()
     with patch(f'{SERVICE}.get_order', AsyncMock(return_value=_order())), patch(
         f'{SERVICE}.lines_of', AsyncMock(return_value=[_line()])
@@ -306,7 +322,7 @@ async def test_an_order_with_no_sales_order_line_reports_null() -> None:
             response = await client.get('/api/v1/delivery-orders/1')
 
     assert response.status_code == 200
-    assert response.json()['sales_order'] is None
+    assert response.json()['sales_orders'] == []
 
 
 @pytest.mark.asyncio
