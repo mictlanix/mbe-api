@@ -20,6 +20,9 @@ from app.services.customer_payment_service import attach_summary_unapplied
 from app.services.customer_refund_service import (
     attach_summary_totals as refund_summary_totals,
 )
+from app.services.sales_order_service import (
+    attach_customer_names as order_customer_names,
+)
 from app.services.sales_order_service import attach_summary_totals as order_summary_totals
 from app.services.sales_quote_service import attach_summary_totals as quote_summary_totals
 
@@ -84,6 +87,50 @@ class TestSalesOrders:
         assert orders[0].__dict__['total'] == Decimal('232.00')
         assert orders[1].__dict__['total'] == Decimal('0.00')
         assert orders[0].__dict__['status'] == 'completed'
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize('size', PAGE_SIZES)
+    async def test_customer_names_cost_one_query_regardless_of_page_size(
+        self, size: int
+    ) -> None:
+        """#172 — one customer query for the whole page, never one per row."""
+        orders = [SimpleNamespace(sales_order_id=i, customer=i) for i in range(1, size + 1)]
+        db = _db(_rows([]))
+
+        await order_customer_names(db, orders)
+
+        assert db.execute.await_count == 1
+
+    @pytest.mark.asyncio
+    async def test_repeated_customers_share_the_one_lookup(self) -> None:
+        """A page of walk-in sales is one customer repeated — it must not be fetched per row."""
+        orders = [SimpleNamespace(sales_order_id=i, customer=4) for i in (1, 2, 3)]
+        db = _db(_rows([(4, 'PÚBLICO EN GENERAL')]))
+
+        await order_customer_names(db, orders)
+
+        assert db.execute.await_count == 1
+        assert [o.__dict__['customer_display_name'] for o in orders] == [
+            'PÚBLICO EN GENERAL'
+        ] * 3
+
+    @pytest.mark.asyncio
+    async def test_a_missing_customer_row_leaves_the_name_null(self) -> None:
+        """Null, not a KeyError: the column is cosmetic and must not 500 a whole page."""
+        orders = [SimpleNamespace(sales_order_id=1, customer=99)]
+        db = _db(_rows([]))
+
+        await order_customer_names(db, orders)
+
+        assert orders[0].__dict__['customer_display_name'] is None
+
+    @pytest.mark.asyncio
+    async def test_empty_page_issues_no_customer_query(self) -> None:
+        db = _db()
+
+        await order_customer_names(db, [])
+
+        assert db.execute.await_count == 0
 
 
 class TestSalesQuotes:

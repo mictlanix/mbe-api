@@ -111,6 +111,68 @@ async def test_the_intent_is_editable_while_the_sale_is_a_draft(
     assert cleared.json()['fulfillment_intent'] is None
 
 
+async def test_a_list_row_carries_the_customers_own_name(
+    client: AsyncClient, seeded: None
+) -> None:
+    """#172 — `customer_name` is the per-document override and is null on an ordinary sale, so a
+    list that renders it shows nothing. `customer_display_name` is joined from the customer."""
+    await client.post('/api/v1/sales-orders', json={'customer': 1})
+
+    listed = await client.get('/api/v1/sales-orders')
+
+    assert listed.status_code == 200, listed.text
+    row = listed.json()['items'][0]
+    assert row['customer_display_name'] == 'Cliente Uno'
+    # The override keeps its documented meaning: untouched, so still null.
+    assert row['customer_name'] is None
+
+
+async def test_the_override_and_the_customers_name_stay_distinguishable(
+    client: AsyncClient, seeded: None
+) -> None:
+    """Setting an override must not overwrite the joined name — that is why this is a new field
+    rather than a fallback on `customer_name`."""
+    created = await client.post(
+        '/api/v1/sales-orders', json={'customer': 1, 'customer_name': 'Otro Nombre'}
+    )
+    assert created.status_code == 201, created.text
+
+    row = (await client.get('/api/v1/sales-orders')).json()['items'][0]
+
+    assert row['customer_name'] == 'Otro Nombre'
+    assert row['customer_display_name'] == 'Cliente Uno'
+
+
+async def test_a_sale_is_searchable_by_its_customers_name(
+    client: AsyncClient, seeded: None
+) -> None:
+    """The other half of #172: `search` matched only the override, so it matched a null column and
+    returned an empty page rather than erroring — a documented filter that quietly found nothing."""
+    await client.post('/api/v1/sales-orders', json={'customer': 1})
+
+    found = await client.get('/api/v1/sales-orders', params={'search': 'Cliente'})
+
+    assert found.status_code == 200, found.text
+    assert found.json()['total'] == 1
+    assert found.json()['items'][0]['customer_display_name'] == 'Cliente Uno'
+
+
+async def test_search_still_matches_the_override_and_still_misses_non_matches(
+    client: AsyncClient, seeded: None
+) -> None:
+    """The customer-name clause is ORed in, not swapped for the override — and a search that
+    matches neither must still come back empty rather than matching everything."""
+    await client.post(
+        '/api/v1/sales-orders', json={'customer': 1, 'customer_name': 'Mostrador'}
+    )
+
+    by_override = await client.get('/api/v1/sales-orders', params={'search': 'Mostrador'})
+    assert by_override.json()['total'] == 1
+
+    no_match = await client.get('/api/v1/sales-orders', params={'search': 'Zzzz'})
+    assert no_match.json()['total'] == 0
+
+
 async def test_the_product_lookup_answers_with_price_and_unit(
     client: AsyncClient, seeded: None
 ) -> None:

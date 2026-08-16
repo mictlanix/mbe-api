@@ -363,6 +363,34 @@ async def attach_summary_totals(db: AsyncSession, orders: Sequence[SalesOrder]) 
         order.__dict__['status'] = _status(order)
 
 
+async def attach_customer_names(db: AsyncSession, orders: Sequence[SalesOrder]) -> None:
+    """Project each order's customer name onto the row, in one query for the whole page (#172).
+
+    `SalesOrder.customer_name` is the per-document *override* and is null on every sale that did
+    not set one, so a list rendering it shows nothing for ordinary sales. The name a client wants
+    lives on `customer`, and a list row is the one shape with no other reason to fetch that record.
+
+    Separate from `attach_summary_totals` for the reason `attach_relations` is separate in
+    `cash_session_service` (#141): that helper computes money, this one expands a foreign key, and
+    each is worth a query-count test of its own.
+    """
+    ids = {order.customer for order in orders}
+    if not ids:
+        return
+
+    names = dict(
+        (
+            await db.execute(
+                select(Customer.customer_id, Customer.name).where(Customer.customer_id.in_(ids))
+            )
+        ).all()
+    )
+    for order in orders:
+        # `__dict__` rather than the attribute: there is no such column on the model, and the
+        # instance may be shared through the identity map (see `attach_derived`).
+        order.__dict__['customer_display_name'] = names.get(order.customer)
+
+
 def _status(order: SalesOrder) -> str:
     from app.schemas.sales_order import derive_status
 
@@ -608,12 +636,26 @@ async def list_orders(
                 or_(SalesOrder.sales_order_id == int(search), SalesOrder.serial == int(search))
             )
         else:
-            both(SalesOrder.customer_name.ilike(f'%{search}%'))
+            # Matching the override alone matched a column that is null on the rows a cashier is
+            # looking for, so a name search returned nothing and read as "no results" (#172). The
+            # customer's own name is what they are typing. Subquery rather than a join, as in
+            # `customer_payment_service.outstanding_orders`: a join would multiply rows and the
+            # count query has to stay countable.
+            like = f'%{search}%'
+            both(
+                or_(
+                    SalesOrder.customer.in_(
+                        select(Customer.customer_id).where(Customer.name.ilike(like))
+                    ),
+                    SalesOrder.customer_name.ilike(like),
+                )
+            )
 
     total: int = (await db.execute(count_q)).scalar_one()
     page = base.order_by(SalesOrder.sales_order_id.desc()).offset(skip).limit(limit)
     items = (await db.execute(page)).scalars().all()
     await attach_summary_totals(db, items)
+    await attach_customer_names(db, items)
     return items, total
 
 
