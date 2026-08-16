@@ -88,6 +88,11 @@ class SalesOrder(Base):
     customer_shipto: Mapped[str | None] = mapped_column(String(200))
     priority: Mapped[int] = mapped_column(SmallInteger)
     partial_deliveries: Mapped[int | None] = mapped_column(SmallInteger)
+    # How the cashier said the goods would reach the customer, recorded before the sale is
+    # confirmed (#170). NULL means not recorded, which is every row predating migration 017 and
+    # every sale raised by a client that does not ask. Not `partial_deliveries`, which the system
+    # writes afterwards to record how fulfilment turned out — see `FulfillmentType`.
+    fulfillment_intent: Mapped[int | None] = mapped_column(SmallInteger)
 
 
 class SalesOrderDetail(Base):

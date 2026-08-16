@@ -357,7 +357,7 @@ that never left. See the spec's *After merge* section.
 
 Fulfilment type is `NOT NULL` and is detected by matching `ship_to` against facility addresses; 25%
 of rows have no `ship_to` to match. Since every legacy row settles to a terminal status, the
-backfill rule is low-risk but must be stated: **`picked_up = 1` → `COUNTER_PICKUP` (807 rows),
+backfill rule is low-risk but must be stated: **`picked_up = 1` → `PICKUP` (807 rows),
 otherwise `DELIVERY` (5,886 rows)**. For new orders FR-005 already covers it — a null ship-to
 matches no facility, so the type is `DELIVERY`.
 

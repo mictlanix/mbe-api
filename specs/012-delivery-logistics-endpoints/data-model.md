@@ -24,7 +24,7 @@ class DeliveryOrderStatus(IntEnum):
 
 class FulfillmentType(IntEnum):
     DELIVERY = 0
-    COUNTER_PICKUP = 1
+    PICKUP = 1
 
 
 class ItineraryStatus(IntEnum):
@@ -282,7 +282,7 @@ the status and writes the row together — the discipline behind SC-008 (R7).
         when approval is not required). APPROVED is never a transient step
         for a delivery order; it is where a counter pickup rests. (FR-024)
                                   │
-          COUNTER_PICKUP ◄────────┴────────► DELIVERY
+          PICKUP ◄────────┴────────► DELIVERY
                  │                              │
                  ▼                              ▼
            ┌──────────┐                ┌────────────────┐
@@ -324,10 +324,10 @@ These five transitions are type-restricted; every other transition is legal for 
 | From | To | Legal for |
 |---|---|---|
 | `PENDING_APPROVAL` | `IN_PREPARATION` | `DELIVERY` only |
-| `PENDING_APPROVAL` | `APPROVED` | `COUNTER_PICKUP` only |
+| `PENDING_APPROVAL` | `APPROVED` | `PICKUP` only |
 | `DRAFT` | `IN_PREPARATION` | `DELIVERY` only — confirmation with approval disabled |
-| `DRAFT` | `APPROVED` | `COUNTER_PICKUP` only — confirmation with approval disabled |
-| `APPROVED` | `READY_FOR_PICKUP` | `COUNTER_PICKUP` only |
+| `DRAFT` | `APPROVED` | `PICKUP` only — confirmation with approval disabled |
+| `APPROVED` | `READY_FOR_PICKUP` | `PICKUP` only |
 
 `transition()` already receives the order, so it reads `fulfillment_type` itself. Enforcing this in
 the chokepoint rather than in each calling service is the point of having a chokepoint — a guard

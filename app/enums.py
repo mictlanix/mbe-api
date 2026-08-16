@@ -313,10 +313,28 @@ class DeliveryOrderStatus(IntEnum):
 
 
 class FulfillmentType(IntEnum):
-    """`delivery_order.fulfillment_type` — a type, not a status; immutable after creation."""
+    """How goods reach the customer. One vocabulary, one numbering, two columns:
 
-    DELIVERY = 0
-    COUNTER_PICKUP = 1
+    - `sales_order.fulfillment_intent` — what the cashier said, before the sale is confirmed. Any
+      of the three, or NULL for "not recorded" (#170).
+    - `delivery_order.fulfillment_type` — what *that shipment* is. A type, not a status, and
+      immutable after creation. Never `MIXED`: a shipment is one kind or the other, and a mixed
+      sale is one that produces a delivery order of each. `create_from_sales_order` refuses it.
+
+    `PICKUP` is 0 because it is the ordinary counter sale — 310,609 of 335,763 sales orders, 92.5%,
+    never produced a delivery order at all. Migration 018 renumbered `fulfillment_type` to match,
+    where delivery had been 0 since migration 008 created the column from the legacy `picked_up`
+    boolean.
+
+    Not `sales_order.partial_deliveries` (the legacy `DeliveryMode`), which the system writes after
+    a delivery order exists to record how fulfilment turned out, and which has no mixed value.
+    Verified rather than assumed: it is populated on 335,416 of 335,763 legacy rows and NULL on
+    exactly the 347 this API created.
+    """
+
+    PICKUP = 0
+    DELIVERY = 1
+    MIXED = 2
 
 
 class ItineraryStatus(IntEnum):

@@ -107,14 +107,14 @@ class TestFulfillmentTypeRestrictions:
         with pytest.raises(HTTPException) as exc:
             assert_legal(_order(S.PENDING_APPROVAL, FulfillmentType.DELIVERY), S.APPROVED)
 
-        assert 'COUNTER_PICKUP' in exc.value.detail
+        assert 'PICKUP' in exc.value.detail
 
     def test_delivery_order_cannot_be_marked_ready_for_pickup(self) -> None:
         with pytest.raises(HTTPException):
             assert_legal(_order(S.APPROVED, FulfillmentType.DELIVERY), S.READY_FOR_PICKUP)
 
     def test_counter_pickup_cannot_enter_preparation(self) -> None:
-        order = _order(S.PENDING_APPROVAL, FulfillmentType.COUNTER_PICKUP)
+        order = _order(S.PENDING_APPROVAL, FulfillmentType.PICKUP)
         with pytest.raises(HTTPException) as exc:
             assert_legal(order, S.IN_PREPARATION)
 
@@ -122,8 +122,8 @@ class TestFulfillmentTypeRestrictions:
 
     def test_each_type_may_take_its_own_branch(self) -> None:
         assert_legal(_order(S.PENDING_APPROVAL, FulfillmentType.DELIVERY), S.IN_PREPARATION)
-        assert_legal(_order(S.PENDING_APPROVAL, FulfillmentType.COUNTER_PICKUP), S.APPROVED)
-        assert_legal(_order(S.APPROVED, FulfillmentType.COUNTER_PICKUP), S.READY_FOR_PICKUP)
+        assert_legal(_order(S.PENDING_APPROVAL, FulfillmentType.PICKUP), S.APPROVED)
+        assert_legal(_order(S.APPROVED, FulfillmentType.PICKUP), S.READY_FOR_PICKUP)
 
     def test_every_restricted_pair_is_also_declared_legal(self) -> None:
         """A restriction on a transition the table never permits would be dead configuration."""
@@ -181,7 +181,7 @@ class TestReachability:
     def test_counter_pickup_path(self) -> None:
         seen = self._walk(
             [S.PENDING_APPROVAL, S.APPROVED, S.READY_FOR_PICKUP, S.PICKED_UP],
-            FulfillmentType.COUNTER_PICKUP,
+            FulfillmentType.PICKUP,
         )
         assert {S.APPROVED, S.READY_FOR_PICKUP, S.PICKED_UP} <= seen
 
@@ -204,7 +204,7 @@ class TestReachability:
             )
             | self._walk(
                 [S.PENDING_APPROVAL, S.APPROVED, S.READY_FOR_PICKUP, S.PICKED_UP],
-                FulfillmentType.COUNTER_PICKUP,
+                FulfillmentType.PICKUP,
             )
             | self._walk(
                 [S.IN_PREPARATION, S.IN_TRANSIT, S.PARTIALLY_DELIVERED], FulfillmentType.DELIVERY

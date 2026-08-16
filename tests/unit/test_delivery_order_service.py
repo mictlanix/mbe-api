@@ -107,7 +107,7 @@ class TestBranchTarget:
 
     def test_a_counter_pickup_rests_at_approved(self) -> None:
         assert (
-            service._branch_target(_order(fulfillment=FulfillmentType.COUNTER_PICKUP)) is S.APPROVED
+            service._branch_target(_order(fulfillment=FulfillmentType.PICKUP)) is S.APPROVED
         )
 
 
@@ -439,6 +439,46 @@ class TestTheDestinationHeaderAtCreation:
 
         for field in ('ship_to', 'contact', 'date', 'comment'):
             assert field in source
+
+
+class TestMixedIsNotADeliveryOrderKind:
+    """One enum now serves the sale and the shipment, so `MIXED` became expressible here (#170).
+
+    It must not be storable. `_branch_target` has two branches, and a delivery order carrying a
+    value it does not recognise would be approved into a status nothing advances — goods stuck with
+    no error anywhere to say why.
+    """
+
+    @pytest.mark.asyncio
+    async def test_creation_refuses_it(self) -> None:
+        with pytest.raises(HTTPException) as exc:
+            await service.create_from_sales_order(
+                AsyncMock(), 42, current=SimpleNamespace(employee_id=7),
+                fulfillment_type=FulfillmentType.MIXED,
+            )
+
+        assert exc.value.status_code == 422
+        assert 'describes a sale' in exc.value.detail
+
+    @pytest.mark.asyncio
+    async def test_it_is_refused_before_anything_is_read(self) -> None:
+        """Ahead of the sales-order lookup, so an invalid type cannot 404 on an unrelated cause
+        and hide what was actually wrong with the request."""
+        db = AsyncMock()
+
+        with pytest.raises(HTTPException):
+            await service.create_from_sales_order(
+                db, 42, current=SimpleNamespace(employee_id=7),
+                fulfillment_type=FulfillmentType.MIXED,
+            )
+
+        db.get.assert_not_awaited()
+
+    def test_the_branch_target_still_has_exactly_two_outcomes(self) -> None:
+        assert {
+            service._branch_target(_order(fulfillment=f))
+            for f in (FulfillmentType.PICKUP, FulfillmentType.DELIVERY)
+        } == {S.APPROVED, S.IN_PREPARATION}
 
 
 class TestAddingALineToAnExistingDraft:

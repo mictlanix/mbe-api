@@ -360,7 +360,7 @@ async def add_stop(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail='Delivery order not found'
         )
-    if FulfillmentType(order.fulfillment_type) is FulfillmentType.COUNTER_PICKUP:
+    if FulfillmentType(order.fulfillment_type) is FulfillmentType.PICKUP:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail='A counter-pickup order is handed over in store, never loaded onto a trip',

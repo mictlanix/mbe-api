@@ -14,9 +14,11 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 from fastapi import HTTPException
+from pydantic import ValidationError
 
-from app.enums import PaymentTerms
+from app.enums import FulfillmentType, PaymentTerms
 from app.schemas.sales_order import (
+    SalesOrderCreate,
     SalesOrderLineCreate,
     SalesOrderLineUpdate,
     SalesOrderUpdate,
@@ -650,3 +652,62 @@ class TestThePhotoIsProjectedOntoWhatThePointOfSaleReads:
         source = inspect.getsource(sales_order_service.lookup_products)
 
         assert "'photo': image_service.image_url(product.photo)" in source
+
+
+class TestTheFulfilmentIntent:
+    """#170 — what the cashier said, recorded before the sale is confirmed.
+
+    The point of sale asks how the goods reach the customer and the answer has three values. It was
+    encoded into `ship_to`, which is one bit, so delivery and mixed were indistinguishable once the
+    capturing session was gone.
+    """
+
+    def test_it_carries_the_third_state_the_address_cannot(self) -> None:
+        assert [i.name for i in FulfillmentType] == ['PICKUP', 'DELIVERY', 'MIXED']
+
+    def test_the_common_case_is_zero(self) -> None:
+        """Pickup is the ordinary counter sale: 310,609 of 335,763 sales orders — 92.5% — never
+        produced a delivery order at all.
+
+        This is also the value migration 018 renumbered `delivery_order.fulfillment_type` to, where
+        delivery had been 0 since 008 derived the column from the legacy `picked_up` boolean. One
+        enum now serves both columns, so a value read from either means the same thing.
+        """
+        assert int(FulfillmentType.PICKUP) == 0
+        assert int(FulfillmentType.DELIVERY) == 1
+        assert int(FulfillmentType.MIXED) == 2
+
+    def test_omitting_it_records_nothing_rather_than_defaulting(self) -> None:
+        """`null` means "not stated". Defaulting to `DELIVERY` would make every sale that never
+        answered indistinguishable from one that answered "delivered" — the bug again, moved."""
+        assert SalesOrderCreate().fulfillment_intent is None
+
+    def test_an_unknown_value_is_refused_by_the_schema(self) -> None:
+        with pytest.raises(ValidationError):
+            SalesOrderCreate(fulfillment_intent=3)
+
+    def test_clearing_it_is_distinguishable_from_leaving_it_alone(self) -> None:
+        """`exclude_unset` is what `update_order` reads, so an explicit `null` has to survive it —
+        otherwise the field could be set and never taken back."""
+        assert SalesOrderUpdate().model_dump(exclude_unset=True) == {}
+        assert SalesOrderUpdate(fulfillment_intent=None).model_dump(exclude_unset=True) == {
+            'fulfillment_intent': None
+        }
+
+    def test_the_creation_path_does_not_infer_it_from_the_address(self) -> None:
+        """The one inference that must not happen. `ship_to` can say delivery or counter pickup and
+        cannot say mixed, so deriving here would record a confident wrong answer for exactly the
+        case the column exists to carry."""
+        source = inspect.getsource(sales_order_service.create_order)
+
+        assert 'fulfillment_intent=(' in source
+        assert 'data.fulfillment_intent' in source
+        assert '_is_facility_address' not in source
+
+    def test_it_is_stored_as_an_int_like_priority(self) -> None:
+        """The column is a plain SmallInteger; storing the enum member would leave the attribute an
+        enum on the instance that wrote it and an int on the next one read back."""
+        source = inspect.getsource(sales_order_service.update_order)
+
+        assert "if 'fulfillment_intent' in changes:" in source
+        assert 'None if value is None else int(value)' in source

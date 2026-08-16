@@ -1,0 +1,74 @@
+-- 017 Record the cashier's fulfilment intent on sales_order -- issue #170
+--
+-- The point of sale asks, before the sale is confirmed, how the goods reach the customer. That
+-- answer has THREE values: collected at the counter, delivered, or mixed -- part collected, the
+-- rest shipped. Nothing on `sales_order` can hold it, so the client encodes it into `ship_to`:
+-- the facility's own address for a counter pickup, the customer's address otherwise. That is a
+-- one-bit channel carrying a three-value concept, so delivery and mixed are byte-identical on the
+-- wire and a sale reopened in a new session comes back as plain `delivery`.
+--
+-- MEASURED against the deployment database 2026-08-16:
+--
+--   sales_order rows                                           335,763
+--   ship_to IS NULL                                            326,350   <-- 97.2%
+--   ship_to pointing at a facility address                           0   <-- read this one twice
+--   partial_deliveries IS NULL                                     347   <-- every row this API made
+--   sales orders that never produced a delivery order          310,609   <-- 92.5%; see the
+--                                                                            value order below
+--
+-- WHY THIS COLUMN SHIPS EMPTY, which is the only interesting decision here. The obvious backfill is
+-- to derive the intent the way the client encodes it -- facility address means counter pickup,
+-- anything else means delivery. The third measurement above kills it: NOT ONE of the 335,763 rows
+-- has a ship_to pointing at a facility address, so that rule would stamp every row `delivery`,
+-- including whatever counter pickups and mixed sales are among them. It would replace "unknown"
+-- with a confident wrong answer, and nothing downstream could tell a recorded intent from an
+-- invented one.
+--
+-- NULL therefore means "not recorded" and is the honest value for every existing row. Anything
+-- reading this column must handle NULL rather than assume a default; `_is_facility_address`
+-- detection is unchanged and still answers for the sales that never set it.
+--
+-- WHAT THIS IS NOT. It is not `partial_deliveries`, and must not be conflated with it. That column
+-- is the legacy `DeliveryMode` -- ToBeDefined / PickUp / PartialDeliveries -- written by the system
+-- AFTER the first delivery order exists, to record how fulfilment turned out. Its distribution here
+-- (0: 289,412  1: 15,529  2: 30,475) is legacy application data. This column is what the customer
+-- ASKED FOR, written by the cashier BEFORE the sale is confirmed, and it has a "mixed" value that
+-- `DeliveryMode` does not. Two different facts about two different moments; issue #170 explains at
+-- length why reusing the old one would be wrong.
+--
+-- SMALLINT, matching the `SmallInteger` the model declares, rather than the `tinyint(2)` its
+-- neighbour `partial_deliveries` happens to be. Issue #161 was a column and its model disagreeing
+-- for three releases; there is no reason to open a second one for two bytes.
+--
+-- Adding a nullable column with no default rewrites no row's meaning and cannot fail on existing
+-- data. Idempotent: guarded on information_schema, so re-running it is a no-op rather than error
+-- 1060.
+--
+-- MariaDB 10.11. Rollback: 017_sales_order_fulfillment_intent_rollback.sql
+
+-- ---------------------------------------------------------------------------
+-- The column
+-- ---------------------------------------------------------------------------
+--
+-- 0 = pickup, 1 = delivery, 2 = mixed  (app/enums.py, FulfillmentType).
+--
+-- Pickup leads because it is the ordinary case at the counter: 310,609 of the 335,763 sales orders
+-- measured above, 92.5%, never produced a delivery order at all.
+--
+-- `delivery_order`.`fulfillment_type` numbered these the other way round -- 0 was delivery, from
+-- migration 008 deriving it out of the legacy `picked_up` boolean. Migration 018 renumbers it onto
+-- this scale, so the two columns share one vocabulary and a value read from either means the same
+-- thing. 017 and 018 must therefore be applied together; 017 alone leaves `0` meaning opposite
+-- things on two adjacent columns.
+--
+-- 2 is valid on a sale only. A delivery order is one kind or the other, and a mixed sale is one
+-- that produces a delivery order of each; `create_from_sales_order` refuses MIXED.
+--
+-- No CHECK constraint: no other enum column in this schema carries one -- `fulfillment_type`,
+-- `status` and `priority` are all bare integers -- and adding one here alone would be an
+-- inconsistency without a reader.
+
+ALTER TABLE `sales_order`
+  ADD COLUMN IF NOT EXISTS `fulfillment_intent` SMALLINT NULL
+  COMMENT '0=pickup 1=delivery 2=mixed; NULL=not recorded. Same scale as delivery_order.fulfillment_type from 018 (#170)'
+  AFTER `partial_deliveries`;

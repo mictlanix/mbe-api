@@ -186,7 +186,7 @@ and the itinerary stamps `return_time` only when both are resolved.
 Raise an order whose sales order ships to a facility address.
 
 ```bash
-api localhost:8000/api/v1/delivery-orders/<DO>       # fulfillment_type = COUNTER_PICKUP
+api localhost:8000/api/v1/delivery-orders/<DO>       # fulfillment_type = PICKUP
 api -X POST localhost:8000/api/v1/delivery-orders/<DO>/ready-for-pickup
 curl -H "Authorization: Bearer $TOKEN" -X POST localhost:8000/api/v1/delivery-orders/<DO>/pickup \
   -F 'receiver_name=Ana Ruiz' -F 'receiver_id_shown=INE 5678' -F 'image=@signature.png'

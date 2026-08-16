@@ -112,7 +112,7 @@ user story can start until this phase completes.**
 
 ### Transition chokepoint and shared helpers
 
-- [X] T025 [P] Write failing unit tests in `tests/unit/test_delivery_events.py`: `transition()` writes exactly one event carrying from-status, to-status, employee and timestamp; a blank reason is refused where a reason is required; an illegal transition is refused naming both statuses; every terminal status refuses all further transitions; creation records `from_status = NULL`. **Include the five type-restricted transitions** from `data-model.md` — a `DELIVERY` order must be refused `APPROVED` and `READY_FOR_PICKUP`, a `COUNTER_PICKUP` order refused `IN_PREPARATION` (FR-002, FR-003, FR-024, FR-063, FR-065)
+- [X] T025 [P] Write failing unit tests in `tests/unit/test_delivery_events.py`: `transition()` writes exactly one event carrying from-status, to-status, employee and timestamp; a blank reason is refused where a reason is required; an illegal transition is refused naming both statuses; every terminal status refuses all further transitions; creation records `from_status = NULL`. **Include the five type-restricted transitions** from `data-model.md` — a `DELIVERY` order must be refused `APPROVED` and `READY_FOR_PICKUP`, a `PICKUP` order refused `IN_PREPARATION` (FR-002, FR-003, FR-024, FR-063, FR-065)
 - [X] T026a [P] Write a failing unit test in `tests/unit/test_delivery_events.py` proving SC-002 against the services, not the transition table: parameterised over `delivery_order_approval_required` on/off and both fulfilment types, drive real service calls and assert every one of the eleven statuses is entered under at least one configuration (SC-002)
 - [X] T026 Implement `app/services/delivery_events.py` — the legal-transition table from `data-model.md`, keyed on `(from, to, fulfillment_type)` so the five type-restricted transitions are refused centrally rather than in each calling service, plus `transition(order, to_status, *, employee, reason=None)` which validates, moves the status and stages the `delivery_order_event` row together — making T025 pass. Explicit calls, **not** a SQLAlchemy event listener (research R7)
 - [X] T027 [P] Write failing unit tests in `tests/unit/test_image_service.py` asserting the PNG normalisation is reusable and that two identical images saved with the POD strategy produce two distinct files
@@ -419,7 +419,7 @@ correct.
 FR-011 says refuse creation when the sales order's delivery mode is `PickUp`. The data says the
 opposite: of 15,527 orders with `partial_deliveries = 1` (`DeliveryMode.PickUp`), **15,461 have a
 delivery order** — those are precisely the counter pickups. Implementing FR-011 would have broken
-the entire `COUNTER_PICKUP` branch. The requirement is removed from the spec; FR-005's ship-to detection and
+the entire `PICKUP` branch. The requirement is removed from the spec; FR-005's ship-to detection and
 FR-005a's explicit override are what distinguish the two fulfilment types.
 
 ---

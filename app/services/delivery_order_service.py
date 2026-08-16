@@ -215,6 +215,18 @@ async def create_from_sales_order(
     """
     employee = current.employee_id
 
+    if fulfillment_type is FulfillmentType.MIXED:
+        # One enum serves the sale and the shipment, so `MIXED` is now expressible here and must be
+        # refused: a shipment is one kind or the other, and a mixed *sale* is one that produces a
+        # delivery order of each. Recording it on a delivery order would break `_branch_target`,
+        # which has no third branch, and the goods would sit in a status nothing advances.
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=(
+                'MIXED describes a sale, not a delivery order; raise one delivery and one pickup'
+            ),
+        )
+
     order = await db.get(SalesOrder, sales_order_id)
     if order is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Sales order not found')
@@ -277,7 +289,7 @@ async def create_from_sales_order(
         # end up, not because of what the sale's header happened to say.
         detected = await _is_facility_address(db, destination)
         fulfillment_type = (
-            FulfillmentType.COUNTER_PICKUP if detected else FulfillmentType.DELIVERY
+            FulfillmentType.PICKUP if detected else FulfillmentType.DELIVERY
         )
     fallback = await _fallback_warehouse(db, order.facility)
     now = datetime.now()
@@ -661,7 +673,7 @@ def _branch_target(order: DeliveryOrder) -> S:
     """
     return (
         S.APPROVED
-        if FulfillmentType(order.fulfillment_type) is FulfillmentType.COUNTER_PICKUP
+        if FulfillmentType(order.fulfillment_type) is FulfillmentType.PICKUP
         else S.IN_PREPARATION
     )
 

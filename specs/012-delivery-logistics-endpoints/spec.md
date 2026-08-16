@@ -797,7 +797,7 @@ failed stop **re-reserve**, because the sale still owes them.
   a delivery order", and FR-011 originally said so. The data says the reverse: of the **15,527**
   sales orders carrying `DeliveryMode.PickUp`, **15,461 (99.6%) have a delivery order**. Those are
   the counter pickups — the 4,218 rows the legacy `picked_up` flag marked. Enforcing the rule would
-  have refused almost every counter pickup in the system and left `FulfillmentType.COUNTER_PICKUP`
+  have refused almost every counter pickup in the system and left `FulfillmentType.PICKUP`
   unreachable through the only route that creates a delivery order. The requirement is struck; what
   distinguishes the two fulfilment types is the ship-to detection of FR-005 and the explicit
   override of FR-005a.

@@ -46,6 +46,71 @@ async def test_a_sales_order_is_opened_lined_and_read(client: AsyncClient, seede
     assert read.json()['total'] == '232.00'
 
 
+async def test_mixed_and_delivery_are_distinguishable_after_a_reload(
+    client: AsyncClient, seeded: None
+) -> None:
+    """#170 — the third state the ship-to address cannot carry.
+
+    The point of sale asks how the goods reach the customer, and the answer has three values. It was
+    encoded into `ship_to` — the facility's address for a counter pickup, the customer's otherwise —
+    which makes *delivery and mixed byte-identical*. A sale reopened in a new session came back as
+    plain `delivery`, and the units meant for the counter read as an unassigned remainder.
+
+    So the assertion that matters is not that the field round-trips; it is that two sales with the
+    **same `ship_to`** come back saying different things.
+    """
+    mixed = await client.post(
+        '/api/v1/sales-orders', json={'customer': 1, 'ship_to': 1, 'fulfillment_intent': 2}
+    )
+    delivery = await client.post(
+        '/api/v1/sales-orders', json={'customer': 1, 'ship_to': 1, 'fulfillment_intent': 1}
+    )
+    assert mixed.status_code == 201, mixed.text
+    assert delivery.status_code == 201, delivery.text
+    assert mixed.json()['ship_to'] == delivery.json()['ship_to']
+
+    # Reopened, as a restarted client would.
+    reread = [
+        (await client.get(f'/api/v1/sales-orders/{r.json()["sales_order_id"]}')).json()
+        for r in (mixed, delivery)
+    ]
+
+    assert [o['fulfillment_intent'] for o in reread] == [2, 1]
+
+
+async def test_a_sale_that_never_stated_an_intent_reports_null(
+    client: AsyncClient, seeded: None
+) -> None:
+    """`null`, never `delivery`. Migration 017 ships the column empty because not one of the
+    335,763 existing sales orders has a `ship_to` pointing at a facility address, so inferring
+    would stamp every one of them `delivery` — a confident wrong answer in place of "unknown"."""
+    created = await client.post('/api/v1/sales-orders', json={'customer': 1})
+
+    assert created.status_code == 201, created.text
+    assert created.json()['fulfillment_intent'] is None
+
+
+async def test_the_intent_is_editable_while_the_sale_is_a_draft(
+    client: AsyncClient, seeded: None
+) -> None:
+    """The cashier can change their mind before confirming, and can take the answer back."""
+    order_id = (
+        await client.post('/api/v1/sales-orders', json={'customer': 1, 'fulfillment_intent': 1})
+    ).json()['sales_order_id']
+
+    changed = await client.put(
+        f'/api/v1/sales-orders/{order_id}', json={'fulfillment_intent': 0}
+    )
+    assert changed.status_code == 200, changed.text
+    assert changed.json()['fulfillment_intent'] == 0
+
+    cleared = await client.put(
+        f'/api/v1/sales-orders/{order_id}', json={'fulfillment_intent': None}
+    )
+    assert cleared.status_code == 200, cleared.text
+    assert cleared.json()['fulfillment_intent'] is None
+
+
 async def test_the_product_lookup_answers_with_price_and_unit(
     client: AsyncClient, seeded: None
 ) -> None:
