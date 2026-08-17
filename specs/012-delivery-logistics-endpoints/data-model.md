@@ -66,7 +66,7 @@ together with the five legacy values (5-9) this codebase had not modelled.
 |---|---|---|
 | `completed`, `cancelled`, `confirmed`, `delivered`, `picked_up` | **dropped** | Subsumed by `status` (R1) |
 | `status` | **new** `SMALLINT NOT NULL` | `DeliveryOrderStatus` |
-| `fulfillment_type` | **new** `SMALLINT NOT NULL` | `FulfillmentType`; immutable after creation (FR-004) |
+| `fulfillment_type` | **new** `SMALLINT NOT NULL DEFAULT 1` | `FulfillmentType` (`0` pickup, `1` delivery); immutable after creation (FR-004). Renumbered by migration 018 from `0` delivery / `1` pickup, onto the scale `sales_order.fulfillment_intent` uses, so one enum serves both (#170). `MIXED` is refused here — it describes a sale, not a shipment |
 | `parent_delivery_order` | **new** `INT NULL` FK → self | Set on a partial-delivery child (FR-048) |
 | `rejection_reason` | **new** `VARCHAR(500) NULL` | Cleared when the order leaves `DRAFT` again (FR-023) |
 | `proof_of_delivery` | **new** `INT NULL` FK → `proof_of_delivery` | Set at settlement, for both fulfilment types (FR-043) |
@@ -79,7 +79,7 @@ together with the five legacy values (5-9) this codebase had not modelled.
 
 - `status` transitions only along the state machine below; enforced in one place (see
   [Transitions](#transitions)).
-- `fulfillment_type` is write-once at creation.
+- `fulfillment_type` is write-once at creation, and never `MIXED`: a shipment is one kind or the other, and a mixed sale is one that produces a delivery order of each (#170).
 - Editable only in `DRAFT` (FR-006), enforced by `delivery_order_service.assert_editable` — **not**
   `documents.assert_editable`, which reads columns this migration drops (R8).
 

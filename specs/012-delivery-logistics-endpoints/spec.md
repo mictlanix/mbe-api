@@ -452,6 +452,38 @@ back a complete, ordered history of its transitions.
   > committed quantities and pointing at the **wrong address**, which the client then had to detect
   > and cancel. FR-006 is unchanged and still owns genuine post-creation edits.
 - **FR-006**: System MUST allow header and line edits only while an order is in `DRAFT`.
+- **FR-006a**: Users MUST be able to **add** a line to a delivery order that is in `DRAFT`, naming
+  a sales-order line and a quantity, bounded by what that sale still has undelivered. The line MAY
+  come from any of the customer's sales orders, not only the one the delivery order was first
+  raised from. Added by #163; the cross-sale allowance corrected by #167.
+
+  > **What this removes.** A detail row could previously only be born inside the create call, so a
+  > line dropped under FR-006 could never be restored and a line left out at creation could never be
+  > added to that destination — every quantity had to be decided in the same request that creates
+  > the destination, which is the reverse of how the counter works.
+  >
+  > **Why it accepts another sale's line.** #163 shipped a guard comparing the added line's sale
+  > against the one already on the order, which forbade consolidation outright. 261 of the 27,921
+  > sale-linked delivery orders carry two or three sales, so the guard refused an operation the
+  > business does. What actually constrains a line is the **customer**: no consolidated order in the
+  > data spans two customers. Facility is deliberately not checked — 6 delivery orders span
+  > facilities, 2 of them consolidated.
+  >
+  > A sales-order line already on the order is refused rather than folded into the existing row, so
+  > the caller's quantity always means what it says and the quantity edit of FR-016 stays the one
+  > way to change an amount.
+- **FR-006b**: Users MUST be able to raise a delivery order carrying **no lines**, stating an empty
+  line set explicitly, distinct from omitting it. Added by #165.
+
+  > **Distinct from omitting it, and its opposite.** Omitting the line set claims every quantity the
+  > sale still owes (FR-005b); an empty one claims nothing. Both are falsy, so an implementation
+  > testing truthiness rather than presence folds the empty case into "claim everything" — silently,
+  > and inverting exactly what the caller asked for.
+  >
+  > **Why it is wanted.** The point-of-sale delivery step creates a destination from where the goods
+  > go, who receives them, when, and any instructions, then assigns each sale line's quantity inside
+  > it with FR-006a. Until both existed the client had to decide every quantity up front. Confirmation
+  > still refuses an order with no lines (FR-017), so an empty draft can only be filled or cancelled.
 - **FR-007**: System MUST allow cancellation with a mandatory non-blank reason from any
   non-terminal status except `IN_TRANSIT`, releasing any commitment the order holds.
 
@@ -636,9 +668,9 @@ back a complete, ordered history of its transitions.
 - **FR-067**: Users MUST be able to list delivery orders filtered by status, customer, facility,
   fulfilment type, scheduled-date range and whether the caller created them, and to search by
   folio, customer name or the originating sales order, with paging and a total count.
-- **FR-067a**: System MUST report the sales order a delivery order was raised from on both the
-  delivery-order response and its summary, and users MUST be able to **filter** the list on it.
-  Added by #147.
+- **FR-067a**: System MUST report the sales orders a delivery order draws on, as a list, on both
+  the delivery-order response and its summary, and users MUST be able to **filter** the list on a
+  sales order. Added by #147; widened from a scalar to a list by #169.
 
   > **Derived, not stored.** The link lives on the lines — `delivery_order_detail.sales_order_detail`
   > — and a child order raised by a partial delivery inherits it with its lines, so deriving it is
@@ -647,8 +679,17 @@ back a complete, ordered history of its transitions.
   > so a client resuming a part-distributed sale had to list every delivery order of that customer,
   > read each one back for its lines, and keep the ones whose lines pointed at this sale's — one
   > request per candidate, unbounded for an active customer, and wrong whenever paging cut off
-  > first. A delivery order is raised from exactly one sale, so the reported value is scalar; a
-  > legacy row whose lines span two reports the lower id, and the filter still finds it under both.
+  > first.
+  >
+  > **The relation is many-to-many, and the reported value is a list.** This originally said a
+  > delivery order is raised from exactly one sale and reported a scalar, filled by `MIN()` over the
+  > lines. That was wrong in both directions and measurably so: 261 of the 27,921 sale-linked
+  > delivery orders carry lines from two or three sales, and 1,723 sales orders split across more
+  > than one delivery order. A shipment consolidating several of a customer's sales is an operation
+  > the business does, so the scalar named one of them and dropped the rest — silently, since one
+  > integer cannot show that it is a truncation. The *filter* was right from the start: it matches a
+  > delivery order under **any** of its sales, which is why a consolidated shipment was always
+  > findable under both while the field beside it named one. Corrected by #169.
 - **FR-068**: Users MUST be able to list itineraries filtered by date range, vehicle, operator,
   dispatch warehouse and open-or-closed state, with paging and a total count.
 - **FR-069**: System MUST answer a request naming a delivery order, itinerary, stop or line that

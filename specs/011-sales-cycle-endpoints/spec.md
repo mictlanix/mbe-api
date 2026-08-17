@@ -414,6 +414,29 @@ order.
 - **FR-011**: Users MUST be able to read, update and list sales orders. Updates MUST be refused
   once the order is completed or cancelled, except for its priority, which MUST remain editable
   after completion.
+- **FR-011a**: A sales-order list row MUST carry the customer's own name, and the free-text list
+  search MUST match it. Added by #172.
+
+  > Both halves were the same missing join. `sales_order.customer_name` is the per-document
+  > override — the data dictionary defines it as "Override customer name on docs" and nothing
+  > derives it from the customer row — so a list rendering it showed a dash on every ordinary sale,
+  > and a search matching only it compared a term against a column that is `NULL` on exactly the
+  > rows a cashier is looking for. Searching the walk-in customer matched 10 sales out of 32,488:
+  > not an empty result that reads as a gap, but a plausible handful that hides the rest.
+- **FR-011b**: Users MUST be able to state, when creating a sale and while it remains a draft, how
+  the goods will reach the customer — collected at the counter, delivered, or **mixed**, part
+  collected and the rest shipped. The value MUST be optional, and absent MUST mean *not recorded*
+  rather than any of the three. Added by #170.
+
+  > **Three values, and the address carries one bit.** The point of sale encoded this into
+  > `ship_to` — the facility's own address for a pickup, the customer's otherwise — which makes
+  > delivery and mixed identical on the wire, so a sale reopened in a new session came back as plain
+  > delivery and the units meant for the counter read as an unassigned remainder.
+  >
+  > **Absent means absent.** Nothing infers the value from the address, and migration 017 ships the
+  > column empty across all 335,763 existing sales: not one of them has a `ship_to` pointing at a
+  > facility address, so deriving it would stamp every row `delivery` — a confident wrong answer in
+  > place of "unknown", indistinguishable afterwards from one a cashier actually gave.
 - **FR-012**: Users MUST be able to add, update and remove lines on an editable order. Adding a
   line MUST snapshot the product's code and name, its tax rate and tax-inclusion flag, its cost
   from the cost price list, and its price from the customer's assigned price list, and MUST default
@@ -555,7 +578,16 @@ order.
 - **FR-046**: The system MUST provide a search over outstanding orders returning unpaid confirmed
   orders with their balances, matching a numeric term against order number or folio and a text term
   against customer name, the customer's salesperson nickname, the order's salesperson nickname or
-  the order's customer-name override.
+  the order's customer-name override. Each row MUST carry the customer's **own** name, not only the
+  per-document override. Display half added by #174.
+
+  > **The two halves disagreed.** The search matched the customer's name from the start; the row it
+  > returned projected `sales_order.customer_name`, the per-document override, which is `NULL` on
+  > every order that did not set one — all 1,840 outstanding orders in the deployment. So a cashier
+  > could find an order by typing a customer's name and the row that came back would not say that
+  > name. The override keeps its meaning and stays writable; the customer's name is reported beside
+  > it rather than in place of it, because a read side that fell back would let a client read an
+  > order and put it back unchanged, writing the customer's name *into* the override.
 
 #### Cash sessions
 
