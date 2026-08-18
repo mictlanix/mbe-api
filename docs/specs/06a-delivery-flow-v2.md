@@ -14,7 +14,7 @@ afterwards. Both types share the lifecycle up to `APPROVED`, then diverge.
 | `DeliveryOrder.FulfillmentType` | Behaviour |
 |---|---|
 | `DELIVERY` | Full route: preparation → itinerary → transit → outcome |
-| `COUNTER_PICKUP` | Short-circuits after approval, no itinerary |
+| `PICKUP` | Short-circuits after approval, no itinerary |
 
 ---
 
@@ -42,7 +42,7 @@ Sales Order (completed, not cancelled)
 │ APPROVED │◄─────────────────────────────────────────────────────────────────────┘
 └──────────┘
     │
-    ├─ FulfillmentType = COUNTER_PICKUP
+    ├─ FulfillmentType = PICKUP
     │      │
     │      ▼
     │  ┌───────────────────┐  [confirm pickup]   ┌───────────┐
@@ -194,7 +194,7 @@ reconciliation stays clean.
 returned and need re-loading anyway. If failed returns are staged separately, add a
 `RETURNED` intermediate status.
 
-**D3 — `COUNTER_PICKUP` passes through approval** when the config requires it,
+**D3 — `PICKUP` passes through approval** when the config requires it,
 branching only after `APPROVED`. If pickups shouldn't need approval, move the branch
 earlier — but make that an explicit `WebConfig` choice.
 

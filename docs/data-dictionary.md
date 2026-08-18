@@ -34,7 +34,7 @@ System login account.
 | `user_id` | varchar(20) | NO | Username / login identifier (PK) |
 | `password` | varchar(255) | NO | SHA1 hashed password (40 chars). Widened by migration `016` (#161) for a future bcrypt migration that has not happened — `passlib[bcrypt]` is a declared dependency and imported nowhere. See `docs/specs/12-users.md` |
 | `email` | varchar(250) | NO | Contact email |
-| `employee` | int(11) | YES | Linked employee record |
+| `employee` | int(11) | NO | Linked employee record. Required since migration `012` — an account with no employee could not be attributed in any audit trail |
 | `administrator` | bit(1) | NO | Full admin flag — bypasses all privilege checks |
 | `session_version` | int(11) | NO | Incremented to invalidate existing sessions |
 | `status` | smallint(6) | NO | `EntityStatus` — `0` active, `1` inactive, `2` archived |
@@ -131,6 +131,7 @@ Physical storage location belonging to a facility.
 | `name` | varchar(250) | NO | Display name |
 | `comment` | varchar(500) | YES | Notes |
 | `status` | smallint(6) | NO | `EntityStatus` — `0` active, `1` inactive, `2` archived |
+| `in_transit` | tinyint(1) | NO | Virtual location holding goods between dispatch and receipt. Excluded from stock lookups and from the automatic dispatch-warehouse choice; added by migration 011, replacing a single global `in_transit_warehouse_id` setting |
 
 ### `point_sale`
 Point-of-sale terminal configuration.
@@ -650,6 +651,7 @@ Confirmed sales order (invoice source).
 | `customer_shipto` | varchar(200) | YES | Override ship-to text |
 | `priority` | tinyint(3) | NO | 1=Normal, 2=High, etc. |
 | `partial_deliveries` | tinyint(2) | YES | Allow partial shipments |
+| `fulfillment_intent` | smallint(6) | YES | `FulfillmentType`: `0` pickup, `1` delivery, `2` mixed — how the cashier said the goods reach the customer, recorded before the sale is confirmed. `NULL` means **not recorded**, which is every row predating migration 017; it does not mean delivery. Not `partial_deliveries`, which the system writes afterwards to record how fulfilment turned out and has no mixed value |
 
 ### `sales_order_detail`
 Line items of a sales order.
@@ -666,7 +668,6 @@ Line items of a sales order.
 | `tax_rate` | decimal(5,4) | NO | VAT rate |
 | `product_code` | varchar(25) | NO | Snapshot of code |
 | `product_name` | varchar(250) | NO | Snapshot of name |
-| `delivery` | tinyint(1) | NO | Requires delivery flag |
 | `warehouse` | int(11) | YES | FK → `warehouse` — fulfillment source |
 | `exchange_rate` | decimal(8,4) | NO | FX rate |
 | `currency` | int(11) | NO | Currency |
@@ -1011,7 +1012,9 @@ Line items of an expense voucher.
 ## 9. Logistics
 
 ### `delivery_order`
-Delivery order (picking/shipping order for a customer).
+Delivery order (picking/shipping order for a customer). Restructured by migration 008 — the
+`completed` / `cancelled` / `confirmed` / `delivered` / `picked_up` booleans it used to carry were
+dropped and subsumed by `status`.
 
 | Column | Type | Null | Description |
 |--------|------|------|-------------|
@@ -1021,31 +1024,37 @@ Delivery order (picking/shipping order for a customer).
 | `creation_time` | datetime | NO | Created at |
 | `modification_time` | datetime | NO | Last updated |
 | `facility` | int(11) | NO | FK → `facility` |
-| `serial` | int(11) | NO | Folio |
+| `serial` | int(11) | YES | Folio within facility (unique with facility). `NULL` until confirmation assigns it, so an abandoned draft leaves no gap — relaxed from `NOT NULL` by migration 008 |
 | `customer` | int(11) | NO | FK → `customer` |
 | `ship_to` | int(11) | YES | FK → `address` |
 | `contact` | int(11) | YES | FK → `contact` |
 | `date` | datetime | YES | Scheduled delivery date |
 | `priority` | tinyint(3) | NO | Priority level |
-| `completed` | tinyint(1) | NO | Delivered flag |
-| `cancelled` | tinyint(1) | NO | Cancelled |
 | `comment` | varchar(500) | YES | Notes |
-| `delivered` | tinyint(1) | YES | Physical delivery confirmed |
-| `confirmed` | tinyint(1) | YES | Supervisor confirmed |
-| `picked_up` | tinyint(1) | NO | Customer picked up at counter |
+| `status` | smallint(6) | NO | `DeliveryOrderStatus` — the lifecycle, replacing the five booleans (migration 008) |
+| `fulfillment_type` | smallint(6) | NO | `FulfillmentType`: `0` pickup, `1` delivery. Write-once at creation. Renumbered by migration 018 from `0` delivery / `1` pickup onto the scale `sales_order.fulfillment_intent` uses. Never `2` (mixed) — that describes a sale, not a shipment |
+| `parent_delivery_order` | int(11) | YES | FK → self — set on the child a partial delivery raises for the undelivered remainder |
+| `rejection_reason` | varchar(500) | YES | Why an approver sent it back; cleared when it leaves `DRAFT` again |
+| `proof_of_delivery` | int(11) | YES | FK → `proof_of_delivery` — set at settlement, for both fulfilment types |
 
 ### `delivery_order_detail`
-Line items of a delivery order.
+Line items of a delivery order. The three quantity columns beyond `quantity` are running totals
+maintained inside the transaction that changes them; `open_quantity` is derived, never stored:
+`quantity - delivered - returned - committed`.
 
 | Column | Type | Null | Description |
 |--------|------|------|-------------|
 | `delivery_order_detail_id` | int(11) | NO | PK |
 | `delivery_order` | int(11) | NO | FK → `delivery_order` |
-| `sales_order_detail` | int(11) | YES | FK → `sales_order_detail` |
+| `sales_order_detail` | int(11) | YES | FK → `sales_order_detail`. Nullable, and the link the originating sale is derived through — a delivery order may draw on several sales |
 | `product` | int(11) | NO | FK → `product` |
-| `quantity` | decimal(18,4) | NO | Quantity to deliver |
+| `quantity` | decimal(18,4) | NO | Ordered quantity |
 | `product_code` | varchar(425) | NO | Snapshot |
 | `product_name` | varchar(250) | NO | Snapshot |
+| `committed_quantity` | decimal(18,4) | NO | Reserved on an active itinerary; retained through `IN_TRANSIT` and cleared only at stop closure |
+| `delivered_quantity` | decimal(18,4) | NO | Accepted by the customer |
+| `returned_quantity` | decimal(18,4) | NO | Refused and brought back |
+| `warehouse` | int(11) | NO | FK → `warehouse` — dispatch origin, snapshotted at creation rather than joined |
 
 ### `deliveries_itinerary`
 Route/trip plan grouping multiple delivery orders.
@@ -1060,21 +1069,68 @@ Route/trip plan grouping multiple delivery orders.
 | `updater` | int(11) | NO | FK → `employee` |
 | `creation_time` | datetime | NO | Created at |
 | `modification_time` | datetime | NO | Last updated |
-| `cancelled` | tinyint(1) | NO | Cancelled |
-| `completed` | tinyint(1) | NO | Route completed |
 | `comment` | varchar(500) | YES | Notes |
 | `warehouse` | int(11) | YES | FK → `warehouse` — dispatch origin |
+| `status` | smallint(6) | NO | `ItineraryStatus` — replaced the `cancelled` / `completed` booleans (migration 008) |
+| `departure_time` | datetime | YES | Set when the trip departs; `NULL` while it is still loading |
+| `return_time` | datetime | YES | Set when the trip is closed |
+
+### `deliveries_itinerary_stop`
+One destination on an itinerary — added by migration 008. A stop is what an itinerary visits;
+lines hang off the stop rather than off the itinerary directly.
+
+| Column | Type | Null | Description |
+|--------|------|------|-------------|
+| `deliveries_itinerary_stop_id` | int(11) | NO | PK |
+| `deliveries_itinerary` | int(11) | NO | FK → `deliveries_itinerary` |
+| `sequence` | smallint(6) | NO | Visit order within the trip |
+| `arrival_time` | datetime | YES | Set on arrival; `NULL` until then |
+| `outcome` | smallint(6) | NO | How the stop ended — delivered, partially delivered, or failed |
+| `proof_of_delivery` | int(11) | YES | FK → `proof_of_delivery` |
+| `comment` | varchar(500) | YES | Notes |
 
 ### `deliveries_itinerary_detail`
-Items loaded onto a delivery itinerary.
+Items loaded onto a delivery itinerary. Restructured by migration 008: the row now hangs off a
+**stop**, not the itinerary, and its single `quantity` became four running totals.
 
 | Column | Type | Null | Description |
 |--------|------|------|-------------|
 | `deliveries_itinerary_detail_id` | int(11) | NO | PK |
-| `deliveries_itinerary` | int(11) | YES | FK → `deliveries_itinerary` |
 | `delivery_order_detail` | int(11) | NO | FK → `delivery_order_detail` |
-| `quantity` | decimal(20,6) | NO | Quantity loaded |
+| `committed_quantity` | decimal(20,6) | NO | Reserved for this trip |
 | `comment` | varchar(500) | YES | Notes |
+| `sent_quantity` | decimal(20,6) | NO | Loaded and dispatched |
+| `delivered_quantity` | decimal(20,6) | NO | Accepted at the stop |
+| `returned_quantity` | decimal(20,6) | NO | Refused and brought back |
+| `reason_code` | smallint(6) | YES | Why goods were returned or the line failed |
+| `deliveries_itinerary_stop` | int(11) | NO | FK → `deliveries_itinerary_stop` — replaced the direct `deliveries_itinerary` link |
+
+### `delivery_order_event`
+Audit trail of delivery-order status changes — added by migration 008. Every transition writes one
+row in the same transaction that changes `delivery_order.status`.
+
+| Column | Type | Null | Description |
+|--------|------|------|-------------|
+| `delivery_order_event_id` | int(11) | NO | PK |
+| `delivery_order` | int(11) | NO | FK → `delivery_order` |
+| `from_status` | smallint(6) | YES | `DeliveryOrderStatus` before the move; `NULL` on creation |
+| `to_status` | smallint(6) | NO | `DeliveryOrderStatus` after the move |
+| `employee` | int(11) | NO | FK → `employee` — who made the change |
+| `event_time` | datetime | NO | When |
+| `reason` | varchar(500) | YES | Required for rejection, cancellation and failure |
+
+### `proof_of_delivery`
+Evidence captured at settlement — added by migration 008. Referenced from both `delivery_order`
+and `deliveries_itinerary_stop`.
+
+| Column | Type | Null | Description |
+|--------|------|------|-------------|
+| `proof_of_delivery_id` | int(11) | NO | PK |
+| `receiver_name` | varchar(250) | NO | Who signed for the goods |
+| `receiver_id_shown` | varchar(100) | NO | The identification they presented |
+| `captured_time` | datetime | NO | When |
+| `captured_by` | int(11) | NO | FK → `employee` |
+| `image_file` | varchar(255) | NO | Filename only — the bytes are served from an authenticated route, never a static mount |
 
 ---
 
@@ -1533,3 +1589,15 @@ Generic event/incident log (polymorphic — `source` identifies document type, `
 | `updater` | int(11) | NO | FK → `employee` (by ID) |
 | `content` | varchar(1000) | YES | Event payload / description |
 | `comment` | varchar(500) | YES | Notes |
+
+---
+
+### `schema_migrations`
+Bookkeeping for the hand-written SQL migrations in `migrations/` — created by the runner
+(`app/db/migrate.py`, spec 009), not by any migration. There is no Alembic here.
+
+| Column | Type | Null | Description |
+|--------|------|------|-------------|
+| `version` | varchar(255) | NO | The migration's filename stem, e.g. `018_fulfillment_type_renumber` (PK) |
+| `checksum` | char(64) | NO | SHA-256 of the file as applied. A later mismatch is reported as `ALTERED`, which is how an edit to an already-applied migration is caught |
+| `applied_at` | datetime | NO | UTC timestamp of application |

@@ -23,8 +23,9 @@ class DeliveryOrderStatus(IntEnum):
 
 
 class FulfillmentType(IntEnum):
-    DELIVERY = 0
-    PICKUP = 1
+    PICKUP = 0
+    DELIVERY = 1
+    MIXED = 2     # sales_order.fulfillment_intent only -- never a delivery order
 
 
 class ItineraryStatus(IntEnum):
@@ -331,7 +332,7 @@ These five transitions are type-restricted; every other transition is legal for 
 
 `transition()` already receives the order, so it reads `fulfillment_type` itself. Enforcing this in
 the chokepoint rather than in each calling service is the point of having a chokepoint — a guard
-that lives in `ready_for_pickup()` alone stops the helper being the complete authority R7 designed
+that lives in `mark_ready_for_pickup()` alone stops the helper being the complete authority R7 designed
 it to be.
 
 ---
