@@ -40,6 +40,7 @@ The committed sale; the spine every other entity hangs off.
 | Written on cancel | `cancelled=1` |
 | Written by payment | `paid` (set and cleared — FR-044, FR-045) |
 | Not written by this feature | `balance_zeroed_time` (FR-065a — supervisor action, not the refund path), `delivered`, `partial_deliveries` (logistics) |
+| Fulfilment intent | `fulfillment_intent` — how the cashier said the goods reach the customer (`0` pickup, `1` delivery, `2` mixed), settable on create and while the sale is a draft, `NULL` when never recorded. Added by migration 017 (#170). **Not** `partial_deliveries`, which the system writes after a delivery order exists to record how fulfilment turned out and has no mixed value |
 | Line columns | Quote's set plus `cost`, `warehouse`, `delivery` |
 
 `recipient` is a 13-character RFC string, **not** a foreign key — see Divergences.

@@ -47,6 +47,30 @@ class PriceListResponse(BaseModel):
     low_profit_margin: Decimal
 
 
+class PriceListDeletePreviewItem(BaseModel):
+    """One relation referencing the list and how many of its rows do.
+
+    `category` is the `table.column` label the referential guard already uses, so a preview line
+    and the 409 it predicts read the same. What the retirement *does* with each is in the
+    contract, not here: `product_price.list` is deleted, `customer.price_list` is moved to the
+    replacement, and anything else blocks.
+
+    Structurally identical to `ProductMergePreviewItem`, and deliberately not shared with it:
+    reusing a merge-named component here would put it in a generated client's price-list call
+    (the complaint in #175), and renaming that one to something neutral would break every current
+    consumer of the merge preview. Worth unifying when a third caller appears.
+    """
+
+    category: str
+    count: int
+
+
+class PriceListDeletePreviewResponse(BaseModel):
+    items: list[PriceListDeletePreviewItem]
+    #: Records the retirement *touches* — deleted plus reassigned — not records it deletes.
+    total: int
+
+
 # ── Product ───────────────────────────────────────────────────────────────────
 
 

@@ -41,12 +41,11 @@ lines names those lines (FR-017), and cancelling an order with live applications
 | POST | `/sales-orders/{id}/confirm` | UPDATE | Assigns folio, posts stock, marks completed (FR-017) |
 | POST | `/sales-orders/{id}/cancel` | UPDATE | 409 if paid → "refund it instead"; 409 if live applications exist, naming them |
 | GET | `/sales-orders/{id}/payments` | READ¹ | The applications standing against this order, each with its payment's method, reference, date and verification state. **Includes cancelled** (FR-041a, #134) |
-| GET | `/sales-orders/{id}/lines` | READ | |
 | POST | `/sales-orders/{id}/lines` | UPDATE | Snapshots code/name/cost; price from customer's list and tax rate from the product, both overridable by an explicit `price` / `tax_rate` (#135) |
 | PUT | `/sales-orders/{id}/lines/{line_id}` | UPDATE | Mutable: `quantity`, `price`, `discount_rate`, `tax_rate` (#135), `warehouse`, `comment` |
 | DELETE | `/sales-orders/{id}/lines/{line_id}` | UPDATE | Permitted only while editable |
 | GET | `/sales-orders/product-lookup` | READ | `pattern`, `customer`, `warehouse`. A 13-digit numeric pattern matches barcode (FR-021). Each row carries the product's `unit_of_measurement` and `photo`, as every line response does (FR-021a/FR-021b, #145, #157) |
-| GET | `/sales-orders/outstanding` | READ | Unpaid confirmed orders with balances (FR-046) |
+| GET | `/customer-payments/outstanding-orders` | READ | Unpaid confirmed orders with balances (FR-046). Listed here because it answers a sales-order question; it is served under `/customer-payments`, which is where the privilege and the implementation live. Each row carries `customer_display_name` beside the `customer_name` override (#174) |
 
 ¹ `/sales-orders/{id}/payments` is gated by `CUSTOMER_PAYMENTS` (8) READ, not `SALES_ORDERS` (7): it returns payment data, so a caller who may read orders but not payments is refused.
 
@@ -62,7 +61,7 @@ lines names those lines (FR-017), and cancelling an order with live applications
 | POST | `/sales-quotes/{id}/cancel` | UPDATE | |
 | POST | `/sales-quotes/{id}/duplicate` | CREATE | New editable quote, prices re-fetched (FR-033) |
 | POST | `/sales-quotes/{id}/convert` | CREATE | → new draft order; 409 if not confirmed, cancelled, or expired (FR-034). Requires CREATE on Sales Orders too |
-| GET/POST | `/sales-quotes/{id}/lines` | READ / UPDATE | |
+| POST | `/sales-quotes/{id}/lines` | UPDATE | No `GET` on the collection — a quote's lines come back on `GET /sales-quotes/{id}` |
 | PUT/DELETE | `/sales-quotes/{id}/lines/{line_id}` | UPDATE | |
 
 ## `/customer-payments` — SystemObject `CUSTOMER_PAYMENTS` (8)

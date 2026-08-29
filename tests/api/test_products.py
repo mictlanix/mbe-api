@@ -202,6 +202,76 @@ async def test_delete_price_list_returns_404() -> None:
 
 
 @pytest.mark.asyncio
+async def test_delete_price_list_passes_the_replacement_through() -> None:
+    """The wiring the service tests cannot see: `replacement` has to arrive as `replacement_id`,
+    and its absence has to arrive as `None` rather than being dropped (#181)."""
+    _auth()
+    with (
+        patch('app.services.price_list_service.get_price_list', new=AsyncMock(return_value=_pl())),
+        patch(
+            'app.services.price_list_service.delete_price_list', new=AsyncMock(return_value=None)
+        ) as retire,
+    ):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as c:
+            assert (await c.delete('/api/v1/price-lists/1?replacement=3')).status_code == 204
+            assert retire.await_args.kwargs['replacement_id'] == 3
+
+            assert (await c.delete('/api/v1/price-lists/1')).status_code == 204
+            assert retire.await_args.kwargs['replacement_id'] is None
+
+
+@pytest.mark.asyncio
+async def test_price_list_delete_preview_returns_200() -> None:
+    _auth()
+    counts = [('product_price.list', 4312), ('customer.price_list', 12)]
+    with (
+        patch('app.services.price_list_service.get_price_list', new=AsyncMock(return_value=_pl())),
+        patch('app.services.price_list_service.preview_delete', new=AsyncMock(return_value=counts)),
+    ):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as c:
+            r = await c.get('/api/v1/price-lists/1/delete/preview')
+    assert r.status_code == 200
+    assert r.json() == {
+        'items': [
+            {'category': 'product_price.list', 'count': 4312},
+            {'category': 'customer.price_list', 'count': 12},
+        ],
+        'total': 4324,
+    }
+
+
+@pytest.mark.asyncio
+async def test_price_list_delete_preview_totals_an_empty_breakdown_to_zero() -> None:
+    _auth()
+    with (
+        patch('app.services.price_list_service.get_price_list', new=AsyncMock(return_value=_pl())),
+        patch('app.services.price_list_service.preview_delete', new=AsyncMock(return_value=[])),
+    ):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as c:
+            r = await c.get('/api/v1/price-lists/1/delete/preview')
+    assert r.status_code == 200
+    assert r.json() == {'items': [], 'total': 0}
+
+
+@pytest.mark.asyncio
+async def test_price_list_delete_preview_returns_404() -> None:
+    """And is not swallowed by `GET /{price_list_id}`, which would 200 with a price list body."""
+    _auth()
+    with patch('app.services.price_list_service.get_price_list', new=AsyncMock(return_value=None)):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as c:
+            r = await c.get('/api/v1/price-lists/999/delete/preview')
+    assert r.status_code == 404
+    assert r.json()['detail'] == 'Price list not found'
+
+
+@pytest.mark.asyncio
+async def test_price_list_delete_preview_requires_auth() -> None:
+    async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as c:
+        r = await c.get('/api/v1/price-lists/1/delete/preview')
+    assert r.status_code == 401
+
+
+@pytest.mark.asyncio
 async def test_list_price_lists_requires_auth() -> None:
     async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as c:
         r = await c.get('/api/v1/price-lists')

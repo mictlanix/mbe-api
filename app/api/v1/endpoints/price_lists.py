@@ -4,7 +4,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.deps import CurrentUser, get_current_user
 from app.db.session import get_db
 from app.schemas import ListResponse
-from app.schemas.product import PriceListCreate, PriceListResponse, PriceListUpdate
+from app.schemas.product import (
+    PriceListCreate,
+    PriceListDeletePreviewItem,
+    PriceListDeletePreviewResponse,
+    PriceListResponse,
+    PriceListUpdate,
+)
 from app.services import price_list_service
 
 router = APIRouter()
@@ -63,10 +69,28 @@ async def update_price_list(
 @router.delete('/{price_list_id}', status_code=status.HTTP_204_NO_CONTENT)
 async def delete_price_list(
     price_list_id: int,
+    replacement: int | None = Query(
+        None, description="The price list this one's customers are moved to"
+    ),
     _: CurrentUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> None:
     pl = await price_list_service.get_price_list(db, price_list_id)
     if pl is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Price list not found')
-    await price_list_service.delete_price_list(db, pl)
+    await price_list_service.delete_price_list(db, pl, replacement_id=replacement)
+
+
+@router.get('/{price_list_id}/delete/preview', response_model=PriceListDeletePreviewResponse)
+async def preview_price_list_delete(
+    price_list_id: int,
+    _: CurrentUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> PriceListDeletePreviewResponse:
+    """What rides on the list, before the irreversible request above (#181)."""
+    pl = await price_list_service.get_price_list(db, price_list_id)
+    if pl is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Price list not found')
+    references = await price_list_service.preview_delete(db, pl)
+    items = [PriceListDeletePreviewItem(category=name, count=count) for name, count in references]
+    return PriceListDeletePreviewResponse(items=items, total=sum(item.count for item in items))
