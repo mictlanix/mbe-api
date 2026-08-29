@@ -13,10 +13,13 @@ retires a list for real and is the only step that keeps its changes; do it on a 
 ```bash
 uv run pytest -q
 uv run ruff check app/ migrations/ tests/
-uv run ruff format --check app/ migrations/ tests/
+uv run ruff format --check app/services/price_list_service.py \
+  app/api/v1/endpoints/price_lists.py app/schemas/product.py tests/api/test_products.py
 ```
 
-Expected: all tests pass, no ruff violations. The ones that speak to this feature:
+Expected: all tests pass, no ruff violations. The format check is scoped to the touched files on
+purpose — run repo-wide it reports 51 files, which is GH #96's unresolved quote-style contradiction
+and predates this feature. The ones that speak to this feature:
 
 - `tests/unit/test_price_list_service.py` — the statements a retirement issues are observed, not
   mocked: the customer move is issued before the blocker check, the cascade deletes exactly the

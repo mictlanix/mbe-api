@@ -81,7 +81,7 @@ behaviour.
 | V. Reuse Over Rebuild | ⚠️ | Two new Pydantic schemas, justified in Complexity Tracking below. Everything else is reuse: `referencing_columns`, `find_blocking_references` and `assert_not_referenced` are used as they stand. |
 | VI. Async-First | ✅ | Both service functions are `async def` taking `AsyncSession`; both endpoints are `async def`. Every statement is awaited on the request's session. |
 | VII. Security by Default | ✅ | Both the new report and the changed delete require an authenticated caller via `get_current_user`, matching every endpoint in the router (R9). Neither is public. The report discloses row counts for a price list to a caller who can already read, edit and delete that list. |
-| VIII. Ruff Compliance | ✅ | `uv run ruff check app/ migrations/ tests/` and `ruff format --check` gate completion; mypy held at its pre-existing baseline. |
+| VIII. Ruff Compliance | ✅ | `uv run ruff check app/ migrations/ tests/` gates completion, clean at baseline. `ruff format --check` is scoped to the files this feature touches: repo-wide it already reports 51 files, the unresolved quote-style contradiction of GH #96, and reformatting them is not this feature's change. The four touched files are format-clean today and stay that way. mypy held at its baseline of 170 errors in 48 files. |
 
 **Testing rule**: `GET /price-lists/{id}/delete/preview` is a new endpoint, so the constitution's
 mandatory-test rule binds: happy path, 404, 401. `delete_price_list` is not new but its correctness
