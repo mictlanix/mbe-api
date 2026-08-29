@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import Settings
 from app.enums import EntityStatus
 from app.models.core import Label
-from app.models.product import Product, product_label
+from app.models.product import PriceList, Product, ProductPrice, product_label
 from app.models.sat_catalog import SatProductService, SatUnitOfMeasurement
 from app.models.supplier import Supplier
 from app.schemas.product import ProductCreate, ProductMergeRequest, ProductUpdate
@@ -32,6 +32,7 @@ def _apply_product_filters(
     salable: bool | None,
     purchasable: bool | None,
     supplier: int | None,
+    missing_price_list: int | None = None,
 ) -> Select[Any]:
     if search:
         term = f'%{search}%'
@@ -65,6 +66,21 @@ def _apply_product_filters(
     if supplier is not None:
         query = query.where(Product.supplier == supplier)
 
+    if missing_price_list is not None:
+        # "What still needs pricing?" — the one question a pricing screen exists to answer, and
+        # the one `GET /product-prices` cannot: it answers the inverse, and a client cannot
+        # subtract one paged list from another paged list of 21k products (#184). `NOT EXISTS`
+        # rather than a `NOT IN` subquery, which is the form that stays correct on a nullable
+        # column and the one MariaDB can satisfy straight off `product_price(product, list)`.
+        query = query.where(
+            ~select(ProductPrice.product_price_id)
+            .where(
+                ProductPrice.product == Product.product_id,
+                ProductPrice.price_list == missing_price_list,
+            )
+            .exists()
+        )
+
     return query
 
 
@@ -78,6 +94,7 @@ async def list_products(
     salable: bool | None = None,
     purchasable: bool | None = None,
     supplier: int | None = None,
+    missing_price_list: int | None = None,
     skip: int = 0,
     limit: int = 20,
 ) -> tuple[Sequence[Product], int]:
@@ -90,6 +107,7 @@ async def list_products(
         salable=salable,
         purchasable=purchasable,
         supplier=supplier,
+        missing_price_list=missing_price_list,
     )
     count_q = _apply_product_filters(
         select(func.count()).select_from(Product),
@@ -100,6 +118,7 @@ async def list_products(
         salable=salable,
         purchasable=purchasable,
         supplier=supplier,
+        missing_price_list=missing_price_list,
     )
 
     total: int = (await db.execute(count_q)).scalar_one()
@@ -118,6 +137,7 @@ async def get_label_facets(
     salable: bool | None = None,
     purchasable: bool | None = None,
     supplier: int | None = None,
+    missing_price_list: int | None = None,
 ) -> Sequence[Row[Any]]:
     matching = _apply_product_filters(
         select(Product.product_id),
@@ -128,6 +148,7 @@ async def get_label_facets(
         salable=salable,
         purchasable=purchasable,
         supplier=supplier,
+        missing_price_list=missing_price_list,
     )
     facet_q = (
         select(
@@ -138,6 +159,70 @@ async def get_label_facets(
         .group_by(product_label.c['label'])
     )
     return (await db.execute(facet_q)).all()
+
+
+async def get_missing_price_facets(
+    db: AsyncSession,
+    *,
+    search: str | None = None,
+    label: list[int] | None = None,
+    status: EntityStatus | None = None,
+    stockable: bool | None = None,
+    salable: bool | None = None,
+    purchasable: bool | None = None,
+    supplier: int | None = None,
+) -> list[tuple[int, int]]:
+    """`(price_list_id, missing_count)` for every price list, over the current filter set (#184).
+
+    The chip row above a pricing grid — `Missing Mostrador (14)`, `Missing Mayoreo (37)` — is one
+    count per list, and asking for it as one `missing_price_list=` call per list is the fan-out the
+    filter was added to remove.
+
+    Counted as *matching minus priced* rather than by a `NOT EXISTS` per list. Both give the same
+    answer; this one is two indexed aggregates regardless of how many lists exist, where the other
+    is a full scan per list, and it does not need a cross join to keep a list whose count is zero.
+    A list nobody has priced at all still gets a row, which is the row a client most needs to see.
+
+    Deliberately no `missing_price_list` parameter: the counts describe the unfiltered worklist, so
+    that clicking a chip does not change the numbers on the chips beside it.
+    """
+    matching = _apply_product_filters(
+        select(Product.product_id),
+        search=search,
+        label=label,
+        status=status,
+        stockable=stockable,
+        salable=salable,
+        purchasable=purchasable,
+        supplier=supplier,
+    )
+    total: int = (
+        await db.execute(
+            _apply_product_filters(
+                select(func.count()).select_from(Product),
+                search=search,
+                label=label,
+                status=status,
+                stockable=stockable,
+                salable=salable,
+                purchasable=purchasable,
+                supplier=supplier,
+            )
+        )
+    ).scalar_one()
+
+    priced: dict[int, int] = {
+        row[0]: row[1]
+        for row in (
+            await db.execute(
+                select(ProductPrice.price_list, func.count(func.distinct(ProductPrice.product)))
+                .where(ProductPrice.product.in_(matching))
+                .group_by(ProductPrice.price_list)
+            )
+        ).all()
+    }
+    lists = (await db.execute(select(PriceList.price_list_id))).scalars().all()
+    return [(pl_id, total - priced.get(pl_id, 0)) for pl_id in lists]
 
 
 async def _get_labels(db: AsyncSession, product_id: int) -> list[Label]:

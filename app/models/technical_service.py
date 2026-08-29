@@ -1,3 +1,23 @@
+"""Technical service — **abandoned, and these tables are marked for a future drop.**
+
+Nothing here is read by any service, schema, endpoint or test. The classes exist only as mapped
+metadata: they put the five `tech_service_*` tables on `Base.metadata`, which is what builds the
+schema for `tests/integration/` and what `tests/unit/test_model_schema.py` checks against the
+deployment. That is their whole job today.
+
+`mbe_dev` holds 2, 2, 14, 3 and 15 rows across the five, and no table outside the module has a
+foreign key into it — the only inbound references are `tech_service_receipt_component.receipt` and
+`tech_service_request_component.request`, both internal — so the drop is self-contained. It has not
+been done because the rows are real service history rather than load scratch, and nobody has
+confirmed the paper trail is expendable.
+
+Do not build on these. The removal is tracked as `mictlanix/mbe#37`, against the monolith that
+owns the module; the note at the top of section 11 of `docs/data-dictionary.md` records the
+evidence and the order the follow-ups here have to run in — this file goes *after* the migration,
+not before, because these classes are what put the tables on `Base.metadata` for
+`tests/unit/test_model_schema.py` and the integration schema.
+"""
+
 from datetime import datetime
 from decimal import Decimal
 

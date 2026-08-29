@@ -38,7 +38,6 @@ class Settings(BaseSettings):
     default_currency: CurrencyCode = CurrencyCode.MXN
     default_quotation_due_days: int = 30
     max_days_to_deliver_stockables: int = 7
-    price_validation_in_range_required: bool = True
     # Price list holding cost rather than sale price; read when snapshotting a line's cost
     cost_price_list_id: int = 0
 

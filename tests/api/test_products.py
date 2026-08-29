@@ -717,3 +717,65 @@ async def test_get_label_facets_requires_auth() -> None:
     async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as c:
         r = await c.get('/api/v1/products/labels/facets')
     assert r.status_code == 401
+
+
+# ── Missing-price worklist (#184) ────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_list_products_passes_missing_price_list_through() -> None:
+    """The filter behind the grid's worklist chips — see #184."""
+    _auth()
+    mock = AsyncMock(return_value=([], 0))
+    with patch('app.services.product_service.list_products', new=mock):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as c:
+            r = await c.get('/api/v1/products?missing_price_list=2&salable=true')
+    assert r.status_code == 200
+    _, kwargs = mock.call_args
+    assert kwargs.get('missing_price_list') == 2
+    assert kwargs.get('salable') is True
+
+
+@pytest.mark.asyncio
+async def test_label_facets_pass_missing_price_list_through() -> None:
+    _auth()
+    mock = AsyncMock(return_value=[])
+    with patch('app.services.product_service.get_label_facets', new=mock):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as c:
+            r = await c.get('/api/v1/products/labels/facets?missing_price_list=2')
+    assert r.status_code == 200
+    assert mock.call_args.kwargs.get('missing_price_list') == 2
+
+
+@pytest.mark.asyncio
+async def test_missing_price_facets_return_a_row_per_list() -> None:
+    _auth()
+    mock = AsyncMock(return_value=[(1, 14), (2, 37)])
+    with patch('app.services.product_service.get_missing_price_facets', new=mock):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as c:
+            r = await c.get('/api/v1/products/prices/missing-facets')
+    assert r.status_code == 200
+    assert r.json() == [
+        {'price_list': 1, 'missing_count': 14},
+        {'price_list': 2, 'missing_count': 37},
+    ]
+
+
+@pytest.mark.asyncio
+async def test_missing_price_facets_pass_the_product_filters_through() -> None:
+    _auth()
+    mock = AsyncMock(return_value=[])
+    with patch('app.services.product_service.get_missing_price_facets', new=mock):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as c:
+            r = await c.get('/api/v1/products/prices/missing-facets?salable=true&label=2')
+    assert r.status_code == 200
+    _, kwargs = mock.call_args
+    assert kwargs.get('salable') is True
+    assert kwargs.get('label') == [2]
+
+
+@pytest.mark.asyncio
+async def test_missing_price_facets_require_auth() -> None:
+    async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as c:
+        r = await c.get('/api/v1/products/prices/missing-facets')
+    assert r.status_code == 401

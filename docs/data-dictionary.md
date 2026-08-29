@@ -303,7 +303,7 @@ Mexican postal code catalog (neighborhood lookup).
 | Column | Type | Null | Description |
 |--------|------|------|-------------|
 | `postal_code_id` | int(11) | NO | PK |
-| `code` | int(5) | NO | 5-digit code |
+| `code` | int(5) unsigned zerofill | NO | 5-digit code. `zerofill` pads on read, so `06000` comes back as `06000` rather than `6000` |
 | `neighborhood` | varchar(150) | NO | Colonia |
 | `borough` | varchar(50) | NO | Municipio |
 | `state` | varchar(50) | NO | State |
@@ -383,8 +383,8 @@ Named price tier.
 |--------|------|------|-------------|
 | `price_list_id` | int(11) | NO | PK |
 | `name` | varchar(250) | NO | List name (e.g. "Retail", "Wholesale") |
-| `high_profit_margin` | decimal(5,4) | NO | Maximum allowed margin above cost |
-| `low_profit_margin` | decimal(5,4) | NO | Minimum allowed margin above cost |
+| `high_profit_margin` | decimal(5,4) | NO | **Deprecated (#185)** — profit *rate* ceiling, 0–1. No service, validation or projection has ever read it; it is written and echoed back. The one remaining use is as the default a newly created `product_price` takes for its own `high_profit` |
+| `low_profit_margin` | decimal(5,4) | NO | **Deprecated (#185)** — profit *rate* floor, 0–1, the counterpart of `high_profit_margin` and read for the same one purpose |
 
 ### `product_price`
 Price per product per price list.
@@ -395,8 +395,8 @@ Price per product per price list.
 | `product` | int(11) | NO | FK → `product` |
 | `list` | int(11) | NO | FK → `price_list` |
 | `price` | decimal(18,4) | NO | Configured sale price |
-| `low_profit` | decimal(20,6) | NO | Minimum price (gross margin floor) |
-| `high_profit` | decimal(20,6) | NO | Maximum price (gross margin ceiling) |
+| `low_profit` | decimal(20,6) | NO | **Deprecated (#185)** — profit *rate* floor, **not a price bound**: every row in `mbe_dev` has it between 0 and 1. It was the per-product, per-list band `assert_margin_in_range` enforced on sales-order lines; that validation has been retired, so nothing reads it. `NOT NULL` with no server default, so a created row still has to name one — it takes the price list's `low_profit_margin` when the client omits it |
+| `high_profit` | decimal(20,6) | NO | **Deprecated (#185)** — profit *rate* ceiling, the counterpart of `low_profit`, with the same history and the same default |
 
 ### `product_label`
 Many-to-many product ↔ label.
@@ -499,11 +499,26 @@ Vendor / supplier entity.
 ### `supplier_address`
 Many-to-many supplier ↔ address.
 
+| Column | Type | Null | Description |
+|--------|------|------|-------------|
+| `supplier` | int(11) | NO | FK → `supplier.supplier_id` (PK, with `address`) |
+| `address` | int(11) | NO | FK → `address.address_id` (PK, with `supplier`) |
+
 ### `supplier_contact`
 Many-to-many supplier ↔ contact.
 
+| Column | Type | Null | Description |
+|--------|------|------|-------------|
+| `supplier` | int(11) | NO | FK → `supplier.supplier_id` (PK, with `contact`) |
+| `contact` | int(11) | NO | FK → `contact.contact_id` (PK, with `supplier`) |
+
 ### `supplier_bank_account`
 Many-to-many supplier ↔ bank_account.
+
+| Column | Type | Null | Description |
+|--------|------|------|-------------|
+| `supplier` | int(11) | NO | FK → `supplier.supplier_id` (PK, with `bank_account`) |
+| `bank_account` | int(11) | NO | FK → `bank_account.bank_account_id` (PK, with `supplier`) |
 
 ### `supplier_agreement`
 Supplier commercial agreement date range.
@@ -1224,6 +1239,14 @@ CFDI electronic invoice header.
 | `taxpayer_regime` | varchar(3) | YES | Recipient regime |
 | `taxpayer_postal_code` | varchar(5) | YES | Recipient postal code |
 | `rfc_pac` | varchar(13) | YES | PAC RFC that stamped the document |
+| `original_string` | varchar(8000) | YES | The *cadena original* — the canonical string assembled from the document and signed. **In use, not legacy**: populated on 61,166 of 62,592 rows in `mbe_dev` |
+| `issuer_digital_seal` | varchar(8000) | YES | The issuer's seal (*sello del emisor*) over `original_string`, the counterpart of `authority_digital_seal`. Populated on the same 61,166 rows |
+| `issuer_certificate_number` | char(20) | YES | Serial number of the CSD the issuer signed with, the counterpart of `authority_certificate_number`. Populated on the same 61,166 rows |
+| `payment_date` | date | YES | *Complemento de pago* (REP) settlement date. Populated on only **70** rows, against 35,767 for `payment_amount` beside it — do not assume the two are written together |
+| `payment_amount` | decimal(18,2) | YES | *Complemento de pago* (REP) settled amount. Populated on 35,767 rows; see the caveat on `payment_date` |
+| `approval_number` | int(11) | YES | **Legacy** — SAT *número de aprobación* from the printed-folio era, before CFDI. Populated on 10,399 older documents and never written since |
+| `approval_year` | int(11) | YES | **Legacy** — SAT *año de aprobación*, the companion of `approval_number`, with the same 10,399 rows |
+| `taxpayer_regime_name` | varchar(250) | YES | **Never written** — 0 of 62,592 rows populated in `mbe_dev`. `issuer_regime_name` above is the column that actually carries a regime description; this one is a drop candidate, and reaching for it by name would return `NULL` every time |
 
 ### `fiscal_document_detail`
 Line items of a fiscal document.
@@ -1274,8 +1297,30 @@ Stored XML blob for a stamped CFDI.
 
 ## 11. Technical Service
 
+> **The five `tech_service_*` tables below are abandoned and marked for a future drop.**
+> The module was never finished: nothing in this API reads any of them — they are mapped in
+> `app/models/technical_service.py` and referenced by no service, schema, endpoint or test — and
+> `mbe_dev` holds 2, 2, 14, 3 and 15 rows across the five. No table outside the module has a
+> foreign key into it, so the drop is self-contained: the only inbound references are
+> `tech_service_receipt_component.receipt` and `tech_service_request_component.request`, both
+> internal.
+>
+> Retained for now rather than dropped because the rows are real service history, not load
+> scratch, and nobody has confirmed the paper trail is expendable. Tracked as
+> [mictlanix/mbe#37](https://github.com/mictlanix/mbe/issues/37), where the module itself lives —
+> the monolith owns it, so the removal starts there and this API follows. Treat the five as read-only
+> legacy: do not build on them, and do not spend effort documenting them further —
+> `tech_service_request_component`'s columns are deliberately left undescribed and waived in
+> `tests/unit/test_data_dictionary.py`, which will require the waiver be removed when the table
+> goes.
+>
+> **`vehicle_service_order` and `service_order_detail` at the end of this section are not part of
+> that** — they are fleet maintenance, live, and unaffected.
+
 ### `tech_service_receipt`
 Equipment intake receipt for technical service.
+
+*Abandoned — marked for a future drop; see the note at the top of section 11.*
 
 | Column | Type | Null | Description |
 |--------|------|------|-------------|
@@ -1293,6 +1338,8 @@ Equipment intake receipt for technical service.
 ### `tech_service_receipt_component`
 Accessories/components received with equipment.
 
+*Abandoned — marked for a future drop; see the note at the top of section 11.*
+
 | Column | Type | Null | Description |
 |--------|------|------|-------------|
 | `tech_service_receipt_component_id` | int(11) | NO | PK |
@@ -1304,6 +1351,8 @@ Accessories/components received with equipment.
 
 ### `tech_service_report`
 Technical diagnosis/repair report.
+
+*Abandoned — marked for a future drop; see the note at the top of section 11.*
 
 | Column | Type | Null | Description |
 |--------|------|------|-------------|
@@ -1324,6 +1373,8 @@ Technical diagnosis/repair report.
 
 ### `tech_service_request`
 Customer technical service request.
+
+*Abandoned — marked for a future drop; see the note at the top of section 11.*
 
 | Column | Type | Null | Description |
 |--------|------|------|-------------|
@@ -1349,7 +1400,12 @@ Customer technical service request.
 ### `tech_service_request_component`
 Components listed in a service request.
 
-Mirrors `tech_service_receipt_component` structure, linked to `tech_service_request`.
+*Abandoned — marked for a future drop; see the note at the top of section 11.*
+
+Mirrors `tech_service_receipt_component` structure, linked to `tech_service_request`. Its six
+columns are deliberately undocumented: they are readable from their names, but describing a table
+slated for removal asserts a future it does not have. Waived by name in
+`tests/unit/test_data_dictionary.py`.
 
 ### `vehicle_service_order`
 Maintenance/repair order for a fleet vehicle.
@@ -1427,7 +1483,7 @@ Commission rate catalog entry.
 | `commission_id` | int(11) | NO | PK |
 | `name` | varchar(50) | NO | Commission name/label |
 | `commission_rate` | decimal(20,6) | NO | Rate (0–1) |
-| `comment` | varchar(50) | YES | Notes |
+| `comment` | varchar(50) | NO | Notes. `NOT NULL DEFAULT '0'` — the default is the string `0`, not a null |
 
 ### `commission_agent`
 Marks an employee as a commission-eligible sales agent.
@@ -1472,17 +1528,22 @@ Calculated commission record per sold order line.
 | `commissions_history_id` | int(11) | NO | PK |
 | `sales_order` | int(11) | NO | FK → `sales_order` |
 | `sales_order_detail` | int(11) | NO | FK → `sales_order_detail` |
-| `salesperson` | int(11) | YES | FK → `employee` |
+| `salesperson` | int(11) | YES | FK → `employee` — the **customer's** salesperson, the agent this commission row is earned by. Tracks `customer.salesperson` (1,450 of 1,650 rows in `mbe_dev`, plus 23 where the customer's is null). Only 5 distinct values, every one of them a registered `commission_agent` |
+| `osp` | int(11) | NO | FK → `employee` — the **sales order's** salesperson, i.e. `sales_order.salesperson` of the order this line belongs to: an exact match on 1,650 of 1,650 rows. Deliberately distinct from `salesperson` beside it, which is the customer's; the order's salesperson also takes a cut under the scheme, which is what makes both worth recording. The wider set of the two — 16 distinct values against 5, and only 6 of them commission agents, because anyone on the sales floor can write an order. Not declared as a foreign key |
 | `customer` | varchar(250) | NO | Customer name snapshot |
 | `paid` | tinyint(4) | NO | Commission paid flag |
 | `date` | datetime | YES | Commission date |
 | `product` | int(11) | NO | FK → `product` |
+| `product_name` | varchar(250) | NO | Product name snapshot, the same denormalisation as `customer` above |
+| `label` | varchar(50) | YES | Commission-scheme category (`VARILLAS`, `ESTRIBOS`, `ALAMBRÓN`, `AGREGADOS`…), **not** a product label. Despite the name it must never be joined to `label`: 12 of its 13 distinct values do not exist in that catalog, which holds hardware-store categories rather than these |
 | `quantity` | decimal(18,4) | NO | Quantity sold |
 | `price` | decimal(22,2) | NO | Sale price |
 | `total_detail` | decimal(37,2) | NO | Line total |
 | `commission_rate` | decimal(40,12) | YES | Applied rate |
 | `commission` | decimal(50,2) | YES | Commission amount |
+| `participation` | varchar(19) | NO | Name snapshot of `commission_participation.name` — why this agent takes a share (`CLIENTE VITALICIO`, `ATENCIÓN EN CAMPO`, `ATENCIÓN TELEFÓNICA`). A *snapshot*, demonstrably: `ATENCIÓN TELEFÓNICA` appears here but no longer in the catalog, which has since gained `CANALIZACIÓN`. The `varchar(19)` is the length of the longest value to the character, so it will refuse a longer name the catalog can hold |
 | `participation_rate` | decimal(18,4) | NO | Agent participation rate |
+| `modification_time` | datetime | NO | Last updated. `NOT NULL DEFAULT '0000-00-00 00:00:00'` — the zero date, not a null, on a row never modified |
 | `confirmed` | tinyint(1) | NO | Confirmed by accounting |
 
 ---
