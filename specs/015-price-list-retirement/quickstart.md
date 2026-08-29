@@ -71,6 +71,23 @@ Expected: `items` with `product_price.list` and, if anyone is assigned, `custome
 largest first, and `total` their sum. Re-run `GET /api/v1/price-lists/2` afterwards and confirm the
 list is untouched — the report is read-only.
 
+**Measured against `mbe_dev`, 2026-08-29** — three lists, and the shape of the problem in one table:
+
+| id | name | prices | customers |
+|----|------|--------|-----------|
+| 0 | Costo | 21,571 | 0 |
+| 1 | Mostrador | 21,569 | 10,775 |
+| 3 | Mayoreo | 21,569 | 150 |
+
+Every list carries ~21.5k prices, so before this change *every* list in the deployment was
+undeletable, and clearing the blocker by hand was 21,569 `DELETE` requests. `GET
+/price-lists/3/delete/preview` answers `{"items": [{"category": "product_price.list", "count":
+21569}, {"category": "customer.price_list", "count": 150}], "total": 21719}`.
+
+Note `Costo` at id **0** — the list `settings.cost_price_list_id` points at. A falsy primary key,
+so `replacement=0` has to be a real replacement and not read as "none given"; the service tests
+`is not None`, never truthiness.
+
 Cross-check one count by hand:
 
 ```sql
@@ -80,46 +97,82 @@ SELECT COUNT(*) FROM customer WHERE price_list = 2;
 
 ## 4. A retirement, rolled back
 
+**Read this before running it.** `delete_price_list` commits, so the transaction has to be arranged
+from outside the session. `session.begin_nested()` is *not* enough — in SQLAlchemy 2.0
+`Session.commit()` commits the outermost transaction and releases any savepoint under it, so a
+nested block would let the retirement land for real. The session has to be bound to a connection
+whose transaction it does not own, with `join_transaction_mode='create_savepoint'`, which is what
+turns its `commit()` into a savepoint release.
+
 ```bash
-PYTHONPATH=. uv run python - <<'PY'
+PYTHONPATH=. uv run python - <<'ROLLBACK'
 import asyncio
 from sqlalchemy import func, select
-from app.db.session import AsyncSessionLocal
+from sqlalchemy.ext.asyncio import AsyncSession
+from app.db.session import AsyncSessionLocal, engine
 from app.models.customer import Customer
 from app.models.product import PriceList, ProductPrice
 from app.services import price_list_service
 
-RETIRED, REPLACEMENT = 2, 1  # substitute real ids
+RETIRED, REPLACEMENT = 3, 1  # substitute real ids
+
+
+async def counts(db: AsyncSession, list_id: int) -> tuple[int, int]:
+    prices = await db.scalar(
+        select(func.count()).select_from(ProductPrice).where(ProductPrice.price_list == list_id)
+    )
+    people = await db.scalar(
+        select(func.count()).select_from(Customer).where(Customer.price_list == list_id)
+    )
+    return int(prices or 0), int(people or 0)
+
 
 async def main() -> None:
-    async with AsyncSessionLocal() as db:
-        async def counts() -> tuple[int, int]:
-            prices = await db.scalar(
-                select(func.count()).select_from(ProductPrice).where(ProductPrice.price_list == RETIRED))
-            movers = await db.scalar(
-                select(func.count()).select_from(Customer).where(Customer.price_list == RETIRED))
-            return prices, movers
-
-        before = await counts()
-        print(f'before: {before[0]} prices, {before[1]} customers on {RETIRED}')
-
-        pl = await db.get(PriceList, RETIRED)
-        # `delete_price_list` commits, so this runs it inside an outer transaction that is
-        # rolled back afterwards — the commit lands on the savepoint, not the database.
-        async with db.begin_nested():
+    async with engine.connect() as connection:
+        outer = await connection.begin()
+        # The session commits onto a savepoint inside `outer`, which is never committed.
+        async with AsyncSession(bind=connection, join_transaction_mode='create_savepoint') as db:
+            print('before ', await counts(db, RETIRED), await counts(db, REPLACEMENT))
+            pl = await db.get(PriceList, RETIRED)
             await price_list_service.delete_price_list(db, pl, replacement_id=REPLACEMENT)
-            print('retired:', await counts(), '(expect (0, 0))')
-            print('on replacement:', await db.scalar(
-                select(func.count()).select_from(Customer).where(Customer.price_list == REPLACEMENT)))
-            raise RuntimeError('rollback')
+            print('retired', await counts(db, RETIRED), await counts(db, REPLACEMENT))
+            print('list row gone:', await db.get(PriceList, RETIRED) is None)
+        await outer.rollback()
+
+    # A fresh connection, to prove the rollback reached the database and not just a cache.
+    # `AsyncSessionLocal()`, not `AsyncSession(bind=engine)`: the engine sets `pool_pre_ping`,
+    # whose ping runs outside the greenlet when a session binds the engine directly.
+    async with AsyncSessionLocal() as db:
+        print('after rollback, list row back:', await db.get(PriceList, RETIRED) is not None)
+    await engine.dispose()
+
 
 asyncio.run(main())
-PY
+ROLLBACK
 ```
 
-Expected: the `RuntimeError` propagates, and the counts printed inside show `(0, 0)` for the retired
-list while the replacement's customer count has risen by exactly the number that moved. Then
-re-run step 3 and confirm every count is back to what it was.
+Expected: the retired list drops to `(0, 0)`, the replacement's customer count rises by exactly the
+number that moved, the list row reads as gone inside the transaction — and after the rollback, on a
+fresh connection, it is back. Then re-run step 3 and confirm every count is what it was.
+
+**Measured against `mbe_dev`, 2026-08-29**, retiring Mayoreo (3) into Mostrador (1):
+
+```text
+before  retired=(21569, 150) replacement=(21569, 10775)
+retired retired=(0, 0)       replacement=(21569, 10925)
+list row gone: True
+elapsed: 0.56s
+after rollback — list back: True
+after rollback — counts: (21569, 150) (21569, 10775)
+```
+
+21,569 prices deleted and 150 customers moved in 0.56s — four statements, not 21,719 requests. The
+replacement's customer count rises by exactly 150 and its own 21,569 prices are untouched. This is
+the run that exercises the MariaDB dialect: `tests/integration/` proves the behaviour on SQLite,
+and only this proves the cascade's `list` identifier renders and executes on the deployed engine.
+
+Rehearse it on a throwaway list first. If the savepoint arrangement is wrong this deletes a real
+price list and every price in it, and there is no undo.
 
 ## 5. End to end through the API
 
@@ -164,6 +217,24 @@ curl -s -X DELETE -H "Authorization: Bearer $TOKEN" \
 
 Expected: `409` naming `customer.price_list` with its count, `404 Replacement price list not found`,
 `400 Cannot replace a price list with itself` — and after all three, step 3's counts unchanged.
+
+**Measured against `mbe_dev`, 2026-08-29**, through the real app on the real database:
+
+```text
+created list 25   -> 201
+priced product 1  -> 201
+preview           -> 200 {"items": [{"category": "product_price.list", "count": 1}], "total": 1}
+no replacement    -> 409 Still referenced by customer.price_list (150) — remove those records first
+missing replace   -> 404 Replacement price list not found
+self as replace   -> 400 Cannot replace a price list with itself
+DELETE priced list-> 204
+prices left       -> 0
+list afterwards   -> 404
+```
+
+The line that matters most is the `409`: it names `customer.price_list` **and not**
+`product_price.list`, which on this list would have read `(21569)`. That is the half #181 called
+unactionable, gone from the refusal.
 
 ## Success criteria
 
