@@ -1239,6 +1239,14 @@ CFDI electronic invoice header.
 | `taxpayer_regime` | varchar(3) | YES | Recipient regime |
 | `taxpayer_postal_code` | varchar(5) | YES | Recipient postal code |
 | `rfc_pac` | varchar(13) | YES | PAC RFC that stamped the document |
+| `original_string` | varchar(8000) | YES | The *cadena original* — the canonical string assembled from the document and signed. **In use, not legacy**: populated on 61,166 of 62,592 rows in `mbe_dev` |
+| `issuer_digital_seal` | varchar(8000) | YES | The issuer's seal (*sello del emisor*) over `original_string`, the counterpart of `authority_digital_seal`. Populated on the same 61,166 rows |
+| `issuer_certificate_number` | char(20) | YES | Serial number of the CSD the issuer signed with, the counterpart of `authority_certificate_number`. Populated on the same 61,166 rows |
+| `payment_date` | date | YES | *Complemento de pago* (REP) settlement date. Populated on only **70** rows, against 35,767 for `payment_amount` beside it — do not assume the two are written together |
+| `payment_amount` | decimal(18,2) | YES | *Complemento de pago* (REP) settled amount. Populated on 35,767 rows; see the caveat on `payment_date` |
+| `approval_number` | int(11) | YES | **Legacy** — SAT *número de aprobación* from the printed-folio era, before CFDI. Populated on 10,399 older documents and never written since |
+| `approval_year` | int(11) | YES | **Legacy** — SAT *año de aprobación*, the companion of `approval_number`, with the same 10,399 rows |
+| `taxpayer_regime_name` | varchar(250) | YES | **Never written** — 0 of 62,592 rows populated in `mbe_dev`. `issuer_regime_name` above is the column that actually carries a regime description; this one is a drop candidate, and reaching for it by name would return `NULL` every time |
 
 ### `fiscal_document_detail`
 Line items of a fiscal document.
@@ -1487,17 +1495,22 @@ Calculated commission record per sold order line.
 | `commissions_history_id` | int(11) | NO | PK |
 | `sales_order` | int(11) | NO | FK → `sales_order` |
 | `sales_order_detail` | int(11) | NO | FK → `sales_order_detail` |
-| `salesperson` | int(11) | YES | FK → `employee` |
+| `salesperson` | int(11) | YES | FK → `employee` — the agent this commission row is *earned by* |
+| `osp` | int(11) | NO | Original salesperson: FK → `employee` for the agent who owns the customer relationship, as against `salesperson` who earns this row. The two coincide whenever the owner also made the sale — 1,486 of 1,650 rows in `mbe_dev` — and diverge on a split, which is what `participation` names. Not declared as a foreign key, but all 16 distinct values resolve to an employee |
 | `customer` | varchar(250) | NO | Customer name snapshot |
 | `paid` | tinyint(4) | NO | Commission paid flag |
 | `date` | datetime | YES | Commission date |
 | `product` | int(11) | NO | FK → `product` |
+| `product_name` | varchar(250) | NO | Product name snapshot, the same denormalisation as `customer` above |
+| `label` | varchar(50) | YES | Commission-scheme category (`VARILLAS`, `ESTRIBOS`, `ALAMBRÓN`, `AGREGADOS`…), **not** a product label. Despite the name it must never be joined to `label`: 12 of its 13 distinct values do not exist in that catalog, which holds hardware-store categories rather than these |
 | `quantity` | decimal(18,4) | NO | Quantity sold |
 | `price` | decimal(22,2) | NO | Sale price |
 | `total_detail` | decimal(37,2) | NO | Line total |
 | `commission_rate` | decimal(40,12) | YES | Applied rate |
 | `commission` | decimal(50,2) | YES | Commission amount |
+| `participation` | varchar(19) | NO | Name snapshot of `commission_participation.name` — why this agent takes a share (`CLIENTE VITALICIO`, `ATENCIÓN EN CAMPO`, `ATENCIÓN TELEFÓNICA`). A *snapshot*, demonstrably: `ATENCIÓN TELEFÓNICA` appears here but no longer in the catalog, which has since gained `CANALIZACIÓN`. The `varchar(19)` is the length of the longest value to the character, so it will refuse a longer name the catalog can hold |
 | `participation_rate` | decimal(18,4) | NO | Agent participation rate |
+| `modification_time` | datetime | NO | Last updated. `NOT NULL DEFAULT '0000-00-00 00:00:00'` — the zero date, not a null, on a row never modified |
 | `confirmed` | tinyint(1) | NO | Confirmed by accounting |
 
 ---

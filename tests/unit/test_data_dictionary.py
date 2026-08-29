@@ -22,13 +22,15 @@ column and this test would be 20 lines of noise. Rollbacks are excluded for the 
 `test_model_schema.py` gives: one is never applied automatically, so letting it inform the schema
 exempts columns no applied migration ever touched.
 
-**The waivers are the point of the file, not an escape hatch.** What is listed below is the residue
-of that audit — legacy columns on tables this project has never touched, whose meaning is not
-inferable from name and type, and where a confidently wrong description is worse than an absent one
-(#179 says so, and names `commissions_history.osp` and `participation varchar(19)` as the two most
-in need of someone who knows rather than someone who guesses). Each waiver is a debt with a name.
-Documenting one and forgetting to remove it here fails too — `test_no_waiver_is_stale` — so the
-list can only shrink.
+**The waivers are the point of the file, not an escape hatch.** Each one is a debt with a name and
+a reason, and documenting a column without removing its waiver fails too
+(`test_no_waiver_is_stale`), so the list can only shrink. It already has: #179's 25 are down to one
+abandoned table's six, which is what the mechanism is for. The two that issue most wanted confirmed
+rather than inferred — `commissions_history.osp` and `participation varchar(19)` — turned out to be
+an *original salesperson* and a snapshot of `commission_participation.name`, neither of them the
+legacy serialisation the column types suggested. That is the argument for the rule the waivers
+encode: a confidently wrong description is worse than an absent one, and both of those would have
+been confidently wrong.
 """
 
 import re
@@ -69,27 +71,20 @@ UNDOCUMENTED_TABLES = frozenset(
 #: `table.column` pairs known to be undocumented, each because its meaning needs someone who knows
 #: the legacy system rather than someone reading the column type. Removing a waiver is what closing
 #: the gap looks like; nothing here may be added to without the same justification.
+#:
+#: #179 opened with 25 of these. Six were plain FK pairs, and thirteen were resolved by asking the
+#: person who knows and checking the answer against `mbe_dev` — `commissions_history.osp` and
+#: `participation`, the two that issue most wanted confirmed rather than inferred, among them.
+#: What is left is one abandoned table.
 UNDOCUMENTED_COLUMNS = frozenset(
     {
-        # A 19-character string holding what looks like a participation rate suggests a legacy
-        # serialisation rather than a number, and `osp` expands to nothing anyone here recognises.
-        'commissions_history.osp',
-        'commissions_history.participation',
-        'commissions_history.product_name',
-        'commissions_history.label',
-        'commissions_history.modification_time',
-        # Pre-CFDI-3.3 stamping fields. The two varchar(8000) columns are almost certainly the
-        # signed original string and the seal, but "almost certainly" is what this file exists to
-        # keep out of the dictionary.
-        'fiscal_document.approval_number',
-        'fiscal_document.approval_year',
-        'fiscal_document.original_string',
-        'fiscal_document.issuer_digital_seal',
-        'fiscal_document.issuer_certificate_number',
-        'fiscal_document.payment_date',
-        'fiscal_document.payment_amount',
-        'fiscal_document.taxpayer_regime_name',
-        # The table has a section but no column rows; nothing in this project reads it.
+        # The tech service module was never finished: `tech_service_request` and this table hold
+        # two rows between them in `mbe_dev`, no service in this API reads either, and the owner's
+        # answer to #179 was to leave it alone rather than describe it. The columns are in fact
+        # readable from their names — id, request FK, name, quantity, serial number, comment — so
+        # this waiver is not "nobody knows what these are"; it is "nobody has decided whether the
+        # table survives", and describing it would assert a future it may not have. A drop is the
+        # likelier fix than a description, and dropping the table clears this waiver too.
         'tech_service_request_component.tech_service_request_component_id',
         'tech_service_request_component.request',
         'tech_service_request_component.name',
