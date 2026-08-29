@@ -26,7 +26,6 @@ from app.schemas.sales_order import (
 from app.services import sales_order_service
 from app.services.sales_order_service import (
     assert_can_cancel,
-    assert_margin_in_range,
     assert_quantity_allowed,
     derive_due_date,
     stock_shortfalls,
@@ -75,87 +74,6 @@ class TestAssertQuantityAllowed:
 
         assert exc.value.status_code == 422
         assert '5' in exc.value.detail
-
-
-class TestAssertMarginInRange:
-    """`low_profit`/`high_profit` are profit *rates*, not price bounds.
-
-    Every row in the production data has both between 0 and 1, so comparing a price against them
-    directly refused any price above 1.00 — 98.8% of the catalogue. The check is on the derived
-    margin `(price - cost) / price`.
-    """
-
-    def test_healthy_margin_passes(self) -> None:
-        # 100 selling, 60 cost -> 40% margin, inside [0, 1]
-        assert_margin_in_range(
-            Decimal('100'), Decimal('60'),
-            low_rate=Decimal('0'), high_rate=Decimal('1'), enabled=True, exempt=False,
-        )
-
-    def test_a_realistic_catalogue_price_is_not_refused(self) -> None:
-        """The regression: a 23.00 price against rates 0.0-1.0 must not fail."""
-        assert_margin_in_range(
-            Decimal('23'), Decimal('10'),
-            low_rate=Decimal('0'), high_rate=Decimal('1'), enabled=True, exempt=False,
-        )
-
-    def test_selling_below_cost_is_refused(self) -> None:
-        """A negative margin falls below a floor of zero — the case FR-014 exists for."""
-        with pytest.raises(HTTPException) as exc:
-            assert_margin_in_range(
-                Decimal('50'), Decimal('80'),
-                low_rate=Decimal('0'), high_rate=Decimal('1'), enabled=True, exempt=False,
-            )
-
-        assert exc.value.status_code == 422
-
-    def test_margin_below_the_floor_is_refused(self) -> None:
-        # 100 selling, 95 cost -> 5% margin, below a 10% floor
-        with pytest.raises(HTTPException):
-            assert_margin_in_range(
-                Decimal('100'), Decimal('95'),
-                low_rate=Decimal('0.10'), high_rate=Decimal('1'), enabled=True, exempt=False,
-            )
-
-    def test_margin_above_the_ceiling_is_refused(self) -> None:
-        # 100 selling, 10 cost -> 90% margin, above a 50% ceiling
-        with pytest.raises(HTTPException):
-            assert_margin_in_range(
-                Decimal('100'), Decimal('10'),
-                low_rate=Decimal('0'), high_rate=Decimal('0.50'), enabled=True, exempt=False,
-            )
-
-    def test_zero_cost_yields_a_full_margin_and_passes(self) -> None:
-        """A product with no cost row recorded has margin 1.0 — the inclusive ceiling."""
-        assert_margin_in_range(
-            Decimal('100'), Decimal('0'),
-            low_rate=Decimal('0'), high_rate=Decimal('1'), enabled=True, exempt=False,
-        )
-
-    def test_zero_price_is_not_judged_here(self) -> None:
-        """Confirmation refuses a zero price outright (FR-017); dividing by it is meaningless."""
-        assert_margin_in_range(
-            Decimal('0'), Decimal('10'),
-            low_rate=Decimal('0.5'), high_rate=Decimal('0.9'), enabled=True, exempt=False,
-        )
-
-    def test_privilege_102_bypasses_the_check(self) -> None:
-        assert_margin_in_range(
-            Decimal('50'), Decimal('80'),
-            low_rate=Decimal('0'), high_rate=Decimal('1'), enabled=True, exempt=True,
-        )
-
-    def test_disabled_setting_bypasses_the_check(self) -> None:
-        assert_margin_in_range(
-            Decimal('50'), Decimal('80'),
-            low_rate=Decimal('0'), high_rate=Decimal('1'), enabled=False, exempt=False,
-        )
-
-    def test_bounds_are_inclusive(self) -> None:
-        assert_margin_in_range(
-            Decimal('100'), Decimal('50'),
-            low_rate=Decimal('0.5'), high_rate=Decimal('0.5'), enabled=True, exempt=False,
-        )
 
 
 class TestZeroPricedLines:

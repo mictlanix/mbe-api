@@ -25,6 +25,7 @@ def _no_filters() -> dict:
         salable=None,
         purchasable=None,
         supplier=None,
+        missing_price_list=None,
     )
 
 
@@ -251,3 +252,44 @@ async def test_preview_counts_exactly_what_a_merge_touches() -> None:
     counted = {table.name for table, _ in referencing_columns(Product)}
 
     assert counted == touched
+
+
+# ── Missing-price filter (#184) ──────────────────────────────────────────────
+
+
+def test_missing_price_list_renders_a_correlated_not_exists() -> None:
+    """`NOT EXISTS`, not `NOT IN`: the form that stays correct and that the index can serve."""
+    query = _apply_product_filters(select(Product), **{**_no_filters(), 'missing_price_list': 2})
+    compiled = str(query.compile(compile_kwargs={'literal_binds': True}))
+
+    assert 'NOT (EXISTS' in compiled
+    assert 'product_price.product = product.product_id' in compiled
+    assert 'product_price.list = 2' in compiled
+
+
+def test_missing_price_list_compiles_against_mariadb() -> None:
+    """The integration tests run on SQLite; this is the clause the deployment will actually run."""
+    from sqlalchemy.dialects import mysql
+
+    query = _apply_product_filters(select(Product), **{**_no_filters(), 'missing_price_list': 2})
+    assert 'NOT (EXISTS' in str(query.compile(dialect=mysql.dialect()))
+
+
+def test_missing_price_list_composes_with_the_other_filters() -> None:
+    """ "Unpriced *and* salable" is what #184 asked to be expressible in one query."""
+    query = _apply_product_filters(
+        select(Product), **{**_no_filters(), 'missing_price_list': 2, 'salable': True}
+    )
+    compiled = str(query.compile(compile_kwargs={'literal_binds': True}))
+
+    assert 'NOT (EXISTS' in compiled
+    assert 'product.salable' in compiled
+
+
+def test_omitting_missing_price_list_adds_no_clause() -> None:
+    """Zero is a real price list id in the deployment, so this cannot key off truthiness."""
+    without = str(_apply_product_filters(select(Product), **_no_filters()).compile())
+    assert 'EXISTS' not in without
+
+    zero = _apply_product_filters(select(Product), **{**_no_filters(), 'missing_price_list': 0})
+    assert 'NOT (EXISTS' in str(zero.compile(compile_kwargs={'literal_binds': True}))

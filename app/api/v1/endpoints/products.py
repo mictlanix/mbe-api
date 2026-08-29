@@ -14,6 +14,7 @@ from app.schemas.product import (
     ProductMergePreviewItem,
     ProductMergePreviewResponse,
     ProductMergeRequest,
+    ProductMissingPriceFacet,
     ProductResponse,
     ProductUpdate,
 )
@@ -35,6 +36,9 @@ async def list_products(
     salable: bool | None = Query(None),
     purchasable: bool | None = Query(None),
     supplier: int | None = Query(None),
+    missing_price_list: int | None = Query(
+        None, description='Only products with no price on this price list (#184)'
+    ),
     skip: int = Query(0, ge=0),
     limit: int = Query(20, ge=1, le=100),
     _: CurrentUser = Depends(require_privilege(SystemObject.PRODUCTS, AccessRight.READ)),
@@ -49,6 +53,7 @@ async def list_products(
         salable=salable,
         purchasable=purchasable,
         supplier=supplier,
+        missing_price_list=missing_price_list,
         skip=skip,
         limit=limit,
     )
@@ -69,6 +74,9 @@ async def get_product_label_facets(
     salable: bool | None = Query(None),
     purchasable: bool | None = Query(None),
     supplier: int | None = Query(None),
+    missing_price_list: int | None = Query(
+        None, description='Only products with no price on this price list (#184)'
+    ),
     _: CurrentUser = Depends(require_privilege(SystemObject.PRODUCTS, AccessRight.READ)),
     db: AsyncSession = Depends(get_db),
 ) -> list[ProductLabelFacet]:
@@ -81,8 +89,43 @@ async def get_product_label_facets(
         salable=salable,
         purchasable=purchasable,
         supplier=supplier,
+        missing_price_list=missing_price_list,
     )
     return [ProductLabelFacet(label_id=row.label_id, count=row.count) for row in rows]
+
+
+@router.get('/prices/missing-facets', response_model=list[ProductMissingPriceFacet])
+async def get_product_missing_price_facets(
+    search: str | None = Query(None),
+    label: list[int] | None = Query(None),
+    status: EntityStatus | None = Query(None),
+    stockable: bool | None = Query(None),
+    salable: bool | None = Query(None),
+    purchasable: bool | None = Query(None),
+    supplier: int | None = Query(None),
+    _: CurrentUser = Depends(require_privilege(SystemObject.PRODUCTS, AccessRight.READ)),
+    db: AsyncSession = Depends(get_db),
+) -> list[ProductMissingPriceFacet]:
+    """One row per price list: how many matching products still have no price on it (#184).
+
+    Read by the same privilege as the products list rather than by `PRICING`, because that is
+    what it counts — products, narrowed by the product filters, with the price lists supplying
+    only the columns to count against.
+    """
+    rows = await product_service.get_missing_price_facets(
+        db,
+        search=search,
+        label=label,
+        status=status,
+        stockable=stockable,
+        salable=salable,
+        purchasable=purchasable,
+        supplier=supplier,
+    )
+    return [
+        ProductMissingPriceFacet(price_list=price_list, missing_count=missing)
+        for price_list, missing in rows
+    ]
 
 
 @router.post('', response_model=ProductResponse, status_code=http_status.HTTP_201_CREATED)

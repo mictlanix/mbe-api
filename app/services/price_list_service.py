@@ -39,10 +39,13 @@ async def get_price_list(db: AsyncSession, price_list_id: int) -> PriceList | No
 
 
 async def create_price_list(db: AsyncSession, data: PriceListCreate) -> PriceList:
+    # `model_dump` rather than attribute access: both margin fields are deprecated (#185) and
+    # Pydantic warns on the attribute, but the write still has to honour what the client sent.
+    sent = data.model_dump()
     pl = PriceList(
         name=data.name,
-        high_profit_margin=data.high_profit_margin,
-        low_profit_margin=data.low_profit_margin,
+        high_profit_margin=sent['high_profit_margin'],
+        low_profit_margin=sent['low_profit_margin'],
     )
     db.add(pl)
     await db.commit()
@@ -53,10 +56,11 @@ async def create_price_list(db: AsyncSession, data: PriceListCreate) -> PriceLis
 async def update_price_list(db: AsyncSession, pl: PriceList, data: PriceListUpdate) -> PriceList:
     if data.name is not None:
         pl.name = data.name
-    if data.high_profit_margin is not None:
-        pl.high_profit_margin = data.high_profit_margin
-    if data.low_profit_margin is not None:
-        pl.low_profit_margin = data.low_profit_margin
+    sent = data.model_dump()
+    if sent['high_profit_margin'] is not None:
+        pl.high_profit_margin = sent['high_profit_margin']
+    if sent['low_profit_margin'] is not None:
+        pl.low_profit_margin = sent['low_profit_margin']
     await db.commit()
     await db.refresh(pl)
     return pl

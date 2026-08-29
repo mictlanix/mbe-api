@@ -26,16 +26,25 @@ def _validate_bar_code(v: str | None) -> str | None:
 # ── Price List ────────────────────────────────────────────────────────────────
 
 
+# `high_profit_margin` / `low_profit_margin` are deprecated (#185). Nothing has ever read them:
+# they are written and echoed back here and consumed by no service, validation or projection. They
+# survive on the request schemas so a client still sending them is not refused, and on the response
+# so a generated client does not lose a field it compiles against; the columns stay until the
+# legacy monolith is retired. The one remaining use is the default a created `product_price` takes
+# for its own deprecated margin columns — see `product_price_service._margin_defaults`.
+_MARGIN_DEPRECATED = 'Deprecated (#185): written and echoed back, read by nothing.'
+
+
 class PriceListCreate(BaseModel):
     name: str
-    high_profit_margin: Decimal = Decimal('0')
-    low_profit_margin: Decimal = Decimal('0')
+    high_profit_margin: Decimal = Field(default=Decimal('0'), deprecated=_MARGIN_DEPRECATED)
+    low_profit_margin: Decimal = Field(default=Decimal('0'), deprecated=_MARGIN_DEPRECATED)
 
 
 class PriceListUpdate(BaseModel):
     name: str | None = None
-    high_profit_margin: Decimal | None = None
-    low_profit_margin: Decimal | None = None
+    high_profit_margin: Decimal | None = Field(default=None, deprecated=_MARGIN_DEPRECATED)
+    low_profit_margin: Decimal | None = Field(default=None, deprecated=_MARGIN_DEPRECATED)
 
 
 class PriceListResponse(BaseModel):
@@ -43,8 +52,8 @@ class PriceListResponse(BaseModel):
 
     price_list_id: int
     name: str
-    high_profit_margin: Decimal
-    low_profit_margin: Decimal
+    high_profit_margin: Decimal = Field(deprecated=_MARGIN_DEPRECATED)
+    low_profit_margin: Decimal = Field(deprecated=_MARGIN_DEPRECATED)
 
 
 class PriceListDeletePreviewItem(BaseModel):
@@ -208,6 +217,18 @@ class ProductResponse(BaseModel):
 class ProductLabelFacet(BaseModel):
     label_id: int
     count: int
+
+
+class ProductMissingPriceFacet(BaseModel):
+    """How many products in the current filter set have no price on this list (#184).
+
+    The count a pricing grid's worklist chip renders. `price_list` rather than `label_id` beside
+    it because the two facets answer different questions off the same product set, and a client
+    reads them into different chips.
+    """
+
+    price_list: int
+    missing_count: int
 
 
 # ── Merge ─────────────────────────────────────────────────────────────────────

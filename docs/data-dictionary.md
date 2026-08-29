@@ -303,7 +303,7 @@ Mexican postal code catalog (neighborhood lookup).
 | Column | Type | Null | Description |
 |--------|------|------|-------------|
 | `postal_code_id` | int(11) | NO | PK |
-| `code` | int(5) | NO | 5-digit code |
+| `code` | int(5) unsigned zerofill | NO | 5-digit code. `zerofill` pads on read, so `06000` comes back as `06000` rather than `6000` |
 | `neighborhood` | varchar(150) | NO | Colonia |
 | `borough` | varchar(50) | NO | Municipio |
 | `state` | varchar(50) | NO | State |
@@ -383,8 +383,8 @@ Named price tier.
 |--------|------|------|-------------|
 | `price_list_id` | int(11) | NO | PK |
 | `name` | varchar(250) | NO | List name (e.g. "Retail", "Wholesale") |
-| `high_profit_margin` | decimal(5,4) | NO | Maximum allowed margin above cost |
-| `low_profit_margin` | decimal(5,4) | NO | Minimum allowed margin above cost |
+| `high_profit_margin` | decimal(5,4) | NO | **Deprecated (#185)** — profit *rate* ceiling, 0–1. No service, validation or projection has ever read it; it is written and echoed back. The one remaining use is as the default a newly created `product_price` takes for its own `high_profit` |
+| `low_profit_margin` | decimal(5,4) | NO | **Deprecated (#185)** — profit *rate* floor, 0–1, the counterpart of `high_profit_margin` and read for the same one purpose |
 
 ### `product_price`
 Price per product per price list.
@@ -395,8 +395,8 @@ Price per product per price list.
 | `product` | int(11) | NO | FK → `product` |
 | `list` | int(11) | NO | FK → `price_list` |
 | `price` | decimal(18,4) | NO | Configured sale price |
-| `low_profit` | decimal(20,6) | NO | Minimum price (gross margin floor) |
-| `high_profit` | decimal(20,6) | NO | Maximum price (gross margin ceiling) |
+| `low_profit` | decimal(20,6) | NO | **Deprecated (#185)** — profit *rate* floor, **not a price bound**: every row in `mbe_dev` has it between 0 and 1. It was the per-product, per-list band `assert_margin_in_range` enforced on sales-order lines; that validation has been retired, so nothing reads it. `NOT NULL` with no server default, so a created row still has to name one — it takes the price list's `low_profit_margin` when the client omits it |
+| `high_profit` | decimal(20,6) | NO | **Deprecated (#185)** — profit *rate* ceiling, the counterpart of `low_profit`, with the same history and the same default |
 
 ### `product_label`
 Many-to-many product ↔ label.
@@ -499,11 +499,26 @@ Vendor / supplier entity.
 ### `supplier_address`
 Many-to-many supplier ↔ address.
 
+| Column | Type | Null | Description |
+|--------|------|------|-------------|
+| `supplier` | int(11) | NO | FK → `supplier.supplier_id` (PK, with `address`) |
+| `address` | int(11) | NO | FK → `address.address_id` (PK, with `supplier`) |
+
 ### `supplier_contact`
 Many-to-many supplier ↔ contact.
 
+| Column | Type | Null | Description |
+|--------|------|------|-------------|
+| `supplier` | int(11) | NO | FK → `supplier.supplier_id` (PK, with `contact`) |
+| `contact` | int(11) | NO | FK → `contact.contact_id` (PK, with `supplier`) |
+
 ### `supplier_bank_account`
 Many-to-many supplier ↔ bank_account.
+
+| Column | Type | Null | Description |
+|--------|------|------|-------------|
+| `supplier` | int(11) | NO | FK → `supplier.supplier_id` (PK, with `bank_account`) |
+| `bank_account` | int(11) | NO | FK → `bank_account.bank_account_id` (PK, with `supplier`) |
 
 ### `supplier_agreement`
 Supplier commercial agreement date range.
@@ -1427,7 +1442,7 @@ Commission rate catalog entry.
 | `commission_id` | int(11) | NO | PK |
 | `name` | varchar(50) | NO | Commission name/label |
 | `commission_rate` | decimal(20,6) | NO | Rate (0–1) |
-| `comment` | varchar(50) | YES | Notes |
+| `comment` | varchar(50) | NO | Notes. `NOT NULL DEFAULT '0'` — the default is the string `0`, not a null |
 
 ### `commission_agent`
 Marks an employee as a commission-eligible sales agent.

@@ -12,6 +12,7 @@ from httpx import ASGITransport, AsyncClient
 from app.core.deps import CurrentUser, get_current_user
 from app.db.session import get_db
 from app.main import app
+from app.schemas.product_price import BULK_LIMIT
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
 
@@ -300,7 +301,7 @@ async def test_list_product_prices_filters_by_product() -> None:
             r = await c.get('/api/v1/product-prices?product=1')
     assert r.status_code == 200
     _, kwargs = mock.call_args
-    assert kwargs.get('product') == 1
+    assert kwargs.get('product') == [1]
     assert kwargs.get('price_list') is None
 
 
@@ -326,8 +327,117 @@ async def test_list_product_prices_filters_by_both() -> None:
             r = await c.get('/api/v1/product-prices?product=1&price_list=1')
     assert r.status_code == 200
     _, kwargs = mock.call_args
-    assert kwargs.get('product') == 1
+    assert kwargs.get('product') == [1]
     assert kwargs.get('price_list') == 1
+
+
+# ── Bulk upsert (#183) ────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_bulk_upsert_returns_a_row_per_body_entry() -> None:
+    _auth()
+    mock = AsyncMock(return_value=[_pp(1, product=1), _pp(2, product=2)])
+    with patch('app.services.product_price_service.bulk_upsert_product_prices', new=mock):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as c:
+            r = await c.put(
+                '/api/v1/product-prices',
+                json=[
+                    {'product': 1, 'price_list': 1, 'price': '10'},
+                    {'product': 2, 'price_list': 1, 'price': '20'},
+                ],
+            )
+    assert r.status_code == 200
+    assert [row['product'] for row in r.json()] == [1, 2]
+
+
+@pytest.mark.asyncio
+async def test_bulk_upsert_does_not_require_the_deprecated_margins() -> None:
+    """#183's second blocker: a grid that edits a price must not have to invent two more numbers."""
+    _auth()
+    mock = AsyncMock(return_value=[_pp()])
+    with patch('app.services.product_price_service.bulk_upsert_product_prices', new=mock):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as c:
+            r = await c.put(
+                '/api/v1/product-prices', json=[{'product': 1, 'price_list': 1, 'price': '10'}]
+            )
+    assert r.status_code == 200
+    items = mock.call_args.args[1]
+    # `model_dump` rather than the attributes: both fields are marked deprecated, so reading them
+    # by attribute raises a DeprecationWarning the suite is run clean of.
+    assert items[0].model_dump()['low_profit'] is None
+    assert items[0].model_dump()['high_profit'] is None
+
+
+@pytest.mark.asyncio
+async def test_bulk_upsert_refuses_an_empty_body() -> None:
+    _auth()
+    with patch(
+        'app.services.product_price_service.bulk_upsert_product_prices', new=AsyncMock()
+    ) as mock:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as c:
+            r = await c.put('/api/v1/product-prices', json=[])
+    assert r.status_code == 422
+    mock.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_bulk_upsert_refuses_a_body_over_the_cap() -> None:
+    """The cap and the list endpoint's `limit` are one number, so a full page stays writable."""
+    _auth()
+    body = [{'product': n, 'price_list': 1, 'price': '1'} for n in range(BULK_LIMIT + 1)]
+    with patch(
+        'app.services.product_price_service.bulk_upsert_product_prices', new=AsyncMock()
+    ) as mock:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as c:
+            r = await c.put('/api/v1/product-prices', json=body)
+    assert r.status_code == 422
+    mock.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_bulk_upsert_requires_auth() -> None:
+    async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as c:
+        r = await c.put(
+            '/api/v1/product-prices', json=[{'product': 1, 'price_list': 1, 'price': '1'}]
+        )
+    assert r.status_code == 401
+
+
+# ── Read shape (#182) ─────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_list_product_prices_accepts_a_repeated_product() -> None:
+    """The gap #182 was filed for — a grid page used to be one request per row."""
+    _auth()
+    mock = AsyncMock(return_value=([_pp()], 1))
+    with patch('app.services.product_price_service.list_product_prices', new=mock):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as c:
+            r = await c.get('/api/v1/product-prices?product=1&product=2&product=3')
+    assert r.status_code == 200
+    _, kwargs = mock.call_args
+    assert kwargs.get('product') == [1, 2, 3]
+
+
+@pytest.mark.asyncio
+async def test_list_product_prices_accepts_a_page_wider_than_a_hundred() -> None:
+    """A 20-row page against 6 lists is 120 rows; the old cap of 100 truncated the grid."""
+    _auth()
+    mock = AsyncMock(return_value=([_pp()], 1))
+    with patch('app.services.product_price_service.list_product_prices', new=mock):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as c:
+            r = await c.get('/api/v1/product-prices?limit=120')
+    assert r.status_code == 200
+    assert mock.call_args.kwargs['limit'] == 120
+
+
+@pytest.mark.asyncio
+async def test_list_product_prices_refuses_a_page_over_the_cap() -> None:
+    _auth()
+    async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as c:
+        r = await c.get(f'/api/v1/product-prices?limit={BULK_LIMIT + 1}')
+    assert r.status_code == 422
 
 
 # ── Auth ──────────────────────────────────────────────────────────────────────
