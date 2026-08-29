@@ -1306,7 +1306,9 @@ Stored XML blob for a stamped CFDI.
 > internal.
 >
 > Retained for now rather than dropped because the rows are real service history, not load
-> scratch, and nobody has confirmed the paper trail is expendable. Treat the five as read-only
+> scratch, and nobody has confirmed the paper trail is expendable. Tracked as
+> [mictlanix/mbe#37](https://github.com/mictlanix/mbe/issues/37), where the module itself lives —
+> the monolith owns it, so the removal starts there and this API follows. Treat the five as read-only
 > legacy: do not build on them, and do not spend effort documenting them further —
 > `tech_service_request_component`'s columns are deliberately left undescribed and waived in
 > `tests/unit/test_data_dictionary.py`, which will require the waiver be removed when the table
