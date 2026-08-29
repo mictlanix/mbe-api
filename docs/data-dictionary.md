@@ -1297,8 +1297,28 @@ Stored XML blob for a stamped CFDI.
 
 ## 11. Technical Service
 
+> **The five `tech_service_*` tables below are abandoned and marked for a future drop.**
+> The module was never finished: nothing in this API reads any of them — they are mapped in
+> `app/models/technical_service.py` and referenced by no service, schema, endpoint or test — and
+> `mbe_dev` holds 2, 2, 14, 3 and 15 rows across the five. No table outside the module has a
+> foreign key into it, so the drop is self-contained: the only inbound references are
+> `tech_service_receipt_component.receipt` and `tech_service_request_component.request`, both
+> internal.
+>
+> Retained for now rather than dropped because the rows are real service history, not load
+> scratch, and nobody has confirmed the paper trail is expendable. Treat the five as read-only
+> legacy: do not build on them, and do not spend effort documenting them further —
+> `tech_service_request_component`'s columns are deliberately left undescribed and waived in
+> `tests/unit/test_data_dictionary.py`, which will require the waiver be removed when the table
+> goes.
+>
+> **`vehicle_service_order` and `service_order_detail` at the end of this section are not part of
+> that** — they are fleet maintenance, live, and unaffected.
+
 ### `tech_service_receipt`
 Equipment intake receipt for technical service.
+
+*Abandoned — marked for a future drop; see the note at the top of section 11.*
 
 | Column | Type | Null | Description |
 |--------|------|------|-------------|
@@ -1316,6 +1336,8 @@ Equipment intake receipt for technical service.
 ### `tech_service_receipt_component`
 Accessories/components received with equipment.
 
+*Abandoned — marked for a future drop; see the note at the top of section 11.*
+
 | Column | Type | Null | Description |
 |--------|------|------|-------------|
 | `tech_service_receipt_component_id` | int(11) | NO | PK |
@@ -1327,6 +1349,8 @@ Accessories/components received with equipment.
 
 ### `tech_service_report`
 Technical diagnosis/repair report.
+
+*Abandoned — marked for a future drop; see the note at the top of section 11.*
 
 | Column | Type | Null | Description |
 |--------|------|------|-------------|
@@ -1347,6 +1371,8 @@ Technical diagnosis/repair report.
 
 ### `tech_service_request`
 Customer technical service request.
+
+*Abandoned — marked for a future drop; see the note at the top of section 11.*
 
 | Column | Type | Null | Description |
 |--------|------|------|-------------|
@@ -1372,7 +1398,12 @@ Customer technical service request.
 ### `tech_service_request_component`
 Components listed in a service request.
 
-Mirrors `tech_service_receipt_component` structure, linked to `tech_service_request`.
+*Abandoned — marked for a future drop; see the note at the top of section 11.*
+
+Mirrors `tech_service_receipt_component` structure, linked to `tech_service_request`. Its six
+columns are deliberately undocumented: they are readable from their names, but describing a table
+slated for removal asserts a future it does not have. Waived by name in
+`tests/unit/test_data_dictionary.py`.
 
 ### `vehicle_service_order`
 Maintenance/repair order for a fleet vehicle.

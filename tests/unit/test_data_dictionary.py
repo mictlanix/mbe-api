@@ -80,13 +80,15 @@ UNDOCUMENTED_TABLES = frozenset(
 #: What is left is one abandoned table.
 UNDOCUMENTED_COLUMNS = frozenset(
     {
-        # The tech service module was never finished: `tech_service_request` and this table hold
-        # two rows between them in `mbe_dev`, no service in this API reads either, and the owner's
-        # answer to #179 was to leave it alone rather than describe it. The columns are in fact
-        # readable from their names — id, request FK, name, quantity, serial number, comment — so
-        # this waiver is not "nobody knows what these are"; it is "nobody has decided whether the
-        # table survives", and describing it would assert a future it may not have. A drop is the
-        # likelier fix than a description, and dropping the table clears this waiver too.
+        # The tech service module is abandoned and its five tables are marked for a future drop
+        # — see the note at the top of section 11 of `docs/data-dictionary.md`. Nothing in this
+        # API reads any of them, and `mbe_dev` holds two rows in this table.
+        #
+        # So this waiver is not "nobody knows what these are": the columns are perfectly readable
+        # from their names — id, request FK, name, quantity, serial number, comment. It is that
+        # describing a table slated for removal asserts a future it does not have. The decision
+        # is made; only the migration is outstanding, and applying it clears these six waivers by
+        # removing the table, which `test_no_waiver_is_stale` then requires.
         'tech_service_request_component.tech_service_request_component_id',
         'tech_service_request_component.request',
         'tech_service_request_component.name',
