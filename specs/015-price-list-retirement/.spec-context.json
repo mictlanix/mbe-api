@@ -2,8 +2,8 @@
   "workflow": "speckit",
   "specName": "Price List Retirement",
   "branch": "015-price-list-retirement",
-  "currentStep": "plan",
-  "status": "planned",
+  "currentStep": "tasks",
+  "status": "ready-to-implement",
   "history": [
     {
       "step": "specify",
@@ -18,6 +18,13 @@
       "kind": "complete",
       "by": "extension",
       "at": "2026-08-29T21:05:24.831Z"
+    },
+    {
+      "step": "tasks",
+      "substep": null,
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-08-29T21:07:15.396Z"
     }
   ],
   "telemetryInstanceId": "33f051b8-f263-498c-99d0-0a645c3eddc9"
