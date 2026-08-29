@@ -27,10 +27,12 @@ a reason, and documenting a column without removing its waiver fails too
 (`test_no_waiver_is_stale`), so the list can only shrink. It already has: #179's 25 are down to one
 abandoned table's six, which is what the mechanism is for. The two that issue most wanted confirmed
 rather than inferred — `commissions_history.osp` and `participation varchar(19)` — turned out to be
-an *original salesperson* and a snapshot of `commission_participation.name`, neither of them the
-legacy serialisation the column types suggested. That is the argument for the rule the waivers
-encode: a confidently wrong description is worse than an absent one, and both of those would have
-been confidently wrong.
+the *sales order's* salesperson (as against the customer's, which the column beside it carries) and
+a snapshot of `commission_participation.name`, neither of them the legacy serialisation the column
+types suggested. That is the argument for the rule the waivers encode: a confidently wrong
+description is worse than an absent one, and both of those would have been confidently wrong — as
+was the first answer written down for `osp`, which called it the *original* salesperson and had to
+be corrected against the data.
 """
 
 import re

@@ -1495,8 +1495,8 @@ Calculated commission record per sold order line.
 | `commissions_history_id` | int(11) | NO | PK |
 | `sales_order` | int(11) | NO | FK → `sales_order` |
 | `sales_order_detail` | int(11) | NO | FK → `sales_order_detail` |
-| `salesperson` | int(11) | YES | FK → `employee` — the agent this commission row is *earned by* |
-| `osp` | int(11) | NO | Original salesperson: FK → `employee` for the agent who owns the customer relationship, as against `salesperson` who earns this row. The two coincide whenever the owner also made the sale — 1,486 of 1,650 rows in `mbe_dev` — and diverge on a split, which is what `participation` names. Not declared as a foreign key, but all 16 distinct values resolve to an employee |
+| `salesperson` | int(11) | YES | FK → `employee` — the **customer's** salesperson, the agent this commission row is earned by. Tracks `customer.salesperson` (1,450 of 1,650 rows in `mbe_dev`, plus 23 where the customer's is null). Only 5 distinct values, every one of them a registered `commission_agent` |
+| `osp` | int(11) | NO | FK → `employee` — the **sales order's** salesperson, i.e. `sales_order.salesperson` of the order this line belongs to: an exact match on 1,650 of 1,650 rows. Deliberately distinct from `salesperson` beside it, which is the customer's; the order's salesperson also takes a cut under the scheme, which is what makes both worth recording. The wider set of the two — 16 distinct values against 5, and only 6 of them commission agents, because anyone on the sales floor can write an order. Not declared as a foreign key |
 | `customer` | varchar(250) | NO | Customer name snapshot |
 | `paid` | tinyint(4) | NO | Commission paid flag |
 | `date` | datetime | YES | Commission date |
