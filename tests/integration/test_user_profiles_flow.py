@@ -2,7 +2,7 @@
 
 Two things only this layer can prove.
 
-**The 107-row write.** A mocked session accepts any number of appended rows without complaint. Here
+**The 103-row write.** A mocked session accepts any number of appended rows without complaint. Here
 the inserts reach tables, so "a profile granting three objects denies the other 104" is a fact about
 rows rather than about a list in memory.
 
@@ -19,12 +19,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.user import AccessPrivilege, User
 
-OBJECT_COUNT = 107
+OBJECT_COUNT = 103
 
 CASHIER = {
     'name': 'Cashier',
     'description': 'Till operator',
-    # Sparse: three entries, not 107. The user this is applied to gets all 107.
+    # Sparse: three entries, not 103. The user this is applied to gets all 103.
     'privileges': [
         {'system_object': 0, 'privileges': 2},
         {'system_object': 7, 'privileges': 3},
@@ -120,7 +120,7 @@ class TestCatalog:
 
 
 class TestApply:
-    async def test_provisioning_at_creation_writes_all_107_rows(
+    async def test_provisioning_at_creation_writes_all_103_rows(
         self, client: AsyncClient, db: AsyncSession, seeded: None
     ) -> None:
         profile = await _new_profile(client)
@@ -138,8 +138,12 @@ class TestApply:
         assert by_object[44] == 3
         # Every object the profile omits is denied — the difference between restrictive and partial
         assert sum(1 for mask in by_object.values() if mask == 0) == OBJECT_COUNT - 3
-        # Including 107, which the enum was missing before this feature
+        # Including 107, which the enum was missing before this feature. Note 107 is an
+        # *identifier* here — the matrix width happened to equal it until spec 016 narrowed the
+        # width to 103, which is what makes the two separable at a glance now.
         assert by_object[107] == 0
+        # Spec 016: the four retired service objects are not written at all.
+        assert not {58, 64, 65, 90} & set(by_object)
 
         rows = (
             await db.execute(select(AccessPrivilege).where(AccessPrivilege.user_id == 'qsone'))

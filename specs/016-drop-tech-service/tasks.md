@@ -71,7 +71,7 @@ none names 58, 64, 65 or 90.
 
 ### Implementation
 
-- [ ] **T004** [US2] Remove `TECHNICAL_SERVICE_REPORTS = 58`, `TECHNICAL_SERVICE_REQUESTS = 64`,
+- [x] **T004** [US2] Remove `TECHNICAL_SERVICE_REPORTS = 58`, `TECHNICAL_SERVICE_REQUESTS = 64`,
   `TECHNICAL_SERVICE_RECEIPTS = 65` and `VEHICLE_SERVICE_ORDERS = 90`. Change no surviving
   identifier and reuse none of the four (FR-004, research R3). Write **no** permission-row cleanup —
   `user_service._write_privileges_from` already removes rows naming an object the enum does not
@@ -80,12 +80,12 @@ none names 58, 64, 65 or 90.
 
 **⟶ Wait for T004, then:**
 
-- [ ] **T005** [US2] Update the catalog's own test: matrix width `107` → `103`, and add an assertion
+- [x] **T005** [US2] Update the catalog's own test: matrix width `107` → `103`, and add an assertion
   that 58, 64, 65 and 90 are absent while the live neighbours `88`, `89` and `91` keep their
   identifiers. **Do not touch `test_production_sites_is_107`** — `PRODUCTION_SITES` is still `107`
   and that `107` is an identifier, not the count (research R4). Extend the file's docstring to say
   why four entries left the catalog and where the rows went. · `tests/unit/test_system_objects.py`
-- [ ] **T006** [US2] Assert the behaviour end to end against a real schema: a provisioned account
+- [x] **T006** [US2] Assert the behaviour end to end against a real schema: a provisioned account
   holds one row per defined object and none for the four retired ones. Update `OBJECT_COUNT` to
   `103` in the same pass, since the file's assertions are written against it. ·
   `tests/integration/test_user_profiles_flow.py`

@@ -98,6 +98,30 @@
       "kind": "complete",
       "by": "ai",
       "at": "2026-08-30T03:14:40.549Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T004",
+      "kind": "complete",
+      "by": "ai",
+      "at": "2026-08-30T03:15:33.749Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T005",
+      "kind": "complete",
+      "by": "ai",
+      "at": "2026-08-30T03:16:01.400Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T006",
+      "kind": "complete",
+      "by": "ai",
+      "at": "2026-08-30T03:16:39.042Z"
     }
   ],
   "telemetryInstanceId": "e39ae22d-c79f-465b-b7af-38361a4eab9f",
@@ -227,7 +251,7 @@
       "summary": "12 tasks across 3 story phases plus polish; no Setup or Foundational phase needed since the stories touch disjoint files"
     }
   },
-  "currentTask": "T003",
+  "currentTask": "T006",
   "task_summaries": {
     "T001": {
       "status": "DONE",
@@ -253,6 +277,27 @@
       "files": [
         "specs/016-drop-tech-service/research.md",
         "specs/016-drop-tech-service/plan.md"
+      ]
+    },
+    "T004": {
+      "status": "DONE",
+      "did": "Removed SystemObject 58, 64, 65 and 90; no surviving identifier moved and no cleanup code written",
+      "files": [
+        "app/enums.py"
+      ]
+    },
+    "T005": {
+      "status": "DONE",
+      "did": "Matrix width 107->103, added an assertion that 58/64/65/90 are gone while neighbours 88/89/91 survive, and documented the width-vs-PRODUCTION_SITES coincidence",
+      "files": [
+        "tests/unit/test_system_objects.py"
+      ]
+    },
+    "T006": {
+      "status": "DONE",
+      "did": "OBJECT_COUNT 107->103, renamed the provisioning test, and added an assertion that no retired object is written at all",
+      "files": [
+        "tests/integration/test_user_profiles_flow.py"
       ]
     }
   },
