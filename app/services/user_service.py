@@ -98,21 +98,23 @@ async def to_list_items(db: AsyncSession, users: Sequence[User]) -> list[UserLis
 def _write_privileges_from(user: User, profile: UserProfile | None) -> None:
     """Replace the user's whole permission set from `profile` (spec 014, FR-013).
 
-    Every one of the 107 `SystemObject` values ends at the profile's mask or at 0, and any row on an
+    Every one of the 103 `SystemObject` values ends at the profile's mask or at 0, and any row on an
     object outside the enum is removed — 70, 104 and 105 are features commented out in the legacy
-    catalog whose grants outlived them (research R9). `profile=None` denies everything, which is
-    what `create_user` did before this feature existed.
+    catalog whose grants outlived them (research R9), and since spec 016 so are 58, 64, 65 and 90,
+    whose screens and rows the monolith deleted. That removal loop is why retiring those four needed
+    no cleanup code here. `profile=None` denies everything, which is what `create_user` did before
+    this feature existed.
 
     **Why this updates in place rather than clearing and re-inserting.** The obvious implementation
-    is `user.privileges.clear()` plus 107 appends, and that is what shipped first. Migration 015
-    then added `UNIQUE (user, object)`, and SQLAlchemy's unit of work emits INSERTs before DELETEs
-    within one flush — so re-inserting the same pairs collides with the rows being deleted and every
-    apply raises `IntegrityError`. Caught by `tests/integration/`, whose SQLite schema is built from
-    this metadata and therefore carries the constraint.
+    is `user.privileges.clear()` plus one append per object, and that is what shipped first.
+    Migration 015 then added `UNIQUE (user, object)`, and SQLAlchemy's unit of work emits INSERTs
+    before DELETEs within one flush — so re-inserting the same pairs collides with the rows being
+    deleted and every apply raises `IntegrityError`. Caught by `tests/integration/`, whose SQLite
+    schema is built from this metadata and therefore carries the constraint.
 
     Updating the row that already exists sidesteps the ordering question, and is cheaper: most masks
     are already 0 and stay 0, so SQLAlchemy issues no UPDATE for them, where the previous version
-    wrote 107 rows unconditionally.
+    wrote a row for every object unconditionally.
 
     The observable result is unchanged — this is a different mechanism for the same decision, not a
     revision of it (research R3).

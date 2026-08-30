@@ -1,7 +1,7 @@
 """Spec 014 endpoint contracts: status codes and authorisation, with the service patched out.
 
 This layer's job is the envelope — who may call, what a missing id answers, which refusal maps to
-which code. The behaviour behind it (the 107-row write, the sparse/dense translation, the
+which code. The behaviour behind it (the 103-row write, the sparse/dense translation, the
 collation trap) is covered in `tests/unit/` and `tests/integration/`, because a patched service
 cannot show it.
 

@@ -106,18 +106,18 @@ migration on the next account it provisions.
 
 **Wave 1 — independent (different files):**
 
-- [ ] **T007** [P] [US3] `OBJECT_COUNT` `107` → `103`, and the module docstring's "all 107" → 103. ·
+- [x] **T007** [P] [US3] `OBJECT_COUNT` `107` → `103`, and the module docstring's "all 107" → 103. ·
   `tests/unit/test_user_service.py`
-- [ ] **T008** [P] [US3] Docstring "the 107-row write" → 103. · `tests/api/test_user_profiles.py`
-- [ ] **T009** [P] [US3] `_write_privileges_from`'s docstring: "Every one of the 107 `SystemObject`
+- [x] **T008** [P] [US3] Docstring "the 107-row write" → 103. · `tests/api/test_user_profiles.py`
+- [x] **T009** [P] [US3] `_write_privileges_from`'s docstring: "Every one of the 107 `SystemObject`
   values" → 103, and note that 58/64/65/90 joined 70/104/105 as objects whose grants outlived them —
   the same sentence already explains the removal loop. · `app/services/user_service.py`
-- [ ] **T010** [P] [US3] `UserProfilePrivilege`'s docstring: "A user carries all 107 rows" → 103. ·
+- [x] **T010** [P] [US3] `UserProfilePrivilege`'s docstring: "A user carries all 107 rows" → 103. ·
   `app/models/user.py`
 
 **⟶ Wait for Wave 1 to finish, then:**
 
-- [ ] **T011** [US3] Guard the R4 trap explicitly: confirm `tests/unit/test_user_profile_service.py`
+- [x] **T011** [US3] Guard the R4 trap explicitly: confirm `tests/unit/test_user_profile_service.py`
   line 87 still asserts `system_object=107` **unchanged** — it is a fixture naming the surviving
   `PRODUCTION_SITES` identifier, and a find-and-replace of `107` would have silently rewritten it
   into a different assertion. No edit expected; this task is the check that none was made. ·
@@ -130,7 +130,7 @@ merely shared its value left alone.
 
 ## Phase 6: Polish
 
-- [ ] **T012** Write `quickstart.md` giving one runnable command per success criterion (SC-001 to
+- [x] **T012** Write `quickstart.md` giving one runnable command per success criterion (SC-001 to
   SC-009), run all of them, and record the results. Then add the `CHANGELOG.md` Unreleased entry
   under **Removed**, naming the seven tables, the four retired identifiers, the width change and the
   fact that no migration was added here. Finish with `uv run ruff check app tests`, the full suite,

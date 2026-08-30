@@ -3,7 +3,7 @@
   "specName": "drop tech service",
   "branch": "016-drop-tech-service",
   "currentStep": "implement",
-  "status": "implementing",
+  "status": "implemented",
   "history": [
     {
       "step": "specify",
@@ -122,21 +122,83 @@
       "kind": "complete",
       "by": "ai",
       "at": "2026-08-30T03:16:39.042Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T007",
+      "kind": "complete",
+      "by": "ai",
+      "at": "2026-08-30T03:18:01.434Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T008",
+      "kind": "complete",
+      "by": "ai",
+      "at": "2026-08-30T03:18:01.745Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T009",
+      "kind": "complete",
+      "by": "ai",
+      "at": "2026-08-30T03:18:02.122Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T010",
+      "kind": "complete",
+      "by": "ai",
+      "at": "2026-08-30T03:18:02.433Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T011",
+      "kind": "complete",
+      "by": "ai",
+      "at": "2026-08-30T03:18:02.749Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T012",
+      "kind": "complete",
+      "by": "ai",
+      "at": "2026-08-30T03:22:08.847Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-08-30T03:22:09.499Z"
     }
   ],
   "telemetryInstanceId": "e39ae22d-c79f-465b-b7af-38361a4eab9f",
-  "last_action": "review-plan gate approved with the quiet ordering; mutation proof taken as its own task",
+  "last_action": "12/12 tasks done — 2244 passed, ruff clean, mypy at baseline",
   "coverage": {
     "FR-001": {
       "title": "Must not map any of the seven dropped tables; the mapping module is removed in full",
       "tasks": [
         "T001"
+      ],
+      "tests": [
+        "tests/unit/test_model_schema.py",
+        "tests/unit/test_data_dictionary.py"
       ]
     },
     "FR-002": {
       "title": "Must remove the four retired menu entries from the catalog it defines",
       "tasks": [
         "T004"
+      ],
+      "tests": [
+        "tests/unit/test_system_objects.py::test_the_retired_service_objects_are_gone_and_their_neighbours_are_not"
       ]
     },
     "FR-003": {
@@ -144,6 +206,9 @@
       "tasks": [
         "T004",
         "T006"
+      ],
+      "tests": [
+        "tests/integration/test_user_profiles_flow.py"
       ]
     },
     "FR-004": {
@@ -151,6 +216,10 @@
       "tasks": [
         "T004",
         "T005"
+      ],
+      "tests": [
+        "tests/unit/test_system_objects.py::test_the_retired_service_objects_are_gone_and_their_neighbours_are_not",
+        "tests/unit/test_user_profile_service.py::test_object_107_is_accepted"
       ]
     },
     "FR-005": {
@@ -163,6 +232,9 @@
       "title": "Documentation completeness check must carry no waiver naming the seven",
       "tasks": [
         "T001"
+      ],
+      "tests": [
+        "tests/unit/test_data_dictionary.py::test_no_waiver_is_stale"
       ]
     },
     "FR-007": {
@@ -170,6 +242,10 @@
       "tasks": [
         "T001",
         "T003"
+      ],
+      "tests": [
+        "tests/unit/test_data_dictionary.py",
+        "tests/unit/test_model_schema.py"
       ]
     },
     "FR-008": {
@@ -181,6 +257,11 @@
         "T009",
         "T010",
         "T011"
+      ],
+      "tests": [
+        "tests/unit/test_system_objects.py::test_the_matrix_is_103_objects_wide",
+        "tests/unit/test_user_service.py",
+        "tests/integration/test_user_profiles_flow.py"
       ]
     },
     "FR-009": {
@@ -240,6 +321,16 @@
       "decision": "Delete the models and correct the dump in one task (the quiet order)",
       "why": "Decided at the review-plan gate. A red commit on the branch cannot be bisected through and its on-purpose-ness does not survive the author forgetting; the evidence the loud order bought is taken separately by local mutation instead",
       "rejected": "Correct the dump first and leave the models briefly unmapped — fails loudly and accurately, proving the check is live, but leaves one red commit in history"
+    },
+    {
+      "decision": "Rebuilt test_merge_remaps_the_referencing_column_not_a_column_named_product on a synthetic reference instead of deleting it",
+      "why": "service_order_detail.spare_part was the only table in the schema pointing at product through a differently-named column, so dropping it left the property with no witness though its code path is live; a patch on referencing_columns exercises the interpolation under test",
+      "rejected": "Deleting the test with its example (SC-007 permits it, but silently loses a #112-era guard); adding a fixture table to Base.metadata (global — it would appear in every integration database)"
+    },
+    {
+      "decision": "Removed docs/specs/08-technical-service.md, the TechnicalServiceRequestType constant, and the four object rows from docs/constants.md and docs/specs/12-users.md",
+      "why": "Discovered during T012 SC-009 verification: the plan listed 12 files and missed these, which described the retired modules as live and would have made SC-009 false",
+      "rejected": "Marking them retired in place rather than removing (the catalogs already represent an absent object by omission, e.g. 31)"
     }
   ],
   "step_summaries": {
@@ -249,9 +340,12 @@
     },
     "tasks": {
       "summary": "12 tasks across 3 story phases plus polish; no Setup or Foundational phase needed since the stories touch disjoint files"
+    },
+    "implement": {
+      "summary": "Seven tables, four SystemObject members and a spec doc retired; 16 files, no migration; the matrix narrowed 107->103 and #179 closed to zero waivers"
     }
   },
-  "currentTask": "T006",
+  "currentTask": "T012",
   "task_summaries": {
     "T001": {
       "status": "DONE",
@@ -299,12 +393,89 @@
       "files": [
         "tests/integration/test_user_profiles_flow.py"
       ]
+    },
+    "T007": {
+      "status": "DONE",
+      "did": "OBJECT_COUNT 107->103 and the module docstring's 'all 107'",
+      "files": [
+        "tests/unit/test_user_service.py"
+      ]
+    },
+    "T008": {
+      "status": "DONE",
+      "did": "Docstring 'the 107-row write' -> 103",
+      "files": [
+        "tests/api/test_user_profiles.py"
+      ]
+    },
+    "T009": {
+      "status": "DONE",
+      "did": "_write_privileges_from docstring 107->103, noting 58/64/65/90 joined 70/104/105 as objects the removal loop covers; replaced two other stale counts with object-agnostic wording",
+      "files": [
+        "app/services/user_service.py"
+      ]
+    },
+    "T010": {
+      "status": "DONE",
+      "did": "UserProfilePrivilege docstring 'all 107 rows' -> 103",
+      "files": [
+        "app/models/user.py"
+      ]
+    },
+    "T011": {
+      "status": "DONE",
+      "did": "R4 guard: confirmed test_user_profile_service.py is untouched by the diff and still asserts system_object=107, the surviving PRODUCTION_SITES identifier",
+      "files": [
+        "tests/unit/test_user_profile_service.py"
+      ]
+    },
+    "T012": {
+      "status": "DONE",
+      "did": "Wrote quickstart.md with a runnable command per success criterion and recorded every result; added the CHANGELOG entry; also cleaned docs/constants.md, docs/specs/12-users.md and deleted docs/specs/08-technical-service.md, which the plan had not identified",
+      "files": [
+        "specs/016-drop-tech-service/quickstart.md",
+        "CHANGELOG.md",
+        "docs/constants.md",
+        "docs/specs/12-users.md",
+        "docs/specs/08-technical-service.md",
+        "docs/README.md"
+      ]
     }
   },
   "concerns": [
     {
       "note": "test_model_schema.py skips a mapped table that appears in neither the dump nor a migration rather than failing on it, so a model pointing at a dropped table is invisible to the check that exists to catch exactly that class of drift. One-line fix (skip -> fail), flags nothing once T001 lands, but out of scope for this spec. See research R5.",
       "step": "implement"
+    }
+  ],
+  "verified": [
+    {
+      "what": "Full test suite, deprecation warnings escalated to errors",
+      "command": "uv run pytest -q -W error::DeprecationWarning",
+      "result": "2244 passed, 15 skipped",
+      "warnings": []
+    },
+    {
+      "what": "Lint and type-check parity",
+      "command": "uv run ruff check app tests; uv run mypy app",
+      "result": "ruff clean; mypy 170 errors, identical to the pre-feature baseline",
+      "warnings": [
+        "mypy is not clean at baseline in this repo; parity is the bar, not zero"
+      ]
+    },
+    {
+      "what": "Every success criterion SC-001..SC-009 by command",
+      "command": "see specs/016-drop-tech-service/quickstart.md",
+      "result": "all pass: derivation excludes the seven, zero mapped models, zero dictionary sections, zero column waivers, 103 members with PRODUCTION_SITES still 107, zero migrations added",
+      "warnings": []
+    },
+    {
+      "what": "Mutation proof that test_model_schema notices a schema disagreeing with the models",
+      "command": "uv run pytest -q tests/unit/test_model_schema.py (dump corrected, models still present)",
+      "result": "REFUTED — 375 passed, 43 skipped. The check skips a mapped table absent from dump and migrations rather than failing on it",
+      "warnings": [
+        "standing gap, recorded as R5, raised separately rather than fixed here"
+      ]
     }
   ]
 }

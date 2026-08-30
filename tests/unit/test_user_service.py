@@ -1,7 +1,7 @@
 """Spec 014: writing a user's permissions from a profile.
 
 The asymmetry these tests exist to pin: a **profile is sparse** (an entry only for what it grants)
-and a **user is dense** (one `access_privilege` row per `SystemObject`, all 107). Getting it
+and a **user is dense** (one `access_privilege` row per `SystemObject`, all 103). Getting it
 backwards passes a naive assertion and fails FR-003 or FR-013.
 
 `_write_privileges_from` is a blanket replace, not an upsert. That is FR-013 read literally, and it
@@ -20,7 +20,7 @@ from app.models.user import AccessPrivilege, User, UserProfile, UserProfilePrivi
 from app.schemas.user import PrivilegeUpdate, UserUpdate
 from app.services import user_service
 
-OBJECT_COUNT = 107
+OBJECT_COUNT = 103
 
 
 def _user(user_id: str = 'tester', **kw) -> User:
