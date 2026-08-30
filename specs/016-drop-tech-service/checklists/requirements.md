@@ -13,7 +13,7 @@
 
 ## Requirement Completeness
 
-- [x] Any [NEEDS CLARIFICATION] markers are genuine ambiguities (≤3) deferred to clarify — not unresolved guesses
+- [x] Any [NEEDS CLARIFICATION] markers are genuine ambiguities (≤3) deferred to clarify — not unresolved guesses (none remain; FR-007 resolved at the gate)
 - [x] Each Functional Requirement is a single, testable MUST/SHOULD statement
 - [x] Success criteria are measurable
 - [x] Success criteria are technology-agnostic (no implementation details)
@@ -31,12 +31,10 @@
 
 ## Notes
 
-**One open ambiguity, deferred to clarify.** FR-007 carries the spec's single
-`[NEEDS CLARIFICATION]`: how this repository's derivation of the deployed schema learns about a drop
-performed outside its own migration files. Three approaches were identified with materially
-different costs and no clearly dominant answer, and the originating issue's stated constraint ("no
-migration here") conflicts with the approach that is otherwise cleanest. Recording it rather than
-guessing, because the choice governs every future schema check rather than only this change.
+**The one open ambiguity was resolved at the review gate**, so no `[NEEDS CLARIFICATION]` marker
+remains and the clarify step has nothing to ask. FR-007 now records the decision — correct the
+checked-in schema dump — along with the two rejected alternatives and the accepted cost, so the
+reasoning survives the decision.
 
 **On the last unchecked item.** The spec names the seven tables and the four identifiers literally,
 under Verbatim Constraints, and the Key Entities section describes the schema derivation in terms a

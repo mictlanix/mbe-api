@@ -151,14 +151,20 @@ in a place that names why.
 - **FR-010**: The full test suite MUST pass with no reference to the seven tables remaining outside
   historical record.
 
-[NEEDS CLARIFICATION: FR-007 admits two approaches with different costs, and the choice affects
-every future schema check rather than only this one. Correct the checked-in schema dump by removing
-the seven table definitions — simple and self-maintaining, but the dump is a point-in-time snapshot
-of a real database and editing it makes it a record of a moment that never existed. Or record the
-externally-applied drop as a migration file in this repository — preserves the dump's meaning and
-keeps the derivation automatic, but re-states a change another system owns and was ruled out in the
-originating issue. A third option, an exclusion list read by the two checks, is a hand-maintained
-list of exactly the kind this project has been burned by before.]
+**FR-007 resolved (review gate, 2026-08-30): correct the checked-in schema dump.** The seven table
+definitions are removed from it, so the derivation stays automatic — dump plus this repository's own
+migrations — with no new file and no list to maintain.
+
+Two alternatives were weighed and rejected. Recording the drop as a migration file here would keep
+the dump untouched, but it re-states a change another system owns and adds a migration, which the
+originating issue ruled out and SC-008 pins. An exclusion list read by the two checks would be
+honest about provenance, but it is a hand-maintained list of exactly the shape this project has been
+burned by before, and it grows every time this situation recurs.
+
+The accepted cost: the dump is output from a real database at a moment in time, and removing tables
+that existed at that moment makes it no longer a faithful record of it. That is judged acceptable
+because nothing reads the dump as history — both checks read it only as the baseline to replay
+migrations onto, and its value is entirely in describing the schema as it now stands.
 
 ### Key Entities
 

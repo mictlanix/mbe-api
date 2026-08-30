@@ -21,7 +21,7 @@
     }
   ],
   "telemetryInstanceId": "e39ae22d-c79f-465b-b7af-38361a4eab9f",
-  "last_action": "living specs evaluated — skipped (not configured)",
+  "last_action": "review-spec gate approved; FR-007 resolved — correct the checked-in dump",
   "coverage": {
     "FR-001": {
       "title": "Must not map any of the seven dropped tables; the mapping module is removed in full"
