@@ -2,8 +2,8 @@
   "workflow": "speckit",
   "specName": "drop tech service",
   "branch": "016-drop-tech-service",
-  "currentStep": "plan",
-  "status": "planned",
+  "currentStep": "tasks",
+  "status": "ready-to-implement",
   "history": [
     {
       "step": "specify",
@@ -46,40 +46,99 @@
       "kind": "complete",
       "by": "extension",
       "at": "2026-08-30T03:02:04.839Z"
+    },
+    {
+      "step": "tasks",
+      "substep": null,
+      "kind": "start",
+      "by": "extension",
+      "at": "2026-08-30T03:08:07.851Z"
+    },
+    {
+      "step": "tasks",
+      "substep": "generate",
+      "kind": "complete",
+      "by": "ai",
+      "at": "2026-08-30T03:09:05.412Z"
+    },
+    {
+      "step": "tasks",
+      "substep": null,
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-08-30T03:09:23.161Z"
     }
   ],
   "telemetryInstanceId": "e39ae22d-c79f-465b-b7af-38361a4eab9f",
   "last_action": "review-plan gate approved with the quiet ordering; mutation proof taken as its own task",
   "coverage": {
     "FR-001": {
-      "title": "Must not map any of the seven dropped tables; the mapping module is removed in full"
+      "title": "Must not map any of the seven dropped tables; the mapping module is removed in full",
+      "tasks": [
+        "T001"
+      ]
     },
     "FR-002": {
-      "title": "Must remove the four retired menu entries from the catalog it defines"
+      "title": "Must remove the four retired menu entries from the catalog it defines",
+      "tasks": [
+        "T004"
+      ]
     },
     "FR-003": {
-      "title": "Must not itself delete permission rows; removal happens through existing full-replace"
+      "title": "Must not itself delete permission rows; removal happens through existing full-replace",
+      "tasks": [
+        "T004",
+        "T006"
+      ]
     },
     "FR-004": {
-      "title": "Must not reuse or renumber retired identifiers, nor change surviving ones"
+      "title": "Must not reuse or renumber retired identifiers, nor change surviving ones",
+      "tasks": [
+        "T004",
+        "T005"
+      ]
     },
     "FR-005": {
-      "title": "Data dictionary must carry no section or pending-removal note for the seven"
+      "title": "Data dictionary must carry no section or pending-removal note for the seven",
+      "tasks": [
+        "T002"
+      ]
     },
     "FR-006": {
-      "title": "Documentation completeness check must carry no waiver naming the seven"
+      "title": "Documentation completeness check must carry no waiver naming the seven",
+      "tasks": [
+        "T001"
+      ]
     },
     "FR-007": {
-      "title": "Live-schema derivation must not include any of the seven tables"
+      "title": "Live-schema derivation must not include any of the seven tables",
+      "tasks": [
+        "T001",
+        "T003"
+      ]
     },
     "FR-008": {
-      "title": "Stated permission matrix width must be consistent everywhere it appears"
+      "title": "Stated permission matrix width must be consistent everywhere it appears",
+      "tasks": [
+        "T005",
+        "T007",
+        "T008",
+        "T009",
+        "T010",
+        "T011"
+      ]
     },
     "FR-009": {
-      "title": "No endpoint behaviour change and no database migration from this repository"
+      "title": "No endpoint behaviour change and no database migration from this repository",
+      "tasks": [
+        "T012"
+      ]
     },
     "FR-010": {
-      "title": "Full test suite passes with no reference to the seven outside historical record"
+      "title": "Full test suite passes with no reference to the seven outside historical record",
+      "tasks": [
+        "T012"
+      ]
     }
   },
   "size": "normal",
@@ -132,6 +191,9 @@
     "plan": {
       "summary": "12 files, all deletion plus one constant; no migration, no new code path",
       "key_finding": "107 means two different things — the member count (becomes 103) and PRODUCTION_SITES = 107 (unchanged). Identifiers run to 113, so their equality was coincidence, and a careless find-and-replace silently rewrites a test fixture in test_user_profile_service.py:87."
+    },
+    "tasks": {
+      "summary": "12 tasks across 3 story phases plus polish; no Setup or Foundational phase needed since the stories touch disjoint files"
     }
   }
 }
