@@ -16,7 +16,8 @@ changes schemas (numbered SQL, no Alembic). A mapped column has to appear in one
 
 The dump is a snapshot from before spec 005, so on its own it disagrees with 18 tables. Every one of
 those disagreements is a column a migration adds — measured, not assumed: with migrations taken into
-account, the wrong name above was the **only** unexplained mapped column in 100 tables. That is what
+account, the wrong name above was the **only** unexplained mapped column in the 100 tables mapped
+at the time (95 since spec 016 retired two modules). That is what
 makes this check precise enough to be worth having rather than a source of standing noise.
 
 Junction tables are the reason this matters most. An ORM class is exercised by every test that
@@ -30,7 +31,8 @@ schema was built from the models. The other direction is worse where it happens:
 allows `None` on a `NOT NULL` column with no default writes a row the database rejects, at whatever
 point in a workflow the value happened to be absent.
 
-Measured before being written, as with the name check: across all 100 tables one column in each
+Measured before being written, as with the name check: across all 100 tables then mapped, one
+column in each
 direction disagreed, and both are explained by a migration that rewrites the column
 (`user`.`employee` tightened by 012, `facility`.`logo` loosened by 006) — leaving
 `expiration_date` as the only real defect. `NOT NULL DEFAULT` columns are excluded from the second
@@ -52,8 +54,9 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 SCHEMA_DUMP = REPO_ROOT / 'docs' / 'mbe_schema.sql'
 MIGRATIONS = REPO_ROOT / 'migrations'
 
-# Importing every model module is what puts all 100 tables on the shared metadata; importing only
-# what this file names would check only those.
+# Importing every model module is what puts every mapped table on the shared metadata; importing
+# only what this file names would check only those. Deliberately not a count: spec 016 retired
+# seven tables and left three such numbers stale in this file alone.
 for _, name, _ in pkgutil.iter_modules(app.models.__path__):
     importlib.import_module(f'app.models.{name}')
 

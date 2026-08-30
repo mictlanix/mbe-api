@@ -85,7 +85,8 @@ field-for-field transfer.
 
 **Sparse — and this is the asymmetry to hold on to.** A row exists only for an object the profile
 grants something on; absence means denied, and a zero mask is dropped on write so "no entry" is the
-single representation. `access_privilege` is the opposite: all 107 rows, always. The apply is the
+single representation. `access_privilege` is the opposite: one row per `SystemObject`, always — 103
+of them since spec 016 retired four. The apply is the
 translation between the two shapes, and reversing them is the likeliest way to misread this schema.
 
 ### `user_settings`
