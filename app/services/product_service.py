@@ -31,6 +31,9 @@ def _apply_product_filters(
     stockable: bool | None,
     salable: bool | None,
     purchasable: bool | None,
+    perishable: bool | None,
+    seriable: bool | None,
+    invoiceable: bool | None,
     supplier: int | None,
     missing_price_list: int | None = None,
 ) -> Select[Any]:
@@ -63,6 +66,12 @@ def _apply_product_filters(
         query = query.where(Product.salable == salable)
     if purchasable is not None:
         query = query.where(Product.purchasable == purchasable)
+    if perishable is not None:
+        query = query.where(Product.perishable == perishable)
+    if seriable is not None:
+        query = query.where(Product.seriable == seriable)
+    if invoiceable is not None:
+        query = query.where(Product.invoiceable == invoiceable)
     if supplier is not None:
         query = query.where(Product.supplier == supplier)
 
@@ -93,6 +102,9 @@ async def list_products(
     stockable: bool | None = None,
     salable: bool | None = None,
     purchasable: bool | None = None,
+    perishable: bool | None = None,
+    seriable: bool | None = None,
+    invoiceable: bool | None = None,
     supplier: int | None = None,
     missing_price_list: int | None = None,
     skip: int = 0,
@@ -106,6 +118,9 @@ async def list_products(
         stockable=stockable,
         salable=salable,
         purchasable=purchasable,
+        perishable=perishable,
+        seriable=seriable,
+        invoiceable=invoiceable,
         supplier=supplier,
         missing_price_list=missing_price_list,
     )
@@ -117,6 +132,9 @@ async def list_products(
         stockable=stockable,
         salable=salable,
         purchasable=purchasable,
+        perishable=perishable,
+        seriable=seriable,
+        invoiceable=invoiceable,
         supplier=supplier,
         missing_price_list=missing_price_list,
     )
@@ -136,6 +154,9 @@ async def get_label_facets(
     stockable: bool | None = None,
     salable: bool | None = None,
     purchasable: bool | None = None,
+    perishable: bool | None = None,
+    seriable: bool | None = None,
+    invoiceable: bool | None = None,
     supplier: int | None = None,
     missing_price_list: int | None = None,
 ) -> Sequence[Row[Any]]:
@@ -147,6 +168,9 @@ async def get_label_facets(
         stockable=stockable,
         salable=salable,
         purchasable=purchasable,
+        perishable=perishable,
+        seriable=seriable,
+        invoiceable=invoiceable,
         supplier=supplier,
         missing_price_list=missing_price_list,
     )
@@ -170,6 +194,9 @@ async def get_missing_price_facets(
     stockable: bool | None = None,
     salable: bool | None = None,
     purchasable: bool | None = None,
+    perishable: bool | None = None,
+    seriable: bool | None = None,
+    invoiceable: bool | None = None,
     supplier: int | None = None,
 ) -> list[tuple[int, int]]:
     """`(price_list_id, missing_count)` for every price list, over the current filter set (#184).
@@ -194,6 +221,9 @@ async def get_missing_price_facets(
         stockable=stockable,
         salable=salable,
         purchasable=purchasable,
+        perishable=perishable,
+        seriable=seriable,
+        invoiceable=invoiceable,
         supplier=supplier,
     )
     total: int = (
@@ -206,6 +236,9 @@ async def get_missing_price_facets(
                 stockable=stockable,
                 salable=salable,
                 purchasable=purchasable,
+        perishable=perishable,
+        seriable=seriable,
+        invoiceable=invoiceable,
                 supplier=supplier,
             )
         )

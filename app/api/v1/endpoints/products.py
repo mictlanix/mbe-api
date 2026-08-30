@@ -35,6 +35,9 @@ async def list_products(
     stockable: bool | None = Query(None),
     salable: bool | None = Query(None),
     purchasable: bool | None = Query(None),
+    perishable: bool | None = Query(None),
+    seriable: bool | None = Query(None),
+    invoiceable: bool | None = Query(None),
     supplier: int | None = Query(None),
     missing_price_list: int | None = Query(
         None, description='Only products with no price on this price list (#184)'
@@ -52,6 +55,9 @@ async def list_products(
         stockable=stockable,
         salable=salable,
         purchasable=purchasable,
+        perishable=perishable,
+        seriable=seriable,
+        invoiceable=invoiceable,
         supplier=supplier,
         missing_price_list=missing_price_list,
         skip=skip,
@@ -73,6 +79,9 @@ async def get_product_label_facets(
     stockable: bool | None = Query(None),
     salable: bool | None = Query(None),
     purchasable: bool | None = Query(None),
+    perishable: bool | None = Query(None),
+    seriable: bool | None = Query(None),
+    invoiceable: bool | None = Query(None),
     supplier: int | None = Query(None),
     missing_price_list: int | None = Query(
         None, description='Only products with no price on this price list (#184)'
@@ -88,6 +97,9 @@ async def get_product_label_facets(
         stockable=stockable,
         salable=salable,
         purchasable=purchasable,
+        perishable=perishable,
+        seriable=seriable,
+        invoiceable=invoiceable,
         supplier=supplier,
         missing_price_list=missing_price_list,
     )
@@ -102,6 +114,9 @@ async def get_product_missing_price_facets(
     stockable: bool | None = Query(None),
     salable: bool | None = Query(None),
     purchasable: bool | None = Query(None),
+    perishable: bool | None = Query(None),
+    seriable: bool | None = Query(None),
+    invoiceable: bool | None = Query(None),
     supplier: int | None = Query(None),
     _: CurrentUser = Depends(require_privilege(SystemObject.PRODUCTS, AccessRight.READ)),
     db: AsyncSession = Depends(get_db),
@@ -120,6 +135,9 @@ async def get_product_missing_price_facets(
         stockable=stockable,
         salable=salable,
         purchasable=purchasable,
+        perishable=perishable,
+        seriable=seriable,
+        invoiceable=invoiceable,
         supplier=supplier,
     )
     return [

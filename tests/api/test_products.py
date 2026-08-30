@@ -779,3 +779,72 @@ async def test_missing_price_facets_require_auth() -> None:
     async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as c:
         r = await c.get('/api/v1/products/prices/missing-facets')
     assert r.status_code == 401
+
+
+# ── The three late flags, on all three endpoints (#188) ──────────────────────
+
+LATE_FLAG_QUERY = 'perishable=true&seriable=false&invoiceable=true'
+LATE_FLAG_KWARGS = {'perishable': True, 'seriable': False, 'invoiceable': True}
+
+
+@pytest.mark.asyncio
+async def test_list_products_passes_the_late_flags_through() -> None:
+    _auth()
+    mock = AsyncMock(return_value=([], 0))
+    with patch('app.services.product_service.list_products', new=mock):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as c:
+            r = await c.get(f'/api/v1/products?{LATE_FLAG_QUERY}')
+    assert r.status_code == 200
+    for flag, value in LATE_FLAG_KWARGS.items():
+        assert mock.call_args.kwargs.get(flag) is value, flag
+
+
+@pytest.mark.asyncio
+async def test_label_facets_pass_the_late_flags_through() -> None:
+    """The facets take the list's filter set deliberately — their counts describe it.
+
+    A filter on the list that the facets do not take makes the chips count products the list is no
+    longer showing, which is the contract #184 was careful to keep and #188 asked to preserve.
+    """
+    _auth()
+    mock = AsyncMock(return_value=[])
+    with patch('app.services.product_service.get_label_facets', new=mock):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as c:
+            r = await c.get(f'/api/v1/products/labels/facets?{LATE_FLAG_QUERY}')
+    assert r.status_code == 200
+    for flag, value in LATE_FLAG_KWARGS.items():
+        assert mock.call_args.kwargs.get(flag) is value, flag
+
+
+@pytest.mark.asyncio
+async def test_missing_price_facets_pass_the_late_flags_through() -> None:
+    _auth()
+    mock = AsyncMock(return_value=[])
+    with patch('app.services.product_service.get_missing_price_facets', new=mock):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as c:
+            r = await c.get(f'/api/v1/products/prices/missing-facets?{LATE_FLAG_QUERY}')
+    assert r.status_code == 200
+    for flag, value in LATE_FLAG_KWARGS.items():
+        assert mock.call_args.kwargs.get(flag) is value, flag
+
+
+@pytest.mark.asyncio
+async def test_the_three_endpoints_accept_the_same_filter_set() -> None:
+    """The asymmetry #188 reported was a filter existing on one endpoint and not its facets.
+
+    Compared as sets off the live OpenAPI schema rather than by listing names here, so a filter
+    added to one of the three in future fails this until it is added to all three.
+    """
+    paths = app.openapi()['paths']
+
+    def params(path: str) -> set[str]:
+        return {p['name'] for p in paths[path]['get']['parameters'] if p['in'] == 'query'}
+
+    listing = params('/api/v1/products') - {'skip', 'limit'}
+    labels = params('/api/v1/products/labels/facets')
+    prices = params('/api/v1/products/prices/missing-facets')
+
+    assert listing == labels, listing ^ labels
+    # The missing-price facets take no `missing_price_list` of their own, deliberately (#184):
+    # clicking one chip must not change the numbers on the chips beside it.
+    assert listing - prices == {'missing_price_list'}, listing ^ prices
