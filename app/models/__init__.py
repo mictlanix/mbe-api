@@ -14,6 +14,5 @@ from app.models import (  # noqa: F401
     sales,
     sat_catalog,
     supplier,
-    technical_service,
     user,
 )

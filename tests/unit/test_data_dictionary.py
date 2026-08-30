@@ -74,29 +74,13 @@ UNDOCUMENTED_TABLES = frozenset(
 #: the legacy system rather than someone reading the column type. Removing a waiver is what closing
 #: the gap looks like; nothing here may be added to without the same justification.
 #:
-#: #179 opened with 25 of these. Six were plain FK pairs, and thirteen were resolved by asking the
-#: person who knows and checking the answer against `mbe_dev` — `commissions_history.osp` and
-#: `participation`, the two that issue most wanted confirmed rather than inferred, among them.
-#: What is left is one abandoned table.
-UNDOCUMENTED_COLUMNS = frozenset(
-    {
-        # The tech service module is abandoned and its five tables are marked for a future drop
-        # — see the note at the top of section 11 of `docs/data-dictionary.md`. Nothing in this
-        # API reads any of them, and `mbe_dev` holds two rows in this table.
-        #
-        # So this waiver is not "nobody knows what these are": the columns are perfectly readable
-        # from their names — id, request FK, name, quantity, serial number, comment. It is that
-        # describing a table slated for removal asserts a future it does not have. The decision
-        # is made; only the migration is outstanding, and applying it clears these six waivers by
-        # removing the table, which `test_no_waiver_is_stale` then requires.
-        'tech_service_request_component.tech_service_request_component_id',
-        'tech_service_request_component.request',
-        'tech_service_request_component.name',
-        'tech_service_request_component.quantity',
-        'tech_service_request_component.serial_number',
-        'tech_service_request_component.comment',
-    }
-)
+#: **Empty, and that is the point.** #179 opened with 25. Six were plain FK pairs, thirteen were
+#: resolved by asking the person who knows and checking each answer against `mbe_dev`, and the last
+#: six went with their table when spec 016 retired the technical service module. The mechanism did
+#: what it was built to do: `test_no_waiver_is_stale` refuses to let a waiver outlive its gap, so
+#: dropping those tables from the schema *forced* this list to empty rather than leaving six
+#: entries naming columns that no longer exist.
+UNDOCUMENTED_COLUMNS: frozenset[str] = frozenset()
 
 
 def _strip_comments(sql: str) -> str:

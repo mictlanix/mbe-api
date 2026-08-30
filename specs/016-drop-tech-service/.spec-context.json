@@ -2,8 +2,8 @@
   "workflow": "speckit",
   "specName": "drop tech service",
   "branch": "016-drop-tech-service",
-  "currentStep": "tasks",
-  "status": "ready-to-implement",
+  "currentStep": "implement",
+  "status": "implementing",
   "history": [
     {
       "step": "specify",
@@ -67,6 +67,37 @@
       "kind": "complete",
       "by": "extension",
       "at": "2026-08-30T03:09:23.161Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "kind": "start",
+      "by": "extension",
+      "at": "2026-08-30T03:09:40.546Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T001",
+      "kind": "complete",
+      "by": "ai",
+      "at": "2026-08-30T03:13:22.284Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T002",
+      "kind": "complete",
+      "by": "ai",
+      "at": "2026-08-30T03:14:08.990Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T003",
+      "kind": "complete",
+      "by": "ai",
+      "at": "2026-08-30T03:14:40.549Z"
     }
   ],
   "telemetryInstanceId": "e39ae22d-c79f-465b-b7af-38361a4eab9f",
@@ -195,5 +226,40 @@
     "tasks": {
       "summary": "12 tasks across 3 story phases plus polish; no Setup or Foundational phase needed since the stories touch disjoint files"
     }
-  }
+  },
+  "currentTask": "T003",
+  "task_summaries": {
+    "T001": {
+      "status": "DONE",
+      "did": "Removed the 7 CREATE TABLE stanzas from the dump, deleted the model module and its import, emptied the waiver list; repaired two merge tests that depended on service_order_detail",
+      "files": [
+        "docs/mbe_schema.sql",
+        "app/models/technical_service.py",
+        "app/models/__init__.py",
+        "tests/unit/test_data_dictionary.py",
+        "tests/unit/test_product_service.py"
+      ]
+    },
+    "T002": {
+      "status": "DONE",
+      "did": "Removed section 11 entirely — it held exactly the seven tables and nothing else — and renumbered sections 12-15 down to 11-14 in both the headings and the table of contents",
+      "files": [
+        "docs/data-dictionary.md"
+      ]
+    },
+    "T003": {
+      "status": "DONE",
+      "did": "Mutation proof refuted the plan's prediction: test_model_schema SKIPS a mapped table absent from the schema rather than failing. Recorded as R5 and corrected the plan's Ordering claim",
+      "files": [
+        "specs/016-drop-tech-service/research.md",
+        "specs/016-drop-tech-service/plan.md"
+      ]
+    }
+  },
+  "concerns": [
+    {
+      "note": "test_model_schema.py skips a mapped table that appears in neither the dump nor a migration rather than failing on it, so a model pointing at a dropped table is invisible to the check that exists to catch exactly that class of drift. One-line fix (skip -> fail), flags nothing once T001 lands, but out of scope for this spec. See research R5.",
+      "step": "implement"
+    }
+  ]
 }

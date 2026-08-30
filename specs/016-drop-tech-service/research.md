@@ -125,3 +125,55 @@ Every occurrence must be classified before it is touched. The count occurrences 
 
 The change is a small improvement on top: once the count is 103 and the identifier is still 107, the
 two can no longer be confused for each other by a reader.
+
+---
+
+## R5 — Mutation proof: the check did **not** catch it
+
+**The result contradicts what the plan predicted, and the contradiction is the finding.**
+
+The plan's Ordering section asserted that correcting the dump while the models still existed would
+make `test_model_schema.py` fail with "seven tables' worth of mapped columns missing from the
+schema — a loud, accurate failure that proves the check is live." That claim was wrong, and it was
+written confidently enough that only running it caught it.
+
+**What actually happened.** During T001 that exact state existed naturally for a moment — the dump
+corrected, the models not yet deleted — so the proof was taken there rather than being reconstructed
+afterwards:
+
+```
+$ uv run pytest -q tests/unit/test_model_schema.py
+375 passed, 43 skipped in 1.02s
+```
+
+**Green.** The 43 skips are the answer:
+
+```python
+known = DUMPED.get(table.name, set()) | CREATED_BY_MIGRATION.get(table.name, set())
+if not known:
+    pytest.skip(f'{table.name} is described by neither the dump nor a migration')
+```
+
+A mapped table that appears in **neither** the dump nor a migration is *skipped*, not failed. The
+check verifies the columns of tables it can find; a model pointing at a table that does not exist at
+all falls through the hole between them. Measured at that moment: exactly seven tables took the skip
+branch, and they were exactly the seven — before the dump edit, no mapped table hit it at all.
+
+**Why this matters beyond this feature.** `test_model_schema.py` exists because of #154, a model
+mapped with a column the table did not have. It catches that. It does not catch the coarser version
+of the same mistake — a model mapped to a *table* the database does not have — which is precisely
+the situation a drop performed outside this repository creates, and precisely what this feature is
+cleaning up. The check that would most naturally be expected to have flagged this feature's need
+was structurally unable to.
+
+**Not fixed here.** Turning that `skip` into a failure is a one-line change and, once T001 lands,
+would flag nothing — zero mapped tables take the branch again. That makes it cheap and safe, and it
+is still a different defect from the one this spec addresses: it predates this change, it affects
+all 100 tables rather than these seven, and fixing a standing check is not what "retire two modules"
+authorises (Constitution III). Recorded here and raised separately.
+
+**What the proof was worth.** It was commissioned to confirm something already believed. It refuted
+it instead — which is the only reason a verification step earns its place. Had the loud ordering
+been used, the intermediate suite would have been *green*, the "proof" would have been an absence of
+evidence read as presence, and the hole would have stayed hidden.
+

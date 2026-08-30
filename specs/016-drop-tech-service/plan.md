@@ -135,11 +135,16 @@ The constraint is real either way. Both `tests/unit/test_model_schema.py` and
 dump, so the two sides have to move together or one of them is briefly wrong about the other. The
 choice was which failure to accept in between.
 
-The alternative — correct the dump first, leave the models — was offered and rejected. It fails
-loudly and accurately: seven tables' worth of mapped columns reported missing from the schema, which
-is evidence the check is live. But it costs an intermediate commit whose suite is red, and a red
-commit on the branch is worse than the evidence is good: it cannot be bisected through, and "this
-one is red on purpose" is a claim that survives exactly as long as the person who made it remembers.
+The alternative — correct the dump first, leave the models — was offered and rejected as costing an
+intermediate commit whose suite is red: a red commit cannot be bisected through, and "this one is
+red on purpose" survives exactly as long as the person who made it remembers.
+
+**That reasoning reached the right answer for a wrong reason, and the record is corrected rather
+than quietly amended.** The rejected option was described here as failing "loudly and accurately".
+It does not fail at all — `test_model_schema.py` *skips* a mapped table absent from the schema
+rather than failing on it, so the loud ordering would have produced a **green** intermediate suite
+and an absence of evidence that read as proof. See research R5, which records the measurement and
+the standing gap it exposed.
 
 **What is given up, and how it is bought back.** The loud order would have demonstrated that
 `test_model_schema.py` actually notices a schema that disagrees with the models. That evidence is

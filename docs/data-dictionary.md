@@ -16,11 +16,10 @@ Generated from `mbe_schema.sql` — MariaDB 10.11, database `mbe`.
 8. [Purchases](#8-purchases)
 9. [Logistics](#9-logistics)
 10. [Fiscal Documents](#10-fiscal-documents)
-11. [Technical Service](#11-technical-service)
-12. [Front Desk](#12-front-desk)
-13. [Commissions](#13-commissions)
-14. [SAT Catalogs](#14-sat-catalogs)
-15. [Computed / View Tables](#15-computed--view-tables)
+11. [Front Desk](#11-front-desk)
+12. [Commissions](#12-commissions)
+13. [SAT Catalogs](#13-sat-catalogs)
+14. [Computed / View Tables](#14-computed--view-tables)
 
 ---
 
@@ -1295,152 +1294,7 @@ Stored XML blob for a stamped CFDI.
 
 ---
 
-## 11. Technical Service
-
-> **The five `tech_service_*` tables below are abandoned and marked for a future drop.**
-> The module was never finished: nothing in this API reads any of them — they are mapped in
-> `app/models/technical_service.py` and referenced by no service, schema, endpoint or test — and
-> `mbe_dev` holds 2, 2, 14, 3 and 15 rows across the five. No table outside the module has a
-> foreign key into it, so the drop is self-contained: the only inbound references are
-> `tech_service_receipt_component.receipt` and `tech_service_request_component.request`, both
-> internal.
->
-> Retained for now rather than dropped because the rows are real service history, not load
-> scratch, and nobody has confirmed the paper trail is expendable. Tracked as
-> [mictlanix/mbe#37](https://github.com/mictlanix/mbe/issues/37), where the module itself lives —
-> the monolith owns it, so the removal starts there and this API follows. Treat the five as read-only
-> legacy: do not build on them, and do not spend effort documenting them further —
-> `tech_service_request_component`'s columns are deliberately left undescribed and waived in
-> `tests/unit/test_data_dictionary.py`, which will require the waiver be removed when the table
-> goes.
->
-> **`vehicle_service_order` and `service_order_detail` at the end of this section are not part of
-> that** — they are fleet maintenance, live, and unaffected.
-
-### `tech_service_receipt`
-Equipment intake receipt for technical service.
-
-*Abandoned — marked for a future drop; see the note at the top of section 11.*
-
-| Column | Type | Null | Description |
-|--------|------|------|-------------|
-| `tech_service_receipt_id` | int(11) | NO | PK |
-| `brand` | varchar(64) | NO | Brand of equipment |
-| `equipment` | varchar(64) | NO | Equipment type description |
-| `model` | varchar(64) | NO | Model |
-| `serial_number` | varchar(64) | YES | Serial number |
-| `date` | datetime | NO | Receipt date |
-| `status` | varchar(64) | YES | Current status |
-| `location` | varchar(128) | YES | Storage location |
-| `checker` | varchar(128) | NO | Who checked it in |
-| `comment` | varchar(1024) | YES | Notes |
-
-### `tech_service_receipt_component`
-Accessories/components received with equipment.
-
-*Abandoned — marked for a future drop; see the note at the top of section 11.*
-
-| Column | Type | Null | Description |
-|--------|------|------|-------------|
-| `tech_service_receipt_component_id` | int(11) | NO | PK |
-| `receipt` | int(11) | NO | FK → `tech_service_receipt` |
-| `name` | varchar(128) | NO | Component name |
-| `quantity` | int(11) | NO | Count |
-| `serial_number` | varchar(64) | YES | Serial |
-| `comment` | varchar(256) | YES | Notes |
-
-### `tech_service_report`
-Technical diagnosis/repair report.
-
-*Abandoned — marked for a future drop; see the note at the top of section 11.*
-
-| Column | Type | Null | Description |
-|--------|------|------|-------------|
-| `tech_service_report_id` | int(11) | NO | PK |
-| `date` | datetime | NO | Report date |
-| `location` | varchar(128) | NO | Service location |
-| `type` | varchar(128) | NO | Service type |
-| `equipment` | varchar(64) | NO | Equipment |
-| `brand` | varchar(64) | NO | Brand |
-| `model` | varchar(64) | NO | Model |
-| `serial_number` | varchar(64) | YES | Serial |
-| `user` | varchar(128) | YES | Equipment owner/user |
-| `technician` | varchar(128) | YES | Technician name |
-| `cost` | decimal(18,4) | NO | Service cost |
-| `user_report` | varchar(1024) | YES | Problem as reported by user |
-| `description` | varchar(1024) | YES | Technical diagnosis |
-| `comment` | varchar(1024) | YES | Additional notes |
-
-### `tech_service_request`
-Customer technical service request.
-
-*Abandoned — marked for a future drop; see the note at the top of section 11.*
-
-| Column | Type | Null | Description |
-|--------|------|------|-------------|
-| `tech_service_request_id` | int(11) | NO | PK |
-| `type` | int(11) | NO | Service type enum |
-| `brand` | varchar(64) | NO | Brand |
-| `equipment` | varchar(64) | NO | Equipment description |
-| `model` | varchar(64) | NO | Model |
-| `serial_number` | varchar(64) | YES | Serial |
-| `date` | datetime | NO | Request date |
-| `end_date` | datetime | YES | Completion date |
-| `customer` | int(11) | NO | FK → `customer` |
-| `responsible` | varchar(128) | NO | Responsible technician |
-| `location` | varchar(128) | NO | Service address |
-| `payment_status` | varchar(64) | YES | Paid/Pending/etc. |
-| `shipping_method` | varchar(64) | YES | How equipment was/will be shipped |
-| `contact_name` | varchar(128) | YES | Contact person |
-| `contact_phone_number` | varchar(64) | YES | Contact phone |
-| `address` | varchar(256) | YES | Service address text |
-| `remarks` | varchar(1024) | YES | Customer remarks |
-| `comment` | varchar(1024) | YES | Internal notes |
-
-### `tech_service_request_component`
-Components listed in a service request.
-
-*Abandoned — marked for a future drop; see the note at the top of section 11.*
-
-Mirrors `tech_service_receipt_component` structure, linked to `tech_service_request`. Its six
-columns are deliberately undocumented: they are readable from their names, but describing a table
-slated for removal asserts a future it does not have. Waived by name in
-`tests/unit/test_data_dictionary.py`.
-
-### `vehicle_service_order`
-Maintenance/repair order for a fleet vehicle.
-
-| Column | Type | Null | Description |
-|--------|------|------|-------------|
-| `service_order_id` | int(11) | NO | PK |
-| `vehicle` | int(11) | NO | FK → `vehicle` |
-| `problem_description` | varchar(500) | NO | Reported problem |
-| `service_description` | varchar(500) | YES | Work performed |
-| `creator` | int(11) | NO | FK → `employee` |
-| `updater` | int(11) | NO | FK → `employee` |
-| `notifier` | int(11) | NO | FK → `employee` — who was notified |
-| `creation_time` | datetime | NO | Created at |
-| `modification_time` | datetime | NO | Last updated |
-| `completed` | tinyint(1) | NO | Work completed |
-| `cancelled` | tinyint(1) | NO | Cancelled |
-| `comment` | varchar(250) | YES | Notes |
-| `date` | datetime | YES | Scheduled/completion date |
-
-### `service_order_detail`
-Spare parts used in a vehicle service order.
-
-| Column | Type | Null | Description |
-|--------|------|------|-------------|
-| `service_order_detail_id` | int(11) | NO | PK |
-| `vehicle_service_order` | int(11) | NO | FK → `vehicle_service_order` |
-| `spare_part` | int(11) | NO | FK → `product` |
-| `quantity` | decimal(20,6) | NO | Quantity used |
-| `comment` | varchar(500) | YES | Notes |
-| `date` | datetime | NO | Date used |
-
----
-
-## 12. Front Desk
+## 11. Front Desk
 
 ### `translation_request`
 Document translation request managed by the front desk.
@@ -1473,7 +1327,7 @@ Notarization process request.
 
 ---
 
-## 13. Commissions
+## 12. Commissions
 
 ### `commission`
 Commission rate catalog entry.
@@ -1548,7 +1402,7 @@ Calculated commission record per sold order line.
 
 ---
 
-## 14. SAT Catalogs
+## 13. SAT Catalogs
 
 Reference tables from Mexico's SAT (tax authority) for CFDI compliance. Read-only lookups, populated from SAT published catalogs.
 
@@ -1623,7 +1477,7 @@ Unit of measurement codes.
 
 ---
 
-## 15. Computed / View Tables
+## 14. Computed / View Tables
 
 These tables exist in the schema but function as denormalized snapshots or reporting views. They have no foreign key constraints and are populated by triggers or batch jobs.
 

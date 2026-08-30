@@ -32,7 +32,7 @@ appears.
 
 **Wave 1 — independent (different files):**
 
-- [ ] **T001** [P] [US1] Retire the seven tables from this repository's understanding of the schema,
+- [x] **T001** [P] [US1] Retire the seven tables from this repository's understanding of the schema,
   in one task because the pieces cannot be separated without a red suite: remove the seven
   `CREATE TABLE` blocks from `docs/mbe_schema.sql`, delete `app/models/technical_service.py`, drop
   its import from `app/models/__init__.py`, and remove the six now-stale
@@ -41,7 +41,7 @@ appears.
   longer exists, and `test_no_waiver_is_stale` fails on exactly that. Leave the nine sectionless
   legacy-table waivers alone — they are out of scope. · `docs/mbe_schema.sql`,
   `app/models/technical_service.py`, `app/models/__init__.py`, `tests/unit/test_data_dictionary.py`
-- [ ] **T002** [P] [US1] Remove the seven `### <table>` sections, the section-11 note marking the
+- [x] **T002** [P] [US1] Remove the seven `### <table>` sections, the section-11 note marking the
   module as pending removal, and the per-table *Abandoned* markers under each. Leave
   `vehicle_service_order` and `service_order_detail`'s **section-11 neighbours** — the note's
   explicit "not in scope" paragraph goes with the note, since both tables it protected are now
@@ -49,7 +49,7 @@ appears.
 
 **⟶ Wait for Wave 1 to finish, then:**
 
-- [ ] **T003** [US1] Prove the schema check is live rather than assuming it. Locally re-add the
+- [x] **T003** [US1] Prove the schema check is live rather than assuming it. Locally re-add the
   deleted model module (models present, tables absent from the dump), run
   `uv run pytest tests/unit/test_model_schema.py`, confirm it fails naming the seven tables' columns,
   then revert. Record the observed failure output in `research.md` under a new **R5 — mutation
