@@ -32,11 +32,27 @@ allows `None` on a `NOT NULL` column with no default writes a row the database r
 point in a workflow the value happened to be absent.
 
 Measured before being written, as with the name check: across all 100 tables then mapped, one
-column in each
-direction disagreed, and both are explained by a migration that rewrites the column
+column in each direction disagreed, and both are explained by a migration that rewrites the column
 (`user`.`employee` tightened by 012, `facility`.`logo` loosened by 006) — leaving
 `expiration_date` as the only real defect. `NOT NULL DEFAULT` columns are excluded from the second
 direction, since an insert that omits one succeeds.
+
+**Type is checked too, since #190.** Nullability, defaults and width say nothing about what a
+column *holds*, which is how `supplier_agreement.start` and `.end` were mapped `String(10)`
+against `date` columns — carrying a comment saying it was deliberate, while the driver returned
+`datetime.date` objects the annotation promised were `str`. Compared by family rather than
+exactly: `int(11)` against `SmallInteger` is a width question the width check owns, and only "a
+different kind of value" is a defect this can name with confidence.
+
+**What #190 fixed, and why it is worth stating here.** Three of these checks were weaker than they
+read. A mapped table appearing in neither the dump nor a migration was *skipped* rather than
+failed, so a model pointing at a table the database does not have — exactly what an externally
+applied drop leaves behind — passed silently. Four of the five checks read the dump alone, so
+every table a migration created was exempt from all of them: five tables and 28 of 798 columns,
+and they were specs 008, 012 and 014's own, the newest and least settled. And type was never
+compared at all. A skip is invisible in a green run, which is why
+`test_every_mapped_table_is_actually_checked` now asserts coverage directly rather than leaving it
+to be inferred from the suite passing.
 """
 
 import importlib
@@ -122,21 +138,107 @@ CREATED_BY_MIGRATION = _tables_in(MIGRATION_SQL)
 #: two would mean parsing `ALTER TABLE` as a whole. Over-permissive by table, which loses nothing —
 #: the point is to tell "introduced deliberately" from "this name is a typo".
 ADDED_BY_MIGRATION = set(ADDED.findall(MIGRATION_SQL)) | set(RENAMED.findall(MIGRATION_SQL))
-DUMPED_COLUMNS = _columns_in(SCHEMA_DUMP.read_text())
+#: Every table's column specifications: the dump, plus the tables a migration creates. Keyed the
+#: same way `known` is in `test_every_mapped_column_exists_in_the_schema`, and for the same reason —
+#: reading the dump alone silently exempted every table this project created from the nullability
+#: and width checks. Measured when this was widened (#190): five tables and 28 of 798 mapped
+#: columns, and they were specs 008, 012 and 014's own — the newest and least settled, where the
+#: `lot_serial_tracking.expiration_date` class of bug is likeliest and the check that exists to
+#: catch it was switched off.
+DUMPED_COLUMNS = _columns_in(SCHEMA_DUMP.read_text()) | _columns_in(MIGRATION_SQL)
 #: Columns whose definition a migration rewrites, which is how a nullability change is expressed —
 #: 012 made `user`.`employee` NOT NULL, 006 made `facility`.`logo` nullable. The dump predates both,
 #: so its answer for these is stale and this check has nothing to say about them.
 ALTERED_BY_MIGRATION = ADDED_BY_MIGRATION | set(RETYPED.findall(MIGRATION_SQL))
+
+#: The declared SQL type of every column, keyed `table -> column -> type`, lowercased and stripped
+#: of its width (`varchar(100)` -> `varchar`). Parsed separately from `Column` because the three
+#: existing checks compare nullability, defaults and width, and none of them looks at the type at
+#: all — which is how `supplier_agreement.start` and `.end` sat mapped as `String(10)` against
+#: `date` columns, with a comment saying it was deliberate, while the driver returned
+#: `datetime.date` objects the model claimed were `str` (#190).
+RAW_TYPES: dict[str, dict[str, str]] = {}
+for _source in (SCHEMA_DUMP.read_text(), MIGRATION_SQL):
+    for _table in CREATE_TABLE.finditer(_source):
+        RAW_TYPES.setdefault(_table.group(1), {}).update(
+            {
+                _column.group(1): _column.group(2).strip().split()[0].lower().split('(')[0]
+                for _column in COLUMN_SPEC.finditer(_table.group(2))
+            }
+        )
+
+#: SQL types grouped by what they actually hold. Compared by family rather than exactly, because
+#: `int(11)` against `SmallInteger` is a width question the width check owns, while `date` against
+#: `String` is a different kind of value — and only the second is a defect this can name with
+#: confidence.
+_SQL_FAMILY = {
+    **dict.fromkeys(('int', 'bigint', 'smallint', 'mediumint', 'tinyint', 'year'), 'int'),
+    **dict.fromkeys(('varchar', 'char', 'text', 'mediumtext', 'longtext', 'tinytext'), 'str'),
+    **dict.fromkeys(('decimal', 'numeric', 'float', 'double'), 'num'),
+    **dict.fromkeys(('datetime', 'timestamp'), 'datetime'),
+    **dict.fromkeys(('blob', 'tinyblob', 'mediumblob', 'longblob', 'binary', 'varbinary'), 'bytes'),
+    'date': 'date',
+    'time': 'time',
+    'bit': 'bit',
+}
+
+_MODEL_FAMILY = {
+    'Integer': 'int',
+    'SmallInteger': 'int',
+    'BigInteger': 'int',
+    'String': 'str',
+    'Text': 'str',
+    'Numeric': 'num',
+    'Float': 'num',
+    'DateTime': 'datetime',
+    'Date': 'date',
+    'Time': 'time',
+    'Boolean': 'bool',
+    'LargeBinary': 'bytes',
+}
+
+#: Pairs that disagree by family and are still correct. A `Boolean` is stored either as the legacy
+#: `bit(1)` or as `tinyint(1)`; both read back as a bool through the driver conversion in
+#: `app/db/session.py`. Nothing else is exempt — an addition here needs the same justification.
+_COMPATIBLE = frozenset({('bool', 'bit'), ('bool', 'int')})
+
 
 TABLES = sorted(Base.metadata.tables.values(), key=lambda t: t.name)
 JUNCTIONS = [t for t in TABLES if all(c.primary_key for c in t.columns) and len(t.columns) > 1]
 
 
 def test_the_schema_sources_were_actually_read() -> None:
-    """The failure mode of a schema test: parse nothing, compare nothing, pass everything."""
-    assert len(DUMPED) > 90, f'only {len(DUMPED)} tables parsed out of the dump'
+    """The failure mode of a schema test: parse nothing, compare nothing, pass everything.
+
+    **These floors are deliberately loose.** They exist to tell "the regex matched nothing" and
+    "the models were never imported" from a working run — failures that produce a handful of
+    tables or none, not eighty. A floor set just under the current count instead reads as an
+    assertion about how many tables the schema has, and then fires on the next legitimate removal
+    with a message about imports: spec 016 retired seven tables and took the old margin of ten
+    down to five without anything being wrong (#190).
+
+    The real coverage assertion is that nothing is skipped — every mapped table is compared —
+    which `test_every_mapped_table_is_actually_checked` states directly.
+    """
+    assert len(DUMPED) > 50, f'only {len(DUMPED)} tables parsed out of the dump'
     assert ADDED_BY_MIGRATION, 'no ADD COLUMN found in any migration'
-    assert len(TABLES) > 90, f'only {len(TABLES)} tables on the metadata — are the models imported?'
+    assert len(TABLES) > 50, f'only {len(TABLES)} tables on the metadata — are the models imported?'
+
+
+def test_every_mapped_table_is_actually_checked() -> None:
+    """No mapped table may sit outside the comparison — the assertion the loose floors are not.
+
+    Before #190 four of the five checks read the dump alone, so every table a migration created
+    was skipped by all of them: five tables and 28 columns, and they were the newest ones this
+    project wrote itself. A skip is invisible in a green run, which is why coverage is asserted
+    here rather than inferred from the suite passing.
+    """
+    unchecked = sorted(t.name for t in TABLES if t.name not in DUMPED_COLUMNS)
+
+    assert not unchecked, (
+        f'{len(unchecked)} mapped table(s) have no parsed column specification, so the '
+        f'nullability, width and type checks silently skip them: {unchecked}'
+    )
 
 
 def test_the_column_specifications_were_parsed_too() -> None:
@@ -171,8 +273,10 @@ def test_junctions_were_found() -> None:
 def test_every_mapped_column_exists_in_the_schema(table) -> None:  # noqa: ANN001
     """A mapped column must be in the dump, in a migration's `CREATE TABLE`, or added by one."""
     known = DUMPED.get(table.name, set()) | CREATED_BY_MIGRATION.get(table.name, set())
-    if not known:
-        pytest.skip(f'{table.name} is described by neither the dump nor a migration')
+    assert known, (
+        f'`{table.name}` is mapped but appears in neither the dump nor a migration. Either the '
+        'table name is wrong, or the table was dropped without its model — see #190.'
+    )
 
     unknown = sorted(
         c.name for c in table.columns if c.name not in known and c.name not in ADDED_BY_MIGRATION
@@ -299,4 +403,49 @@ def test_no_mapped_column_claims_more_room_than_the_column_has(table) -> None:  
         f'`{table.name}` maps {overclaimed} — the model claims more room than the column has, so a '
         f'value that fits the model is refused by the database with error 1406. Either narrow the '
         f'model or add a migration widening the column.'
+    )
+
+
+def test_the_declared_types_were_parsed() -> None:
+    """A type check that parses nothing compares nothing and passes everything."""
+    assert len(RAW_TYPES) > 90, f'only {len(RAW_TYPES)} tables parsed for types'
+    assert RAW_TYPES['customer']['code'] == 'varchar'
+    assert RAW_TYPES['supplier_agreement']['start'] == 'date'
+    assert RAW_TYPES['product']['tax_rate'] == 'decimal'
+
+
+@pytest.mark.parametrize('table', TABLES, ids=lambda t: t.name)
+def test_no_mapped_column_claims_a_different_kind_of_value(table) -> None:  # noqa: ANN001
+    """A model must not read a column as a kind of value the column does not hold (#190).
+
+    The other checks compare nullability, defaults and width. None compares the *type*, which is
+    how `supplier_agreement.start`/`.end` were mapped `String(10)` against `date` columns — it
+    wrote fine, because MariaDB casts a string on the way in, and read back as `datetime.date`
+    while the annotation promised `str`. Nothing failed; it was simply a lie to every reader and
+    to the type checker.
+
+    Compared by **family**, not exactly: `int(11)` against `SmallInteger` is a width question the
+    width check already owns, and holding this check to exact types would make it a source of
+    standing noise rather than a signal. What it catches is a column read as the wrong kind of
+    thing — a date as a string, a number as text, bytes as a string.
+    """
+    declared = RAW_TYPES.get(table.name, {})
+    assert declared, (
+        f'{table.name} has no parsed column types — see test_the_declared_types_were_parsed'
+    )
+
+    wrong = []
+    for column in table.columns:
+        sql = declared.get(column.name)
+        if sql is None:
+            continue  # added by a migration's ALTER; the name check owns that case
+        sql_family = _SQL_FAMILY.get(sql, sql)
+        model_family = _MODEL_FAMILY.get(type(column.type).__name__, type(column.type).__name__)
+        if sql_family == model_family or (model_family, sql_family) in _COMPATIBLE:
+            continue
+        wrong.append(f'{column.name}: schema {sql}, mapped {type(column.type).__name__}')
+
+    assert not wrong, (
+        f'`{table.name}` maps column(s) as a different kind of value than the schema holds: '
+        f'{wrong}. Fix the model, or add the pair to `_COMPATIBLE` with a reason.'
     )
