@@ -49,7 +49,7 @@
     }
   ],
   "telemetryInstanceId": "e39ae22d-c79f-465b-b7af-38361a4eab9f",
-  "last_action": "review-spec gate approved; FR-007 resolved — correct the checked-in dump",
+  "last_action": "review-plan gate approved with the quiet ordering; mutation proof taken as its own task",
   "coverage": {
     "FR-001": {
       "title": "Must not map any of the seven dropped tables; the mapping module is removed in full"
@@ -121,6 +121,11 @@
       "decision": "Delete the four enum members rather than keeping them unused",
       "why": "Their access_privilege rows and their screens are both gone, so keeping the members would re-create four rows per account forever for menu entries that do not exist",
       "rejected": "Mirroring EXCLUDE_PRICE_RANGE_VALIDATION=102, kept unused by spec 015 — correct there because its rows still exist, wrong here because these were deleted; renumbering to close the gaps (would re-point stored grants keyed on those numbers)"
+    },
+    {
+      "decision": "Delete the models and correct the dump in one task (the quiet order)",
+      "why": "Decided at the review-plan gate. A red commit on the branch cannot be bisected through and its on-purpose-ness does not survive the author forgetting; the evidence the loud order bought is taken separately by local mutation instead",
+      "rejected": "Correct the dump first and leave the models briefly unmapped — fails loudly and accurately, proving the check is live, but leaves one red commit in history"
     }
   ],
   "step_summaries": {

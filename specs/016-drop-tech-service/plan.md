@@ -127,13 +127,27 @@ abstraction, no file, and no code path; it removed one and corrected a constant.
 
 ## Ordering
 
-The only ordering constraint that matters, and the reason it is called out here rather than left to
-the task list: **the models must not be deleted before the dump is corrected.** Both
-`tests/unit/test_model_schema.py` and `tests/unit/test_data_dictionary.py` compare the mapped
-metadata against the derived schema. Correcting the dump first makes seven tables vanish from the
-derivation while their models still exist, which `test_model_schema.py` reports as seven tables'
-worth of mapped columns missing from the schema — a loud, accurate failure that proves the check is
-live. Deleting the models first instead makes both sides go quiet at once and proves nothing.
+**Decided at the review-plan gate: the dump correction and the model deletion land in one task, so
+the suite never goes red mid-feature.**
 
-Doing it in the loud order costs one intermediate red suite and buys evidence that the checks
-work — which is the whole justification for the feature.
+The constraint is real either way. Both `tests/unit/test_model_schema.py` and
+`tests/unit/test_data_dictionary.py` compare the mapped metadata against the schema derived from the
+dump, so the two sides have to move together or one of them is briefly wrong about the other. The
+choice was which failure to accept in between.
+
+The alternative — correct the dump first, leave the models — was offered and rejected. It fails
+loudly and accurately: seven tables' worth of mapped columns reported missing from the schema, which
+is evidence the check is live. But it costs an intermediate commit whose suite is red, and a red
+commit on the branch is worse than the evidence is good: it cannot be bisected through, and "this
+one is red on purpose" is a claim that survives exactly as long as the person who made it remembers.
+
+**What is given up, and how it is bought back.** The loud order would have demonstrated that
+`test_model_schema.py` actually notices a schema that disagrees with the models. That evidence is
+worth having, so it is taken separately and without a red commit: a task mutates the pair locally —
+correct the dump, run the check, confirm it fails naming the seven tables, revert — and records the
+observed output. Same proof, no red commit. This mirrors how #172 and #181 were verified by
+mutation rather than by assertion.
+
+Everything else is order-independent. The enum removal, the dictionary sections, the waivers and the
+matrix constants touch disjoint files and can be done in any sequence, though the constants must
+follow the enum removal to be checkable.
