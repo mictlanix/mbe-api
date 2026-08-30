@@ -446,6 +446,10 @@
     {
       "note": "test_model_schema.py skips a mapped table that appears in neither the dump nor a migration rather than failing on it, so a model pointing at a dropped table is invisible to the check that exists to catch exactly that class of drift. One-line fix (skip -> fail), flags nothing once T001 lands, but out of scope for this spec. See research R5.",
       "step": "implement"
+    },
+    {
+      "note": "Raised as #190: test_model_schema.py skips a mapped table absent from the schema; four of its five checks exempt migration-created tables (28 columns); and column type is never compared, hiding supplier_agreement.start/.end as String(10) against date. None in spec 016 scope.",
+      "step": "implement"
     }
   ],
   "verified": [

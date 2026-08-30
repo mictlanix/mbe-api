@@ -166,6 +166,12 @@ the situation a drop performed outside this repository creates, and precisely wh
 cleaning up. The check that would most naturally be expected to have flagged this feature's need
 was structurally unable to.
 
+**Raised as #190**, which records this alongside two further gaps found by auditing the rest of the
+file: four of the five checks read `DUMPED_COLUMNS`, which is parsed from the dump alone, so the
+five migration-created tables — 28 columns — get no nullability or width check at all; and column
+type is never compared, which is currently hiding `supplier_agreement.start`/`.end` mapped as
+`String(10)` against a `date` column.
+
 **Not fixed here.** Turning that `skip` into a failure is a one-line change and, once T001 lands,
 would flag nothing — zero mapped tables take the branch again. That makes it cheap and safe, and it
 is still a different defect from the one this spec addresses: it predates this change, it affects
