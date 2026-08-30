@@ -3,7 +3,7 @@
   "specName": "drop tech service",
   "branch": "016-drop-tech-service",
   "currentStep": "implement",
-  "status": "implemented",
+  "status": "completed",
   "history": [
     {
       "step": "specify",
