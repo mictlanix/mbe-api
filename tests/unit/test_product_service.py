@@ -24,6 +24,9 @@ def _no_filters() -> dict:
         stockable=None,
         salable=None,
         purchasable=None,
+        perishable=None,
+        seriable=None,
+        invoiceable=None,
         supplier=None,
         missing_price_list=None,
     )
@@ -316,3 +319,56 @@ def test_omitting_missing_price_list_adds_no_clause() -> None:
 
     zero = _apply_product_filters(select(Product), **{**_no_filters(), 'missing_price_list': 0})
     assert 'NOT (EXISTS' in str(zero.compile(compile_kwargs={'literal_binds': True}))
+
+
+# ── The three flags that could not be filtered (#188) ─────────────────────────
+
+#: `product` carries six boolean flags, all six writable and returned. Three of them could be set
+#: and then not searched for, with no reason behind the split — the filter was written with three
+#: and never revisited. A catalog manager could mark a product perishable and then not ask which
+#: products expire.
+LATE_FLAGS = ('perishable', 'seriable', 'invoiceable')
+
+
+def _where(query) -> str:  # noqa: ANN001
+    """The WHERE clause alone, which is the only part a filter test may assert on.
+
+    `select(Product)` projects every column, so `product.perishable` appears in the compiled SQL
+    whether or not anything filters on it. Asserting against the whole statement produces a test
+    that passes when the filter does nothing at all — which is what the first draft of these did.
+    """
+    compiled = str(query.compile(compile_kwargs={'literal_binds': True}))
+    _, _, where = compiled.partition('WHERE')
+    return where
+
+
+@pytest.mark.parametrize('flag', LATE_FLAGS)
+def test_each_late_flag_filters(flag: str) -> None:
+    assert f'product.{flag}' in _where(
+        _apply_product_filters(select(Product), **{**_no_filters(), flag: True})
+    )
+
+
+@pytest.mark.parametrize('flag', LATE_FLAGS)
+def test_each_late_flag_is_tri_state_not_truthy(flag: str) -> None:
+    """`False` must filter for the negative, not read as "no filter given".
+
+    This is the one way to get these wrong: `if flag:` instead of `if flag is not None:` compiles
+    and passes every test written with `True`, then silently answers the whole catalogue when a
+    client asks for the non-perishable products. The existing three are already `is not None`.
+    """
+    assert f'product.{flag}' in _where(
+        _apply_product_filters(select(Product), **{**_no_filters(), flag: False})
+    )
+    assert _where(_apply_product_filters(select(Product), **_no_filters())) == ''
+
+
+def test_the_six_flags_compose() -> None:
+    """All six in one query, which is what the filter drawer sends when every chip is on."""
+    six = dict.fromkeys(
+        ('stockable', 'salable', 'purchasable', 'perishable', 'seriable', 'invoiceable'), True
+    )
+    where = _where(_apply_product_filters(select(Product), **{**_no_filters(), **six}))
+
+    for flag in six:
+        assert f'product.{flag}' in where, flag
