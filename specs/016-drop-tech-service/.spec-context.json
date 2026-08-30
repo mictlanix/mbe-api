@@ -1,0 +1,80 @@
+{
+  "workflow": "speckit",
+  "specName": "drop tech service",
+  "branch": "016-drop-tech-service",
+  "currentStep": "specify",
+  "status": "specified",
+  "history": [
+    {
+      "step": "specify",
+      "substep": null,
+      "kind": "start",
+      "by": "extension",
+      "at": "2026-08-30T02:51:33.357Z"
+    },
+    {
+      "step": "specify",
+      "substep": null,
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-08-30T02:54:29.374Z"
+    }
+  ],
+  "telemetryInstanceId": "e39ae22d-c79f-465b-b7af-38361a4eab9f",
+  "last_action": "living specs evaluated — skipped (not configured)",
+  "coverage": {
+    "FR-001": {
+      "title": "Must not map any of the seven dropped tables; the mapping module is removed in full"
+    },
+    "FR-002": {
+      "title": "Must remove the four retired menu entries from the catalog it defines"
+    },
+    "FR-003": {
+      "title": "Must not itself delete permission rows; removal happens through existing full-replace"
+    },
+    "FR-004": {
+      "title": "Must not reuse or renumber retired identifiers, nor change surviving ones"
+    },
+    "FR-005": {
+      "title": "Data dictionary must carry no section or pending-removal note for the seven"
+    },
+    "FR-006": {
+      "title": "Documentation completeness check must carry no waiver naming the seven"
+    },
+    "FR-007": {
+      "title": "Live-schema derivation must not include any of the seven tables"
+    },
+    "FR-008": {
+      "title": "Stated permission matrix width must be consistent everywhere it appears"
+    },
+    "FR-009": {
+      "title": "No endpoint behaviour change and no database migration from this repository"
+    },
+    "FR-010": {
+      "title": "Full test suite passes with no reference to the seven outside historical record"
+    }
+  },
+  "size": "normal",
+  "classification": {
+    "projectedFiles": 12,
+    "projectedTasks": 12,
+    "scopeSignal": "larger",
+    "verdict": "normal"
+  },
+  "context": [
+    "area: app/models/technical_service.py — maps all seven dropped tables, incl. vehicle_service_order and service_order_detail",
+    "area: app/enums.py SystemObject — retiring 58/64/65/90 narrows the permission matrix from 107",
+    "area: app/services/user_service.py _write_privileges_from — writes one row per enum member and prunes rows outside it",
+    "area: docs/mbe_schema.sql + migrations/ — the live-schema derivation read by test_model_schema and test_data_dictionary",
+    "constraint: mbe-api adds no migration and deletes no access_privilege rows (mictlanix/mbe#37)",
+    "constraint: retired identifiers are left unused, never recycled — the catalog is shared with the legacy system"
+  ],
+  "intent": "Bring this repository's description of the database back into agreement with the deployment after the monolith dropped seven abandoned tables, so the standing schema checks measure against a true baseline.",
+  "expectations": [
+    "No database migration is added by this repository",
+    "No access_privilege rows are deleted by this repository",
+    "No endpoint behaviour changes",
+    "The four retired menu-entry identifiers are not reused or renumbered",
+    "No export or recovery path for the dropped rows"
+  ]
+}
