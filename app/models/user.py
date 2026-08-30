@@ -110,7 +110,7 @@ class UserProfilePrivilege(Base):
     """One entry in a profile: a system object and the mask granted on it.
 
     **Sparse, unlike `access_privilege`.** A row exists only for an object the profile grants
-    something on; absence means denied. A user carries all 107 rows, a profile only what it grants,
+    something on; absence means denied. A user carries all 103 rows, a profile only what it grants,
     and the apply is the translation between the two shapes (spec 014, FR-003).
     """
 

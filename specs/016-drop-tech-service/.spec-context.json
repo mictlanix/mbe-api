@@ -1,0 +1,485 @@
+{
+  "workflow": "speckit",
+  "specName": "drop tech service",
+  "branch": "016-drop-tech-service",
+  "currentStep": "implement",
+  "status": "completed",
+  "history": [
+    {
+      "step": "specify",
+      "substep": null,
+      "kind": "start",
+      "by": "extension",
+      "at": "2026-08-30T02:51:33.357Z"
+    },
+    {
+      "step": "specify",
+      "substep": null,
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-08-30T02:54:29.374Z"
+    },
+    {
+      "step": "plan",
+      "substep": null,
+      "kind": "start",
+      "by": "extension",
+      "at": "2026-08-30T02:57:55.094Z"
+    },
+    {
+      "step": "plan",
+      "substep": "research",
+      "kind": "complete",
+      "by": "ai",
+      "at": "2026-08-30T03:00:55.613Z"
+    },
+    {
+      "step": "plan",
+      "substep": "design",
+      "kind": "complete",
+      "by": "ai",
+      "at": "2026-08-30T03:01:47.305Z"
+    },
+    {
+      "step": "plan",
+      "substep": null,
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-08-30T03:02:04.839Z"
+    },
+    {
+      "step": "tasks",
+      "substep": null,
+      "kind": "start",
+      "by": "extension",
+      "at": "2026-08-30T03:08:07.851Z"
+    },
+    {
+      "step": "tasks",
+      "substep": "generate",
+      "kind": "complete",
+      "by": "ai",
+      "at": "2026-08-30T03:09:05.412Z"
+    },
+    {
+      "step": "tasks",
+      "substep": null,
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-08-30T03:09:23.161Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "kind": "start",
+      "by": "extension",
+      "at": "2026-08-30T03:09:40.546Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T001",
+      "kind": "complete",
+      "by": "ai",
+      "at": "2026-08-30T03:13:22.284Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T002",
+      "kind": "complete",
+      "by": "ai",
+      "at": "2026-08-30T03:14:08.990Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T003",
+      "kind": "complete",
+      "by": "ai",
+      "at": "2026-08-30T03:14:40.549Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T004",
+      "kind": "complete",
+      "by": "ai",
+      "at": "2026-08-30T03:15:33.749Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T005",
+      "kind": "complete",
+      "by": "ai",
+      "at": "2026-08-30T03:16:01.400Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T006",
+      "kind": "complete",
+      "by": "ai",
+      "at": "2026-08-30T03:16:39.042Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T007",
+      "kind": "complete",
+      "by": "ai",
+      "at": "2026-08-30T03:18:01.434Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T008",
+      "kind": "complete",
+      "by": "ai",
+      "at": "2026-08-30T03:18:01.745Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T009",
+      "kind": "complete",
+      "by": "ai",
+      "at": "2026-08-30T03:18:02.122Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T010",
+      "kind": "complete",
+      "by": "ai",
+      "at": "2026-08-30T03:18:02.433Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T011",
+      "kind": "complete",
+      "by": "ai",
+      "at": "2026-08-30T03:18:02.749Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T012",
+      "kind": "complete",
+      "by": "ai",
+      "at": "2026-08-30T03:22:08.847Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-08-30T03:22:09.499Z"
+    }
+  ],
+  "telemetryInstanceId": "e39ae22d-c79f-465b-b7af-38361a4eab9f",
+  "last_action": "12/12 tasks done — 2244 passed, ruff clean, mypy at baseline",
+  "coverage": {
+    "FR-001": {
+      "title": "Must not map any of the seven dropped tables; the mapping module is removed in full",
+      "tasks": [
+        "T001"
+      ],
+      "tests": [
+        "tests/unit/test_model_schema.py",
+        "tests/unit/test_data_dictionary.py"
+      ]
+    },
+    "FR-002": {
+      "title": "Must remove the four retired menu entries from the catalog it defines",
+      "tasks": [
+        "T004"
+      ],
+      "tests": [
+        "tests/unit/test_system_objects.py::test_the_retired_service_objects_are_gone_and_their_neighbours_are_not"
+      ]
+    },
+    "FR-003": {
+      "title": "Must not itself delete permission rows; removal happens through existing full-replace",
+      "tasks": [
+        "T004",
+        "T006"
+      ],
+      "tests": [
+        "tests/integration/test_user_profiles_flow.py"
+      ]
+    },
+    "FR-004": {
+      "title": "Must not reuse or renumber retired identifiers, nor change surviving ones",
+      "tasks": [
+        "T004",
+        "T005"
+      ],
+      "tests": [
+        "tests/unit/test_system_objects.py::test_the_retired_service_objects_are_gone_and_their_neighbours_are_not",
+        "tests/unit/test_user_profile_service.py::test_object_107_is_accepted"
+      ]
+    },
+    "FR-005": {
+      "title": "Data dictionary must carry no section or pending-removal note for the seven",
+      "tasks": [
+        "T002"
+      ]
+    },
+    "FR-006": {
+      "title": "Documentation completeness check must carry no waiver naming the seven",
+      "tasks": [
+        "T001"
+      ],
+      "tests": [
+        "tests/unit/test_data_dictionary.py::test_no_waiver_is_stale"
+      ]
+    },
+    "FR-007": {
+      "title": "Live-schema derivation must not include any of the seven tables",
+      "tasks": [
+        "T001",
+        "T003"
+      ],
+      "tests": [
+        "tests/unit/test_data_dictionary.py",
+        "tests/unit/test_model_schema.py"
+      ]
+    },
+    "FR-008": {
+      "title": "Stated permission matrix width must be consistent everywhere it appears",
+      "tasks": [
+        "T005",
+        "T007",
+        "T008",
+        "T009",
+        "T010",
+        "T011"
+      ],
+      "tests": [
+        "tests/unit/test_system_objects.py::test_the_matrix_is_103_objects_wide",
+        "tests/unit/test_user_service.py",
+        "tests/integration/test_user_profiles_flow.py"
+      ]
+    },
+    "FR-009": {
+      "title": "No endpoint behaviour change and no database migration from this repository",
+      "tasks": [
+        "T012"
+      ]
+    },
+    "FR-010": {
+      "title": "Full test suite passes with no reference to the seven outside historical record",
+      "tasks": [
+        "T012"
+      ]
+    }
+  },
+  "size": "normal",
+  "classification": {
+    "projectedFiles": 12,
+    "projectedTasks": 12,
+    "scopeSignal": "larger",
+    "verdict": "normal"
+  },
+  "context": [
+    "area: app/models/technical_service.py — maps all seven dropped tables, incl. vehicle_service_order and service_order_detail",
+    "area: app/enums.py SystemObject — retiring 58/64/65/90 narrows the permission matrix from 107",
+    "area: app/services/user_service.py _write_privileges_from — writes one row per enum member and prunes rows outside it",
+    "area: docs/mbe_schema.sql + migrations/ — the live-schema derivation read by test_model_schema and test_data_dictionary",
+    "constraint: mbe-api adds no migration and deletes no access_privilege rows (mictlanix/mbe#37)",
+    "constraint: retired identifiers are left unused, never recycled — the catalog is shared with the legacy system"
+  ],
+  "intent": "Bring this repository's description of the database back into agreement with the deployment after the monolith dropped seven abandoned tables, so the standing schema checks measure against a true baseline.",
+  "expectations": [
+    "No database migration is added by this repository",
+    "No access_privilege rows are deleted by this repository",
+    "No endpoint behaviour changes",
+    "The four retired menu-entry identifiers are not reused or renumbered",
+    "No export or recovery path for the dropped rows"
+  ],
+  "approach": "Deletion in four places plus the constant that follows. Delete app/models/technical_service.py and its import, remove SystemObject 58/64/65/90, remove the seven data-dictionary sections and the seven CREATE TABLE blocks from docs/mbe_schema.sql, drop the six waivers, and move the matrix width from 107 to 103. No migration, no cleanup code, no endpoint change.",
+  "decisions": [
+    {
+      "decision": "Remove the seven CREATE TABLE definitions from docs/mbe_schema.sql",
+      "why": "Keeps the live-schema derivation as dump+migrations with no third input and no hand-maintained list; both standing checks currently pass against a schema with seven tables the deployment lacks, which is a check that has stopped measuring",
+      "rejected": "Recording the drop as a migration here (re-states a change another repo owns, ruled out by the issue, breaks SC-008); an exclusion list in the two checks (a hand-maintained list of exactly the shape #112 was)"
+    },
+    {
+      "decision": "Write no permission-row cleanup code",
+      "why": "_write_privileges_from already removes rows naming an object the enum does not define — the loop written for objects 70/104/105. Removing the enum members is simultaneously the fix and the cleanup, and honours the constraint that this repo deletes no privilege rows",
+      "rejected": "A one-off cleanup migration or script (nothing to clean: mbe_dev has zero rows for the four); filtering the four at the write site (a special case in the one function that has none)"
+    },
+    {
+      "decision": "Delete the four enum members rather than keeping them unused",
+      "why": "Their access_privilege rows and their screens are both gone, so keeping the members would re-create four rows per account forever for menu entries that do not exist",
+      "rejected": "Mirroring EXCLUDE_PRICE_RANGE_VALIDATION=102, kept unused by spec 015 — correct there because its rows still exist, wrong here because these were deleted; renumbering to close the gaps (would re-point stored grants keyed on those numbers)"
+    },
+    {
+      "decision": "Delete the models and correct the dump in one task (the quiet order)",
+      "why": "Decided at the review-plan gate. A red commit on the branch cannot be bisected through and its on-purpose-ness does not survive the author forgetting; the evidence the loud order bought is taken separately by local mutation instead",
+      "rejected": "Correct the dump first and leave the models briefly unmapped — fails loudly and accurately, proving the check is live, but leaves one red commit in history"
+    },
+    {
+      "decision": "Rebuilt test_merge_remaps_the_referencing_column_not_a_column_named_product on a synthetic reference instead of deleting it",
+      "why": "service_order_detail.spare_part was the only table in the schema pointing at product through a differently-named column, so dropping it left the property with no witness though its code path is live; a patch on referencing_columns exercises the interpolation under test",
+      "rejected": "Deleting the test with its example (SC-007 permits it, but silently loses a #112-era guard); adding a fixture table to Base.metadata (global — it would appear in every integration database)"
+    },
+    {
+      "decision": "Removed docs/specs/08-technical-service.md, the TechnicalServiceRequestType constant, and the four object rows from docs/constants.md and docs/specs/12-users.md",
+      "why": "Discovered during T012 SC-009 verification: the plan listed 12 files and missed these, which described the retired modules as live and would have made SC-009 false",
+      "rejected": "Marking them retired in place rather than removing (the catalogs already represent an absent object by omission, e.g. 31)"
+    }
+  ],
+  "step_summaries": {
+    "plan": {
+      "summary": "12 files, all deletion plus one constant; no migration, no new code path",
+      "key_finding": "107 means two different things — the member count (becomes 103) and PRODUCTION_SITES = 107 (unchanged). Identifiers run to 113, so their equality was coincidence, and a careless find-and-replace silently rewrites a test fixture in test_user_profile_service.py:87."
+    },
+    "tasks": {
+      "summary": "12 tasks across 3 story phases plus polish; no Setup or Foundational phase needed since the stories touch disjoint files"
+    },
+    "implement": {
+      "summary": "Seven tables, four SystemObject members and a spec doc retired; 16 files, no migration; the matrix narrowed 107->103 and #179 closed to zero waivers"
+    }
+  },
+  "currentTask": "T012",
+  "task_summaries": {
+    "T001": {
+      "status": "DONE",
+      "did": "Removed the 7 CREATE TABLE stanzas from the dump, deleted the model module and its import, emptied the waiver list; repaired two merge tests that depended on service_order_detail",
+      "files": [
+        "docs/mbe_schema.sql",
+        "app/models/technical_service.py",
+        "app/models/__init__.py",
+        "tests/unit/test_data_dictionary.py",
+        "tests/unit/test_product_service.py"
+      ]
+    },
+    "T002": {
+      "status": "DONE",
+      "did": "Removed section 11 entirely — it held exactly the seven tables and nothing else — and renumbered sections 12-15 down to 11-14 in both the headings and the table of contents",
+      "files": [
+        "docs/data-dictionary.md"
+      ]
+    },
+    "T003": {
+      "status": "DONE",
+      "did": "Mutation proof refuted the plan's prediction: test_model_schema SKIPS a mapped table absent from the schema rather than failing. Recorded as R5 and corrected the plan's Ordering claim",
+      "files": [
+        "specs/016-drop-tech-service/research.md",
+        "specs/016-drop-tech-service/plan.md"
+      ]
+    },
+    "T004": {
+      "status": "DONE",
+      "did": "Removed SystemObject 58, 64, 65 and 90; no surviving identifier moved and no cleanup code written",
+      "files": [
+        "app/enums.py"
+      ]
+    },
+    "T005": {
+      "status": "DONE",
+      "did": "Matrix width 107->103, added an assertion that 58/64/65/90 are gone while neighbours 88/89/91 survive, and documented the width-vs-PRODUCTION_SITES coincidence",
+      "files": [
+        "tests/unit/test_system_objects.py"
+      ]
+    },
+    "T006": {
+      "status": "DONE",
+      "did": "OBJECT_COUNT 107->103, renamed the provisioning test, and added an assertion that no retired object is written at all",
+      "files": [
+        "tests/integration/test_user_profiles_flow.py"
+      ]
+    },
+    "T007": {
+      "status": "DONE",
+      "did": "OBJECT_COUNT 107->103 and the module docstring's 'all 107'",
+      "files": [
+        "tests/unit/test_user_service.py"
+      ]
+    },
+    "T008": {
+      "status": "DONE",
+      "did": "Docstring 'the 107-row write' -> 103",
+      "files": [
+        "tests/api/test_user_profiles.py"
+      ]
+    },
+    "T009": {
+      "status": "DONE",
+      "did": "_write_privileges_from docstring 107->103, noting 58/64/65/90 joined 70/104/105 as objects the removal loop covers; replaced two other stale counts with object-agnostic wording",
+      "files": [
+        "app/services/user_service.py"
+      ]
+    },
+    "T010": {
+      "status": "DONE",
+      "did": "UserProfilePrivilege docstring 'all 107 rows' -> 103",
+      "files": [
+        "app/models/user.py"
+      ]
+    },
+    "T011": {
+      "status": "DONE",
+      "did": "R4 guard: confirmed test_user_profile_service.py is untouched by the diff and still asserts system_object=107, the surviving PRODUCTION_SITES identifier",
+      "files": [
+        "tests/unit/test_user_profile_service.py"
+      ]
+    },
+    "T012": {
+      "status": "DONE",
+      "did": "Wrote quickstart.md with a runnable command per success criterion and recorded every result; added the CHANGELOG entry; also cleaned docs/constants.md, docs/specs/12-users.md and deleted docs/specs/08-technical-service.md, which the plan had not identified",
+      "files": [
+        "specs/016-drop-tech-service/quickstart.md",
+        "CHANGELOG.md",
+        "docs/constants.md",
+        "docs/specs/12-users.md",
+        "docs/specs/08-technical-service.md",
+        "docs/README.md"
+      ]
+    }
+  },
+  "concerns": [
+    {
+      "note": "test_model_schema.py skips a mapped table that appears in neither the dump nor a migration rather than failing on it, so a model pointing at a dropped table is invisible to the check that exists to catch exactly that class of drift. One-line fix (skip -> fail), flags nothing once T001 lands, but out of scope for this spec. See research R5.",
+      "step": "implement"
+    },
+    {
+      "note": "Raised as #190: test_model_schema.py skips a mapped table absent from the schema; four of its five checks exempt migration-created tables (28 columns); and column type is never compared, hiding supplier_agreement.start/.end as String(10) against date. None in spec 016 scope.",
+      "step": "implement"
+    }
+  ],
+  "verified": [
+    {
+      "what": "Full test suite, deprecation warnings escalated to errors",
+      "command": "uv run pytest -q -W error::DeprecationWarning",
+      "result": "2244 passed, 15 skipped",
+      "warnings": []
+    },
+    {
+      "what": "Lint and type-check parity",
+      "command": "uv run ruff check app tests; uv run mypy app",
+      "result": "ruff clean; mypy 170 errors, identical to the pre-feature baseline",
+      "warnings": [
+        "mypy is not clean at baseline in this repo; parity is the bar, not zero"
+      ]
+    },
+    {
+      "what": "Every success criterion SC-001..SC-009 by command",
+      "command": "see specs/016-drop-tech-service/quickstart.md",
+      "result": "all pass: derivation excludes the seven, zero mapped models, zero dictionary sections, zero column waivers, 103 members with PRODUCTION_SITES still 107, zero migrations added",
+      "warnings": []
+    },
+    {
+      "what": "Mutation proof that test_model_schema notices a schema disagreeing with the models",
+      "command": "uv run pytest -q tests/unit/test_model_schema.py (dump corrected, models still present)",
+      "result": "REFUTED — 375 passed, 43 skipped. The check skips a mapped table absent from dump and migrations rather than failing on it",
+      "warnings": [
+        "standing gap, recorded as R5, raised separately rather than fixed here"
+      ]
+    }
+  ]
+}

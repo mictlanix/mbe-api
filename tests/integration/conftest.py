@@ -42,8 +42,9 @@ from app.db.base import Base
 from app.db.session import get_db
 from app.main import app as fastapi_app
 
-# Importing every model module is what puts all 100 tables on the metadata; `create_all` only
-# creates what it has been told about.
+# Importing every model module is what puts every mapped table on the metadata; `create_all`
+# only creates what it has been told about. Deliberately not a count — see the note in
+# `tests/unit/test_model_schema.py`.
 for _, _name, _ in pkgutil.iter_modules(app.models.__path__):
     importlib.import_module(f'app.models.{_name}')
 

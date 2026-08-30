@@ -142,14 +142,11 @@ Complete enum (integer value → name). Controls every module and sub-feature. V
 | 55 | `ProductSalesBySalesPerson` | Reports → Product Sales by Salesperson |
 | 56 | `StandaloneFiscalDocuments` | Fiscal → Standalone Fiscal Docs |
 | 57 | `ProductionOrders` | Production → Production Orders |
-| 58 | `TechnicalServiceReports` | Technical Service → Service Reports |
 | 59 | `TranslationRequests` | Front Desk → Translation Requests |
 | 60 | `Notarizations` | Front Desk → Notarizations |
 | 61 | `ProductSalesBySalesPersonAndLabel` | Reports → Product Sales by Salesperson+Label |
 | 62 | `ProductSalesBySalesPersonAndBrand` | Reports → Product Sales by Salesperson+Brand |
 | 63 | `ProductSalesBySalesPersonAndModel` | Reports → Product Sales by Salesperson+Model |
-| 64 | `TechnicalServiceRequests` | Technical Service → Service Requests |
-| 65 | `TechnicalServiceReceipts` | Technical Service → Service Receipts |
 | 66 | `CustomersReport` | Reports → Customers Report |
 | 67 | `WarehouseStockReport` | Reports → Warehouse Stock |
 | 68 | `WarehouseStockByLotReport` | Reports → Warehouse Stock by Lot |
@@ -170,7 +167,6 @@ Complete enum (integer value → name). Controls every module and sub-feature. V
 | 87 | `DeliveryItineraries` | Logistics → Delivery Itineraries |
 | 88 | `Vehicle` | Master Data → Vehicles |
 | 89 | `VehicleOperators` | Master Data → Vehicle Operators |
-| 90 | `VehicleServiceOrders` | Logistics → Vehicle Service Orders |
 | 91 | `ForDeliver` | Logistics → For Delivery view |
 | 92 | `Users` | Users (admin only menu item) |
 | 93 | `InventoryAdjustments` | Inventory → Adjustments |
@@ -192,7 +188,17 @@ Complete enum (integer value → name). Controls every module and sub-feature. V
 | 112 | `CommissionsBySalesPerson` | Reports → Commissions by Salesperson |
 | 113 | `DownloadCSVFiles` | Reports → Download CSV Files |
 
-> Values 31, 70, 76–78, 107 are absent from the enum (gaps in the sequence). Do not assign values to these gaps in the Python migration.
+> Values 31, 58, 64, 65, 70, 76–78, 90, 104 and 105 are absent from the enum (gaps in the
+> sequence). Never assign a value to a gap: the catalog mirrors the legacy application's
+> identifiers and a number that changed meaning would re-point every stored grant naming it.
+>
+> 58, 64, 65 and 90 joined the list in spec 016, when the technical service and vehicle
+> service order modules were retired — their screens, tables and `access_privilege` rows were
+> all deleted by the monolith (`mictlanix/mbe#37`).
+>
+> **107 is not a gap**, though this note previously said it was: spec 014 added
+> `PRODUCTION_SITES = 107` after finding 29 of 31 accounts already held a row for it. The
+> enum is 103 members wide across a range topping out at 113.
 
 ---
 

@@ -153,7 +153,11 @@ async def test_merge_handles_every_mapped_reference() -> None:
 
     expected = {table.name for table, _ in referencing_columns(Product)}
     assert _remapped_tables(statements) | _deleted_tables(statements) == expected
-    assert {  # the eleven left behind before #112
+    # Ten of the eleven relations #112 reported missing. The eleventh, `service_order_detail`,
+    # was dropped from the database with the vehicle service order module (spec 016) — the only
+    # one of the eleven to have left, and it is named here rather than silently absent so the
+    # count still reconciles with the issue.
+    assert {
         'commission_product',
         'commissions_history',
         'customer_discount',
@@ -163,7 +167,6 @@ async def test_merge_handles_every_mapped_reference() -> None:
         'lot_serial_rqmt',
         'purchase_request_detail',
         'sales_quote_detail',
-        'service_order_detail',
         'supplier_return_detail',
     } <= _remapped_tables(statements) | _deleted_tables(statements)
 
@@ -185,8 +188,28 @@ async def test_merge_remaps_history_and_nothing_else() -> None:
 
 @pytest.mark.asyncio
 async def test_merge_remaps_the_referencing_column_not_a_column_named_product() -> None:
-    """`service_order_detail` points at a product through `spare_part`."""
-    statements = await _merge_statements()
+    """The merge must write each relation's *own* column name, not the literal `product`.
+
+    `service_order_detail.spare_part` used to witness this — it was the one table in the schema
+    pointing at a product through a differently-named column, and spec 016 dropped it with the
+    vehicle service order module. All 18 surviving references are named `product`, so the real
+    schema can no longer tell a correct implementation from one that hard-codes the name.
+
+    Rather than delete the guard with its example, the reference is synthesized. `merge_products`
+    reads `referencing_columns`, so substituting one pair exercises exactly the interpolation
+    under test. Done through a patch rather than by adding a table to `Base.metadata`: that
+    metadata is global and `tests/integration/` builds its schema from it, so a fixture table
+    declared here would appear in every integration database.
+    """
+    spare_part = MagicMock()
+    spare_part.name = 'spare_part'
+    table = MagicMock()
+    table.name = 'service_order_detail'
+
+    with patch(
+        'app.services.product_service.referencing_columns', return_value=[(table, spare_part)]
+    ):
+        statements = await _merge_statements()
 
     assert (
         'UPDATE service_order_detail SET spare_part = :canonical WHERE spare_part = :duplicate'

@@ -15,7 +15,6 @@ This directory contains the reverse-engineered specifications for the Mictlanix 
 | [specs/05-purchases.md](specs/05-purchases.md) | Purchase Requests, Purchase Orders, Supplier Payments |
 | [specs/06-logistics.md](specs/06-logistics.md) | Delivery Itineraries and Delivery Orders |
 | [specs/07-administration.md](specs/07-administration.md) | Accounts Receivable, Accounts Payable |
-| [specs/08-technical-service.md](specs/08-technical-service.md) | Tech Service Receipts, Reports, Requests, Vehicle Service |
 | [specs/09-front-desk.md](specs/09-front-desk.md) | Translation Requests, Notarizations |
 | [specs/10-fiscal-documents.md](specs/10-fiscal-documents.md) | Taxpayers, CFDI Fiscal Documents |
 | [specs/11-reports.md](specs/11-reports.md) | All report screens |
