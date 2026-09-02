@@ -7,13 +7,24 @@ reads the merge's statements: the coverage below is what the retirement does, no
 mocked into doing.
 """
 
+import inspect
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi import HTTPException
 
+from app.core.constants import COST_PRICE_LIST_ID
 from app.models.product import PriceList
-from app.services.price_list_service import _DELETE_CASCADE, delete_price_list, preview_delete
+from app.services.price_list_service import (
+    _DELETE_CASCADE,
+    COST_LIST_NOT_ASSIGNABLE,
+    assert_not_cost_list,
+    delete_price_list,
+    get_price_list,
+    list_price_lists,
+    preview_delete,
+)
+from app.services.product_service import get_missing_price_facets
 from app.services.references import referencing_columns
 
 RETIRED, REPLACEMENT = 7, 3
@@ -222,3 +233,77 @@ async def test_report_counts_exactly_what_a_retirement_touches() -> None:
     assert reported == swept | moved | blocked
     assert swept == _DELETE_CASCADE & reported
     assert blocked == set()  # nothing unclassified today; a new relation lands here and blocks
+
+
+# ── The cost price list (#194) ────────────────────────────────────────────────
+
+
+class TestTheCostListIsAConstant:
+    """Not a setting: the monolith writes cost to this id, so a wrong value is not a preference.
+
+    These pin the shape, not the value: not configurable, and every site names the constant. The
+    integration tests cannot check that — the constant *is* 0, so a literal behaves identically.
+    """
+
+    def test_it_is_not_a_configurable_setting(self) -> None:
+        from app.core.config import Settings
+
+        assert 'cost_price_list_id' not in Settings.model_fields
+
+    def test_zero_is_a_real_row_so_nothing_may_test_it_for_truthiness(self) -> None:
+        """0 is "Costo", not an absent value, so `if price_list_id:` would wave it through."""
+        assert COST_PRICE_LIST_ID == 0
+        assert 'replacement_id is not None' in inspect.getsource(delete_price_list)
+
+    @pytest.mark.parametrize(
+        'function',
+        [assert_not_cost_list, get_price_list, list_price_lists, get_missing_price_facets],
+        ids=['guard', 'resource-lookup', 'listing', 'missing-price-facets'],
+    )
+    def test_every_site_names_the_constant(self, function: object) -> None:
+        """The four places the rule is expressed; only the refusals share the guard."""
+        assert 'COST_PRICE_LIST_ID' in inspect.getsource(function)
+
+
+@pytest.mark.asyncio
+async def test_the_resource_lookup_hides_the_cost_list_without_reading_the_row() -> None:
+    """The `None` all four routes branch on. It must not read the row first, or the rejection
+    would depend on the row still existing."""
+    db = AsyncMock()
+
+    assert await get_price_list(db, COST_PRICE_LIST_ID) is None
+    db.get.assert_not_called()
+
+    # An ordinary list still resolves.
+    await get_price_list(db, REPLACEMENT)
+    db.get.assert_awaited_once_with(PriceList, REPLACEMENT)
+
+
+@pytest.mark.asyncio
+async def test_deleting_the_cost_list_is_refused_before_anything_is_written() -> None:
+    """Refused ahead of the customer move and the cascade: nothing is issued at all."""
+    db = AsyncMock()
+
+    with pytest.raises(HTTPException) as refused:
+        await delete_price_list(db, PriceList(price_list_id=COST_PRICE_LIST_ID))
+
+    assert refused.value.status_code == 400
+    assert refused.value.detail == 'The cost price list cannot be deleted'
+    db.execute.assert_not_called()
+    db.commit.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_retiring_onto_the_cost_list_is_refused_before_the_customer_move() -> None:
+    """`replacement` never passes through `update_customer`, so this is the only place the rule
+    can fire for it — and it must fire before the `UPDATE`, the first statement issued."""
+    db = AsyncMock()
+
+    with pytest.raises(HTTPException) as refused:
+        await delete_price_list(
+            db, PriceList(price_list_id=RETIRED), replacement_id=COST_PRICE_LIST_ID
+        )
+
+    assert refused.value.status_code == 400
+    assert refused.value.detail == COST_LIST_NOT_ASSIGNABLE
+    db.execute.assert_not_called()

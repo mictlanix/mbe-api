@@ -38,8 +38,6 @@ class Settings(BaseSettings):
     default_currency: CurrencyCode = CurrencyCode.MXN
     default_quotation_due_days: int = 30
     max_days_to_deliver_stockables: int = 7
-    # Price list holding cost rather than sale price; read when snapshotting a line's cost
-    cost_price_list_id: int = 0
 
     # Delivery defaults (replaces legacy WebConfig values)
     delivery_order_approval_required: bool = False

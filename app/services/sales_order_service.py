@@ -19,6 +19,7 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
+from app.core.constants import COST_PRICE_LIST_ID
 from app.core.deps import CurrentUser
 from app.enums import CurrencyCode, PaymentTerms
 from app.models.core import ExchangeRate, Warehouse
@@ -768,7 +769,7 @@ async def add_line(
 
     customer = await _customer_or_404(db, order.customer)
     listed = await _price_for(db, product, customer.price_list)
-    cost_row = await _price_for(db, product, settings.cost_price_list_id)
+    cost_row = await _price_for(db, product, COST_PRICE_LIST_ID)
 
     quantity = data.quantity if data.quantity is not None else Decimal(product.min_order_qty)
     assert_quantity_allowed(quantity, min_order_qty=product.min_order_qty)

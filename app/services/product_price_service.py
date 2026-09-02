@@ -11,6 +11,14 @@ from app.schemas.product_price import (
     ProductPriceCreate,
     ProductPriceUpdate,
 )
+from app.services.price_list_service import COST_LIST_READ_ONLY, assert_not_cost_list
+
+# The cost list is readable here and written by nothing: cost is a computed average, owned by the
+# monolith today and by the purchases module later (#194). Reads stay open because the grid's
+# "copy from the cost list" action reads cost and writes the sale column.
+#
+# `delete_for_product` is exempt. It is the product-deletion cascade, so guarding it would make
+# any product with a cost row undeletable, and skipping the row would orphan it behind an FK.
 
 
 async def _attach_price_list(db: AsyncSession, prices: Sequence[ProductPrice]) -> None:
@@ -101,6 +109,7 @@ async def create_product_price(db: AsyncSession, data: ProductPriceCreate) -> Pr
     pl = await db.get(PriceList, data.price_list)
     if pl is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Price list not found')
+    assert_not_cost_list(data.price_list, detail=COST_LIST_READ_ONLY)
 
     existing = (
         await db.execute(
@@ -132,6 +141,8 @@ async def create_product_price(db: AsyncSession, data: ProductPriceCreate) -> Pr
 async def update_product_price(
     db: AsyncSession, pp: ProductPrice, data: ProductPriceUpdate
 ) -> ProductPrice:
+    # `ProductPriceUpdate` has no `price_list`, so the row's list is what makes this a cost write.
+    assert_not_cost_list(pp.price_list, detail=COST_LIST_READ_ONLY)
     if data.price is not None:
         pp.price = data.price
     sent = data.model_dump()
@@ -190,7 +201,7 @@ async def bulk_upsert_product_prices(
     Every product and every price list named in the body is checked up front, so a body naming one
     bad id is refused whole rather than applying its good rows first. A repeated `(product,
     price_list)` is a 400: two cells for one cell is a client bug, and silently letting the last
-    one win would hide it.
+    one win would hide it. So is any cell naming the cost list, which is read-only here (#194).
     """
     seen: set[tuple[int, int]] = set()
     for item in items:
@@ -203,6 +214,8 @@ async def bulk_upsert_product_prices(
                 ),
             )
         seen.add(key)
+        # Here rather than in the write loop, so one cost cell refuses the whole body.
+        assert_not_cost_list(item.price_list, detail=COST_LIST_READ_ONLY)
 
     await _assert_products_exist(db, {i.product for i in items})
     lists = await _price_lists_by_id(db, {i.price_list for i in items})
@@ -253,6 +266,7 @@ async def bulk_upsert_product_prices(
 
 
 async def delete_product_price(db: AsyncSession, pp: ProductPrice) -> None:
+    assert_not_cost_list(pp.price_list, detail=COST_LIST_READ_ONLY)
     await db.delete(pp)
     await db.commit()
 
