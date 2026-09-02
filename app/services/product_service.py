@@ -6,6 +6,7 @@ from sqlalchemy import Row, Select, delete, func, insert, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings
+from app.core.constants import COST_PRICE_LIST_ID
 from app.enums import EntityStatus
 from app.models.core import Label
 from app.models.product import PriceList, Product, ProductPrice, product_label
@@ -254,7 +255,17 @@ async def get_missing_price_facets(
             )
         ).all()
     }
-    lists = (await db.execute(select(PriceList.price_list_id))).scalars().all()
+    # Every list but the cost one (#194): these chips are a sale-price worklist, and cost is a
+    # computed average, not a price anyone fills in per product.
+    lists = (
+        (
+            await db.execute(
+                select(PriceList.price_list_id).where(PriceList.price_list_id != COST_PRICE_LIST_ID)
+            )
+        )
+        .scalars()
+        .all()
+    )
     return [(pl_id, total - priced.get(pl_id, 0)) for pl_id in lists]
 
 

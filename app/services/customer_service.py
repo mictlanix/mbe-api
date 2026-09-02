@@ -16,6 +16,7 @@ from app.models.customer import (
 from app.models.product import PriceList
 from app.schemas.customer import CustomerCreate, CustomerUpdate
 from app.services import taxpayer_recipient_service
+from app.services.price_list_service import COST_LIST_NOT_ASSIGNABLE, assert_not_cost_list
 from app.services.references import assert_not_referenced
 
 
@@ -209,6 +210,7 @@ async def get_customer(db: AsyncSession, customer_id: int) -> Customer | None:
 
 
 async def create_customer(db: AsyncSession, data: CustomerCreate) -> Customer:
+    assert_not_cost_list(data.price_list, detail=COST_LIST_NOT_ASSIGNABLE)
     customer = Customer(
         code=data.code,
         name=data.name,
@@ -250,6 +252,7 @@ async def update_customer(db: AsyncSession, customer: Customer, data: CustomerUp
     if data.credit_days is not None:
         customer.credit_days = data.credit_days
     if data.price_list is not None:
+        assert_not_cost_list(data.price_list, detail=COST_LIST_NOT_ASSIGNABLE)
         customer.price_list = data.price_list
     if data.shipping is not None:
         customer.shipping = data.shipping
