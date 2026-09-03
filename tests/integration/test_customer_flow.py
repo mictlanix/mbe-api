@@ -195,11 +195,12 @@ async def test_sending_them_is_ignored_rather_than_refused(
     assert 'shipping' not in created.json()
 
 
-async def test_a_created_customer_still_satisfies_the_not_null_columns(
+async def test_the_model_no_longer_maps_the_dropped_columns(
     client: AsyncClient, db: AsyncSession, seeded: None
 ) -> None:
-    """The columns are still there, `NOT NULL` with no default, so an insert that omitted them
-    would fail with error 1364. They are written as 0 until mictlanix/mbe#40 drops them."""
+    """mictlanix/mbe#40 dropped the columns, so mapping them is now what breaks: SQLAlchemy
+    projects every mapped column, and `SELECT customer.shipping` is error 1054 against the
+    deployment. This is #154's failure mode, which only a real read catches."""
     created = await client.post(
         '/api/v1/customers', json={'code': 'C-NN', 'name': 'No Nulo', 'price_list': 1}
     )
@@ -208,4 +209,5 @@ async def test_a_created_customer_still_satisfies_the_not_null_columns(
     row = await db.get(Customer, created.json()['customer_id'])
 
     assert row is not None
-    assert (row.shipping, row.shipping_required_document) == (False, False)
+    assert not hasattr(row, 'shipping')
+    assert not hasattr(row, 'shipping_required_document')

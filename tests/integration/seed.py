@@ -171,8 +171,6 @@ async def seed_baseline(db: AsyncSession) -> None:
                 credit_limit=Decimal('1000'),
                 credit_days=30,
                 price_list=1,
-                shipping=False,
-                shipping_required_document=False,
                 status=EntityStatus.ACTIVE,
             ),
             User(

@@ -444,8 +444,6 @@ async def test_another_customers_line_cannot_be_consolidated_in(
             credit_limit=Decimal('1000'),
             credit_days=30,
             price_list=1,
-            shipping=False,
-            shipping_required_document=False,
             status=EntityStatus.ACTIVE,
         )
     )

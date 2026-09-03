@@ -1,6 +1,6 @@
 from decimal import Decimal
 
-from sqlalchemy import Boolean, Column, ForeignKey, Integer, Numeric, String, Table
+from sqlalchemy import Column, ForeignKey, Integer, Numeric, String, Table
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -61,11 +61,6 @@ class Customer(Base):
     credit_days: Mapped[int] = mapped_column(Integer)
     comment: Mapped[str | None] = mapped_column(String(1024))
     price_list: Mapped[int] = mapped_column(Integer, ForeignKey('price_list.price_list_id'))
-    shipping: Mapped[bool] = mapped_column(Boolean)
-    shipping_required_document: Mapped[bool] = mapped_column(Boolean)
-    #: `shipping` and `shipping_required_document` are retired from the API (#199) and mapped only
-    #: because the columns are `NOT NULL` with no default: dropping them here would make every
-    #: insert fail with error 1364. They go when the monolith drops the columns — mictlanix/mbe#40.
     salesperson: Mapped[int | None] = mapped_column(Integer, ForeignKey('employee.employee_id'))
     status: Mapped[EntityStatus] = mapped_column(
         Integer, default=EntityStatus.ACTIVE, server_default='0'
