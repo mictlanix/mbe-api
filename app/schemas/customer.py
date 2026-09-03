@@ -51,8 +51,6 @@ class CustomerCreate(BaseModel):
     credit_limit: Decimal = Decimal('0')
     credit_days: int = 0
     price_list: int
-    shipping: bool = False
-    shipping_required_document: bool = False
     salesperson: int | None = None
     status: EntityStatus = EntityStatus.ACTIVE
     comment: str | None = None
@@ -78,8 +76,6 @@ class CustomerUpdate(BaseModel):
     credit_limit: Decimal | None = None
     credit_days: int | None = None
     price_list: int | None = None
-    shipping: bool | None = None
-    shipping_required_document: bool | None = None
     salesperson: int | None = None
     status: EntityStatus | None = None
     comment: str | None = None
@@ -118,8 +114,6 @@ class CustomerResponse(BaseModel):
     price_list: PriceListResponse = Field(
         validation_alias=AliasChoices('price_list_detail', 'price_list')
     )
-    shipping: bool
-    shipping_required_document: bool
     salesperson: EmployeeResponse | None = Field(
         validation_alias=AliasChoices('salesperson_detail', 'salesperson')
     )
