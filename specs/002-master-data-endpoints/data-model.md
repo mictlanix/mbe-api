@@ -144,8 +144,6 @@ current field reference. `Product` no longer auto-provisions price rows on creat
 | `credit_days` | `credit_days` | `int` | |
 | `comment` | `comment` | `str \| None` | |
 | `price_list` | `price_list` | `int` | FK → `price_list`; **response**: expanded to `PriceListResponse` |
-| `shipping` | `shipping` | `bool` | |
-| `shipping_required_document` | `shipping_required_document` | `bool` | |
 | `salesperson` | `salesperson` | `int \| None` | FK → `employee`; **response**: expanded to `EmployeeResponse \| None` |
 | `disabled` | `disabled` | `bool \| None` | |
 | `creator` | `creator` | `int \| None` | FK → `employee` |

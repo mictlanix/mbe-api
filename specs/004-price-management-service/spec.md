@@ -113,6 +113,16 @@ silently created.
 
 **Filtering (US2)**
 
+- **FR-005a**: Every write MUST be refused where the price list is `COST_PRICE_LIST_ID` — create,
+  update, delete and the bulk upsert — with reads left open. Added by #194.
+
+  > Cost is each product's average purchase cost, computed by the monolith today and by the
+  > purchases module later, not a number a pricing grid should type over. Reads must keep working
+  > because the grid's "copy from the cost list" action consumes them and writes the *sale* column,
+  > so cost appears in the response it copies from and never in the body it sends. `PUT /{id}` is
+  > the one that needs care: its body carries no `price_list`, so only the row it names makes it a
+  > cost write. `delete_for_product` (FR-011) is exempt — it is the product-deletion cascade, and
+  > guarding it would make any product carrying a cost row undeletable.
 - **FR-006**: System MUST allow listing price entries filtered by product.
 - **FR-007**: System MUST allow listing price entries filtered by price list.
 - **FR-008**: System MUST allow listing price entries filtered by product and price list at the

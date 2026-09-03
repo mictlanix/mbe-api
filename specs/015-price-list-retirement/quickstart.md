@@ -84,9 +84,20 @@ undeletable, and clearing the blocker by hand was 21,569 `DELETE` requests. `GET
 /price-lists/3/delete/preview` answers `{"items": [{"category": "product_price.list", "count":
 21569}, {"category": "customer.price_list", "count": 150}], "total": 21719}`.
 
-Note `Costo` at id **0** — the list `settings.cost_price_list_id` points at. A falsy primary key,
-so `replacement=0` has to be a real replacement and not read as "none given"; the service tests
-`is not None`, never truthiness.
+Note `Costo` at id **0** — the list `COST_PRICE_LIST_ID` points at (a setting until #194). A
+falsy primary key, so it must never be read as "none given"; the service tests `is not None`,
+never truthiness.
+
+> **#194 changed what you can do with it, and these steps no longer apply to list 0.** The cost
+> list is absent from the `/price-lists` resource on every verb, so `GET`, `PUT`, `DELETE` and
+> `GET /0/delete/preview` all answer **404**, and it no longer appears in `GET /price-lists` at
+> all. `replacement=0` is refused with a 400 rather than honoured: it expands to
+> `UPDATE customer SET price_list = 0` over every customer of the retired list, which is the
+> assignment #194 exists to prevent, at up to 10,782 rows. The `is not None` test above still
+> matters and is still there — 0 is rejected for *being the cost list*, never for being falsy.
+>
+> Use list 2 or 3 for the walkthrough below. Cost prices remain readable through
+> `GET /product-prices?price_list=0`, and are now read-only there.
 
 Cross-check one count by hand:
 

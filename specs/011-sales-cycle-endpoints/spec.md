@@ -437,6 +437,30 @@ order.
   > column empty across all 335,763 existing sales: not one of them has a `ship_to` pointing at a
   > facility address, so deriving it would stamp every row `delivery` — a confident wrong answer in
   > place of "unknown", indistinguishable afterwards from one a cashier actually gave.
+- **FR-011c**: When a `PUT` changes a sales order's **customer**, the order's salesperson MUST
+  follow the new customer, and every line MUST be repriced onto the new customer's price list
+  **only if that list differs**. An explicit `salesperson` in the same request MUST win. Where the
+  new customer has no salesperson, the order MUST keep the one it has. Added by #195, #196; the
+  repricing half restates #131, whose trigger #196 corrected.
+
+  > **Two rules, two triggers, and that is the whole point.** Who owns a sale is not a pricing
+  > question, so the salesperson follows the *customer* and the prices follow the *price list*.
+  > Gating both on the customer id — the obvious single flag — reprices a move between two
+  > customers on one list, which rewrites every line from the list those prices already came from:
+  > a no-op on a listed price and silent loss of a hand-typed one. That is 98.6% of customer
+  > changes in mbe_dev, where 10,783 of 10,933 customers sit on Mostrador. It can also zero a line
+  > outright, since a product with no row on the list prices at `Decimal(0)` and 60 products have
+  > no row on list 1 — exactly the ones somebody prices by hand.
+  >
+  > **An unassigned new customer changes nothing.** `customer.salesperson` is null for 8,034 of
+  > 10,933 customers and 287,198 of 335,801 orders belong to one, so this is the common path, not
+  > an edge. A move to an unassigned customer carries no information about who owns the sale, and
+  > `sales_order.salesperson` is `NOT NULL` with an owner already in it; falling back to the acting
+  > employee, as *create* does, would reassign a sale away from its rep because someone corrected
+  > a typo. Create is choosing an owner for a sale that has none — a different situation.
+  >
+  > Not retroactive. 24,350 orders carry a salesperson differing from their customer's current one,
+  > and 1,603 lines are priced at zero with nothing distinguishing the ones #131's trigger zeroed.
 - **FR-012**: Users MUST be able to add, update and remove lines on an editable order. Adding a
   line MUST snapshot the product's code and name, its tax rate and tax-inclusion flag, its cost
   from the cost price list, and its price from the customer's assigned price list, and MUST default
@@ -528,6 +552,14 @@ order.
   customer's assigned salesperson where set and otherwise the current user's employee, immediate
   terms, the default currency, today's date, and an expiry date of today plus the configured
   quotation validity period.
+- **FR-030a**: The same rule MUST apply when a `PUT` changes a **quote's** customer, on the same
+  terms as FR-011c. Added by #195.
+
+  > `update_quote` had the same shape and the same gap. One difference in the implementation: the
+  > order side takes its "did the customer actually move" flag from repricing, and the quote side
+  > does not reprice, so it computes the flag for this rule alone. Quote-to-order conversion is
+  > deliberately untouched — it copies the quote's salesperson rather than re-deriving from the
+  > customer, because the quote already resolved who owns the sale.
 - **FR-031**: Users MUST be able to read, update and list quotes, and to add, update and remove
   lines while the quote is editable. A quote line MUST carry a price, an absolute price adjustment,
   a discount rate, the product's tax rate and tax-inclusion flag, and a snapshot of the product's
