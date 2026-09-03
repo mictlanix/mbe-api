@@ -48,8 +48,6 @@ async def _customer(db: AsyncSession, code: str, price_list: int) -> int:
         credit_limit=Decimal('1000'),
         credit_days=30,
         price_list=price_list,
-        shipping=False,
-        shipping_required_document=False,
         status=EntityStatus.ACTIVE,
     )
     db.add(customer)

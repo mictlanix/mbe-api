@@ -219,11 +219,6 @@ async def create_customer(db: AsyncSession, data: CustomerCreate) -> Customer:
         credit_limit=data.credit_limit,
         credit_days=data.credit_days,
         price_list=data.price_list,
-        # Retired from the API (#199) but still `NOT NULL` with no default, so an insert that
-        # omitted them would fail with error 1364 under STRICT_TRANS_TABLES. Written as 0 until
-        # the monolith drops the columns — mictlanix/mbe#40.
-        shipping=False,
-        shipping_required_document=False,
         salesperson=data.salesperson,
         comment=data.comment,
         status=data.status,

@@ -423,8 +423,6 @@ Customer / buyer entity.
 | `credit_days` | int(11) | NO | Net days payment terms |
 | `comment` | varchar(1024) | YES | Notes |
 | `price_list` | int(11) | NO | FK → `price_list` — assigned price tier |
-| `shipping` | tinyint(1) | NO | Whether deliveries are enabled |
-| `shipping_required_document` | tinyint(1) | NO | Require delivery document |
 | `salesperson` | int(11) | YES | FK → `employee` — assigned sales rep |
 | `status` | smallint(6) | NO | `EntityStatus` — `0` active, `1` inactive, `2` archived |
 | `creator` | int(11) | YES | FK → `employee` |

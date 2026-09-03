@@ -153,8 +153,6 @@ class TestAttachLinks:
             credit_limit=0,
             credit_days=0,
             price_list=1,
-            shipping=False,
-            shipping_required_document=False,
             salesperson=None,
             status=0,
             comment=None,

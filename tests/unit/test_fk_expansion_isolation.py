@@ -267,8 +267,6 @@ async def test_customer_expansion_leaves_mapped_fks_intact() -> None:
         credit_limit=Decimal('0'),
         credit_days=0,
         price_list=5,
-        shipping=False,
-        shipping_required_document=False,
         salesperson=1,
         status=EntityStatus.ACTIVE,
         comment=None,
