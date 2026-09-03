@@ -92,6 +92,18 @@ configurable per deployment, matching how `default_customer_id` is already handl
 **Alternatives considered**: a `cost` column on `product` (does not exist); failing the line add
 when no cost row exists (would make a product unsellable because of a missing *reporting* figure).
 
+**Superseded in part by #194**: the id is now the constant `COST_PRICE_LIST_ID`, not a setting.
+This decision's *rationale* was half right and half wrong. Naming the id rather than open-coding
+`0` was the point and still is. "A setting makes it configurable per deployment" was not: the
+monolith computes those averages and writes them to that id, so a deployment pointing the API
+elsewhere does not reconfigure anything — every line silently snapshots `cost` from a sale list
+and every margin booked after is wrong with nothing marking when it started. A setting whose only
+correct value is fixed by another application is configuration in name only. `default_customer_id`,
+the comparison drawn here, is genuinely a deployment's choice; this was never that.
+
+The rest of R3 stands unchanged: cost still resolves through the price list, and a missing row
+still records zero rather than failing the line add.
+
 ---
 
 ## R4 — Available stock (FR-018)
@@ -171,7 +183,7 @@ defaults:
 | `default_quotation_due_days` | `30` | `WebConfig.DefaultQuotationDueDays` |
 | `max_days_to_deliver_stockables` | `7` | `WebConfig.MaxDaysToDeliverStockables` |
 | `price_validation_in_range_required` | `True` | `WebConfig.PriceValidationInRangeRequired` |
-| `cost_price_list_id` | `0` | the "cost price list, id=0" convention (R3) |
+| `cost_price_list_id` | `0` | the "cost price list, id=0" convention (R3). **Superseded by #194:** now the constant `COST_PRICE_LIST_ID`, not a setting |
 
 `default_customer_id` already exists and is reused unchanged.
 
@@ -227,7 +239,7 @@ Every `NEEDS CLARIFICATION` from Technical Context is closed:
 |---|---|
 | Folio uniqueness mechanism | R1 — facility row lock |
 | Refund race prevention | R2 — source order row lock |
-| Source of line cost | R3 — `cost_price_list_id` setting |
+| Source of line cost | R3 — `COST_PRICE_LIST_ID` (a setting until #194) |
 | Stock balance source | R4 — `lot_serial_tracking` aggregate |
 | Rounding rules | R5 — quantize once at document level |
 | Transaction granularity | R6 — one commit per transition |

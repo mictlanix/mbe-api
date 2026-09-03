@@ -224,6 +224,31 @@ calling `GET /api/v1/products` and confirming the same shape appears on every li
 
 - **FR-010**: System MUST expose `GET /api/v1/customers` returning a paginated list searchable by `code`, `name`, `zone`; filterable by `disabled`, `price_list` (price list ID), and `salesperson` (employee ID).
 - **FR-011**: System MUST expose `POST`, `GET /{id}`, `PUT /{id}`, `DELETE /{id}` for customers.
+- **FR-011a**: `code` MUST be optional on create. Omitted **or blank**, the system MUST generate a
+  unique code and store it; the column stays `NOT NULL` and the response MUST carry a real code.
+  `PUT` is unchanged — there is no way back to a generated code. Added by #197, #198.
+
+  > **Uniqueness is not added to hand-entered codes.** `customer.code` carries no index at all, and
+  > of 10,933 rows in mbe_dev, 1,634 are duplicates — `HUEHUETOCA` on 34 customers, `MUNICIPIO` on
+  > 30. Enforcing uniqueness would mean de-duplicating those first, a data decision nobody has
+  > made, and would turn a working `POST` into a 409 for anyone still typing them. The generated
+  > value is instead unique *by construction*: `CUS-` plus eight characters, no lookup and no
+  > retry, which is also why a collision check would be theatre — the race it would close has no
+  > index behind it, and its outcome is a duplicate the table already tolerates 1,634 of.
+  >
+  > **Blank counts as omitted** because that is how a client expresses it: a cleared form field
+  > arrives as `""`, and refusing it would leave the placeholder-typing this requirement exists to
+  > end. The prefix matches neither live convention — 1,292 bare integers and 1,281 `ID<digits>`,
+  > both shapes a human still types — so a generated code stays recognisable afterwards.
+- **FR-011b**: `shipping` and `shipping_required_document` MUST NOT appear on the customer
+  resource. Removed by #199, with the columns dropped by mictlanix/mbe#40.
+
+  > Retired outright rather than hidden client-side: nothing in this API ever read them — written
+  > on create, echoed back, gating nothing. They shipped in two halves because both columns were
+  > `NOT NULL` with no default under `STRICT_TRANS_TABLES`, so unmapping them before the monolith
+  > dropped the columns would have failed every insert with error 1364; unmapping them *after* was
+  > equally required, since a mapped column that no longer exists makes every customer read error
+  > 1054. The window between the two is the only state in which both halves are wrong.
 - **FR-012**: The system-default customer (id from config) MUST NOT be deletable; the delete endpoint MUST return `409 Conflict`.
 
 **Labels (`/api/v1/labels`)**

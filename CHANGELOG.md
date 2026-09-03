@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Fixed
+- **Spec artifacts reconciled with the five issues that shipped against them** (#194–#199). The contract pseudo-schemas are test-enforced and were updated with each PR; `spec.md`, `research.md`, `data-model.md` and the quickstarts are unchecked prose and had drifted — in one place into instructions that no longer work
+- **`specs/015`'s quickstart walked the reader into three 404s and a 400.** Its retirement steps were written against price list 0; #194 made the cost list absent from `/price-lists` on every verb and refuses it as a `replacement`. The note now says so and points the walkthrough at another list. Its `is not None` observation still stands and is called out as still standing — 0 is refused for *being the cost list*, never for being falsy
+- **`specs/011` R3's rationale was half wrong and is marked so.** Naming the cost list id rather than open-coding `0` was the point and still is; "a setting makes it configurable per deployment" was never true, since the monolith fixes the value — which is why #194 made it a constant. The `default_customer_id` comparison R3 drew is genuinely a deployment's choice; this was not
+- **New sub-requirements** for what had no requirement covering it: FR-011a/b on `specs/002` (generated customer code, retired shipping flags), FR-011c and FR-030a on `specs/011` (the salesperson and repricing rules on a customer change — #131's repricing was never written down at all), and FR-005a on `specs/004` (cost is read-only on `/product-prices`)
+- `tasks.md` is left alone in both features. It records what was done at the time, which is still accurate; the correction belongs in `research.md`, which is where R3 now carries it
+
 ### Removed
 - **The `shipping` and `shipping_required_document` columns are unmapped** (#199, mictlanix/mbe#40). The monolith dropped them from the deployment, and this is the repository's description of the schema catching up — the same shape as spec 016's seven table drops, and **no migration is added here** for the same reason: the application that owns those columns applied the change
 - **This was a live 500, not a tidy-up.** SQLAlchemy projects every mapped column, so with the columns gone and the model still naming them, `SELECT customer.shipping` was error 1054 — every customer read and write failed. Exactly #154, and exactly what the integration layer cannot catch, since it builds its schema from the models: there the column existed and the suite stayed green. Verified by querying `mbe_dev` through the app's own session, before and after

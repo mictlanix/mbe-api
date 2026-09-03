@@ -279,7 +279,7 @@ Body: `CustomerCreate`
 
 ```
 CustomerCreate:
-  code: str
+  code: str | null   # omitted or blank -> server generates `CUS-<token>`
   name: str
   zone: str | null
   credit_limit: Decimal
