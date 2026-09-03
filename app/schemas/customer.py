@@ -43,7 +43,9 @@ class TaxpayerRecipientResponse(BaseModel):
 
 
 class CustomerCreate(BaseModel):
-    code: str
+    #: Omitted or blank means "generate one" (#197). The column stays NOT NULL and the response
+    #: carries a real code; `CustomerUpdate.code` is unchanged, so there is no way back.
+    code: str | None = Field(default=None, max_length=25)
     name: str
     zone: str | None = None
     credit_limit: Decimal = Decimal('0')
@@ -63,10 +65,10 @@ class CustomerCreate(BaseModel):
 
     @field_validator('code')
     @classmethod
-    def validate_code(cls, v: str) -> str:
-        if not v.strip():
-            raise ValueError('Code must not be blank')
-        return v
+    def validate_code(cls, v: str | None) -> str | None:
+        # Blank collapses to `None` rather than raising: an empty form field and an omitted one
+        # are the same intent, and an empty input is how a client expresses it (#198).
+        return v if v is not None and v.strip() else None
 
 
 class CustomerUpdate(BaseModel):

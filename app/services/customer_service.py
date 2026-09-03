@@ -18,6 +18,7 @@ from app.schemas.customer import CustomerCreate, CustomerUpdate
 from app.services import taxpayer_recipient_service
 from app.services.price_list_service import COST_LIST_NOT_ASSIGNABLE, assert_not_cost_list
 from app.services.references import assert_not_referenced
+from app.utils.codes import CUSTOMER_PREFIX, generate_code
 
 
 async def _attach_customer_relations(db: AsyncSession, customers: Sequence[Customer]) -> None:
@@ -212,7 +213,7 @@ async def get_customer(db: AsyncSession, customer_id: int) -> Customer | None:
 async def create_customer(db: AsyncSession, data: CustomerCreate) -> Customer:
     assert_not_cost_list(data.price_list, detail=COST_LIST_NOT_ASSIGNABLE)
     customer = Customer(
-        code=data.code,
+        code=data.code if data.code is not None else generate_code(CUSTOMER_PREFIX),
         name=data.name,
         zone=data.zone,
         credit_limit=data.credit_limit,
