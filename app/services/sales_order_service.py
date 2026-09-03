@@ -646,21 +646,13 @@ async def update_order(
     if 'customer' in changes and changes['customer'] is not None:
         customer = await _customer_or_404(db, changes['customer'])
         moved = customer.customer_id != order.customer
-        # Read before the write below, which is what makes the outgoing customer unrecoverable.
-        outgoing = order.customer
+        outgoing = order.customer  # read before the write below loses it
         order.customer = customer.customer_id
         if moved:
-            # Two conditions, deliberately not one (#196). The rep follows the *customer*: as at
-            # create, and regardless of price list, because who owns the sale is not a pricing
-            # question. Only when the new customer has one — `customer.salesperson` is null for
-            # 8,034 of 10,933, and `sales_order.salesperson` is NOT NULL with an owner already in
-            # it (#195). An explicit `salesperson` in the same request wins, applied below.
-            if customer.salesperson is not None:
+            # Two conditions, not one: the rep follows the customer (#195), prices follow the
+            # list (#196). Gating both on the id rewrote same-list moves — 98.6% of them.
+            if customer.salesperson is not None:  # nullable there, NOT NULL here
                 order.salesperson = customer.salesperson
-            # Repricing follows the *price list*. Gating it on the customer id, as #131 did,
-            # rewrote every line from the list they already came from on a same-list move —
-            # 98.6% of customer changes in mbe_dev, where it is a no-op on listed prices and
-            # silent data loss on hand-typed ones. One extra fetch, on this path only.
             previous = await _customer_or_404(db, outgoing)
             if customer.price_list != previous.price_list:
                 await _reprice_lines(db, order, customer)
@@ -680,9 +672,8 @@ async def update_order(
                   'customer_name', 'comment'):
         if field in changes:
             setattr(order, field, changes[field])
-    # Out of the loop above, and last, so it beats the customer-derived value (#195). Tested for
-    # `is not None` rather than presence because the column is NOT NULL: the loop would have
-    # written a sent `null` straight into it and failed the commit with error 1048.
+    # Last, so an explicit value beats the customer's; `is not None` because the column is NOT
+    # NULL and the loop above would have written a sent `null` into it (#195).
     if changes.get('salesperson') is not None:
         order.salesperson = changes['salesperson']
     if 'fulfillment_intent' in changes:
@@ -709,9 +700,8 @@ async def _reprice_lines(db: AsyncSession, order: SalesOrder, customer: Customer
     distinguishing a hand-entered price from a listed one, so "preserve the override" could only
     ever have been a guess at what the previous list would have charged.
 
-    That argument holds only where the list genuinely differs, which is why #196 narrowed the
-    trigger from the customer id to the price list. On a same-list move there is nothing to guess
-    at: the old override and the new listed price come from one list, so rewriting was pure loss.
+    That holds only where the list differs, which is why #196 narrowed the trigger from the
+    customer id to the price list: within one list there was never anything to guess at.
 
     Two things are deliberately left alone. `tax_rate` follows the product, not the customer, so a
     customer change has no bearing on it — a per-line override (#135) is the caller's to set and
@@ -720,9 +710,8 @@ async def _reprice_lines(db: AsyncSession, order: SalesOrder, customer: Customer
     A product with no row on the new list prices at zero, exactly as `add_line` would for that
     customer; confirmation's zero-price gate is what catches it rather than a failure here.
 
-    Only ever called when the customer actually moved *and* the two customers' price lists differ
-    — repricing is a response to a change in the list, and neither a `PUT` echoing back the
-    customer already on the order nor a move within one list has made one.
+    Only ever called when the customer moved *and* the two price lists differ; neither a `PUT`
+    echoing back the current customer nor a move within one list is a change in the list.
     """
     lines = (
         (

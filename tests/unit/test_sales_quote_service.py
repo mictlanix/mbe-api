@@ -104,12 +104,7 @@ class TestAssertConvertible:
 
 
 class TestTheSalespersonFollowsTheCustomer:
-    """#195 — `update_quote` had the same shape and the same gap as `update_order`.
-
-    One difference in the implementation: the order side gets its "did the customer actually
-    move" flag from repricing, and the quote side does not reprice, so it computes the flag for
-    this rule alone.
-    """
+    """#195 — `update_quote` had the same shape and the same gap as `update_order`."""
 
     @staticmethod
     async def _update(

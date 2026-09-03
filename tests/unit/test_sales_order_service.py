@@ -389,13 +389,8 @@ class TestCustomerChangeGuard:
         customer_salesperson: int | None = None,
         sent: SalesOrderUpdate | None = None,
     ) -> tuple[AsyncMock, SimpleNamespace]:
-        """Run one `PUT`, returning the repricing mock and the order it mutated.
-
-        `_customer_or_404` resolves *by id* rather than returning one fixed row: since #196 the
-        customer-change path fetches two customers — the incoming one, and the outgoing one whose
-        price list it compares against. A single-return mock makes both look identical, which is
-        the one shape that cannot tell a same-list move from a cross-list one.
-        """
+        """Resolves `_customer_or_404` by id: since #196 two customers are fetched, and a
+        single-return mock makes both look identical — blind to this whole bug."""
         order = SimpleNamespace(
             sales_order_id=1,
             customer=from_customer,
@@ -446,29 +441,24 @@ class TestCustomerChangeGuard:
 
     @pytest.mark.asyncio
     async def test_a_move_within_one_price_list_does_not(self) -> None:
-        """#196 — the bug. #131 gated repricing on the customer id, so a move between two
-        customers on one list rewrote every line from the list they already came from: a no-op on
-        listed prices, and silent loss of any price a salesperson typed in. 98.6% of customer
-        changes in mbe_dev are Mostrador to Mostrador."""
+        """#196 — the bug: a same-list move rewrote prices from the list they came from, losing
+        any hand-typed one. 98.6% of customer changes in mbe_dev are Mostrador to Mostrador."""
         reprice, _ = await self._update(from_customer=2, to_customer=5, from_list=1, to_list=1)
 
         assert reprice.await_count == 0
 
     @pytest.mark.asyncio
     async def test_a_move_across_price_lists_still_does(self) -> None:
-        """What #131 was actually written for, and under 3% of customer changes. Without this,
-        never repricing would pass every other test here."""
+        """What #131 was for. Without it, never repricing would pass every other test here."""
         reprice, _ = await self._update(from_customer=2, to_customer=5, from_list=1, to_list=3)
 
         assert reprice.await_count == 1
 
 
 class TestTheSalespersonFollowsTheCustomer:
-    """#195 — prices followed a customer change and the rep did not, so an order moved from A to
-    B priced as B and commissioned as A's rep.
+    """#195 — an order moved from A to B priced as B and commissioned as A's rep.
 
-    The branch that matters is the new customer having *no* rep: `customer.salesperson` is null
-    for 8,034 of 10,933 customers, so it is the common case, not an edge one.
+    The branch that matters is the new customer having no rep: null for 8,034 of 10,933.
     """
 
     _update = staticmethod(TestCustomerChangeGuard._update)
@@ -483,8 +473,7 @@ class TestTheSalespersonFollowsTheCustomer:
 
     @pytest.mark.asyncio
     async def test_a_customer_without_one_leaves_the_order_alone(self) -> None:
-        """Decision A. A move to an unassigned customer is not information about who owns the
-        sale, and `sales_order.salesperson` is NOT NULL with an owner already in it."""
+        """Decision A: an unassigned customer says nothing about who owns the sale."""
         _, order = await self._update(
             from_customer=2, to_customer=5, order_salesperson=4, customer_salesperson=None
         )
@@ -506,8 +495,7 @@ class TestTheSalespersonFollowsTheCustomer:
 
     @pytest.mark.asyncio
     async def test_resending_the_same_customer_does_not_re_derive_it(self) -> None:
-        """A `PUT` that has not moved the customer must not overwrite a deliberate assignment
-        with that customer's default — the same reason repricing is gated on the flag."""
+        """A `PUT` that has not moved the customer must not overwrite a deliberate rep."""
         _, order = await self._update(
             from_customer=2, to_customer=2, order_salesperson=4, customer_salesperson=9
         )
@@ -516,9 +504,8 @@ class TestTheSalespersonFollowsTheCustomer:
 
     @pytest.mark.asyncio
     async def test_it_follows_a_same_list_customer_too(self) -> None:
-        """The two rules are gated separately (#196). Who owns a sale is not a pricing question,
-        so the rep follows the customer even where nothing reprices — reusing one flag for both,
-        as an earlier draft did, would have silently made this stop working."""
+        """Two flags, not one (#196): who owns a sale is not a pricing question, so the rep
+        follows the customer even where nothing reprices."""
         reprice, order = await self._update(
             from_customer=2,
             to_customer=5,
@@ -533,8 +520,7 @@ class TestTheSalespersonFollowsTheCustomer:
 
     @pytest.mark.asyncio
     async def test_a_sent_null_is_ignored_rather_than_written(self) -> None:
-        """The column is NOT NULL. The flat loop this came out of tested presence, so a sent
-        `null` went straight in and failed the commit with error 1048."""
+        """The column is NOT NULL; the flat loop tested presence, so `null` went straight in."""
         _, order = await self._update(
             from_customer=2,
             to_customer=2,

@@ -273,11 +273,8 @@ async def update_quote(
         customer = await _customer_or_404(db, changes['customer'])
         moved = customer.customer_id != quote.customer
         quote.customer = customer.customer_id
-        # #195 — same rule as `update_order`, and `moved` is computed here for the same reason
-        # that one computes it: a `PUT` echoing back the customer already on the document has not
-        # changed it, and re-deriving the rep would overwrite a deliberate assignment with the
-        # customer's default. The order side gets the flag from repricing; the quote side does not
-        # reprice, so this is its only use.
+        # Same rule as `update_order` (#195). `moved` matters because re-deriving on a `PUT`
+        # that has not moved the customer would overwrite a deliberate assignment.
         if moved and customer.salesperson is not None:
             quote.salesperson = customer.salesperson
     if 'payment_terms' in changes and changes['payment_terms'] is not None:
