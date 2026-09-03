@@ -161,3 +161,51 @@ async def test_the_generated_code_is_persisted_not_just_echoed(
 
     assert read_back.status_code == 200, read_back.text
     assert read_back.json()['code'] == created.json()['code']
+
+
+# ── The retired shipping flags (#199) ─────────────────────────────────────────
+
+
+async def test_the_shipping_flags_are_gone_from_the_api(client: AsyncClient, seeded: None) -> None:
+    """Retired outright, not hidden client-side."""
+    read = await client.get('/api/v1/customers/1')
+
+    assert read.status_code == 200, read.text
+    assert 'shipping' not in read.json()
+    assert 'shipping_required_document' not in read.json()
+
+
+async def test_sending_them_is_ignored_rather_than_refused(
+    client: AsyncClient, seeded: None
+) -> None:
+    """A client that has not regenerated yet is not broken by this; the fields are extra, and the
+    request schemas do not forbid extras."""
+    created = await client.post(
+        '/api/v1/customers',
+        json={
+            'code': 'C-SHIP',
+            'name': 'Con Envio',
+            'price_list': 1,
+            'shipping': True,
+            'shipping_required_document': True,
+        },
+    )
+
+    assert created.status_code == 201, created.text
+    assert 'shipping' not in created.json()
+
+
+async def test_a_created_customer_still_satisfies_the_not_null_columns(
+    client: AsyncClient, db: AsyncSession, seeded: None
+) -> None:
+    """The columns are still there, `NOT NULL` with no default, so an insert that omitted them
+    would fail with error 1364. They are written as 0 until mictlanix/mbe#40 drops them."""
+    created = await client.post(
+        '/api/v1/customers', json={'code': 'C-NN', 'name': 'No Nulo', 'price_list': 1}
+    )
+    assert created.status_code == 201, created.text
+
+    row = await db.get(Customer, created.json()['customer_id'])
+
+    assert row is not None
+    assert (row.shipping, row.shipping_required_document) == (False, False)

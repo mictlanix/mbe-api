@@ -219,8 +219,11 @@ async def create_customer(db: AsyncSession, data: CustomerCreate) -> Customer:
         credit_limit=data.credit_limit,
         credit_days=data.credit_days,
         price_list=data.price_list,
-        shipping=data.shipping,
-        shipping_required_document=data.shipping_required_document,
+        # Retired from the API (#199) but still `NOT NULL` with no default, so an insert that
+        # omitted them would fail with error 1364 under STRICT_TRANS_TABLES. Written as 0 until
+        # the monolith drops the columns — mictlanix/mbe#40.
+        shipping=False,
+        shipping_required_document=False,
         salesperson=data.salesperson,
         comment=data.comment,
         status=data.status,
@@ -255,10 +258,6 @@ async def update_customer(db: AsyncSession, customer: Customer, data: CustomerUp
     if data.price_list is not None:
         assert_not_cost_list(data.price_list, detail=COST_LIST_NOT_ASSIGNABLE)
         customer.price_list = data.price_list
-    if data.shipping is not None:
-        customer.shipping = data.shipping
-    if data.shipping_required_document is not None:
-        customer.shipping_required_document = data.shipping_required_document
     if data.salesperson is not None:
         customer.salesperson = data.salesperson
     if data.status is not None:

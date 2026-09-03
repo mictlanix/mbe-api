@@ -285,8 +285,6 @@ CustomerCreate:
   credit_limit: Decimal
   credit_days: int
   price_list: int
-  shipping: bool
-  shipping_required_document: bool
   salesperson: int | null
   status: EntityStatus
   comment: str | null
@@ -317,8 +315,6 @@ CustomerResponse:
   credit_limit: Decimal
   credit_days: int
   price_list: PriceListResponse            # expanded per FR-039
-  shipping: bool
-  shipping_required_document: bool
   salesperson: EmployeeResponse | null     # expanded per FR-039
   status: EntityStatus
   comment: str | null
