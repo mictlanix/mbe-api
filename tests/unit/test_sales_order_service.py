@@ -383,10 +383,19 @@ class TestCustomerChangeGuard:
         *,
         from_customer: int,
         to_customer: int,
+        from_list: int = 1,
+        to_list: int = 3,
         order_salesperson: int = 4,
         customer_salesperson: int | None = None,
         sent: SalesOrderUpdate | None = None,
     ) -> tuple[AsyncMock, SimpleNamespace]:
+        """Run one `PUT`, returning the repricing mock and the order it mutated.
+
+        `_customer_or_404` resolves *by id* rather than returning one fixed row: since #196 the
+        customer-change path fetches two customers — the incoming one, and the outgoing one whose
+        price list it compares against. A single-return mock makes both look identical, which is
+        the one shape that cannot tell a same-list move from a cross-list one.
+        """
         order = SimpleNamespace(
             sales_order_id=1,
             customer=from_customer,
@@ -398,11 +407,20 @@ class TestCustomerChangeGuard:
             modification_time=None,
         )
         reprice = AsyncMock()
-        incoming = SimpleNamespace(
-            customer_id=to_customer, price_list=3, salesperson=customer_salesperson
-        )
+        customers = {
+            from_customer: SimpleNamespace(
+                customer_id=from_customer, price_list=from_list, salesperson=order_salesperson
+            ),
+            to_customer: SimpleNamespace(
+                customer_id=to_customer, price_list=to_list, salesperson=customer_salesperson
+            ),
+        }
         with (
-            patch.object(sales_order_service, '_customer_or_404', AsyncMock(return_value=incoming)),
+            patch.object(
+                sales_order_service,
+                '_customer_or_404',
+                AsyncMock(side_effect=lambda _db, customer_id: customers[customer_id]),
+            ),
             patch.object(sales_order_service, '_reprice_lines', reprice),
             patch.object(sales_order_service, 'attach_derived', AsyncMock(return_value=order)),
         ):
@@ -425,6 +443,24 @@ class TestCustomerChangeGuard:
         reprice, _ = await self._update(from_customer=2, to_customer=2)
 
         assert reprice.await_count == 0
+
+    @pytest.mark.asyncio
+    async def test_a_move_within_one_price_list_does_not(self) -> None:
+        """#196 — the bug. #131 gated repricing on the customer id, so a move between two
+        customers on one list rewrote every line from the list they already came from: a no-op on
+        listed prices, and silent loss of any price a salesperson typed in. 98.6% of customer
+        changes in mbe_dev are Mostrador to Mostrador."""
+        reprice, _ = await self._update(from_customer=2, to_customer=5, from_list=1, to_list=1)
+
+        assert reprice.await_count == 0
+
+    @pytest.mark.asyncio
+    async def test_a_move_across_price_lists_still_does(self) -> None:
+        """What #131 was actually written for, and under 3% of customer changes. Without this,
+        never repricing would pass every other test here."""
+        reprice, _ = await self._update(from_customer=2, to_customer=5, from_list=1, to_list=3)
+
+        assert reprice.await_count == 1
 
 
 class TestTheSalespersonFollowsTheCustomer:
@@ -477,6 +513,23 @@ class TestTheSalespersonFollowsTheCustomer:
         )
 
         assert order.salesperson == 4
+
+    @pytest.mark.asyncio
+    async def test_it_follows_a_same_list_customer_too(self) -> None:
+        """The two rules are gated separately (#196). Who owns a sale is not a pricing question,
+        so the rep follows the customer even where nothing reprices — reusing one flag for both,
+        as an earlier draft did, would have silently made this stop working."""
+        reprice, order = await self._update(
+            from_customer=2,
+            to_customer=5,
+            from_list=1,
+            to_list=1,
+            order_salesperson=4,
+            customer_salesperson=9,
+        )
+
+        assert order.salesperson == 9
+        assert reprice.await_count == 0
 
     @pytest.mark.asyncio
     async def test_a_sent_null_is_ignored_rather_than_written(self) -> None:
