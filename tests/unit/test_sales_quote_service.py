@@ -6,14 +6,17 @@ different action from confirming a draft.
 """
 
 from datetime import datetime, timedelta
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from fastapi import HTTPException
 
+from app.schemas.sales_quote import SalesQuoteUpdate
+from app.services import documents, sales_quote_service
 from app.services.sales_quote_service import (
     assert_convertible,
     default_due_date,
-    default_salesperson,
     has_expired,
 )
 
@@ -35,11 +38,11 @@ class TestDefaults:
         assert default_due_date(NOW, validity_days=0) == NOW
 
     def test_salesperson_prefers_the_customers_assigned_one(self) -> None:
-        assert default_salesperson(42, 7) == 42
+        assert documents.default_salesperson(42, 7) == 42
 
     def test_salesperson_falls_back_to_the_caller(self) -> None:
         """FR-030 — `customer.salesperson` is nullable, so a fallback is required."""
-        assert default_salesperson(None, 7) == 7
+        assert documents.default_salesperson(None, 7) == 7
 
 
 class TestHasExpired:
@@ -98,3 +101,72 @@ class TestAssertConvertible:
 
         assert_convertible(quote, now=NOW)
         assert_convertible(quote, now=NOW)
+
+
+class TestTheSalespersonFollowsTheCustomer:
+    """#195 — `update_quote` had the same shape and the same gap as `update_order`.
+
+    One difference in the implementation: the order side gets its "did the customer actually
+    move" flag from repricing, and the quote side does not reprice, so it computes the flag for
+    this rule alone.
+    """
+
+    @staticmethod
+    async def _update(
+        *,
+        from_customer: int,
+        to_customer: int,
+        quote_salesperson: int = 4,
+        customer_salesperson: int | None = None,
+        sent: SalesQuoteUpdate | None = None,
+    ) -> SimpleNamespace:
+        quote = SimpleNamespace(
+            sales_quote_id=1,
+            customer=from_customer,
+            salesperson=quote_salesperson,
+            completed=False,
+            cancelled=False,
+            updater=None,
+            modification_time=None,
+        )
+        incoming = SimpleNamespace(customer_id=to_customer, salesperson=customer_salesperson)
+        with (
+            patch.object(sales_quote_service, '_customer_or_404', AsyncMock(return_value=incoming)),
+            patch.object(sales_quote_service, 'attach_derived', AsyncMock(return_value=quote)),
+        ):
+            await sales_quote_service.update_quote(
+                AsyncMock(),
+                quote,
+                sent if sent is not None else SalesQuoteUpdate(customer=to_customer),
+                current=SimpleNamespace(employee_id=7),
+            )
+        return quote
+
+    @pytest.mark.asyncio
+    async def test_it_follows_a_customer_that_has_one(self) -> None:
+        quote = await self._update(from_customer=2, to_customer=5, customer_salesperson=9)
+
+        assert quote.salesperson == 9
+
+    @pytest.mark.asyncio
+    async def test_a_customer_without_one_leaves_the_quote_alone(self) -> None:
+        quote = await self._update(from_customer=2, to_customer=5, customer_salesperson=None)
+
+        assert quote.salesperson == 4
+
+    @pytest.mark.asyncio
+    async def test_an_explicit_salesperson_beats_the_customer(self) -> None:
+        quote = await self._update(
+            from_customer=2,
+            to_customer=5,
+            customer_salesperson=9,
+            sent=SalesQuoteUpdate(customer=5, salesperson=11),
+        )
+
+        assert quote.salesperson == 11
+
+    @pytest.mark.asyncio
+    async def test_resending_the_same_customer_does_not_re_derive_it(self) -> None:
+        quote = await self._update(from_customer=2, to_customer=2, customer_salesperson=9)
+
+        assert quote.salesperson == 4
