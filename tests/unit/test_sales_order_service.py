@@ -130,9 +130,7 @@ class TestStockShortfalls:
 
 class TestAssertCanCancel:
     def test_draft_can_be_cancelled(self) -> None:
-        assert_can_cancel(
-            SimpleNamespace(cancelled=False, paid=False), live_applications=[]
-        )
+        assert_can_cancel(SimpleNamespace(cancelled=False, paid=False), live_applications=[])
 
     def test_completed_unpaid_order_can_be_cancelled(self) -> None:
         assert_can_cancel(SimpleNamespace(cancelled=False, paid=False), live_applications=[])
@@ -295,9 +293,7 @@ class TestRepricingOnACustomerChange:
 
     @staticmethod
     def _line(product: int, price: str, tax_rate: str = '0.16') -> SimpleNamespace:
-        return SimpleNamespace(
-            product=product, price=Decimal(price), tax_rate=Decimal(tax_rate)
-        )
+        return SimpleNamespace(product=product, price=Decimal(price), tax_rate=Decimal(tax_rate))
 
     @pytest.mark.asyncio
     async def test_every_line_takes_the_new_customer_price(self) -> None:
@@ -383,10 +379,18 @@ class TestCustomerChangeGuard:
     """
 
     @staticmethod
-    async def _update(*, from_customer: int, to_customer: int) -> AsyncMock:
+    async def _update(
+        *,
+        from_customer: int,
+        to_customer: int,
+        order_salesperson: int = 4,
+        customer_salesperson: int | None = None,
+        sent: SalesOrderUpdate | None = None,
+    ) -> tuple[AsyncMock, SimpleNamespace]:
         order = SimpleNamespace(
             sales_order_id=1,
             customer=from_customer,
+            salesperson=order_salesperson,
             completed=False,
             cancelled=False,
             date=datetime(2026, 7, 25),
@@ -394,32 +398,98 @@ class TestCustomerChangeGuard:
             modification_time=None,
         )
         reprice = AsyncMock()
-        with patch.object(
-            sales_order_service,
-            '_customer_or_404',
-            AsyncMock(return_value=SimpleNamespace(customer_id=to_customer, price_list=3)),
-        ), patch.object(sales_order_service, '_reprice_lines', reprice), patch.object(
-            sales_order_service, 'attach_derived', AsyncMock(return_value=order)
+        incoming = SimpleNamespace(
+            customer_id=to_customer, price_list=3, salesperson=customer_salesperson
+        )
+        with (
+            patch.object(sales_order_service, '_customer_or_404', AsyncMock(return_value=incoming)),
+            patch.object(sales_order_service, '_reprice_lines', reprice),
+            patch.object(sales_order_service, 'attach_derived', AsyncMock(return_value=order)),
         ):
             await sales_order_service.update_order(
                 AsyncMock(),
                 order,
-                SalesOrderUpdate(customer=to_customer),
+                sent if sent is not None else SalesOrderUpdate(customer=to_customer),
                 current=SimpleNamespace(employee_id=7),
             )
-        return reprice
+        return reprice, order
 
     @pytest.mark.asyncio
     async def test_a_real_customer_change_reprices(self) -> None:
-        reprice = await self._update(from_customer=2, to_customer=5)
+        reprice, _ = await self._update(from_customer=2, to_customer=5)
 
         assert reprice.await_count == 1
 
     @pytest.mark.asyncio
     async def test_resending_the_same_customer_does_not(self) -> None:
-        reprice = await self._update(from_customer=2, to_customer=2)
+        reprice, _ = await self._update(from_customer=2, to_customer=2)
 
         assert reprice.await_count == 0
+
+
+class TestTheSalespersonFollowsTheCustomer:
+    """#195 — prices followed a customer change and the rep did not, so an order moved from A to
+    B priced as B and commissioned as A's rep.
+
+    The branch that matters is the new customer having *no* rep: `customer.salesperson` is null
+    for 8,034 of 10,933 customers, so it is the common case, not an edge one.
+    """
+
+    _update = staticmethod(TestCustomerChangeGuard._update)
+
+    @pytest.mark.asyncio
+    async def test_it_follows_a_customer_that_has_one(self) -> None:
+        _, order = await self._update(
+            from_customer=2, to_customer=5, order_salesperson=4, customer_salesperson=9
+        )
+
+        assert order.salesperson == 9
+
+    @pytest.mark.asyncio
+    async def test_a_customer_without_one_leaves_the_order_alone(self) -> None:
+        """Decision A. A move to an unassigned customer is not information about who owns the
+        sale, and `sales_order.salesperson` is NOT NULL with an owner already in it."""
+        _, order = await self._update(
+            from_customer=2, to_customer=5, order_salesperson=4, customer_salesperson=None
+        )
+
+        assert order.salesperson == 4
+
+    @pytest.mark.asyncio
+    async def test_an_explicit_salesperson_beats_the_customer(self) -> None:
+        """Mirrors create's precedence: `data.salesperson` first."""
+        _, order = await self._update(
+            from_customer=2,
+            to_customer=5,
+            order_salesperson=4,
+            customer_salesperson=9,
+            sent=SalesOrderUpdate(customer=5, salesperson=11),
+        )
+
+        assert order.salesperson == 11
+
+    @pytest.mark.asyncio
+    async def test_resending_the_same_customer_does_not_re_derive_it(self) -> None:
+        """A `PUT` that has not moved the customer must not overwrite a deliberate assignment
+        with that customer's default — the same reason repricing is gated on the flag."""
+        _, order = await self._update(
+            from_customer=2, to_customer=2, order_salesperson=4, customer_salesperson=9
+        )
+
+        assert order.salesperson == 4
+
+    @pytest.mark.asyncio
+    async def test_a_sent_null_is_ignored_rather_than_written(self) -> None:
+        """The column is NOT NULL. The flat loop this came out of tested presence, so a sent
+        `null` went straight in and failed the commit with error 1048."""
+        _, order = await self._update(
+            from_customer=2,
+            to_customer=2,
+            order_salesperson=4,
+            sent=SalesOrderUpdate(customer=2, salesperson=None),
+        )
+
+        assert order.salesperson == 4
 
 
 class TestPerLineTaxRateOverride:

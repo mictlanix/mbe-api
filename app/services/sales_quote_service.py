@@ -66,11 +66,6 @@ def default_due_date(date: datetime, *, validity_days: int) -> datetime:
     return date + timedelta(days=validity_days)
 
 
-def default_salesperson(customer_salesperson: int | None, caller_employee: int) -> int:
-    """FR-030 — the customer's assigned salesperson, falling back to whoever is quoting."""
-    return customer_salesperson if customer_salesperson is not None else caller_employee
-
-
 # ── Derived values ────────────────────────────────────────────────────────────
 
 
@@ -189,7 +184,7 @@ async def create_quote(
         serial=None,
         date=now,
         salesperson=data.salesperson
-        or default_salesperson(customer.salesperson, employee),
+        or documents.default_salesperson(customer.salesperson, employee),
         customer=customer.customer_id,
         payment_terms=int(terms),
         due_date=data.due_date
@@ -276,14 +271,24 @@ async def update_quote(
 
     if 'customer' in changes and changes['customer'] is not None:
         customer = await _customer_or_404(db, changes['customer'])
+        moved = customer.customer_id != quote.customer
         quote.customer = customer.customer_id
+        # #195 — same rule as `update_order`, and `moved` is computed here for the same reason
+        # that one computes it: a `PUT` echoing back the customer already on the document has not
+        # changed it, and re-deriving the rep would overwrite a deliberate assignment with the
+        # customer's default. The order side gets the flag from repricing; the quote side does not
+        # reprice, so this is its only use.
+        if moved and customer.salesperson is not None:
+            quote.salesperson = customer.salesperson
     if 'payment_terms' in changes and changes['payment_terms'] is not None:
         quote.payment_terms = int(PaymentTerms(changes['payment_terms']))
     if 'currency' in changes and changes['currency'] is not None:
         quote.currency = CurrencyCode(changes['currency'])
-    for field in ('salesperson', 'due_date', 'contact', 'ship_to', 'comment'):
+    for field in ('due_date', 'contact', 'ship_to', 'comment'):
         if field in changes:
             setattr(quote, field, changes[field])
+    if changes.get('salesperson') is not None:
+        quote.salesperson = changes['salesperson']
 
     quote.updater = employee
     quote.modification_time = datetime.now()

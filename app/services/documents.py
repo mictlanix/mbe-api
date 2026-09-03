@@ -1,4 +1,4 @@
-"""Mechanics shared by every sales document: folio assignment and the editability guard.
+"""Mechanics shared by every sales document: folio assignment, editability, the salesperson.
 
 Sales orders, quotes and refunds all number themselves per facility and all freeze on completion.
 Writing that three times would risk three subtly different behaviours; folio assignment in
@@ -56,3 +56,17 @@ def assert_editable(document: object) -> None:
             status_code=status.HTTP_409_CONFLICT,
             detail='Document is completed and can no longer be edited',
         )
+
+
+def default_salesperson(customer_salesperson: int | None, caller_employee: int) -> int:
+    """FR-030 — the customer's assigned salesperson, falling back to whoever is selling.
+
+    Shared rather than written twice (#195): `create_order` expressed the same rule as
+    `data.salesperson or customer.salesperson or employee`, which differs from this only for
+    employee id 0. No such employee exists, so nothing was wrong — but two spellings of one rule
+    is what this module exists to prevent, and only one of them says what it means.
+
+    Not used on update. A customer change there resolves the rep against the *order*, which
+    already has one, so there is nothing to fall back to — see `update_order`.
+    """
+    return customer_salesperson if customer_salesperson is not None else caller_employee

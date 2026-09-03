@@ -495,7 +495,8 @@ async def create_order(
         facility=facility,
         serial=None,
         point_sale=point_sale,
-        salesperson=data.salesperson or customer.salesperson or employee,
+        salesperson=data.salesperson
+        or documents.default_salesperson(customer.salesperson, employee),
         customer=customer.customer_id,
         customer_name=data.customer_name,
         sales_quote=None,
@@ -648,6 +649,13 @@ async def update_order(
         order.customer = customer.customer_id
         if repriced:
             await _reprice_lines(db, order, customer)
+            # #195 — the rep follows the customer, as it does at create. Only when the new
+            # customer has one: `customer.salesperson` is nullable and 8,034 of 10,933 are null,
+            # so the common case is a move that says nothing about who owns the sale, and
+            # `sales_order.salesperson` is NOT NULL with an owner already in it. An explicit
+            # `salesperson` in the same request still wins — applied below, after this.
+            if customer.salesperson is not None:
+                order.salesperson = customer.salesperson
     if 'payment_terms' in changes and changes['payment_terms'] is not None:
         terms = PaymentTerms(changes['payment_terms'])
         customer = await _customer_or_404(db, order.customer)
@@ -660,10 +668,15 @@ async def update_order(
     if 'currency' in changes and changes['currency'] is not None:
         await _change_currency(db, order, CurrencyCode(changes['currency']))
 
-    for field in ('salesperson', 'promise_date', 'contact', 'ship_to', 'recipient',
+    for field in ('promise_date', 'contact', 'ship_to', 'recipient',
                   'customer_name', 'comment'):
         if field in changes:
             setattr(order, field, changes[field])
+    # Out of the loop above, and last, so it beats the customer-derived value (#195). Tested for
+    # `is not None` rather than presence because the column is NOT NULL: the loop would have
+    # written a sent `null` straight into it and failed the commit with error 1048.
+    if changes.get('salesperson') is not None:
+        order.salesperson = changes['salesperson']
     if 'fulfillment_intent' in changes:
         # `int()` rather than the enum member, matching `priority` below: the column is a plain
         # SmallInteger and storing the member would leave the attribute an enum on this instance
