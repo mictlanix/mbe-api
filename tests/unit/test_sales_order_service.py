@@ -271,6 +271,108 @@ class TestProductLookupReportsWhatCanBeSold:
         assert 'await stock_ledger.on_hand(' not in source
 
 
+class TestAScanThatMissesFallsThroughToASearch:
+    """#208 — a 13-digit numeric `code` was unfindable unless `bar_code` repeated it.
+
+    The scan heuristic is sound for the device and wrong as a verdict: a catalog migrated with its
+    EAN in `code` has exactly that shape. In mbe_dev **3,612 of 21,585 salable products carry a
+    13-digit numeric `code` with no matching `bar_code`**, and only **43 products have a `bar_code`
+    at all** — so the branch that was meant to be the fast path answered "no such product" for
+    thousands of products that are present, salable and priced.
+    """
+
+    @staticmethod
+    def _db(*batches: list) -> AsyncMock:
+        db = AsyncMock()
+        db.execute = AsyncMock(
+            side_effect=[
+                SimpleNamespace(scalars=lambda rows=rows: SimpleNamespace(all=lambda: rows))
+                for rows in batches
+            ]
+        )
+        return db
+
+    @staticmethod
+    def _sql(db: AsyncMock, call: int) -> str:
+        return str(db.execute.await_args_list[call].args[0]).lower()
+
+    @pytest.mark.asyncio
+    async def test_a_scan_that_hits_still_resolves_in_one_query(self) -> None:
+        """The fast path is unchanged: a real barcode costs exactly what it always did."""
+        db = self._db([SimpleNamespace(product_id=1)])
+
+        found = await sales_order_service._find_salable(db, pattern='7501234567890', limit=20)
+
+        assert [p.product_id for p in found] == [1]
+        assert db.execute.await_count == 1
+        assert 'product.bar_code =' in self._sql(db, 0)
+
+    @pytest.mark.asyncio
+    async def test_a_scan_that_misses_searches_the_ordinary_columns(self) -> None:
+        db = self._db([], [SimpleNamespace(product_id=9)])
+
+        found = await sales_order_service._find_salable(db, pattern='0294070404530', limit=20)
+
+        assert [p.product_id for p in found] == [9]
+        assert db.execute.await_count == 2
+        assert 'product.bar_code =' in self._sql(db, 0)
+        for column in ('name', 'code', 'sku', 'brand', 'model'):
+            assert f'lower(product.{column}) like' in self._sql(db, 1)
+
+    @pytest.mark.asyncio
+    async def test_the_fallback_matches_on_the_pattern_itself(self) -> None:
+        db = self._db([], [])
+
+        await sales_order_service._find_salable(db, pattern='0294070404530', limit=20)
+
+        params = db.execute.await_args_list[1].args[0].compile().params
+        assert '%0294070404530%' in params.values()
+
+    @pytest.mark.asyncio
+    async def test_an_ordinary_pattern_never_probes_bar_code(self) -> None:
+        """Nothing new happens to a search: the scan branch is still what a scan looks like."""
+        db = self._db([SimpleNamespace(product_id=3)])
+
+        await sales_order_service._find_salable(db, pattern='tornillo', limit=20)
+
+        assert db.execute.await_count == 1
+        assert 'product.bar_code =' not in self._sql(db, 0)
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize('pattern', ['750123456789', '75012345678901', '750123456789a'])
+    async def test_only_a_13_digit_numeric_pattern_is_a_scan(self, pattern: str) -> None:
+        db = self._db([])
+
+        await sales_order_service._find_salable(db, pattern=pattern, limit=20)
+
+        assert db.execute.await_count == 1
+        assert 'product.bar_code =' not in self._sql(db, 0)
+
+    @pytest.mark.asyncio
+    async def test_both_paths_honour_the_limit(self) -> None:
+        """The fallback is a second statement, not a second page: it cannot return more."""
+        db = self._db([], [])
+
+        await sales_order_service._find_salable(db, pattern='7501234567890', limit=5)
+
+        for call in (0, 1):
+            assert 'limit' in self._sql(db, call)
+            assert 5 in db.execute.await_args_list[call].args[0].compile().params.values()
+
+    @pytest.mark.asyncio
+    async def test_the_search_is_not_folded_into_the_scan_with_or(self) -> None:
+        """Two statements, deliberately. One `or_` over `bar_code` and the text columns lets free
+        text outrank the scanned row inside `limit`, which is the one case the fast path exists
+        to make certain."""
+        db = self._db([SimpleNamespace(product_id=1)])
+
+        await sales_order_service._find_salable(db, pattern='7501234567890', limit=20)
+
+        scan = self._sql(db, 0)
+        assert 'bar_code' in scan
+        assert 'like' not in scan
+
+
 class TestRepricingOnACustomerChange:
     """#131 — a line tracks whichever customer is on the order, unconditionally.
 

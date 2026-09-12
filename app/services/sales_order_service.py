@@ -987,6 +987,51 @@ async def _stocked_products(db: AsyncSession, product_ids: set[int]) -> set[int]
 BARCODE_LENGTH = 13
 
 
+async def _find_salable(db: AsyncSession, *, pattern: str, limit: int) -> Sequence[Product]:
+    """A barcode scan first, then an ordinary search — and a scan that misses falls through (#208).
+
+    Treating a 13-digit numeric pattern as a scan is right for the device, but it is not a claim
+    that nothing else can look like one. A catalog migrated with its EAN in `code` produces exactly
+    that shape, and matching it against `bar_code` alone returned nothing for a product that is
+    present, salable and priced: in mbe_dev **3,612 of 21,585 salable products have a 13-digit
+    numeric `code` with no matching `bar_code`, and only 43 products carry a `bar_code` at all**.
+
+    So the scan branch stays a fast path rather than a verdict. A real scan still resolves in one
+    query and is unaffected; the fallback only runs where the lookup used to report an empty
+    catalog. It is two statements rather than one `or_` because a search that also matched
+    `bar_code` would let free text outrank the scanned row inside `limit`.
+    """
+    salable = select(Product).where(Product.salable.is_(True))
+
+    if pattern.isdigit() and len(pattern) == BARCODE_LENGTH:
+        scanned = (
+            (await db.execute(salable.where(Product.bar_code == pattern).limit(limit)))
+            .scalars()
+            .all()
+        )
+        if scanned:
+            return scanned
+
+    like = f'%{pattern}%'
+    return (
+        (
+            await db.execute(
+                salable.where(
+                    or_(
+                        Product.name.ilike(like),
+                        Product.code.ilike(like),
+                        Product.sku.ilike(like),
+                        Product.brand.ilike(like),
+                        Product.model.ilike(like),
+                    )
+                ).limit(limit)
+            )
+        )
+        .scalars()
+        .all()
+    )
+
+
 async def lookup_products(
     db: AsyncSession,
     *,
@@ -995,27 +1040,8 @@ async def lookup_products(
     warehouse: int | None = None,
     limit: int = 20,
 ) -> list[dict]:
-    """Find salable products with the customer's price and per-warehouse stock (FR-021).
-
-    A 13-digit numeric pattern is a barcode scan, not a search term.
-    """
-    query = select(Product).where(Product.salable.is_(True))
-
-    if pattern.isdigit() and len(pattern) == BARCODE_LENGTH:
-        query = query.where(Product.bar_code == pattern)
-    else:
-        like = f'%{pattern}%'
-        query = query.where(
-            or_(
-                Product.name.ilike(like),
-                Product.code.ilike(like),
-                Product.sku.ilike(like),
-                Product.brand.ilike(like),
-                Product.model.ilike(like),
-            )
-        )
-
-    products = (await db.execute(query.limit(limit))).scalars().all()
+    """Find salable products with the customer's price and per-warehouse stock (FR-021)."""
+    products = await _find_salable(db, pattern=pattern, limit=limit)
     customer = await _customer_or_404(db, customer_id)
 
     # In-transit locations are ordinary warehouse rows so `on_hand` reports their balances with
