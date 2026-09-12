@@ -9,11 +9,16 @@ old unit test asserted `{'customer': 1, 'taxpayer_recipient': ...}` and passed w
 wrong. Here the insert either matches the schema or it fails.
 """
 
+from datetime import datetime
+from decimal import Decimal
+
 from httpx import AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.enums import CurrencyCode, EntityStatus, PaymentTerms, Priority
 from app.models.customer import Customer, customer_taxpayer
+from app.models.sales import SalesOrder
 from tests.integration.seed import RFC
 
 
@@ -211,3 +216,117 @@ async def test_the_model_no_longer_maps_the_dropped_columns(
     assert row is not None
     assert not hasattr(row, 'shipping')
     assert not hasattr(row, 'shipping_required_document')
+
+
+async def test_a_customer_in_arrears_opens_no_new_order(
+    client: AsyncClient, db: AsyncSession, seeded: None
+) -> None:
+    """#207 — the credit hold applies to the terms the order will carry, derived or requested.
+
+    A customer with a credit line takes NET_D when the caller names no terms, so "create an order
+    for this customer" is refused while they are behind. That is the policy and this is where it is
+    pinned: the alternative — deriving IMMEDIATE so a cash order still goes through — is a
+    different credit policy, and nothing in the request would have to change for it to pass.
+    """
+    overdue = datetime(2020, 1, 1, 10, 0)
+    db.add(
+        Customer(
+            customer_id=2,
+            code='C2',
+            name='Cliente Dos',
+            credit_limit=Decimal('5000'),
+            credit_days=30,
+            price_list=1,
+            status=EntityStatus.ACTIVE,
+        )
+    )
+    await db.flush()
+    db.add(
+        SalesOrder(
+            creator=1,
+            updater=1,
+            creation_time=overdue,
+            modification_time=overdue,
+            facility=1,
+            point_sale=1,
+            salesperson=1,
+            customer=2,
+            date=overdue,
+            promise_date=overdue,
+            due_date=overdue,
+            currency=CurrencyCode.MXN,
+            exchange_rate=Decimal('1'),
+            payment_terms=PaymentTerms.NET_D,
+            priority=Priority.NORMAL,
+            completed=True,
+            cancelled=False,
+            paid=False,
+            delivered=False,
+            serial=99,
+        )
+    )
+    await db.commit()
+
+    refused = await client.post('/api/v1/sales-orders', json={'customer': 2})
+
+    assert refused.status_code == 422, refused.text
+    assert 'credit hold' in refused.json()['detail']
+
+    # The walk-in customer is unaffected: no credit line, so no derived credit terms to hold.
+    assert (await client.post('/api/v1/sales-orders', json={'customer': 1})).status_code == 201
+
+
+async def test_an_unpaid_cash_sale_does_not_put_a_customer_on_credit_hold(
+    client: AsyncClient, db: AsyncSession, seeded: None
+) -> None:
+    """Arrears means overdue *credit* — FR-016's "expired outstanding credit" (#207).
+
+    The count was every completed, unpaid order past its due date, and `derive_due_date` sets
+    `due_date = date` for immediate terms. So an unpaid counter sale was overdue the day after it
+    was rung up and held the customer off every future order, while the message announced "overdue
+    credit order(s)" — naming a credit order the customer did not have. On mbe_dev that is 25 of
+    175 held customers, holding no overdue credit order at all between them.
+    """
+    stale = datetime(2020, 1, 1, 10, 0)
+    db.add(
+        Customer(
+            customer_id=3,
+            code='C3',
+            name='Cliente Tres',
+            credit_limit=Decimal('5000'),
+            credit_days=30,
+            price_list=1,
+            status=EntityStatus.ACTIVE,
+        )
+    )
+    await db.flush()
+    db.add(
+        SalesOrder(
+            creator=1,
+            updater=1,
+            creation_time=stale,
+            modification_time=stale,
+            facility=1,
+            point_sale=1,
+            salesperson=1,
+            customer=3,
+            date=stale,
+            promise_date=stale,
+            # Immediate terms fall due on the order date, so this is "overdue" from day one.
+            due_date=stale,
+            currency=CurrencyCode.MXN,
+            exchange_rate=Decimal('1'),
+            payment_terms=PaymentTerms.IMMEDIATE,
+            priority=Priority.NORMAL,
+            completed=True,
+            cancelled=False,
+            paid=False,
+            delivered=False,
+            serial=98,
+        )
+    )
+    await db.commit()
+
+    created = await client.post('/api/v1/sales-orders', json={'customer': 3})
+
+    assert created.status_code == 201, created.text
