@@ -235,6 +235,11 @@ async def create_from_sales_order(
             status_code=status.HTTP_409_CONFLICT,
             detail='Only a completed, uncancelled sales order can be delivered',
         )
+    # "Paid, or on credit" is a register's rule: at a counter, money precedes handover. It is not
+    # a universal one, and this is where the difference shows — an order taken for delivery on
+    # immediate terms, to be paid on receipt, is refused here for want of a route to payment it
+    # actually has (#211). Expressing that needs a field recording payable-on-delivery, which no
+    # table has, so the setting keeps its meaning and states its assumption instead. Off by default.
     if settings.delivery_order_requires_paid_or_credit_sales_order and not (
         order.paid or order.payment_terms == PaymentTerms.NET_D
     ):
