@@ -41,6 +41,11 @@ class Settings(BaseSettings):
 
     # Delivery defaults (replaces legacy WebConfig values)
     delivery_order_approval_required: bool = False
+    # Refuse a delivery unless the sale is paid or on NET_D terms. The name says what it checks;
+    # what it *assumes* is that money is collected before goods leave, on every channel (#211).
+    # That holds at a register and does not hold for an order taken for delivery on immediate
+    # terms and paid on receipt — ordinary cash-on-delivery, which this refuses outright for every
+    # customer without a credit line. Switching it on disables that workflow; it is off by default.
     delivery_order_requires_paid_or_credit_sales_order: bool = False
     # Minimum lead time between now and a delivery order's scheduled date; 0 disables the check
     min_span_hours_for_deliveries: int = 0

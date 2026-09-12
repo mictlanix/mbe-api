@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Documentation
+- **`DELIVERY_ORDER_REQUIRES_PAID_OR_CREDIT_SALES_ORDER` now states what it assumes** (#211), in `config.py`, `.env.example` and at the gate itself. Its name says what it checks — paid, or on `NET_D` terms — not what it presumes: that money is collected before goods leave, on every channel. That holds at a register and does not hold for an order taken for delivery on immediate terms and paid on receipt, which is ordinary cash-on-delivery and which it refuses outright for every customer without a credit line
+- **No behaviour change; the default is already the safe one.** "Paid, or on credit, **or recorded as payable on delivery**" would express the intent without excluding cash-on-delivery, but nothing records payable-on-delivery and inventing a field for it is a larger decision than this. So the setting keeps its meaning and a deployment considering switching it on can now see what it would switch off
+
 ### Fixed
 - **The expiry sweep no longer cancels orders somebody scheduled** (#210). Its predicates — completed, uncancelled, unpaid, undelivered, holding stock, older than `UNPAID_ORDER_EXPIRY_DAYS` — describe an abandoned order and a *scheduled* one identically. Payment on an order taken for delivery comes on receipt, and `delivered` is set only when every line has actually gone out, so neither planning a delivery nor dispatching one clears it. Two days later the scheduled order matched every rule and was cancelled while it was waiting
 - **An order carrying a live delivery order, or a promise date still ahead, is judged against `SCHEDULED_ORDER_EXPIRY_DAYS` instead** (default 30). A window, not an exemption: once the promise date passes and no delivery order stands, the order is back on the ordinary two-day rule, so a genuinely abandoned delivery — the case the sweep was written for — is still swept, just later. `0` exempts scheduled orders outright, reading the way `UNPAID_ORDER_EXPIRY_DAYS=0` already does
