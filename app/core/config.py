@@ -47,6 +47,11 @@ class Settings(BaseSettings):
     # An order confirmed this many days ago that is still neither paid nor delivered is cancelled
     # by the expiry sweep, releasing the stock it reserved. 0 disables the sweep entirely.
     unpaid_order_expiry_days: int = 2
+    # The same rule, but for an order somebody has *scheduled* — one carrying a live delivery order
+    # or a promise date still in the future. Confirmed, unpaid and undelivered is the resting state
+    # of an order taken for later delivery, so the short window above cancels it while it is
+    # waiting rather than because it was abandoned (#210). 0 exempts scheduled orders entirely.
+    scheduled_order_expiry_days: int = 30
 
     # Directory where uploaded product images are stored
     images_dir: str = 'images'

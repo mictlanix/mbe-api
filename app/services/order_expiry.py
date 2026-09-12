@@ -10,6 +10,11 @@ its date, **and still holding a reservation**, is cancelled — and cancelling r
 reservation through the path that already exists. The stock condition keeps the sweep to its
 purpose; without it, it retires historical orders that hold nothing (see `find_expired`).
 
+Abandonment is what it is aimed at, and patience is not abandonment. An order scheduled for later
+delivery rests in the same state — confirmed, unpaid, undelivered, holding stock — so one that
+carries a live delivery order or a promise date still ahead is judged against the longer
+`scheduled_order_expiry_days` instead (#210).
+
 It deliberately reuses `sales_order_service.cancel_order` rather than deleting
 reservations directly, so an expired order is retired by exactly the same code, and subject to
 exactly the same guards, as one a person cancels.
@@ -24,16 +29,17 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 
 from fastapi import HTTPException
-from sqlalchemy import select
+from sqlalchemy import and_, case, not_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.constants import SYSTEM_EMPLOYEE_ID
 from app.core.deps import CurrentUser
-from app.enums import TransactionType
+from app.enums import DeliveryOrderStatus, TransactionType
 from app.models.core import Employee
 from app.models.inventory import LotSerialRqmt
-from app.models.sales import SalesOrder
+from app.models.logistics import DeliveryOrder, DeliveryOrderDetail
+from app.models.sales import SalesOrder, SalesOrderDetail
 from app.services import sales_order_service
 
 
@@ -54,9 +60,13 @@ class ExpiryReport:
 
 
 async def find_expired(
-    db: AsyncSession, *, days: int, now: datetime | None = None
+    db: AsyncSession,
+    *,
+    days: int,
+    scheduled_days: int,
+    now: datetime | None = None,
 ) -> Sequence[SalesOrder]:
-    """Confirmed orders past the cutoff that are neither paid nor delivered **and hold stock**.
+    """Confirmed orders past their cutoff that are neither paid nor delivered **and hold stock**.
 
     Dated from `sales_order.date` rather than a confirmation timestamp: there is no column
     recording when an order was confirmed, and `modification_time` moves on every subsequent edit,
@@ -70,8 +80,22 @@ async def find_expired(
     rules and not one held a reservation**. That is a mass retirement of historical documents
     releasing nothing at all. The sweep exists to give back stock, so it goes no further than the
     orders actually holding some.
+
+    **Which cutoff** is the second question, and the reason there are two (#210). Confirmed, unpaid
+    and undelivered is not only what abandonment looks like — it is also the resting state of an
+    order taken for later delivery. Payment comes on receipt, and `delivered` is set only when
+    every line has actually been delivered in full, so neither planning a delivery nor dispatching
+    one clears it. Nothing in the predicates above tells the two apart, and against a two-day
+    window the scheduled order loses.
+
+    So an order somebody has scheduled — one carrying a live delivery order, or a promise date
+    still ahead — is judged against `scheduled_days` instead. That is patience, not exemption: once
+    the promise date passes and no delivery order stands, the order is back on the ordinary window.
+    `scheduled_days = 0` exempts scheduled orders outright, the same way `days = 0` disables the
+    sweep, for a deployment that would rather the sweep never touch them.
     """
-    cutoff = (now or datetime.now()) - timedelta(days=days)
+    base = now or datetime.now()
+    cutoff = base - timedelta(days=days)
 
     holds_stock = (
         select(LotSerialRqmt.lot_serial_rqmt_id)
@@ -82,6 +106,32 @@ async def find_expired(
         .exists()
     )
 
+    # A delivery order reaches its sales order through the lines, not through a column: the header
+    # records the customer, and `delivery_order_detail.sales_order_detail` is the only link back.
+    # Cancelled ones say nothing about intent — that shipment was called off — so they do not
+    # count as scheduled.
+    has_live_delivery = (
+        select(DeliveryOrderDetail.delivery_order_detail_id)
+        .join(DeliveryOrder, DeliveryOrder.delivery_order_id == DeliveryOrderDetail.delivery_order)
+        .join(
+            SalesOrderDetail,
+            SalesOrderDetail.sales_order_detail_id == DeliveryOrderDetail.sales_order_detail,
+        )
+        .where(
+            SalesOrderDetail.sales_order == SalesOrder.sales_order_id,
+            DeliveryOrder.status != int(DeliveryOrderStatus.CANCELLED),
+        )
+        .exists()
+    )
+
+    scheduled = or_(SalesOrder.promise_date > base, has_live_delivery)
+    scheduled_cutoff = base - timedelta(days=scheduled_days)
+    past_its_cutoff = (
+        and_(not_(scheduled), SalesOrder.date < cutoff)
+        if scheduled_days <= 0
+        else SalesOrder.date < case((scheduled, scheduled_cutoff), else_=cutoff)
+    )
+
     return (
         (
             await db.execute(
@@ -90,7 +140,7 @@ async def find_expired(
                     SalesOrder.cancelled.is_(False),
                     SalesOrder.paid.is_(False),
                     SalesOrder.delivered.is_(False),
-                    SalesOrder.date < cutoff,
+                    past_its_cutoff,
                     holds_stock,
                 )
             )
@@ -122,6 +172,7 @@ async def expire_unpaid_orders(
     db: AsyncSession,
     *,
     days: int | None = None,
+    scheduled_days: int | None = None,
     employee: int | None = None,
     now: datetime | None = None,
     dry_run: bool = False,
@@ -131,10 +182,13 @@ async def expire_unpaid_orders(
     if days <= 0:
         return ExpiryReport(cancelled=[], skipped=[])
 
+    if scheduled_days is None:
+        scheduled_days = settings.scheduled_order_expiry_days
+
     employee = SYSTEM_EMPLOYEE_ID if employee is None else employee
     await _assert_employee_exists(db, employee)
 
-    orders = await find_expired(db, days=days, now=now)
+    orders = await find_expired(db, days=days, scheduled_days=scheduled_days, now=now)
     if dry_run:
         return ExpiryReport(cancelled=[o.sales_order_id for o in orders], skipped=[])
 

@@ -50,7 +50,7 @@ class TestSelection:
     async def test_filters_on_completed_uncancelled_unpaid_undelivered_and_the_cutoff(self) -> None:
         db = _query_db([])
 
-        await find_expired(db, days=2, now=NOW)
+        await find_expired(db, days=2, scheduled_days=30, now=NOW)
 
         sql = str(db.execute.await_args.args[0]).lower()
         for column in ('completed', 'cancelled', 'paid', 'delivered', 'date'):
@@ -67,7 +67,7 @@ class TestSelection:
         """
         db = _query_db([])
 
-        await find_expired(db, days=2, now=NOW)
+        await find_expired(db, days=2, scheduled_days=30, now=NOW)
 
         sql = str(db.execute.await_args.args[0]).lower()
         assert 'exists' in sql
@@ -77,10 +77,42 @@ class TestSelection:
     async def test_the_cutoff_moves_with_the_window(self) -> None:
         db = _query_db([])
 
-        await find_expired(db, days=5, now=NOW)
+        await find_expired(db, days=5, scheduled_days=30, now=NOW)
         five = db.execute.await_args.args[0].compile().params
 
         assert any(v == NOW - timedelta(days=5) for v in five.values())
+
+    @pytest.mark.asyncio
+    async def test_a_scheduled_order_is_judged_against_its_own_cutoff(self) -> None:
+        """Both windows reach the query, and the scheduling facts that choose between them.
+
+        What each one *selects* is settled against real rows in
+        `tests/integration/test_order_expiry_selection.py`; this only pins that the sweep asks the
+        database about scheduling at all (#210).
+        """
+        db = _query_db([])
+
+        await find_expired(db, days=2, scheduled_days=30, now=NOW)
+
+        statement = db.execute.await_args.args[0]
+        sql = str(statement).lower()
+        assert 'delivery_order' in sql
+        assert 'promise_date' in sql
+
+        params = statement.compile().params
+        assert any(v == NOW - timedelta(days=2) for v in params.values())
+        assert any(v == NOW - timedelta(days=30) for v in params.values())
+
+    @pytest.mark.asyncio
+    async def test_zero_scheduled_days_drops_them_from_the_sweep(self) -> None:
+        """0 reads as "leave them alone", matching `days=0` — not as zero days of patience."""
+        db = _query_db([])
+
+        await find_expired(db, days=2, scheduled_days=0, now=NOW)
+
+        sql = str(db.execute.await_args.args[0]).lower()
+        assert 'not (' in sql
+        assert 'case' not in sql
 
 
 class TestExpiry:
