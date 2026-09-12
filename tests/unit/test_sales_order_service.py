@@ -373,6 +373,75 @@ class TestAScanThatMissesFallsThroughToASearch:
         assert 'like' not in scan
 
 
+class TestTheCreditHold:
+    """#207 — a customer in arrears opens no new order, and that is the policy, not an accident.
+
+    The hold is asserted against the terms the order will actually carry, including the ones the
+    server derives when the caller names none. A customer with a credit line takes NET_D by
+    default, so "create an order for this customer" is refused while they are behind — a hold a
+    caller can step around by omitting a field would not be a hold. Deriving IMMEDIATE instead, so
+    a cash order could still be raised, is a different credit policy rather than a fix.
+
+    Nothing here covered `_assert_credit_allowed` before, which is how the surfacing went unnoticed
+    for as long as it did.
+    """
+
+    @staticmethod
+    def _db(overdue: int) -> AsyncMock:
+        db = AsyncMock()
+        db.execute = AsyncMock(return_value=SimpleNamespace(scalar_one=lambda: overdue))
+        return db
+
+    @staticmethod
+    def _customer(customer_id: int = 7, credit_limit: str | None = '5000') -> SimpleNamespace:
+        return SimpleNamespace(
+            customer_id=customer_id,
+            credit_limit=None if credit_limit is None else Decimal(credit_limit),
+            credit_days=30,
+        )
+
+    @pytest.mark.asyncio
+    async def test_a_customer_in_good_standing_passes(self) -> None:
+        await sales_order_service._assert_credit_allowed(self._db(0), self._customer())
+
+    @pytest.mark.asyncio
+    async def test_an_overdue_order_holds_the_customer(self) -> None:
+        with pytest.raises(HTTPException) as refusal:
+            await sales_order_service._assert_credit_allowed(self._db(3), self._customer())
+
+        assert refusal.value.status_code == 422
+
+    @pytest.mark.asyncio
+    async def test_the_refusal_reads_as_a_hold_and_says_how_many(self) -> None:
+        """It is a credit decision about the customer, not a complaint about the request — which
+        is all the caller could tell from the old wording."""
+        with pytest.raises(HTTPException) as refusal:
+            await sales_order_service._assert_credit_allowed(self._db(3), self._customer())
+
+        assert 'credit hold' in refusal.value.detail
+        assert '3 overdue' in refusal.value.detail
+
+    @pytest.mark.asyncio
+    async def test_a_customer_with_no_credit_line_cannot_take_credit_terms(self) -> None:
+        for limit in (None, '0'):
+            with pytest.raises(HTTPException) as refusal:
+                await sales_order_service._assert_credit_allowed(
+                    self._db(0), self._customer(credit_limit=limit)
+                )
+            assert 'credit limit' in refusal.value.detail
+
+    @pytest.mark.asyncio
+    async def test_the_walk_in_customer_never_buys_on_credit(self) -> None:
+        from app.core.config import settings
+
+        with pytest.raises(HTTPException) as refusal:
+            await sales_order_service._assert_credit_allowed(
+                self._db(0), self._customer(customer_id=settings.default_customer_id)
+            )
+
+        assert 'walk-in' in refusal.value.detail
+
+
 class TestRepricingOnACustomerChange:
     """#131 — a line tracks whichever customer is on the order, unconditionally.
 

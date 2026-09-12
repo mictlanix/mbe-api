@@ -417,7 +417,27 @@ async def _customer_or_404(db: AsyncSession, customer_id: int) -> Customer:
 
 
 async def _assert_credit_allowed(db: AsyncSession, customer: Customer) -> None:
-    """Credit terms need a real credit line and a customer in good standing (FR-016)."""
+    """Credit terms need a real credit line and a customer in good standing (FR-016).
+
+    Deliberately asserted against the *derived* terms too, not only against terms a caller asked
+    for by name (#207). A customer with a credit line takes NET_D by default, so an order raised
+    for one in arrears is refused even though the request said nothing about payment terms — and
+    that refusal is the policy, not an oversight: no new order is opened for a customer who is
+    behind, and a credit hold that a caller can step around by omitting a field is not a hold.
+
+    The alternative considered was deriving IMMEDIATE when credit is not allowed, so a cash order
+    could still be raised for a customer in arrears. That is a different policy, not a bug fix.
+    What was wrong was only how it reads: a hold surfacing as a validation error on order creation.
+    Hence the wording below.
+
+    **Arrears means overdue *credit*.** The count was every completed, unpaid order past its due
+    date, and `derive_due_date` sets `due_date = date` for immediate terms — so an unpaid counter
+    sale was overdue the day after it was rung up and held the customer off every future order,
+    under a message announcing "overdue credit order(s)". FR-016 says "expired outstanding credit",
+    and the monolith's `HasExpiredCredits` filters `Terms == NetD` for the same reason. Measured on
+    mbe_dev, that difference is **25 of 175 held customers** — 72 customers carry 172 overdue
+    immediate-terms rows, and 25 of them have no overdue credit order at all.
+    """
     if customer.customer_id == settings.default_customer_id:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
@@ -436,6 +456,7 @@ async def _assert_credit_allowed(db: AsyncSession, customer: Customer) -> None:
             .select_from(SalesOrder)
             .where(
                 SalesOrder.customer == customer.customer_id,
+                SalesOrder.payment_terms == PaymentTerms.NET_D,
                 SalesOrder.completed.is_(True),
                 SalesOrder.cancelled.is_(False),
                 SalesOrder.paid.is_(False),
@@ -446,7 +467,10 @@ async def _assert_credit_allowed(db: AsyncSession, customer: Customer) -> None:
     if expired:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail=f'Customer has {expired} overdue credit order(s)',
+            detail=(
+                f'Customer is on credit hold: {expired} overdue credit order(s) must be '
+                'settled before a new order can be raised'
+            ),
         )
 
 
@@ -488,6 +512,8 @@ async def create_order(
             and customer.customer_id != settings.default_customer_id
             else PaymentTerms.IMMEDIATE
         )
+    # Outer indentation on purpose: the hold applies to the terms the order will actually carry,
+    # whether the caller named them or the derivation above chose them (#207).
     if terms == PaymentTerms.NET_D:
         await _assert_credit_allowed(db, customer)
 
