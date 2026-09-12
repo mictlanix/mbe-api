@@ -4,6 +4,7 @@ from decimal import Decimal
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.enums import CurrencyCode, PaymentTerms
+from app.schemas import CUSTOMER_DISPLAY_NAME_DESCRIPTION
 from app.schemas.sales_order import DocumentStatus
 
 
@@ -100,6 +101,13 @@ class SalesQuoteSummary(BaseModel):
     sales_quote_id: int
     serial: int | None
     customer: int
+    #: The customer's own name, joined from `customer` (#213). No `customer_name` override exists
+    #: on a quote — the column is not there — so this is a list row's only route to a name, and a
+    #: quote list is browsed by customer more than an order list is. `null` only if the customer
+    #: row is gone. Same field, same wording, as `SalesOrderSummary` and `CustomerPaymentSummary`.
+    customer_display_name: str | None = Field(
+        default=None, description=CUSTOMER_DISPLAY_NAME_DESCRIPTION
+    )
     salesperson: int
     date: datetime
     due_date: datetime

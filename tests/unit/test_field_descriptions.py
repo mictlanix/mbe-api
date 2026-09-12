@@ -29,6 +29,7 @@ SCHEMAS = app.openapi()['components']['schemas']
 DESCRIBED = [
     ('SalesOrderSummary', 'customer_name', 'instead of'),
     ('SalesOrderSummary', 'customer_display_name', "customer's own name"),
+    ('SalesQuoteSummary', 'customer_display_name', "customer's own name"),
     ('OutstandingOrderResponse', 'customer_name', 'instead of'),
     ('OutstandingOrderResponse', 'customer_display_name', "customer's own name"),
     ('SalesOrderCreate', 'fulfillment_intent', 'never recorded'),
