@@ -252,13 +252,31 @@ async def list_quotes(
         both(SalesQuote.cancelled.is_(False))
     elif quote_status == 'cancelled':
         both(SalesQuote.cancelled.is_(True))
-    if search and search.isdigit():
-        both(or_(SalesQuote.sales_quote_id == int(search), SalesQuote.serial == int(search)))
+    if search:
+        if search.isdigit():
+            both(or_(SalesQuote.sales_quote_id == int(search), SalesQuote.serial == int(search)))
+        else:
+            # There was no `else` at all, so a non-numeric term added no clause and the page came
+            # back unfiltered — typing a customer's name returned *every* quote in the facility,
+            # which reads as "these are all their quotes" (#213). A filter that silently widens is
+            # worse than one that finds nothing, which is what #172 fixed on the order list.
+            # Subquery rather than a join, as there: a join would multiply rows and the count query
+            # has to stay countable. No `customer_name` term — a quote has no override column.
+            both(
+                SalesQuote.customer.in_(
+                    select(Customer.customer_id).where(Customer.name.ilike(f'%{search}%'))
+                )
+            )
 
     total: int = (await db.execute(count_q)).scalar_one()
     page = base.order_by(SalesQuote.sales_quote_id.desc()).offset(skip).limit(limit)
     items = (await db.execute(page)).scalars().all()
     await attach_summary_totals(db, items)
+    # The same batched lookup the order list uses, against the same column (#213). The client-side
+    # workaround — one `GET /customers/{id}` per row, deduped per customer — collapses much less
+    # here than on the sales list: 4,968 of 28,664 quotes in mbe_dev are for the walk-in customer,
+    # 17.3%, against 46.4% of sales orders, so a page of quotes is mostly distinct customers.
+    await sales_order_service.attach_customer_names(db, items)
     return items, total
 
 

@@ -25,7 +25,7 @@ from app.enums import CurrencyCode, PaymentTerms
 from app.models.core import ExchangeRate, Warehouse
 from app.models.customer import Customer
 from app.models.product import Product, ProductPrice
-from app.models.sales import SalesOrder, SalesOrderDetail, SalesOrderPayment
+from app.models.sales import SalesOrder, SalesOrderDetail, SalesOrderPayment, SalesQuote
 from app.models.sat_catalog import SatUnitOfMeasurement
 from app.schemas.sales_order import (
     SalesOrderCreate,
@@ -328,8 +328,14 @@ async def attach_summary_totals(db: AsyncSession, orders: Sequence[SalesOrder]) 
         order.__dict__['status'] = _status(order)
 
 
-async def attach_customer_names(db: AsyncSession, orders: Sequence[SalesOrder]) -> None:
-    """Project each order's customer name onto the row, in one query for the whole page (#172).
+async def attach_customer_names(
+    db: AsyncSession, orders: Sequence[SalesOrder] | Sequence[SalesQuote]
+) -> None:
+    """Project each row's customer name onto it, in one query for the whole page (#172).
+
+    Quotes too (#213): the body only reads `.customer` and writes `__dict__`, so the hint is what
+    had to widen, not the code. A quote has no `customer_name` override column to fall back on, so
+    this is the only route to a name on that list.
 
     `SalesOrder.customer_name` is the per-document *override* and is null on every sale that did
     not set one, so a list rendering it shows nothing for ordinary sales. The name a client wants
