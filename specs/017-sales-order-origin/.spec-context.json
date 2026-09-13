@@ -2,8 +2,8 @@
   "workflow": "speckit",
   "specName": "Sales Order Origin",
   "branch": "017-sales-order-origin",
-  "currentStep": "specify",
-  "status": "specified",
+  "currentStep": "plan",
+  "status": "planned",
   "history": [
     {
       "step": "specify",
@@ -11,6 +11,13 @@
       "kind": "start",
       "by": "extension",
       "at": "2026-09-13T08:25:00.706Z"
+    },
+    {
+      "step": "plan",
+      "substep": null,
+      "kind": "start",
+      "by": "extension",
+      "at": "2026-09-13T08:39:53.084Z"
     }
   ],
   "telemetryInstanceId": "6920194e-337c-4fe1-8c55-2541d4a502a9"
