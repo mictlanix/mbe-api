@@ -96,6 +96,8 @@ class TestSearchOutstanding:
         ), patch(
             'app.services.sales_order_service.applied_amount',
             AsyncMock(return_value=Decimal('100.00')),
+        ), patch(
+            'app.services.sales_order_service.refunded_by_order', AsyncMock(return_value={})
         ):
             rows, total = await search_outstanding(db, current=_current())
 
@@ -113,6 +115,8 @@ class TestSearchOutstanding:
         ), patch(
             'app.services.sales_order_service.applied_amount',
             AsyncMock(return_value=Decimal('290.00')),
+        ), patch(
+            'app.services.sales_order_service.refunded_by_order', AsyncMock(return_value={})
         ):
             rows, _ = await search_outstanding(db, current=_current())
 
@@ -174,6 +178,11 @@ class TestTheCustomerNameLookup:
         ), patch(
             'app.services.sales_order_service.applied_amount',
             AsyncMock(return_value=Decimal('0.00')),
+        ), patch(
+            # The refund lookup is real code and would consume a query this fake has not scripted;
+            # what is under test here is the name, not the balance (#223).
+            'app.services.sales_order_service.refunded_by_order',
+            AsyncMock(return_value={}),
         ):
             rows, _ = await search_outstanding(db, current=_current())
 
@@ -189,6 +198,11 @@ class TestTheCustomerNameLookup:
         ), patch(
             'app.services.sales_order_service.applied_amount',
             AsyncMock(return_value=Decimal('0.00')),
+        ), patch(
+            # The refund lookup is real code and would consume a query this fake has not scripted;
+            # what is under test here is the name, not the balance (#223).
+            'app.services.sales_order_service.refunded_by_order',
+            AsyncMock(return_value={}),
         ):
             rows, _ = await search_outstanding(db, current=_current())
 

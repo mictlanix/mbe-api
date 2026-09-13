@@ -557,10 +557,17 @@ async def search_outstanding(
     orders = (await db.execute(page)).scalars().all()
     display_names = await _customer_names(db, orders)
 
+    # Batched, unlike the two reads below it: those are this endpoint's pre-existing shape, and
+    # matching them would add a query per row for a figure one query answers for the page (#223).
+    refunded_by = await sales_order_service.refunded_by_order(
+        db, [order.sales_order_id for order in orders]
+    )
+
     rows: list[dict] = []
     for order in orders:
         order_total = await _order_total(db, order)
         applied = await sales_order_service.applied_amount(db, order.sales_order_id)
+        refunded = refunded_by.get(order.sales_order_id, Decimal(0))
         rows.append(
             {
                 'sales_order_id': order.sales_order_id,
@@ -572,7 +579,8 @@ async def search_outstanding(
                 'due_date': order.due_date,
                 'currency': order.currency,
                 'total': order_total,
-                'balance': totals.remaining(order_total, [applied]),
+                # Returned goods are not owed for (#223); floored at zero by `remaining`.
+                'balance': totals.remaining(order_total, [applied, refunded]),
             }
         )
     return rows, total

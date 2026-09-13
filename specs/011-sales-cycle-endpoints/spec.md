@@ -744,8 +744,12 @@ order.
   exactly its pre-confirmation level — all verifiable from the inventory ledger alone, which is
   only ever appended to.
 - **SC-004**: The sum of a customer's outstanding order balances always equals what they owe: an
-  order's balance is its total less every non-cancelled application against it, and reversing an
-  application restores it exactly.
+  order's balance is its total less every non-cancelled application against it **and less every
+  completed, uncancelled refund raised from it**, floored at zero, and reversing an application
+  restores it exactly. The refund term was added by #223: a refund requires a paid order (FR-060),
+  so on anything this API creates it changes nothing, but the monolith allowed refunding an unpaid
+  one and recorded the reduction nowhere else — 275 of 860 unpaid credit orders in the deployment,
+  and 10.3M of balance reported as owed for goods already returned.
 - **SC-005**: No two documents of the same type share a folio within a facility, including when
   two users confirm at the same moment. Guaranteed by a unique database constraint on
   `(facility, serial)`, not by application code alone — a regression cannot pass unnoticed.
