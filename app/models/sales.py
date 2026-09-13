@@ -93,6 +93,11 @@ class SalesOrder(Base):
     # every sale raised by a client that does not ask. Not `partial_deliveries`, which the system
     # writes afterwards to record how fulfilment turned out — see `FulfillmentType`.
     fulfillment_intent: Mapped[int | None] = mapped_column(SmallInteger)
+    # Which workflow raised the order — a register sale, or a back-office capture (#209). NULL
+    # means not recorded, which is every row predating migration 020 and every order whose client
+    # does not say. Not `point_sale`, which says which register the order carries and is populated
+    # on every row either way — see `OrderOrigin`.
+    origin: Mapped[int | None] = mapped_column(SmallInteger)
 
 
 class SalesOrderDetail(Base):

@@ -333,6 +333,29 @@ class FulfillmentType(IntEnum):
     MIXED = 2
 
 
+class OrderOrigin(IntEnum):
+    """`sales_order.origin` — which workflow raised the order (#209).
+
+    A back-office order and a register sale are otherwise identical in every readable field: both
+    write the same document through the same endpoints. `point_sale` cannot stand in, and is not a
+    near miss — it is populated on all 335,816 rows because it is derived from the caller when the
+    body omits it, so a back-office user with a register configured stamps the same register a
+    walk-in sale would carry, and it is immutable after create.
+
+    `POINT_OF_SALE` is 0 for the reason `FulfillmentType.PICKUP` is: it is the ordinary capture
+    surface. `BACK_OFFICE` covers every order a back-office workflow raised, including the 6,261
+    converted from a quote — "converted from a quote" is a different fact about a different
+    question, and `sales_order.sales_quote` already records it.
+
+    NULL is not a member of this vocabulary. It means the origin was never recorded, which is every
+    row predating migration 020 and every order raised by a client that does not say. Nothing
+    infers it: not from the register, not from the customer, not from the fulfilment intent.
+    """
+
+    POINT_OF_SALE = 0
+    BACK_OFFICE = 1
+
+
 class ItineraryStatus(IntEnum):
     """`deliveries_itinerary.status` — the trip lifecycle (FR-033a)."""
 

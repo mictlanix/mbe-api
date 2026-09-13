@@ -21,7 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import settings
 from app.core.constants import COST_PRICE_LIST_ID
 from app.core.deps import CurrentUser
-from app.enums import CurrencyCode, PaymentTerms
+from app.enums import CurrencyCode, OrderOrigin, PaymentTerms
 from app.models.core import ExchangeRate, Warehouse
 from app.models.customer import Customer
 from app.models.product import Product, ProductPrice
@@ -768,6 +768,10 @@ async def create_order(
         fulfillment_intent=(
             None if data.fulfillment_intent is None else int(data.fulfillment_intent)
         ),
+        # Deliberately not derived from `point_sale`: it is the caller's register whichever
+        # workflow this is, so inferring would label every back-office order raised by a user with
+        # a register as a counter sale — the defect #209 exists to fix, restated as a default.
+        origin=(None if data.origin is None else int(data.origin)),
         balance_zeroed_time=None,
     )
     db.add(order)
@@ -792,6 +796,8 @@ async def list_orders(
     date_to: datetime | None = None,
     facility: int | None = None,
     point_sale: int | None = None,
+    origin: OrderOrigin | None = None,
+    exclude_origin: OrderOrigin | None = None,
     search: str | None = None,
     skip: int = 0,
     limit: int = 20,
@@ -821,6 +827,19 @@ async def list_orders(
         both(SalesOrder.salesperson == salesperson)
     if point_sale is not None:
         both(SalesOrder.point_sale == point_sale)
+    if origin is not None:
+        both(SalesOrder.origin == int(origin))
+    if exclude_origin is not None:
+        # The `IS NULL` arm is load-bearing, not defensive. `origin != 1` evaluates to NULL for a
+        # row that recorded nothing, a WHERE keeps only rows evaluating to true, and every order
+        # raised before #209 — 335,816 of them — would drop out of the register's own list. An
+        # order that recorded no origin is not a back-office order, so it belongs in the answer.
+        both(
+            or_(
+                SalesOrder.origin.is_(None),
+                SalesOrder.origin != int(exclude_origin),
+            )
+        )
     if date_from is not None:
         both(SalesOrder.date >= date_from)
     if date_to is not None:

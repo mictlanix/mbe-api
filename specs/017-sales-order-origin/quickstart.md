@@ -1,57 +1,60 @@
 # Quickstart: verifying the origin field
 
-One runnable check per success criterion in [spec.md](./spec.md). Run them from the repository root
-on branch `017-sales-order-origin` after implementation; each names the outcome that counts as a
-pass.
+One runnable check per success criterion in [spec.md](./spec.md). Every command below was run
+against the finished branch; the recorded output is what it produced.
 
 ## Prerequisites
 
 ```bash
 uv sync
-uv run ruff check app/ migrations/ tests/    # → All checks passed!
-uv run pytest -q                             # → the whole suite green
+uv run ruff check app/ migrations/ tests/
+uv run pytest -q
 ```
 
-The integration suite builds its own SQLite schema from `Base.metadata`, so nothing below needs
+→ `All checks passed!` and `2499 passed` (2,475 before this feature; the 24 new ones are listed
+against the criteria below).
+
+The integration suite builds its own SQLite schema from `Base.metadata`, so nothing here needs
 MariaDB. Applying migration 020 to `mbe_dev` is a separate, deliberate step — see the last section.
 
 ## SC-001 — the workflow is readable from the list row
 
 ```bash
-uv run pytest tests/integration/test_sales_and_delivery_flow.py -k origin -q
+uv run pytest tests/integration/test_sales_and_delivery_flow.py -k "list_row_carries_the_workflow" -q
 uv run pytest tests/unit/test_list_query_counts.py::TestSalesOrders -q
 ```
 
-→ The list rows report `origin` (and `sales_quote`) without a per-row request, and the page still
-costs a fixed number of queries regardless of page size. The second command is the one that would
-catch an implementation that added a helper and an extra query where two mapped columns sufficed.
+→ `1 passed` and `11 passed`. The first reads `origin` and `sales_quote` off a list row with no
+per-row request; the second is the one that would catch an implementation that added a helper and a
+query per page where two mapped columns sufficed.
 
 ## SC-002 — every converted order records the back office
 
 ```bash
-uv run pytest tests/integration/ -k convert -q
+uv run pytest tests/integration/ tests/unit/test_sales_quote_service.py -k "convert" -q
 ```
 
-→ An order produced by `POST /sales-quotes/{id}/convert` reports `origin: 1`, with nothing supplied
-by the caller.
+→ `11 passed`. `POST /sales-quotes/{id}/convert` produces an order reporting `origin: 1` with
+nothing supplied by the caller, and a source guard pins the stamp so a later refactor cannot drop
+it silently.
 
 ## SC-003 — declared is recorded, undeclared is not
 
 ```bash
-uv run pytest tests/unit/test_sales_order_service.py -k origin -q
+uv run pytest tests/unit/test_sales_order_service.py -k "Origin" -q
 ```
 
-→ `SalesOrderCreate()` leaves `origin` at `None`; a declared value survives to the constructed
-order; nothing is inferred from `point_sale`, `customer` or `ship_to`.
+→ `6 passed`. `SalesOrderCreate()` leaves `origin` at `None`; an out-of-vocabulary value is refused;
+the creation path reads `data.origin` and infers nothing.
 
 ## SC-004 — selection excludes register sales and pre-change rows
 
 ```bash
-uv run pytest tests/integration/ -k "origin and filter" -q
+uv run pytest tests/integration/ -k "selecting_a_workflow" -q
 ```
 
-→ `?origin=1` returns back-office orders only: no register sales, and no order that recorded
-nothing.
+→ `1 passed`. `?origin=1` returns the back-office order and omits both the register sale and the
+order that recorded nothing.
 
 ## SC-005 — nothing existing changes
 
@@ -60,32 +63,36 @@ grep -n 'UPDATE\|SET ' migrations/020_sales_order_origin.sql || echo 'no row wri
 uv run pytest tests/unit/test_model_schema.py tests/unit/test_data_dictionary.py -q
 ```
 
-→ `no row writes` — the migration is an `ADD COLUMN` and touches no row of the 335,816. The two
-schema checks confirm the mapped column is backed by a migration and described in the dictionary.
+→ `no row writes` — the migration is an `ADD COLUMN` and touches no row of the 335,816 — and
+`680 passed`: the mapped column is backed by a migration and described in the data dictionary.
 
 ## SC-006 — exclusion keeps the unrecorded history
 
 ```bash
-uv run pytest tests/integration/ -k "exclude_origin" -q
+uv run pytest tests/integration/ -k "excluding_a_workflow or against_it" -q
 ```
 
-→ `?exclude_origin=1` returns orders recording nothing **and** orders recording point of sale, and
-omits back-office orders. This is the check that fails if the filter was written as a bare `!=`.
+→ `2 passed`. `?exclude_origin=1` returns the order recording nothing **and** the register sale
+while omitting the back-office order; asking for a workflow and against it at once returns an empty
+page rather than an error. The first assertion is the one that fails if the filter is written as a
+bare `!=`.
 
 ## SC-007 — the value cannot be changed after creation
 
 ```bash
-uv run pytest tests/integration/ -k "origin and immutable" -q
+uv run pytest tests/integration/ -k "cannot_be_changed" -q
 ```
 
-→ A `PUT` carrying `origin` returns 200 and leaves the stored value exactly as created.
+→ `1 passed`. A `PUT` carrying `origin` returns 200 and leaves the stored value exactly as created,
+and an order that recorded nothing cannot be given an origin after the fact.
 
 ## Applying the migration to `mbe_dev`
 
-Deliberate and separate from the test run, and worth doing only once the branch is reviewed:
+Deliberate and separate from the test run, and worth doing only once the branch is reviewed. It has
+**not** been applied — `sales_order.origin` does not exist in `mbe_dev` as of 2026-09-13.
 
 ```bash
-# read-only first: confirm the column is absent and see what the sweep will touch
+# read-only first: confirm the column is absent
 mysql ... -e "SELECT COUNT(*) FROM information_schema.columns
               WHERE table_schema='mbe_dev' AND table_name='sales_order' AND column_name='origin';"
 

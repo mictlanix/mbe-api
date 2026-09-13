@@ -35,6 +35,9 @@ DESCRIBED = [
     ('SalesOrderCreate', 'fulfillment_intent', 'never recorded'),
     ('SalesOrderUpdate', 'fulfillment_intent', 'never recorded'),
     ('SalesOrderResponse', 'fulfillment_intent', 'never recorded'),
+    ('SalesOrderCreate', 'origin', 'never recorded'),
+    ('SalesOrderResponse', 'origin', 'never recorded'),
+    ('SalesOrderSummary', 'origin', 'never recorded'),
 ]
 
 

@@ -1,0 +1,78 @@
+-- 020 Record which workflow raised a sales order -- issue #209
+--
+-- A back-office order and a register sale produce rows that are identical in every readable field.
+-- Both workflows write the same `sales_order` document through the same endpoints, and nothing on
+-- the table says which one raised it. The practical result is that both inboxes are wrong in both
+-- directions: a back-office list shows register sales, and a register's own list shows back-office
+-- orders raised on that register.
+--
+-- MEASURED against the deployment database 2026-09-13:
+--
+--   sales_order rows                                           335,816
+--   point_sale IS NULL                                               0   <-- read this one twice
+--   distinct point_sale values                                      21
+--   sales_quote IS NOT NULL                                      6,261   <-- 1.9%, converted quotes
+--   fulfillment_intent IS NOT NULL                                   7   <-- migration 017's column
+--
+-- The second measurement is why no existing column can stand in. `point_sale` is NOT NULL on every
+-- row because it is derived from the caller when the request omits it, so a back-office user with a
+-- register configured stamps the same register a walk-in sale carries; it is also immutable after
+-- create, so it cannot be corrected later. `fulfillment_intent` describes how goods leave, not
+-- where the order came from. `customer` is weakest of the three: the generic walk-in customer is a
+-- register convention, not a rule.
+--
+-- WHY THIS COLUMN SHIPS EMPTY. Three backfills were considered and all three rejected (#209):
+-- inference from payment terms or customer would be wrong for a meaningful share of rows, and a
+-- wrong origin is worse than an absent one because it looks authoritative; stamping every existing
+-- row with the register value is true only if no back-office order exists yet, which is exactly
+-- what nobody verified -- the legacy "Pedidos" screen raised orders that were genuinely back
+-- office. So NULL means "not recorded" and is the honest value for all 335,816 existing rows.
+--
+-- The fifth measurement is the precedent worth reading. Migration 017 added `fulfillment_intent`
+-- on the same terms, and it is recorded on SEVEN rows -- clients have not been changed to send it.
+-- This column will look the same until its clients are updated, and everything reading it is built
+-- for that: selection by origin returns only rows that recorded one, and exclusion returns rows
+-- that recorded nothing alongside the rest.
+--
+-- WHAT THIS IS NOT. It is not `point_sale` under another name. `point_sale` answers "which
+-- register does this order carry", which stays a useful question with a different answer; this
+-- column answers "which workflow raised it". Nor is it "came from a quote", which is a third fact
+-- that `sales_order`.`sales_quote` already records on the 6,261 rows above, written only by the
+-- conversion endpoint and unforgeable from a client. Keeping the two separate is deliberate.
+--
+-- SMALLINT, matching the `SmallInteger` the model declares and the neighbour this column sits
+-- beside, for the reason 017 gives: a column and its model disagreeing is issue #161, and there is
+-- no reason to reopen it for two bytes.
+--
+-- Adding a nullable column with no default rewrites no row and cannot fail on existing data --
+-- which is what makes it safe on 335,816 rows. Idempotent: `IF NOT EXISTS`, so re-running it is a
+-- no-op rather than error 1060.
+--
+-- MariaDB 10.11. Rollback: 020_sales_order_origin_rollback.sql
+
+-- ---------------------------------------------------------------------------
+-- The column
+-- ---------------------------------------------------------------------------
+--
+-- 0 = point of sale, 1 = back office  (app/enums.py, OrderOrigin).
+--
+-- The register leads for the same reason `FulfillmentType.PICKUP` is 0: it is the ordinary capture
+-- surface. The vocabulary is an enum rather than a boolean so that a third capture surface adds a
+-- member instead of another column.
+--
+-- Conversion from a quote records BACK_OFFICE. That path builds the order server-side and takes no
+-- request body, so nothing else on it could record anything, and a converted order belongs to the
+-- back-office workflow regardless of which user pressed convert.
+--
+-- No CHECK constraint, following 017: no other enum column in this schema carries one, and adding
+-- one here alone would be an inconsistency without a reader. The scale is enforced at the schema
+-- layer, where an out-of-range value is a 422 before anything is written.
+--
+-- No index. With adoption at zero, an exclusion filter matches every row and a selection filter
+-- matches none; an index sized for that answers no question worth asking. Revisit when the column
+-- is actually populated.
+
+ALTER TABLE `sales_order`
+  ADD COLUMN IF NOT EXISTS `origin` SMALLINT NULL
+  COMMENT '0=point of sale 1=back office; NULL=not recorded. Set at creation only (#209)'
+  AFTER `fulfillment_intent`;

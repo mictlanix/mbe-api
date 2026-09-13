@@ -2,8 +2,8 @@
   "workflow": "speckit",
   "specName": "Sales Order Origin",
   "branch": "017-sales-order-origin",
-  "currentStep": "tasks",
-  "status": "ready-to-implement",
+  "currentStep": "implement",
+  "status": "implemented",
   "history": [
     {
       "step": "specify",
@@ -25,6 +25,13 @@
       "kind": "start",
       "by": "extension",
       "at": "2026-09-13T08:41:58.134Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "kind": "start",
+      "by": "extension",
+      "at": "2026-09-13T08:51:43.556Z"
     }
   ],
   "telemetryInstanceId": "6920194e-337c-4fe1-8c55-2541d4a502a9"

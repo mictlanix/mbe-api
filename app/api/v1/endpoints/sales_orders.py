@@ -5,7 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.deps import CurrentUser, require_privilege
 from app.db.session import get_db
-from app.enums import AccessRight, SystemObject
+from app.enums import AccessRight, OrderOrigin, SystemObject
 from app.schemas import ListResponse
 from app.schemas.customer_payment import OrderApplicationResponse
 from app.schemas.sales_order import (
@@ -45,6 +45,15 @@ async def list_sales_orders(
     date_to: datetime | None = Query(None),
     facility: int | None = Query(None),
     point_sale: int | None = Query(None),
+    origin: OrderOrigin | None = Query(None),
+    exclude_origin: OrderOrigin | None = Query(
+        None,
+        description=(
+            'Every order except this workflow\'s, including orders that recorded no origin — '
+            'which is every order raised before #209. The register\'s own list is the caller '
+            'this exists for: asking for its own workflow instead would drop its whole history.'
+        ),
+    ),
     search: str | None = Query(None),
     skip: int = Query(0, ge=0),
     limit: int = Query(20, ge=1, le=100),
@@ -62,6 +71,8 @@ async def list_sales_orders(
         date_to=date_to,
         facility=facility,
         point_sale=point_sale,
+        origin=origin,
+        exclude_origin=exclude_origin,
         search=search,
         skip=skip,
         limit=limit,

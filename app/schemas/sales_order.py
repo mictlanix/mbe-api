@@ -4,7 +4,7 @@ from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.enums import CurrencyCode, FulfillmentType, PaymentTerms, Priority
+from app.enums import CurrencyCode, FulfillmentType, OrderOrigin, PaymentTerms, Priority
 from app.schemas import CUSTOMER_DISPLAY_NAME_DESCRIPTION, CUSTOMER_NAME_DESCRIPTION
 from app.schemas.sat_catalog import SatUnitOfMeasurementResponse
 
@@ -120,6 +120,18 @@ class SalesOrderCreate(BaseModel):
             'carries 2.'
         ),
     )
+    # Which workflow raised this order (#209). Omitted means not recorded — the API infers nothing
+    # from `point_sale` (the same register a walk-in sale would carry), from `customer` (the
+    # walk-in customer is a register convention, not a rule), or from `fulfillment_intent` (which
+    # says how goods leave, not where the order came from).
+    origin: OrderOrigin | None = Field(
+        default=None,
+        description=(
+            'Which workflow raised the order: 0 the point of sale, 1 the back office. Null '
+            'means it was never recorded — not "point of sale". Set at creation; it cannot '
+            'be changed afterwards.'
+        ),
+    )
 
 
 class SalesOrderUpdate(BaseModel):
@@ -183,6 +195,16 @@ class SalesOrderResponse(BaseModel):
             'carries 2.'
         ),
     )
+    # `null` on every order raised before #209 and on every one raised without declaring it. A
+    # client must handle that rather than read it as "point of sale".
+    origin: OrderOrigin | None = Field(
+        default=None,
+        description=(
+            'Which workflow raised the order: 0 the point of sale, 1 the back office. Null '
+            'means it was never recorded — not "point of sale". Set at creation; it cannot '
+            'be changed afterwards.'
+        ),
+    )
     status: DocumentStatus
     lines: list[SalesOrderLineResponse] = []
     subtotal: Decimal
@@ -211,11 +233,25 @@ class SalesOrderSummary(BaseModel):
     customer_display_name: str | None = Field(
         default=None, description=CUSTOMER_DISPLAY_NAME_DESCRIPTION
     )
+    #: The quote this order was converted from, or `null` (#209). A plain column on the order, so
+    #: a list row carries it for free — it answers "what preceded this", which is a different
+    #: question from `origin`'s "which workflow raised this", and the two stay independent.
+    sales_quote: int | None = None
     salesperson: int
     date: datetime
     due_date: datetime
     currency: CurrencyCode
     status: DocumentStatus
+    # Which workflow raised the order, on the row itself — a back-office list separates itself from
+    # the register's without one `GET /sales-orders/{id}` per row (#209).
+    origin: OrderOrigin | None = Field(
+        default=None,
+        description=(
+            'Which workflow raised the order: 0 the point of sale, 1 the back office. Null means '
+            'it was never recorded — not "point of sale". Set at creation; it cannot be '
+            'changed afterwards.'
+        ),
+    )
     total: Decimal
     balance: Decimal
 

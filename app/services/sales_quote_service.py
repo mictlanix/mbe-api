@@ -16,7 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.deps import CurrentUser
-from app.enums import CurrencyCode, PaymentTerms
+from app.enums import CurrencyCode, OrderOrigin, PaymentTerms
 from app.models.customer import Customer
 from app.models.product import Product
 from app.models.sales import SalesOrder, SalesOrderDetail, SalesQuote, SalesQuoteDetail
@@ -580,6 +580,11 @@ async def convert_to_order(
         # taken, which is after this. The order starts "not recorded" and the point of sale sets it
         # with a `PUT` (#170).
         fulfillment_intent=None,
+        # The origin is the opposite case, and the asymmetry is deliberate. This endpoint takes no
+        # request body, so nothing else on this path could ever record one — and a converted quote
+        # belongs to the back-office workflow whichever user pressed convert. Left unset, every
+        # converted order would read as "not recorded" forever (#209).
+        origin=int(OrderOrigin.BACK_OFFICE),
     )
     db.add(order)
     await db.flush()
