@@ -454,6 +454,45 @@ async def test_list_leaves_point_sale_unset_when_not_asked_for() -> None:
 
 
 @pytest.mark.asyncio
+async def test_list_passes_both_origin_filters_through() -> None:
+    """#209 — selection and exclusion are independent parameters, not one modifier."""
+    _auth()
+    listing = AsyncMock(return_value=([], 0))
+    with patch('app.services.sales_order_service.list_orders', listing):
+        async with await _client() as client:
+            await client.get('/api/v1/sales-orders?origin=1&exclude_origin=0')
+
+    assert listing.await_args.kwargs['origin'] == 1
+    assert listing.await_args.kwargs['exclude_origin'] == 0
+
+
+@pytest.mark.asyncio
+async def test_list_leaves_both_origin_filters_unset_when_not_asked_for() -> None:
+    """An unfiltered list is every order, including the ones recording nothing — which is every
+    order raised before #209."""
+    _auth()
+    listing = AsyncMock(return_value=([], 0))
+    with patch('app.services.sales_order_service.list_orders', listing):
+        async with await _client() as client:
+            await client.get('/api/v1/sales-orders')
+
+    assert listing.await_args.kwargs['origin'] is None
+    assert listing.await_args.kwargs['exclude_origin'] is None
+
+
+@pytest.mark.asyncio
+async def test_list_refuses_a_workflow_outside_the_vocabulary() -> None:
+    _auth()
+    listing = AsyncMock(return_value=([], 0))
+    with patch('app.services.sales_order_service.list_orders', listing):
+        async with await _client() as client:
+            response = await client.get('/api/v1/sales-orders?origin=7')
+
+    assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
+    listing.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_order_payments_flatten_each_payment_onto_its_application() -> None:
     """#134 — one request renders the applied-payments panel, cancelled rows included."""
     _auth()

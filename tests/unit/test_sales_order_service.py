@@ -16,7 +16,7 @@ import pytest
 from fastapi import HTTPException
 from pydantic import ValidationError
 
-from app.enums import FulfillmentType, PaymentTerms
+from app.enums import FulfillmentType, OrderOrigin, PaymentTerms
 from app.schemas.sales_order import (
     SalesOrderCreate,
     SalesOrderLineCreate,
@@ -920,6 +920,55 @@ class TestTheFulfilmentIntent:
 
         assert "if 'fulfillment_intent' in changes:" in source
         assert 'None if value is None else int(value)' in source
+
+
+class TestTheOrigin:
+    """#209 — which workflow raised the order.
+
+    A back-office order and a register sale write the same document through the same endpoints and
+    were identical in every readable field afterwards. `point_sale` could not stand in: it is
+    populated on all 335,816 rows because it is derived from the caller, so a back-office user with
+    a register configured stamps the register a walk-in sale would carry.
+    """
+
+    def test_the_vocabulary_is_the_two_capture_surfaces(self) -> None:
+        assert [o.name for o in OrderOrigin] == ['POINT_OF_SALE', 'BACK_OFFICE']
+
+    def test_the_ordinary_capture_surface_is_zero(self) -> None:
+        """The register leads for the reason `FulfillmentType.PICKUP` does: it is the ordinary
+        capture surface. An enum rather than a boolean, so a third surface adds a member instead of
+        another column."""
+        assert int(OrderOrigin.POINT_OF_SALE) == 0
+        assert int(OrderOrigin.BACK_OFFICE) == 1
+
+    def test_omitting_it_records_nothing_rather_than_defaulting(self) -> None:
+        """`null` means "not recorded". Defaulting to either member would assert something about
+        the client that nobody verified — which is the same argument that rejected backfilling the
+        335,816 existing rows."""
+        assert SalesOrderCreate().origin is None
+
+    def test_an_unknown_value_is_refused_by_the_schema(self) -> None:
+        with pytest.raises(ValidationError):
+            SalesOrderCreate(origin=2)
+
+    def test_the_update_schema_has_no_way_to_carry_it(self) -> None:
+        """Write-once at creation. The field is absent from `SalesOrderUpdate`, so Pydantic drops
+        it before `update_order` reads `exclude_unset` — a `PUT` carrying it changes nothing.
+
+        This is the guarantee, and it is invisible in the schema: it comes from the default
+        `extra='ignore'`, not from an explicit refusal. Asserted here so that removing it would
+        fail rather than silently make origin editable.
+        """
+        assert SalesOrderUpdate(origin=1).model_dump(exclude_unset=True) == {}
+
+    def test_the_creation_path_records_only_what_the_client_declared(self) -> None:
+        """The inference that must not happen. `point_sale` is the same value for both workflows
+        and `customer` is a register convention rather than a rule, so deriving from either would
+        record a confident wrong answer for the case the column exists to carry."""
+        source = inspect.getsource(sales_order_service.create_order)
+
+        assert 'origin=(' in source
+        assert 'data.origin' in source
 
 
 class TestTheListSearchMatchesTheCustomersOwnName:

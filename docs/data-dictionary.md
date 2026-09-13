@@ -665,6 +665,7 @@ Confirmed sales order (invoice source).
 | `priority` | tinyint(3) | NO | 1=Normal, 2=High, etc. |
 | `partial_deliveries` | tinyint(2) | YES | Allow partial shipments |
 | `fulfillment_intent` | smallint(6) | YES | `FulfillmentType`: `0` pickup, `1` delivery, `2` mixed — how the cashier said the goods reach the customer, recorded before the sale is confirmed. `NULL` means **not recorded**, which is every row predating migration 017; it does not mean delivery. Not `partial_deliveries`, which the system writes afterwards to record how fulfilment turned out and has no mixed value |
+| `origin` | smallint(6) | YES | `OrderOrigin`: `0` point of sale, `1` back office — which workflow raised the order, recorded at creation and never editable afterwards. `NULL` means **not recorded**, which is every row predating migration 020 and every order raised by a client that does not declare one; it does not mean point of sale. Not `point_sale`, which says which register the order carries and is populated on every row whichever workflow raised it. Not `sales_quote` either, which records that a quote preceded the order — a different fact this one deliberately does not carry |
 
 ### `sales_order_detail`
 Line items of a sales order.

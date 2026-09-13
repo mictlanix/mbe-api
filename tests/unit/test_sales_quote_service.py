@@ -5,6 +5,7 @@ each name their own cause — a salesperson dealing with an expired quote must r
 different action from confirming a draft.
 """
 
+import inspect
 from datetime import datetime, timedelta
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
@@ -165,3 +166,25 @@ class TestTheSalespersonFollowsTheCustomer:
         quote = await self._update(from_customer=2, to_customer=2, customer_salesperson=9)
 
         assert quote.salesperson == 4
+
+
+class TestTheConvertedOrdersOrigin:
+    """#209 — the stamp that no client can supply, pinned against the source.
+
+    `convert_to_order` builds `SalesOrder(...)` directly and takes no request body, so this line is
+    the only thing recording which workflow a converted order belongs to. Dropped in a later
+    refactor, every converted order silently reverts to "not recorded" and nothing else fails —
+    which is what makes a source-text guard worth its awkwardness here.
+    """
+
+    def test_the_conversion_records_the_back_office(self) -> None:
+        source = inspect.getsource(sales_quote_service.convert_to_order)
+
+        assert 'origin=int(OrderOrigin.BACK_OFFICE)' in source
+
+    def test_it_does_not_record_a_fulfilment_intent(self) -> None:
+        """The deliberate asymmetry two lines apart: a quote has no intent to carry, but a
+        converted order does belong to a workflow."""
+        source = inspect.getsource(sales_quote_service.convert_to_order)
+
+        assert 'fulfillment_intent=None' in source

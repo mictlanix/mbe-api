@@ -652,3 +652,221 @@ async def test_cancelling_releases_what_the_order_held(
         )
     ).scalars().all()
     assert all(line.committed_quantity == Decimal(0) for line in lines)
+
+
+async def test_two_orders_on_one_register_record_different_workflows(
+    client: AsyncClient, seeded: None
+) -> None:
+    """#209 — the pair of rows that were indistinguishable.
+
+    Both carry the same `point_sale`, because it is derived from the caller and the caller is one
+    user with one register. That is the whole point: before this field, a back-office order and a
+    walk-in sale raised by the same user were identical in every readable field, so the back-office
+    list showed register sales and the register's list showed back-office orders.
+    """
+    back_office = await client.post('/api/v1/sales-orders', json={'customer': 1, 'origin': 1})
+    register = await client.post('/api/v1/sales-orders', json={'customer': 1, 'origin': 0})
+    assert back_office.status_code == 201, back_office.text
+    assert register.status_code == 201, register.text
+    assert back_office.json()['point_sale'] == register.json()['point_sale']
+
+    # Reopened, as a restarted client would.
+    reread = [
+        (await client.get(f'/api/v1/sales-orders/{r.json()["sales_order_id"]}')).json()
+        for r in (back_office, register)
+    ]
+
+    assert [o['origin'] for o in reread] == [1, 0]
+
+
+async def test_an_order_that_never_declared_a_workflow_reports_null(
+    client: AsyncClient, seeded: None
+) -> None:
+    """`null`, and never a guess. The request carries a register (the caller's) and a customer,
+    and neither says which workflow raised the order — which is exactly why migration 020 ships the
+    column empty rather than backfilling the 335,816 rows that predate it."""
+    created = await client.post('/api/v1/sales-orders', json={'customer': 1})
+
+    assert created.status_code == 201, created.text
+    assert created.json()['origin'] is None
+
+
+async def test_a_workflow_outside_the_vocabulary_is_refused(
+    client: AsyncClient, seeded: None
+) -> None:
+    created = await client.post('/api/v1/sales-orders', json={'customer': 1, 'origin': 7})
+
+    assert created.status_code == 422, created.text
+
+
+async def test_converting_a_quote_records_the_back_office_without_being_asked(
+    client: AsyncClient, seeded: None
+) -> None:
+    """#209 — the path no client can declare anything on.
+
+    `POST /sales-quotes/{id}/convert` builds the order server-side and takes no request body, so if
+    it did not record the workflow itself, every converted order would read as "not recorded"
+    forever — and converted orders are exactly what a back-office list most needs to show, a quote
+    the customer accepted. 6,261 of the 335,816 orders in the deployment came from a quote.
+
+    The two facts stay separate: `origin` says which workflow the order belongs to, `sales_quote`
+    says what preceded it.
+    """
+    quote = await client.post('/api/v1/sales-quotes', json={'customer': 1})
+    assert quote.status_code == 201, quote.text
+    quote_id = quote.json()['sales_quote_id']
+    await client.post(
+        f'/api/v1/sales-quotes/{quote_id}/lines', json={'product': 1, 'quantity': '1'}
+    )
+    confirmed = await client.post(f'/api/v1/sales-quotes/{quote_id}/confirm')
+    assert confirmed.status_code == 200, confirmed.text
+
+    converted = await client.post(f'/api/v1/sales-quotes/{quote_id}/convert')
+
+    assert converted.status_code == 201, converted.text
+    assert converted.json()['origin'] == 1
+    assert converted.json()['sales_quote'] == quote_id
+
+
+async def test_a_list_row_carries_the_workflow_and_the_quote_it_came_from(
+    client: AsyncClient, seeded: None
+) -> None:
+    """#209 — the list row is where this fact does most of its work.
+
+    Before it, a list screen could not separate the two inboxes from a page it already had:
+    `SalesOrderSummary` returned neither `point_sale` nor `fulfillment_intent`, so the only way to
+    learn anything about an order's origin was one `GET /sales-orders/{id}` per row.
+    """
+    created = await client.post('/api/v1/sales-orders', json={'customer': 1, 'origin': 1})
+    assert created.status_code == 201, created.text
+    order_id = created.json()['sales_order_id']
+
+    listed = await client.get('/api/v1/sales-orders')
+
+    assert listed.status_code == 200, listed.text
+    row = next(r for r in listed.json()['items'] if r['sales_order_id'] == order_id)
+    assert row['origin'] == 1
+    assert row['sales_quote'] is None
+
+
+async def test_selecting_a_workflow_returns_only_orders_that_recorded_it(
+    client: AsyncClient, seeded: None
+) -> None:
+    """FR-011 — an order that recorded nothing is not quietly folded into either workflow. That is
+    what makes the back-office list truthful from the day the field starts recording, at the cost
+    of not showing anything that predates it."""
+    back_office = (
+        await client.post('/api/v1/sales-orders', json={'customer': 1, 'origin': 1})
+    ).json()['sales_order_id']
+    register = (
+        await client.post('/api/v1/sales-orders', json={'customer': 1, 'origin': 0})
+    ).json()['sales_order_id']
+    unrecorded = (await client.post('/api/v1/sales-orders', json={'customer': 1})).json()[
+        'sales_order_id'
+    ]
+
+    listed = await client.get('/api/v1/sales-orders?origin=1')
+
+    assert listed.status_code == 200, listed.text
+    ids = {r['sales_order_id'] for r in listed.json()['items']}
+    assert back_office in ids
+    assert register not in ids
+    assert unrecorded not in ids
+
+
+async def test_excluding_a_workflow_keeps_the_orders_that_recorded_nothing(
+    client: AsyncClient, seeded: None
+) -> None:
+    """FR-012, and the one assertion in this feature that fails on a plausible implementation.
+
+    Written as a bare `origin != 1`, SQL's three-valued logic evaluates `NULL != 1` to `NULL`, the
+    `WHERE` keeps only rows evaluating to true, and every order that recorded nothing disappears —
+    all 335,816 of them in the deployment. The register's own list would lose its entire history
+    the day it started filtering, which is worse than the problem this feature set out to fix.
+    """
+    back_office = (
+        await client.post('/api/v1/sales-orders', json={'customer': 1, 'origin': 1})
+    ).json()['sales_order_id']
+    register = (
+        await client.post('/api/v1/sales-orders', json={'customer': 1, 'origin': 0})
+    ).json()['sales_order_id']
+    unrecorded = (await client.post('/api/v1/sales-orders', json={'customer': 1})).json()[
+        'sales_order_id'
+    ]
+
+    listed = await client.get('/api/v1/sales-orders?exclude_origin=1')
+
+    assert listed.status_code == 200, listed.text
+    ids = {r['sales_order_id'] for r in listed.json()['items']}
+    assert unrecorded in ids
+    assert register in ids
+    assert back_office not in ids
+
+
+async def test_asking_for_one_workflow_and_against_it_returns_nothing(
+    client: AsyncClient, seeded: None
+) -> None:
+    """No special case in the code: the two clauses are independent and conjoined, so the honest
+    answer to a contradictory question is an empty page rather than an error."""
+    await client.post('/api/v1/sales-orders', json={'customer': 1, 'origin': 1})
+
+    listed = await client.get('/api/v1/sales-orders?origin=1&exclude_origin=1')
+
+    assert listed.status_code == 200, listed.text
+    assert listed.json()['items'] == []
+
+
+async def test_an_order_that_recorded_nothing_still_reads_lists_and_updates(
+    client: AsyncClient, seeded: None
+) -> None:
+    """FR-014 — the guarantee for the 335,816 orders that predate the column.
+
+    Nothing is rewritten and nothing is re-derived, so an order carrying no origin has to behave
+    exactly as it did before the field existed — including staying on an unfiltered list, which is
+    what mbe-ui shows until the field has been recording long enough to filter on.
+    """
+    created = await client.post('/api/v1/sales-orders', json={'customer': 1})
+    assert created.status_code == 201, created.text
+    order_id = created.json()['sales_order_id']
+
+    read = await client.get(f'/api/v1/sales-orders/{order_id}')
+    assert read.status_code == 200, read.text
+    assert read.json()['origin'] is None
+
+    updated = await client.put(f'/api/v1/sales-orders/{order_id}', json={'comment': 'unchanged'})
+    assert updated.status_code == 200, updated.text
+    assert updated.json()['origin'] is None
+    assert updated.json()['comment'] == 'unchanged'
+
+    listed = await client.get('/api/v1/sales-orders')
+    row = next(r for r in listed.json()['items'] if r['sales_order_id'] == order_id)
+    assert row['origin'] is None
+
+
+async def test_the_workflow_cannot_be_changed_after_the_order_is_raised(
+    client: AsyncClient, seeded: None
+) -> None:
+    """FR-005 — origin is a fact about how the order was raised, not an editable attribute.
+
+    The guarantee is invisible in the schema: `SalesOrderUpdate` simply has no such field, so
+    Pydantic's default `extra='ignore'` drops it before `update_order` reads `exclude_unset`. There
+    is no explicit refusal to find in the service, which is why it is asserted here — otherwise the
+    next reader adds one, or removes the thing that makes it true without noticing.
+    """
+    order_id = (
+        await client.post('/api/v1/sales-orders', json={'customer': 1, 'origin': 1})
+    ).json()['sales_order_id']
+
+    changed = await client.put(f'/api/v1/sales-orders/{order_id}', json={'origin': 0})
+
+    assert changed.status_code == 200, changed.text
+    assert changed.json()['origin'] == 1
+
+    # And an order that recorded nothing cannot be given an origin after the fact either.
+    unrecorded = (await client.post('/api/v1/sales-orders', json={'customer': 1})).json()[
+        'sales_order_id'
+    ]
+    given = await client.put(f'/api/v1/sales-orders/{unrecorded}', json={'origin': 1})
+
+    assert given.status_code == 200, given.text
+    assert given.json()['origin'] is None
