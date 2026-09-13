@@ -446,6 +446,85 @@ async def _overdue_credit_orders(db: AsyncSession, customer_id: int) -> int:
     ).scalar_one()
 
 
+async def _customer_credit_debt(db: AsyncSession, customer_id: int) -> Decimal:
+    """What this customer currently owes on credit, in the deployment's base currency (#220).
+
+    Summed from `attach_summary_totals`, so the figure is the same `balance` every endpoint already
+    reports for those orders and the same one SC-004 pins — total less every non-cancelled
+    application. A credit refusal a user cannot reconcile against the balances on their own screen
+    is a support ticket, so there is one money rule here and not a second private one.
+
+    **It does not net off refunds, and the monolith's `Debt()` does.** A refund requires a paid
+    order here (FR-060), so on anything this API creates the question cannot arise; the divergence
+    is entirely legacy rows, where the monolith allowed refunding an unpaid order. It is not small
+    on those: 275 of 860 unpaid credit orders in mbe_dev carry refund lines, and netting them off
+    would put the total at 9.0M against the 19.3M of balance the API reports today. The overstated
+    figure is what those orders *say*, which is the defect to fix where balances are computed
+    rather than to work around inside a credit check.
+
+    Multiplied by each order's exchange rate because a limit is one number and balances are in
+    whatever currency their document used. Unexercised today — all 861 unpaid credit orders in
+    mbe_dev are MXN at exactly 1.0000 — so it is a rule written down, not a rule proven.
+    """
+    orders = list(
+        (
+            await db.execute(
+                select(SalesOrder).where(
+                    SalesOrder.customer == customer_id,
+                    SalesOrder.payment_terms == PaymentTerms.NET_D,
+                    SalesOrder.completed.is_(True),
+                    SalesOrder.cancelled.is_(False),
+                    SalesOrder.paid.is_(False),
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    if not orders:
+        return Decimal(0)
+
+    await attach_summary_totals(db, orders)
+    return sum(
+        (order.__dict__['balance'] * order.exchange_rate for order in orders), Decimal(0)
+    )
+
+
+async def _assert_within_credit_limit(
+    db: AsyncSession, customer: Customer, *, adding: Decimal = Decimal(0)
+) -> None:
+    """FR-016's fourth refusal, which was never implemented: "is over their credit limit" (#220).
+
+    `credit_limit` was read only as a yes/no flag — a customer with a 5,000 limit and 400,000
+    outstanding took credit terms without complaint. The limits are real values, not sentinels:
+    1,011 of 1,828 customers in mbe_dev sit between 1,000 and 100,000, and only 43 carry one large
+    enough never to bind.
+
+    `adding` is the order's own value, and it is what makes this bite before a breach rather than
+    after one. Nobody in mbe_dev is over their limit today; customer 11202 is at **98.7%** of
+    theirs, so the check that ignores the order in hand would let every future order through until
+    one of them silently crossed the line. The monolith's `IsOverCreditLimit` takes the same
+    parameter and defaults it on.
+
+    The walk-in customer is exempt for the reason it is exempt from the hold (#219), and here the
+    reason is sharper: its `credit_limit` is **0.00**, so any credit order against it exceeds its
+    limit by construction, and it carries 139 such orders historically.
+    """
+    if customer.customer_id == settings.default_customer_id:
+        return
+
+    limit = customer.credit_limit or Decimal(0)
+    debt = await _customer_credit_debt(db, customer.customer_id)
+    if debt + adding > limit:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=(
+                f'Customer is over their credit limit: {debt + adding:.2f} of {limit:.2f} '
+                f'would be outstanding'
+            ),
+        )
+
+
 async def _assert_not_on_credit_hold(db: AsyncSession, customer_id: int) -> None:
     """A customer behind on credit commits nothing further — whatever this order's own terms are.
 
@@ -524,6 +603,10 @@ async def _assert_credit_allowed(db: AsyncSession, customer: Customer) -> None:
                 'settled before a new order can be raised'
             ),
         )
+
+    # Debt so far only: at creation the order has no lines, so there is no value to weigh against
+    # the limit yet. Confirmation weighs the order itself (#220).
+    await _assert_within_credit_limit(db, customer)
 
 
 async def _price_for(db: AsyncSession, product: Product, price_list: int) -> ProductPrice | None:
@@ -1006,6 +1089,29 @@ async def confirm_order(
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail={'message': 'Insufficient stock', 'lines': problems},
+        )
+
+    # Only a credit order adds to what the customer owes, so a cash sale is weighed against no
+    # limit — unlike the hold above, which is a fact about the customer whatever this order is
+    # (#219). Here the lines exist, so this is the one gate that can refuse the order that *would*
+    # take them over rather than the one after it (#220).
+    if order.payment_terms == PaymentTerms.NET_D:
+        computed = totals.document_totals(
+            [
+                totals.Line(
+                    quantity=line.quantity,
+                    price=line.price,
+                    discount_rate=line.discount_rate,
+                    tax_rate=line.tax_rate,
+                    tax_included=line.tax_included,
+                )
+                for line in lines
+            ]
+        )
+        await _assert_within_credit_limit(
+            db,
+            await _customer_or_404(db, order.customer),
+            adding=computed.total * order.exchange_rate,
         )
 
     order.serial = await documents.assign_folio(db, SalesOrder, facility=order.facility)

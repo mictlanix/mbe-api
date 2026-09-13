@@ -388,8 +388,15 @@ class TestTheCreditHold:
 
     @staticmethod
     def _db(overdue: int) -> AsyncMock:
+        """Answers both questions the gate asks: how many overdue credit orders, and which unpaid
+        credit orders make up the debt (#220). None here, so the limit is never the reason."""
         db = AsyncMock()
-        db.execute = AsyncMock(return_value=SimpleNamespace(scalar_one=lambda: overdue))
+        db.execute = AsyncMock(
+            return_value=SimpleNamespace(
+                scalar_one=lambda: overdue,
+                scalars=lambda: SimpleNamespace(all=lambda: []),
+            )
+        )
         return db
 
     @staticmethod
