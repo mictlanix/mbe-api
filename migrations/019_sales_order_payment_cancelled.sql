@@ -1,0 +1,56 @@
+-- 019 Take ownership of sales_order_payment.cancelled -- issue #212, mictlanix/mbe#55
+--
+-- This column is the storage for payment reversal (FR-044, FR-045, FR-045a, FR-073, SC-009), and
+-- mictlanix/mbe#55 drops it. The drop is correct *there* and this migration is how it becomes
+-- harmless *here*: the column stops being an undeclared artefact of a production database and
+-- becomes a column this repository owns, creates and can recreate.
+--
+-- WHY IT WAS NOBODY'S. It appears in no `Schema/changes/*.sql` on the MVC side and in no migration
+-- on this one -- it existed only in the mysqldump, applied out-of-band. Two applications shared a
+-- column that neither had ever declared, which is why one of them could reasonably conclude it was
+-- dead. Issue #212 is that conclusion arriving.
+--
+-- MEASURED against mbe_dev 2026-09-13:
+--
+--   sales_order_payment rows                                 293,214
+--   cancelled = 1                                                  0   <-- read this one twice
+--   cancelled = 0                                            293,214
+--   orders carrying a cancelled application                        0
+--
+-- ZERO REVERSALS HAVE EVER BEEN PERFORMED. That is what makes the drop safe to accept rather than
+-- something to argue about: `ALTER TABLE ... DROP COLUMN` followed by this `ADD COLUMN` loses no
+-- reversal, because there is none to lose. It is also a precondition with an expiry date. Before
+-- the MVC drop runs, confirm it still holds:
+--
+--   SELECT COUNT(*) FROM `sales_order_payment` WHERE `cancelled` = 1;
+--
+-- If that is no longer 0, the reversals it counts are destroyed by the drop and restored as
+-- `cancelled = 0` by this migration -- silently, since nothing else in the schema records that an
+-- application was reversed. The incidence rows survive (`incidences.record` is what carries the
+-- employee, the time and the stated reason for SC-009), so the history is reconstructable, but the
+-- flag the balance arithmetic reads is not. Re-derive it from those incidences before re-running,
+-- or do not drop.
+--
+-- WHAT THE MVC SIDE LOSES: nothing. Its `SalesOrderPayment` model does not map the column at all,
+-- and no query in `Web/` or `Model/` reads it -- `CustomerPayment.Allocated`
+-- (`Model/CustomerPayment.cs:136`) sums `Allocations` unfiltered. So this column being present
+-- costs that application nothing, and its absence would cost this one every read of the table:
+-- SQLAlchemy projects every mapped column, so one missing column is error 1054 on all reads, not
+-- just on reversal (#154 is the same failure, from the other direction).
+--
+-- ORDERING. There is a window between their `DROP` and this `ADD` in which this API cannot read
+-- `sales_order_payment` at all. Nothing in SQL can close it; apply this immediately after their
+-- drop lands, or before it, in which case this is a no-op and the drop reopens the gap until it is
+-- re-run. `IF NOT EXISTS` makes running it at any time, or twice, harmless.
+--
+-- NOT NULL DEFAULT 0, restored exactly as the dump defines it. The default is load-bearing in a way
+-- `customer.shipping` (#199, mictlanix/mbe#40) was not: with it, a row inserted by code that does
+-- not name the column still gets a valid value, so the two applications can disagree about whether
+-- this column exists without either one's INSERTs failing with error 1364.
+--
+-- MariaDB 10.11. Rollback: 019_sales_order_payment_cancelled_rollback.sql
+
+ALTER TABLE `sales_order_payment`
+  ADD COLUMN IF NOT EXISTS `cancelled` TINYINT(1) NOT NULL DEFAULT 0
+  COMMENT 'Application reversed and no longer counted against the order (#212, FR-045)'
+  AFTER `confirmed`;
