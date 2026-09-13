@@ -3,7 +3,7 @@
   "specName": "Sales Order Origin",
   "branch": "017-sales-order-origin",
   "currentStep": "implement",
-  "status": "implemented",
+  "status": "completed",
   "history": [
     {
       "step": "specify",
