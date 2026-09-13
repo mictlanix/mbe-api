@@ -534,6 +534,14 @@ async def convert_to_order(
     now = datetime.now()
     terms = PaymentTerms(quote.payment_terms)
 
+    # The quote's terms become the order's, and until #219 nothing revisited them on the way
+    # across: a quote raised on credit for a customer who has since fallen behind produced an order
+    # that `create_order` would have refused outright. The monolith has the same hole in the same
+    # place (`CreateFromSalesQuote`), and gets away with it because its confirmation catches the
+    # result; this API now checks at both ends rather than relying on the backstop.
+    if terms == PaymentTerms.NET_D:
+        await sales_order_service._assert_credit_allowed(db, customer)
+
     order = SalesOrder(
         facility=quote.facility,
         serial=None,

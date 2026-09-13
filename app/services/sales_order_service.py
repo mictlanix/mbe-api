@@ -422,6 +422,66 @@ async def _customer_or_404(db: AsyncSession, customer_id: int) -> Customer:
     return customer
 
 
+async def _overdue_credit_orders(db: AsyncSession, customer_id: int) -> int:
+    """How many credit orders this customer has let run past their due date, unpaid.
+
+    One definition, read by both gates: the one that refuses credit terms and the one that refuses
+    a confirmation (#219). `payment_terms == NET_D` is load-bearing — `derive_due_date` makes an
+    immediate-terms order due on its own date, so without it every unpaid counter sale counts as
+    arrears (#207).
+    """
+    return (
+        await db.execute(
+            select(func.count())
+            .select_from(SalesOrder)
+            .where(
+                SalesOrder.customer == customer_id,
+                SalesOrder.payment_terms == PaymentTerms.NET_D,
+                SalesOrder.completed.is_(True),
+                SalesOrder.cancelled.is_(False),
+                SalesOrder.paid.is_(False),
+                SalesOrder.due_date < datetime.now(),
+            )
+        )
+    ).scalar_one()
+
+
+async def _assert_not_on_credit_hold(db: AsyncSession, customer_id: int) -> None:
+    """A customer behind on credit commits nothing further — whatever this order's own terms are.
+
+    The gate the monolith puts on `Confirm` (`SalesOrdersController.cs:1251`), and the reason its
+    other gaps are harmless: `CreateFromSalesQuote` copies a quote's terms unchecked there, exactly
+    as `convert_to_order` did here, and confirmation catches it anyway. Every route to a committed
+    sale passes through here, so this is the one place a check cannot be walked around — including
+    the case no front-door check can reach, a customer who was in good standing when the order was
+    captured and is not by the time it is confirmed (#219).
+
+    Not filtered to credit orders, deliberately: the hold is a fact about the *customer*, not about
+    this document, and confirming a cash sale for a customer already in arrears still hands over
+    goods. That is the monolith's rule and it is stricter than #207's create-time gate, which only
+    fires when the order itself carries credit terms.
+
+    The walk-in customer is exempt, where the monolith does not bother to exempt it. It has no
+    credit line, so `_assert_credit_allowed` refuses to put it on credit terms and it should never
+    hold an overdue credit order — but mbe_dev carries **139 NET_D orders against it** from before
+    this API, and one of those falling overdue would stop **every** counter sale confirming (210 of
+    its orders are open drafts right now). A hold on a customer that is a stand-in for "no customer"
+    is a deployment outage, not a credit control.
+    """
+    if customer_id == settings.default_customer_id:
+        return
+
+    expired = await _overdue_credit_orders(db, customer_id)
+    if expired:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=(
+                f'Customer is on credit hold: {expired} overdue credit order(s) must be '
+                'settled before this order can be confirmed'
+            ),
+        )
+
+
 async def _assert_credit_allowed(db: AsyncSession, customer: Customer) -> None:
     """Credit terms need a real credit line and a customer in good standing (FR-016).
 
@@ -455,21 +515,7 @@ async def _assert_credit_allowed(db: AsyncSession, customer: Customer) -> None:
             detail='Customer has no credit limit',
         )
 
-    now = datetime.now()
-    expired = (
-        await db.execute(
-            select(func.count())
-            .select_from(SalesOrder)
-            .where(
-                SalesOrder.customer == customer.customer_id,
-                SalesOrder.payment_terms == PaymentTerms.NET_D,
-                SalesOrder.completed.is_(True),
-                SalesOrder.cancelled.is_(False),
-                SalesOrder.paid.is_(False),
-                SalesOrder.due_date < now,
-            )
-        )
-    ).scalar_one()
+    expired = await _overdue_credit_orders(db, customer.customer_id)
     if expired:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
@@ -691,12 +737,19 @@ async def update_order(
     if 'payment_terms' in changes and changes['payment_terms'] is not None:
         terms = PaymentTerms(changes['payment_terms'])
         customer = await _customer_or_404(db, order.customer)
-        if terms == PaymentTerms.NET_D:
-            await _assert_credit_allowed(db, customer)
         order.payment_terms = int(terms)
         order.due_date = derive_due_date(
             order.date, terms, credit_days=customer.credit_days or 0
         )
+    # Asserted on the state the order ends the request in, rather than inside either branch above
+    # (#219). Moving a NET_D order onto a customer in arrears revisited the salesperson and the
+    # prices and never the credit, so the terms survived the move unchallenged; and a request that
+    # sets both fields must be judged once, at the end, or `{customer: walk-in, payment_terms: 0}`
+    # is refused for terms the same request is clearing.
+    if ('customer' in changes or 'payment_terms' in changes) and (
+        order.payment_terms == PaymentTerms.NET_D
+    ):
+        await _assert_credit_allowed(db, await _customer_or_404(db, order.customer))
     if 'currency' in changes and changes['currency'] is not None:
         await _change_currency(db, order, CurrencyCode(changes['currency']))
 
@@ -908,6 +961,11 @@ async def confirm_order(
 ) -> SalesOrder:
     """Assign the folio, commit the stock, freeze the document — one transaction (FR-017)."""
     documents.assert_editable(order)
+    # Before the folio and before the reservation: this is the act that extends credit, and until
+    # #219 nothing checked it here. Creation and an explicit terms change were both guarded, but a
+    # customer who fell behind after capture, an order moved onto a customer in arrears, and a
+    # quote converted on credit terms all reached a committed sale unchallenged.
+    await _assert_not_on_credit_hold(db, order.customer)
     employee = current.employee_id
 
     lines = list(
