@@ -46,16 +46,21 @@ PAGE_SIZES = [1, 5, 50]
 class TestSalesOrders:
     @pytest.mark.asyncio
     @pytest.mark.parametrize('size', PAGE_SIZES)
-    async def test_two_queries_regardless_of_page_size(self, size: int) -> None:
+    async def test_a_fixed_number_of_queries_regardless_of_page_size(self, size: int) -> None:
+        """Three since #223 added refunds to the balance, and three for a page of one or of fifty.
+
+        The number is not the point and never was — what this guards is that it does not grow with
+        the page, which is the shape that made these lists slow enough to notice.
+        """
         orders = [
             SimpleNamespace(sales_order_id=i, completed=False, cancelled=False, paid=False)
             for i in range(1, size + 1)
         ]
-        db = _db(_rows([]), _rows([]))
+        db = _db(_rows([]), _rows([]), _rows([]))
 
         await order_summary_totals(db, orders)
 
-        assert db.execute.await_count == 2
+        assert db.execute.await_count == 3
 
     @pytest.mark.asyncio
     async def test_empty_page_issues_no_queries(self) -> None:
@@ -80,7 +85,7 @@ class TestSalesOrders:
             tax_rate=Decimal('0.16'),
             tax_included=False,
         )
-        db = _db(_rows([line]), _rows([]))
+        db = _db(_rows([line]), _rows([]), _rows([]))
 
         await order_summary_totals(db, orders)
 

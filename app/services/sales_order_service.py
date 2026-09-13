@@ -25,7 +25,14 @@ from app.enums import CurrencyCode, PaymentTerms
 from app.models.core import ExchangeRate, Warehouse
 from app.models.customer import Customer
 from app.models.product import Product, ProductPrice
-from app.models.sales import SalesOrder, SalesOrderDetail, SalesOrderPayment, SalesQuote
+from app.models.sales import (
+    CustomerRefund,
+    CustomerRefundDetail,
+    SalesOrder,
+    SalesOrderDetail,
+    SalesOrderPayment,
+    SalesQuote,
+)
 from app.models.sat_catalog import SatUnitOfMeasurement
 from app.schemas.sales_order import (
     SalesOrderCreate,
@@ -264,14 +271,83 @@ async def attach_derived(db: AsyncSession, order: SalesOrder) -> SalesOrder:
     )
 
     applied = await applied_amount(db, order.sales_order_id)
+    refunded = await refunded_amount(db, order.sales_order_id)
 
     order.__dict__['lines'] = lines
     order.__dict__['subtotal'] = computed.subtotal
     order.__dict__['tax_total'] = computed.tax_total
     order.__dict__['total'] = computed.total
-    order.__dict__['balance'] = totals.remaining(computed.total, [applied])
+    # The total is what the document says; the balance is what is still owed on it, and returned
+    # goods are not owed for (#223). Floored at zero by `remaining`, which is what keeps a refund
+    # against an already-paid order — this API's only kind (FR-060) — at zero rather than negative.
+    order.__dict__['balance'] = totals.remaining(computed.total, [applied, refunded])
     order.__dict__['status'] = _status(order)
     return order
+
+
+async def refunded_by_order(
+    db: AsyncSession, order_ids: Sequence[int]
+) -> dict[int, Decimal]:
+    """What has been handed back on each order, in one query for the whole page (#223).
+
+    Goods a customer returned are goods they do not owe for, and nothing else in the data records
+    that: the monolith settled a refund against an unpaid order by flipping `IsPaid` when the
+    refund covered the balance, and otherwise left the reduction implied by the refund lines alone
+    — no application row is ever written. Its `SalesOrder.Balance` subtracts them for that reason
+    (`Model/SalesOrder.cs:246`).
+
+    Totalled through `totals.document_totals`, the same rule the refund's own endpoints report, so
+    a refund's total means one thing across the system. Note `discount` here against
+    `discount_rate` on a sales order line — the columns differ, the arithmetic does not.
+    """
+    if not order_ids:
+        return {}
+
+    rows = (
+        await db.execute(
+            select(
+                CustomerRefund.sales_order,
+                CustomerRefund.customer_refund_id,
+                CustomerRefundDetail,
+            )
+            .join(
+                CustomerRefundDetail,
+                CustomerRefundDetail.customer_refund == CustomerRefund.customer_refund_id,
+            )
+            .where(
+                CustomerRefund.sales_order.in_(order_ids),
+                CustomerRefund.completed.is_(True),
+                CustomerRefund.cancelled.is_(False),
+            )
+        )
+    ).all()
+
+    lines_by_refund: dict[tuple[int, int], list[totals.Line]] = {}
+    for order_id, refund_id, line in rows:
+        lines_by_refund.setdefault((order_id, refund_id), []).append(
+            totals.Line(
+                quantity=line.quantity,
+                price=line.price,
+                discount_rate=line.discount,
+                tax_rate=line.tax_rate,
+                tax_included=line.tax_included,
+            )
+        )
+
+    refunded: dict[int, Decimal] = {}
+    for (order_id, _refund_id), lines in lines_by_refund.items():
+        # Per refund, then summed: each is its own document and rounds once, exactly as the
+        # refund endpoints report it. Totalling every line of every refund in one go would drift.
+        refunded[order_id] = refunded.get(order_id, Decimal(0)) + totals.document_totals(
+            lines
+        ).total
+
+    return refunded
+
+
+async def refunded_amount(db: AsyncSession, sales_order_id: int) -> Decimal:
+    """`refunded_by_order` for one order."""
+    return (await refunded_by_order(db, [sales_order_id])).get(sales_order_id, Decimal(0))
 
 
 async def attach_summary_totals(db: AsyncSession, orders: Sequence[SalesOrder]) -> None:
@@ -317,14 +393,16 @@ async def attach_summary_totals(db: AsyncSession, orders: Sequence[SalesOrder]) 
         )
     ).all()
     applied_by_order = {oid: amount or Decimal(0) for oid, amount in applied_rows}
+    refunded_by = await refunded_by_order(db, ids)
 
     for order in orders:
         computed = totals.document_totals(lines_by_order.get(order.sales_order_id, []))
         applied = applied_by_order.get(order.sales_order_id, Decimal(0))
+        refunded = refunded_by.get(order.sales_order_id, Decimal(0))
         order.__dict__['subtotal'] = computed.subtotal
         order.__dict__['tax_total'] = computed.tax_total
         order.__dict__['total'] = computed.total
-        order.__dict__['balance'] = totals.remaining(computed.total, [applied])
+        order.__dict__['balance'] = totals.remaining(computed.total, [applied, refunded])
         order.__dict__['status'] = _status(order)
 
 
