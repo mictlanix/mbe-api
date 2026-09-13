@@ -566,6 +566,10 @@ class TestCustomerChangeGuard:
             sales_order_id=1,
             customer=from_customer,
             salesperson=order_salesperson,
+            # NOT NULL on the model, and #219 reads it after a customer change to decide whether
+            # the order ends the request on credit terms. Immediate here: these tests are about
+            # the salesperson and the price list, and a credit order would drag the hold in.
+            payment_terms=int(PaymentTerms.IMMEDIATE),
             completed=False,
             cancelled=False,
             date=datetime(2026, 7, 25),
