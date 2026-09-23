@@ -1,8 +1,7 @@
-from datetime import datetime
-
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field
 
 from app.enums import EntityStatus, FiscalCertificationProvider
+from app.schemas import LocalDateTime
 from app.schemas.sat_catalog import SatCatalogResponse
 
 # ── Taxpayer Issuer ───────────────────────────────────────────────────────────
@@ -51,6 +50,6 @@ class TaxpayerCertificateResponse(BaseModel):
 
     taxpayer_certificate_id: str
     taxpayer: str
-    valid_from: datetime
-    valid_to: datetime
+    valid_from: LocalDateTime
+    valid_to: LocalDateTime
     status: EntityStatus

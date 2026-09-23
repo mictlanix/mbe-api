@@ -1,10 +1,10 @@
-from datetime import datetime
 from decimal import Decimal
 from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.enums import CurrencyCode
+from app.schemas import LocalDateTime
 from app.schemas.sales_order import DocumentStatus
 
 
@@ -63,7 +63,7 @@ class CustomerRefundResponse(BaseModel):
     sales_person: int
     facility: int
     serial: int | None
-    date: datetime | None
+    date: LocalDateTime | None
     currency: CurrencyCode
     exchange_rate: Decimal
     status: DocumentStatus
@@ -80,7 +80,7 @@ class CustomerRefundSummary(BaseModel):
     sales_order: int
     customer: int | None
     serial: int | None
-    date: datetime | None
+    date: LocalDateTime | None
     currency: CurrencyCode
     status: DocumentStatus
     total: Decimal

@@ -1,12 +1,10 @@
-from datetime import datetime
-
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.deps import CurrentUser, require_privilege
 from app.db.session import get_db
 from app.enums import AccessRight, SystemObject
-from app.schemas import ListResponse
+from app.schemas import ListResponse, LocalDateTime
 from app.schemas.cash_session import (
     CashSessionClose,
     CashSessionOpen,
@@ -44,8 +42,8 @@ async def list_cash_sessions(
     cashier: int | None = Query(None),
     facility: int | None = Query(None),
     session_status: CashSessionStatus | None = Query(None, alias='status'),
-    date_from: datetime | None = Query(None),
-    date_to: datetime | None = Query(None),
+    date_from: LocalDateTime | None = Query(None),
+    date_to: LocalDateTime | None = Query(None),
     # No schema-level default on purpose (#144): a declared default of `-id` makes
     # openapi-generator's dart-dio codegen emit `sort = -id`, invalid Dart. The service
     # applies `-id` when nothing is passed instead.

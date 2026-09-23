@@ -1,7 +1,8 @@
-from datetime import datetime
 from decimal import Decimal
 
 from pydantic import BaseModel, ConfigDict
+
+from app.schemas import LocalDateTime
 
 
 class CreditNoteResponse(BaseModel):
@@ -21,4 +22,4 @@ class CreditNoteResponse(BaseModel):
     refunded: Decimal
     remaining: Decimal
     cash_session: int | None
-    date: datetime | None
+    date: LocalDateTime | None

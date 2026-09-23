@@ -10,7 +10,7 @@ import inspect
 from datetime import datetime
 from decimal import Decimal
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi import HTTPException
@@ -1041,3 +1041,23 @@ class TestTheListSearchMatchesTheCustomersOwnName:
         page_sql = str(db.execute.await_args_list[1].args[0]).lower()
         assert 'customer.name' in count_sql
         assert 'customer.name' in page_sql
+
+
+class TestOverdueCutoffUsesTheBusinessClock:
+    """#228: "past due" is judged against business wall-clock time, not the host's. On a UTC host
+    the old cutoff ran six hours ahead, so an order due this afternoon already counted as arrears
+    and put the customer on credit hold."""
+
+    @pytest.mark.asyncio
+    async def test_the_cutoff_is_local_now(self) -> None:
+        now = datetime(2026, 9, 27, 12, 0)
+        result = MagicMock()
+        result.scalar_one.return_value = 0
+        db = MagicMock()
+        db.execute = AsyncMock(return_value=result)
+
+        with patch.object(sales_order_service, 'local_now', return_value=now):
+            await sales_order_service._overdue_credit_orders(db, customer_id=7)
+
+        statement = db.execute.await_args.args[0]
+        assert now in statement.compile().params.values()

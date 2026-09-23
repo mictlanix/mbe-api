@@ -6,6 +6,7 @@ covered in tests/unit/test_sales_order_service.py.
 """
 
 from collections.abc import Generator
+from datetime import datetime
 from decimal import Decimal
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
@@ -722,3 +723,52 @@ async def test_a_line_with_no_photo_attached_serialises_as_null_rather_than_fail
 
     assert response.status_code == status.HTTP_200_OK
     assert response.json()['lines'][0]['photo'] is None
+
+
+# ── Datetimes are business wall-clock time (#228) ─────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_a_utc_date_reaches_the_service_as_business_wall_clock_time() -> None:
+    """The driver drops an offset without converting it, so the boundary has to convert first."""
+    _auth()
+    create = AsyncMock(return_value=_order())
+    with patch('app.services.sales_order_service.create_order', create):
+        async with await _client() as client:
+            await client.post(
+                '/api/v1/sales-orders',
+                json={'date': '2026-09-27T18:00:00Z', 'promise_date': '2026-09-27T12:00:00'},
+            )
+
+    passed = create.await_args.args[1]
+    assert passed.date == datetime(2026, 9, 27, 12, 0)
+    assert passed.date.tzinfo is None
+    assert passed.promise_date == datetime(2026, 9, 27, 12, 0)
+
+
+@pytest.mark.asyncio
+async def test_any_offset_is_converted_not_only_utc() -> None:
+    _auth()
+    create = AsyncMock(return_value=_order())
+    with patch('app.services.sales_order_service.create_order', create):
+        async with await _client() as client:
+            await client.post('/api/v1/sales-orders', json={'date': '2026-09-27T12:00:00-05:00'})
+
+    passed = create.await_args.args[1]
+    assert passed.date == datetime(2026, 9, 27, 11, 0)
+    assert passed.date.tzinfo is None
+
+
+@pytest.mark.asyncio
+async def test_a_utc_list_filter_is_converted_before_it_reaches_the_query() -> None:
+    _auth()
+    listing = AsyncMock(return_value=([], 0))
+    with patch('app.services.sales_order_service.list_orders', listing):
+        async with await _client() as client:
+            await client.get(
+                '/api/v1/sales-orders', params={'date_from': '2026-09-27T06:00:00Z'}
+            )
+
+    date_from = listing.await_args.kwargs['date_from']
+    assert date_from == datetime(2026, 9, 27, 0, 0)
+    assert date_from.tzinfo is None

@@ -15,13 +15,13 @@ to the open pool, and a second dispatcher could commit them (FR-029a).
 
 from collections.abc import Sequence
 from datetime import date as date_type
-from datetime import datetime
 from decimal import Decimal
 
 from fastapi import HTTPException, status
 from sqlalchemy import Select, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.clock import local_now
 from app.core.deps import CurrentUser
 from app.enums import DeliveryOrderStatus as S
 from app.enums import (
@@ -198,7 +198,7 @@ async def create_itinerary(
                 detail=f'Vehicle {vehicle} already has an open itinerary ({existing[0]})',
             )
 
-    now = datetime.now()
+    now = local_now()
     itinerary = DeliveriesItinerary(
         vehicle=vehicle,
         vehicle_operator=vehicle_operator,
@@ -315,7 +315,7 @@ async def update_itinerary(
         if value is not None:
             setattr(itinerary, field, value)
     itinerary.updater = current.employee_id
-    itinerary.modification_time = datetime.now()
+    itinerary.modification_time = local_now()
     await db.commit()
     await db.refresh(itinerary)
     return itinerary
@@ -337,7 +337,7 @@ async def cancel_itinerary(
 
     itinerary.status = ItineraryStatus.CANCELLED
     itinerary.updater = current.employee_id
-    itinerary.modification_time = datetime.now()
+    itinerary.modification_time = local_now()
     await db.commit()
     await db.refresh(itinerary)
     return itinerary
@@ -660,7 +660,7 @@ async def depart(
         delivery_events.transition(db, order, S.IN_TRANSIT, employee=employee)
 
     itinerary.status = ItineraryStatus.DEPARTED
-    itinerary.departure_time = datetime.now()
+    itinerary.departure_time = local_now()
     itinerary.updater = employee
     itinerary.modification_time = itinerary.departure_time
 
@@ -824,7 +824,7 @@ async def close_stop(
         reason = 'Nothing accepted at the stop' if target is S.FAILED else None
         delivery_events.transition(db, order, target, employee=employee, reason=reason)
         order.updater = employee
-        order.modification_time = datetime.now()
+        order.modification_time = local_now()
 
         if target is S.PARTIALLY_DELIVERED:
             await _split_child_order(db, order, lines, employee=employee)
@@ -842,7 +842,7 @@ async def close_stop(
         if all(o is StopOutcome.FAILED for o in outcomes_seen)
         else StopOutcome.PARTIALLY_DELIVERED
     )
-    stop.arrival_time = datetime.now()
+    stop.arrival_time = local_now()
     stop.proof_of_delivery = proof.proof_of_delivery_id
 
     remaining = [
@@ -853,7 +853,7 @@ async def close_stop(
     ]
     if not remaining:
         itinerary.status = ItineraryStatus.CLOSED
-        itinerary.return_time = datetime.now()
+        itinerary.return_time = local_now()
 
     await db.commit()
     for sales_order_id in sales_orders:
@@ -907,7 +907,7 @@ async def _split_child_order(
     if not remainder:
         return None
 
-    now = datetime.now()
+    now = local_now()
     child = DeliveryOrder(
         creator=employee,
         updater=employee,

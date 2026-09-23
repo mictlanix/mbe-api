@@ -1,10 +1,9 @@
-from datetime import datetime
 from decimal import Decimal
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.enums import CurrencyCode, PaymentMethod, PaymentType
-from app.schemas import CUSTOMER_DISPLAY_NAME_DESCRIPTION, CUSTOMER_NAME_DESCRIPTION
+from app.schemas import CUSTOMER_DISPLAY_NAME_DESCRIPTION, CUSTOMER_NAME_DESCRIPTION, LocalDateTime
 
 
 class CustomerPaymentCreate(BaseModel):
@@ -14,7 +13,7 @@ class CustomerPaymentCreate(BaseModel):
     currency: CurrencyCode | None = None
     payment_charge: int | None = None
     reference: str | None = Field(default=None, max_length=50)
-    date: datetime | None = None
+    date: LocalDateTime | None = None
     payment_type: PaymentType = PaymentType.IMMEDIATE
 
 
@@ -28,7 +27,7 @@ class CustomerPaymentResponse(BaseModel):
     method: PaymentMethod
     payment_charge: int | None
     reference: str | None
-    date: datetime
+    date: LocalDateTime
     facility: int
     cash_session: int | None
     payment_type: PaymentType
@@ -53,7 +52,7 @@ class ApplicationResponse(BaseModel):
     amount: Decimal
     amount_change: Decimal
     applier: int | None
-    date: datetime | None
+    date: LocalDateTime | None
     cancelled: bool
 
 
@@ -68,7 +67,7 @@ class OrderApplicationResponse(ApplicationResponse):
     method: PaymentMethod
     currency: CurrencyCode
     reference: str | None
-    payment_date: datetime
+    payment_date: LocalDateTime
     payment_type: PaymentType
     verifier: int | None
 
@@ -99,8 +98,8 @@ class OutstandingOrderResponse(BaseModel):
     customer_display_name: str | None = Field(
         default=None, description=CUSTOMER_DISPLAY_NAME_DESCRIPTION
     )
-    date: datetime
-    due_date: datetime
+    date: LocalDateTime
+    due_date: LocalDateTime
     currency: CurrencyCode
     total: Decimal
     balance: Decimal

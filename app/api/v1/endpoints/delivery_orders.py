@@ -1,5 +1,4 @@
 import os
-from datetime import datetime
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
 from fastapi.responses import FileResponse
@@ -10,7 +9,7 @@ from app.core.deps import CurrentUser, require_privilege
 from app.db.session import get_db
 from app.enums import AccessRight, DeliveryOrderStatus, FulfillmentType, SystemObject
 from app.models.logistics import ProofOfDelivery
-from app.schemas import ListResponse
+from app.schemas import ListResponse, LocalDateTime
 from app.schemas.delivery_order import (
     DeliveryOrderCreate,
     DeliveryOrderEventResponse,
@@ -113,8 +112,8 @@ async def list_delivery_orders(
     facility: int | None = Query(None),
     fulfillment_type: FulfillmentType | None = Query(None),
     sales_order: int | None = Query(None),
-    date_from: datetime | None = Query(None),
-    date_to: datetime | None = Query(None),
+    date_from: LocalDateTime | None = Query(None),
+    date_to: LocalDateTime | None = Query(None),
     mine: bool = Query(False),
     search: str | None = Query(None),
     skip: int = Query(0, ge=0),

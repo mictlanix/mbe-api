@@ -18,6 +18,7 @@ from fastapi import HTTPException, status
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.clock import local_now
 from app.core.config import settings
 from app.core.constants import COST_PRICE_LIST_ID
 from app.core.deps import CurrentUser
@@ -518,7 +519,7 @@ async def _overdue_credit_orders(db: AsyncSession, customer_id: int) -> int:
                 SalesOrder.completed.is_(True),
                 SalesOrder.cancelled.is_(False),
                 SalesOrder.paid.is_(False),
-                SalesOrder.due_date < datetime.now(),
+                SalesOrder.due_date < local_now(),
             )
         )
     ).scalar_one()
@@ -712,7 +713,7 @@ async def create_order(
         db, data.customer if data.customer is not None else settings.default_customer_id
     )
 
-    now = data.date or datetime.now()
+    now = data.date or local_now()
     currency = data.currency if data.currency is not None else settings.default_currency
 
     if data.payment_terms is not None:
@@ -896,7 +897,7 @@ async def update_order(
         if 'priority' in changes and changes['priority'] is not None:
             order.priority = int(changes['priority'])
             order.updater = employee
-            order.modification_time = datetime.now()
+            order.modification_time = local_now()
             await db.commit()
             await db.refresh(order)
         return await attach_derived(db, order)
@@ -951,7 +952,7 @@ async def update_order(
         order.priority = int(changes['priority'])
 
     order.updater = employee
-    order.modification_time = datetime.now()
+    order.modification_time = local_now()
     await db.commit()
     await db.refresh(order)
     return await attach_derived(db, order)
@@ -1075,7 +1076,7 @@ async def add_line(
     )
     db.add(line)
     order.updater = employee
-    order.modification_time = datetime.now()
+    order.modification_time = local_now()
     await db.commit()
     await db.refresh(order)
     return await attach_derived(db, order)
@@ -1106,7 +1107,7 @@ async def update_line(
             setattr(line, field, changes[field])
 
     order.updater = employee
-    order.modification_time = datetime.now()
+    order.modification_time = local_now()
     await db.commit()
     await db.refresh(order)
     return await attach_derived(db, order)
@@ -1117,7 +1118,7 @@ async def remove_line(
 ) -> SalesOrder:
     documents.assert_editable(order)
     order.updater = current.employee_id
-    order.modification_time = datetime.now()
+    order.modification_time = local_now()
     await db.delete(line)
     await db.commit()
     await db.refresh(order)
@@ -1227,7 +1228,7 @@ async def confirm_order(
 
     order.completed = True
     order.updater = employee
-    order.modification_time = datetime.now()
+    order.modification_time = local_now()
     await db.commit()
     await db.refresh(order)
     return await attach_derived(db, order)
@@ -1248,7 +1249,7 @@ async def cancel_order(
 
     order.cancelled = True
     order.updater = employee
-    order.modification_time = datetime.now()
+    order.modification_time = local_now()
     await db.commit()
     await db.refresh(order)
     return await attach_derived(db, order)

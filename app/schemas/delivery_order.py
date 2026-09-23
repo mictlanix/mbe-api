@@ -1,9 +1,9 @@
-from datetime import datetime
 from decimal import Decimal
 
 from pydantic import BaseModel, ConfigDict, Field, computed_field
 
 from app.enums import DeliveryOrderStatus, FulfillmentType
+from app.schemas import LocalDateTime
 
 # ── Lines ─────────────────────────────────────────────────────────────────────
 
@@ -70,12 +70,12 @@ class DeliveryOrderCreate(BaseModel):
     # none of them gets exactly what it got before (#146).
     ship_to: int | None = None
     contact: int | None = None
-    date: datetime | None = None
+    date: LocalDateTime | None = None
     comment: str | None = None
 
 
 class DeliveryOrderUpdate(BaseModel):
-    date: datetime | None = None
+    date: LocalDateTime | None = None
     priority: int | None = Field(default=None, ge=0)
     ship_to: int | None = None
     contact: int | None = None
@@ -105,7 +105,7 @@ class DeliveryOrderSummary(BaseModel):
     # destination created empty and not yet filled.
     sales_orders: list[int] = []
     ship_to: int | None
-    date: datetime | None
+    date: LocalDateTime | None
     priority: int
     status: DeliveryOrderStatus
     fulfillment_type: FulfillmentType
@@ -117,8 +117,8 @@ class DeliveryOrderResponse(DeliveryOrderSummary):
     comment: str | None
     rejection_reason: str | None
     proof_of_delivery: int | None
-    creation_time: datetime
-    modification_time: datetime
+    creation_time: LocalDateTime
+    modification_time: LocalDateTime
     lines: list[DeliveryOrderLineResponse] = []
 
 
@@ -132,7 +132,7 @@ class DeliveryOrderEventResponse(BaseModel):
     from_status: DeliveryOrderStatus | None
     to_status: DeliveryOrderStatus
     employee: int
-    event_time: datetime
+    event_time: LocalDateTime
     reason: str | None
 
 
@@ -142,7 +142,7 @@ class ProofOfDeliveryResponse(BaseModel):
     proof_of_delivery_id: int
     receiver_name: str
     receiver_id_shown: str
-    captured_time: datetime
+    captured_time: LocalDateTime
     captured_by: int
     # The filename only. The bytes come from an authenticated route, never a static URL (FR-044a).
     image_file: str

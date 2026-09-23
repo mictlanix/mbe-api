@@ -1,4 +1,3 @@
-from datetime import datetime
 from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -7,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.deps import CurrentUser, require_privilege
 from app.db.session import get_db
 from app.enums import AccessRight, SystemObject
-from app.schemas import ListResponse
+from app.schemas import ListResponse, LocalDateTime
 from app.schemas.customer_payment import (
     ApplicationCreate,
     ApplicationResponse,
@@ -41,8 +40,8 @@ async def list_customer_payments(
     customer: int | None = Query(None),
     cash_session: int | None = Query(None),
     facility: int | None = Query(None),
-    date_from: datetime | None = Query(None),
-    date_to: datetime | None = Query(None),
+    date_from: LocalDateTime | None = Query(None),
+    date_to: LocalDateTime | None = Query(None),
     method: int | None = Query(None),
     verified: bool | None = Query(None),
     skip: int = Query(0, ge=0),
@@ -71,8 +70,8 @@ async def list_customer_payments(
 @router.get('/unverified', response_model=ListResponse[CustomerPaymentResponse])
 async def list_unverified_payments(
     facility: int | None = Query(None),
-    date_from: datetime | None = Query(None),
-    date_to: datetime | None = Query(None),
+    date_from: LocalDateTime | None = Query(None),
+    date_to: LocalDateTime | None = Query(None),
     method: int | None = Query(None),
     amount_min: Decimal | None = Query(None),
     amount_max: Decimal | None = Query(None),
@@ -103,8 +102,8 @@ async def list_unverified_payments(
 async def search_payments_across_facilities(
     customer: int | None = Query(None),
     reference: str | None = Query(None),
-    date_from: datetime | None = Query(None),
-    date_to: datetime | None = Query(None),
+    date_from: LocalDateTime | None = Query(None),
+    date_to: LocalDateTime | None = Query(None),
     skip: int = Query(0, ge=0),
     limit: int = Query(20, ge=1, le=100),
     current: CurrentUser = Depends(_EDITOR_READ),

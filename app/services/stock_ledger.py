@@ -9,12 +9,12 @@ Lot and serial numbers are deliberately left unset — capturing them belongs to
 feature, not this one.
 """
 
-from datetime import datetime
 from decimal import Decimal
 
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.clock import local_now
 from app.enums import TransactionType
 from app.models.inventory import LotSerialRqmt, LotSerialTracking
 
@@ -40,7 +40,7 @@ def post_movement(
     entry = LotSerialTracking(
         source=int(source),
         reference=reference,
-        date=datetime.now(),
+        date=local_now(),
         warehouse=warehouse,
         product=product,
         quantity=-quantity if outbound else quantity,

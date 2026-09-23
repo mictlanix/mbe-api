@@ -11,11 +11,11 @@ branch happens *at* approval (FR-024), a plain `{from: {to}}` mapping would let 
 reach `READY_FOR_PICKUP`.
 """
 
-from datetime import datetime
 
 from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.clock import local_now
 from app.enums import DeliveryOrderStatus as S
 from app.enums import FulfillmentType
 from app.models.logistics import DeliveryOrder, DeliveryOrderEvent
@@ -102,7 +102,7 @@ def transition(
         from_status=S(order.status),
         to_status=to_status,
         employee=employee,
-        event_time=datetime.now(),
+        event_time=local_now(),
         reason=reason.strip() if reason else None,
     )
     db.add(event)
@@ -121,7 +121,7 @@ def record_creation(db: AsyncSession, order: DeliveryOrder, *, employee: int) ->
         from_status=None,
         to_status=S.DRAFT,
         employee=employee,
-        event_time=datetime.now(),
+        event_time=local_now(),
         reason=None,
     )
     db.add(event)

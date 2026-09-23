@@ -1,11 +1,10 @@
-from datetime import datetime
 from decimal import Decimal
 from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.enums import CurrencyCode, FulfillmentType, OrderOrigin, PaymentTerms, Priority
-from app.schemas import CUSTOMER_DISPLAY_NAME_DESCRIPTION, CUSTOMER_NAME_DESCRIPTION
+from app.schemas import CUSTOMER_DISPLAY_NAME_DESCRIPTION, CUSTOMER_NAME_DESCRIPTION, LocalDateTime
 from app.schemas.sat_catalog import SatUnitOfMeasurementResponse
 
 # ── Lifecycle ─────────────────────────────────────────────────────────────────
@@ -100,8 +99,8 @@ class SalesOrderCreate(BaseModel):
     point_sale: int | None = None
     payment_terms: PaymentTerms | None = None
     currency: CurrencyCode | None = None
-    date: datetime | None = None
-    promise_date: datetime | None = None
+    date: LocalDateTime | None = None
+    promise_date: LocalDateTime | None = None
     contact: int | None = None
     ship_to: int | None = None
     recipient: str | None = Field(default=None, max_length=13)
@@ -139,7 +138,7 @@ class SalesOrderUpdate(BaseModel):
     salesperson: int | None = None
     payment_terms: PaymentTerms | None = None
     currency: CurrencyCode | None = None
-    promise_date: datetime | None = None
+    promise_date: LocalDateTime | None = None
     contact: int | None = None
     ship_to: int | None = None
     recipient: str | None = Field(default=None, max_length=13)
@@ -173,9 +172,9 @@ class SalesOrderResponse(BaseModel):
     customer_name: str | None
     sales_quote: int | None
     payment_terms: PaymentTerms
-    date: datetime
-    promise_date: datetime
-    due_date: datetime
+    date: LocalDateTime
+    promise_date: LocalDateTime
+    due_date: LocalDateTime
     contact: int | None
     ship_to: int | None
     recipient: str | None
@@ -238,8 +237,8 @@ class SalesOrderSummary(BaseModel):
     #: question from `origin`'s "which workflow raised this", and the two stay independent.
     sales_quote: int | None = None
     salesperson: int
-    date: datetime
-    due_date: datetime
+    date: LocalDateTime
+    due_date: LocalDateTime
     currency: CurrencyCode
     status: DocumentStatus
     # Which workflow raised the order, on the row itself — a back-office list separates itself from

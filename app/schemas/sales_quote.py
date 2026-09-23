@@ -1,10 +1,9 @@
-from datetime import datetime
 from decimal import Decimal
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.enums import CurrencyCode, PaymentTerms
-from app.schemas import CUSTOMER_DISPLAY_NAME_DESCRIPTION
+from app.schemas import CUSTOMER_DISPLAY_NAME_DESCRIPTION, LocalDateTime
 from app.schemas.sales_order import DocumentStatus
 
 
@@ -53,8 +52,8 @@ class SalesQuoteCreate(BaseModel):
     salesperson: int | None = None
     payment_terms: PaymentTerms | None = None
     currency: CurrencyCode | None = None
-    date: datetime | None = None
-    due_date: datetime | None = None
+    date: LocalDateTime | None = None
+    due_date: LocalDateTime | None = None
     contact: int | None = None
     ship_to: int | None = None
     comment: str | None = None
@@ -65,7 +64,7 @@ class SalesQuoteUpdate(BaseModel):
     salesperson: int | None = None
     payment_terms: PaymentTerms | None = None
     currency: CurrencyCode | None = None
-    due_date: datetime | None = None
+    due_date: LocalDateTime | None = None
     contact: int | None = None
     ship_to: int | None = None
     comment: str | None = None
@@ -80,8 +79,8 @@ class SalesQuoteResponse(BaseModel):
     salesperson: int
     customer: int
     payment_terms: PaymentTerms
-    date: datetime
-    due_date: datetime
+    date: LocalDateTime
+    due_date: LocalDateTime
     contact: int | None
     ship_to: int | None
     currency: CurrencyCode
@@ -109,8 +108,8 @@ class SalesQuoteSummary(BaseModel):
         default=None, description=CUSTOMER_DISPLAY_NAME_DESCRIPTION
     )
     salesperson: int
-    date: datetime
-    due_date: datetime
+    date: LocalDateTime
+    due_date: LocalDateTime
     currency: CurrencyCode
     status: DocumentStatus
     has_expired: bool

@@ -32,6 +32,7 @@ from fastapi import HTTPException
 from sqlalchemy import and_, case, not_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.clock import local_now
 from app.core.config import settings
 from app.core.constants import SYSTEM_EMPLOYEE_ID
 from app.core.deps import CurrentUser
@@ -94,7 +95,7 @@ async def find_expired(
     `scheduled_days = 0` exempts scheduled orders outright, the same way `days = 0` disables the
     sweep, for a deployment that would rather the sweep never touch them.
     """
-    base = now or datetime.now()
+    base = now or local_now()
     cutoff = base - timedelta(days=days)
 
     holds_stock = (
