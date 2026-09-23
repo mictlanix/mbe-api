@@ -3,7 +3,7 @@
   "specName": "Local Datetime Contract",
   "branch": "018-local-datetime-contract",
   "currentStep": "implement",
-  "status": "implemented",
+  "status": "completed",
   "history": [
     {
       "step": "specify",
