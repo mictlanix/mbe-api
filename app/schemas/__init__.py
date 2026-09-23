@@ -13,9 +13,22 @@ essentially every row — so the mistake reproduces silently on every request (#
 
 `tests/unit/test_field_descriptions.py` pins the fields that carry one, so a rename or a new
 lookalike field does not quietly drop the distinction from the generated client.
+
+**Every datetime earns one (#228).** `format: date-time` promises RFC 3339, which carries an
+offset; the wire carries naive business wall-clock time. A generated client read that as UTC and
+shifted every date it showed by six hours (mictlanix/mbe-ui#176). So datetimes are declared
+`LocalDateTime`, which carries the convention into the schema and converts an inbound offset —
+the database driver would otherwise drop it without converting.
+`tests/unit/test_datetime_contract.py` fails on any datetime declared bare.
 """
 
-from pydantic import BaseModel
+from datetime import datetime
+from typing import Annotated
+
+from pydantic import AfterValidator, BaseModel, Field
+
+from app.core.clock import to_local
+from app.core.config import settings
 
 #: Shared wording for the two customer-name fields, which appear on more than one list schema
 #: (#173, #174). One definition so the two lists cannot drift into describing the same pair
@@ -29,6 +42,18 @@ CUSTOMER_DISPLAY_NAME_DESCRIPTION = (
     "The customer's own name, joined from the customer record. This is the field to render "
     'in a list. Null only if the customer row is missing.'
 )
+
+
+_ZONE = settings.business_timezone.key
+LOCAL_DATETIME_DESCRIPTION = (
+    f'Local wall-clock time in {_ZONE}, with no UTC offset. A value sent with an offset is '
+    f'converted to {_ZONE}; a value without one is taken as already local.'
+)
+
+#: A datetime as the whole system means it: naive wall-clock time in the business timezone (#228).
+LocalDateTime = Annotated[
+    datetime, AfterValidator(to_local), Field(description=LOCAL_DATETIME_DESCRIPTION)
+]
 
 
 class ListResponse[T](BaseModel):

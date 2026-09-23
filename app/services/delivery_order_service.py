@@ -18,6 +18,7 @@ from fastapi import HTTPException, status
 from sqlalchemy import Select, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.clock import local_now
 from app.core.config import settings
 from app.core.deps import CurrentUser
 from app.enums import DeliveryOrderStatus as S
@@ -297,7 +298,7 @@ async def create_from_sales_order(
             FulfillmentType.PICKUP if detected else FulfillmentType.DELIVERY
         )
     fallback = await _fallback_warehouse(db, order.facility)
-    now = datetime.now()
+    now = local_now()
 
     delivery = DeliveryOrder(
         creator=employee,
@@ -522,7 +523,7 @@ async def update_order(
             setattr(order, field, value)
 
     order.updater = employee
-    order.modification_time = datetime.now()
+    order.modification_time = local_now()
     await db.commit()
     await db.refresh(order)
     return order
@@ -698,7 +699,7 @@ async def confirm(
         )
 
     if settings.min_span_hours_for_deliveries and not current.administrator:
-        earliest = datetime.now() + timedelta(hours=settings.min_span_hours_for_deliveries)
+        earliest = local_now() + timedelta(hours=settings.min_span_hours_for_deliveries)
         if order.date is not None and order.date < earliest:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
@@ -719,7 +720,7 @@ async def confirm(
     delivery_events.transition(db, order, target, employee=employee)
 
     order.updater = employee
-    order.modification_time = datetime.now()
+    order.modification_time = local_now()
     await db.commit()
     await db.refresh(order)
     return order
@@ -737,7 +738,7 @@ async def approve(db: AsyncSession, order: DeliveryOrder, *, current: CurrentUse
 
     delivery_events.transition(db, order, _branch_target(order), employee=employee)
     order.updater = employee
-    order.modification_time = datetime.now()
+    order.modification_time = local_now()
     await db.commit()
     await db.refresh(order)
     return order
@@ -758,7 +759,7 @@ async def reject(
     delivery_events.transition(db, order, S.DRAFT, employee=employee, reason=reason)
     order.rejection_reason = reason.strip()
     order.updater = employee
-    order.modification_time = datetime.now()
+    order.modification_time = local_now()
     await db.commit()
     await db.refresh(order)
     return order
@@ -770,7 +771,7 @@ async def mark_ready_for_pickup(
     employee = current.employee_id
     delivery_events.transition(db, order, S.READY_FOR_PICKUP, employee=employee)
     order.updater = employee
-    order.modification_time = datetime.now()
+    order.modification_time = local_now()
     await db.commit()
     await db.refresh(order)
     return order
@@ -795,7 +796,7 @@ async def requeue(db: AsyncSession, order: DeliveryOrder, *, current: CurrentUse
 
     delivery_events.transition(db, order, S.IN_PREPARATION, employee=employee)
     order.updater = employee
-    order.modification_time = datetime.now()
+    order.modification_time = local_now()
     await db.commit()
     await db.refresh(order)
     return order
@@ -812,7 +813,7 @@ async def cancel(
 
     delivery_events.transition(db, order, S.CANCELLED, employee=employee, reason=reason)
     order.updater = employee
-    order.modification_time = datetime.now()
+    order.modification_time = local_now()
     await db.commit()
     await db.refresh(order)
     return order
@@ -839,7 +840,7 @@ def build_proof(
     proof = ProofOfDelivery(
         receiver_name=receiver_name.strip(),
         receiver_id_shown=receiver_id_shown.strip(),
-        captured_time=datetime.now(),
+        captured_time=local_now(),
         captured_by=employee,
         image_file=image_file,
     )
@@ -907,7 +908,7 @@ async def confirm_pickup(
     order.proof_of_delivery = proof.proof_of_delivery_id
     delivery_events.transition(db, order, S.PICKED_UP, employee=employee)
     order.updater = employee
-    order.modification_time = datetime.now()
+    order.modification_time = local_now()
 
     await db.commit()
     for sales_order_id in sales_orders:

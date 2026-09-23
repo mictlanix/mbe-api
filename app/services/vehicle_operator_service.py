@@ -1,9 +1,9 @@
 from collections.abc import Sequence
-from datetime import UTC, datetime
 
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.clock import local_now
 from app.enums import EntityStatus
 from app.models.core import Employee, VehicleOperator
 from app.schemas.core import VehicleOperatorCreate, VehicleOperatorUpdate
@@ -73,7 +73,7 @@ async def get_vehicle_operator(
 async def create_vehicle_operator(
     db: AsyncSession, data: VehicleOperatorCreate, creator_id: int = 0
 ) -> VehicleOperator:
-    now = datetime.now(tz=UTC).replace(tzinfo=None)
+    now = local_now()
     vo = VehicleOperator(
         driver=data.driver,
         license_type=data.license_type,
@@ -111,7 +111,7 @@ async def update_vehicle_operator(
         vo.issuing_location = data.issuing_location
     if data.status is not None:
         vo.status = data.status
-    vo.modification_time = datetime.now(tz=UTC).replace(tzinfo=None)
+    vo.modification_time = local_now()
     vo.updater = updater_id
     await db.commit()
     await db.refresh(vo)

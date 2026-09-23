@@ -9,11 +9,11 @@ this feature does not otherwise need.
 so an entry keys to the owning payment and names the application in `content`.
 """
 
-from datetime import datetime
 
 from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.clock import local_now
 from app.enums import SourceType
 from app.models.incidence import Incidence
 
@@ -41,7 +41,7 @@ def record(
     entry = Incidence(
         source=int(source),
         instance_id=instance_id,
-        modification_time=datetime.now(),
+        modification_time=local_now(),
         updater=updater,
         content=context,
         comment=reason.strip(),

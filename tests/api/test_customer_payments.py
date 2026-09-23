@@ -6,6 +6,7 @@ application stays visible rather than disappearing.
 """
 
 from collections.abc import Generator
+from datetime import datetime
 from decimal import Decimal
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
@@ -401,3 +402,19 @@ async def test_outstanding_orders_carry_their_balances() -> None:
 
     assert response.status_code == status.HTTP_200_OK
     assert response.json()['items'][0]['balance'] == '190.00'
+
+
+@pytest.mark.asyncio
+async def test_a_utc_date_filter_is_converted_to_business_wall_clock_time() -> None:
+    """#228 — the driver would drop the offset unconverted and filter six hours off."""
+    _auth()
+    listing = AsyncMock(return_value=([], 0))
+    with patch('app.services.customer_payment_service.list_payments', listing):
+        async with await _client() as client:
+            await client.get(
+                '/api/v1/customer-payments', params={'date_to': '2026-09-27T06:00:00Z'}
+            )
+
+    date_to = listing.await_args.kwargs['date_to']
+    assert date_to == datetime(2026, 9, 27, 0, 0)
+    assert date_to.tzinfo is None

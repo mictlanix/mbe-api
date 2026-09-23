@@ -16,6 +16,7 @@ from fastapi import HTTPException, status
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.clock import local_now
 from app.core.config import settings
 from app.core.deps import CurrentUser
 from app.enums import CurrencyCode, SourceType
@@ -142,7 +143,7 @@ async def create_payment(
     if await db.get(Customer, data.customer) is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Customer not found')
 
-    now = data.date or datetime.now()
+    now = data.date or local_now()
     session_id = await _open_session_id(db, employee)
 
     payment = CustomerPayment(
@@ -336,7 +337,7 @@ async def apply_payment(
         amount=data.amount,
         amount_change=data.amount_change,
         applier=employee,
-        date=datetime.now(),
+        date=local_now(),
         confirmed=True,
         cancelled=False,
     )
@@ -446,7 +447,7 @@ async def verify_payment(
         )
     payment.verifier = employee
     payment.updater = employee
-    payment.modification_time = datetime.now()
+    payment.modification_time = local_now()
     await db.commit()
     await db.refresh(payment)
     return await attach_unapplied(db, payment)

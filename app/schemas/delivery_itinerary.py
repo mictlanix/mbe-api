@@ -1,10 +1,10 @@
 from datetime import date as date_type
-from datetime import datetime
 from decimal import Decimal
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.enums import ItineraryStatus, ShortfallReason, StopOutcome
+from app.schemas import LocalDateTime
 
 # ── Pending deliveries ────────────────────────────────────────────────────────
 
@@ -15,7 +15,7 @@ class PendingDeliveryLine(BaseModel):
     serial: int | None
     customer: int
     ship_to: int | None
-    date: datetime | None
+    date: LocalDateTime | None
     priority: int
     product: int
     product_code: str
@@ -73,7 +73,7 @@ class ItineraryStopResponse(BaseModel):
 
     deliveries_itinerary_stop_id: int
     sequence: int
-    arrival_time: datetime | None
+    arrival_time: LocalDateTime | None
     outcome: StopOutcome
     proof_of_delivery: int | None
     comment: str | None
@@ -89,8 +89,8 @@ class ItinerarySummary(BaseModel):
     vehicle_operator: int | None
     warehouse: int | None
     status: ItineraryStatus
-    departure_time: datetime | None
-    return_time: datetime | None
+    departure_time: LocalDateTime | None
+    return_time: LocalDateTime | None
 
 
 class ItineraryResponse(ItinerarySummary):

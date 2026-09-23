@@ -1,4 +1,5 @@
 from decimal import Decimal
+from zoneinfo import ZoneInfo
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -13,6 +14,11 @@ class Settings(BaseSettings):
     api_v1_prefix: str = '/api/v1'
 
     database_url: str = 'mysql+aiomysql://user:password@localhost/mbe'
+
+    # Every stored datetime is naive wall-clock time in this zone — the zone the legacy monolith
+    # writes into the same database. Required, with no default: falling back to the host's clock
+    # is how "local" silently meant whatever the server was set to (#228).
+    business_timezone: ZoneInfo
 
     jwt_secret_key: str = 'change-me-in-production'
     jwt_algorithm: str = 'HS256'

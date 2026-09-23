@@ -14,6 +14,7 @@ from fastapi import HTTPException, status
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.clock import local_now
 from app.core.config import settings
 from app.core.deps import CurrentUser
 from app.enums import CurrencyCode, OrderOrigin, PaymentTerms
@@ -37,7 +38,7 @@ def has_expired(quote: object, *, now: datetime | None = None) -> bool:
     due = getattr(quote, 'due_date', None)
     if due is None:
         return False
-    return due < (now or datetime.now())
+    return due < (now or local_now())
 
 
 def assert_convertible(quote: object, *, now: datetime | None = None) -> None:
@@ -175,7 +176,7 @@ async def create_quote(
     customer = await _customer_or_404(
         db, data.customer if data.customer is not None else settings.default_customer_id
     )
-    now = data.date or datetime.now()
+    now = data.date or local_now()
     currency = data.currency if data.currency is not None else settings.default_currency
     terms = data.payment_terms if data.payment_terms is not None else PaymentTerms.IMMEDIATE
 
@@ -306,7 +307,7 @@ async def update_quote(
         quote.salesperson = changes['salesperson']
 
     quote.updater = employee
-    quote.modification_time = datetime.now()
+    quote.modification_time = local_now()
     await db.commit()
     await db.refresh(quote)
     return await attach_derived(db, quote)
@@ -372,7 +373,7 @@ async def add_line(
         )
     )
     quote.updater = employee
-    quote.modification_time = datetime.now()
+    quote.modification_time = local_now()
     await db.commit()
     await db.refresh(quote)
     return await attach_derived(db, quote)
@@ -400,7 +401,7 @@ async def update_line(
             setattr(line, field, changes[field])
 
     quote.updater = current.employee_id
-    quote.modification_time = datetime.now()
+    quote.modification_time = local_now()
     await db.commit()
     await db.refresh(quote)
     return await attach_derived(db, quote)
@@ -411,7 +412,7 @@ async def remove_line(
 ) -> SalesQuote:
     documents.assert_editable(quote)
     quote.updater = current.employee_id
-    quote.modification_time = datetime.now()
+    quote.modification_time = local_now()
     await db.delete(line)
     await db.commit()
     await db.refresh(quote)
@@ -429,7 +430,7 @@ async def confirm_quote(
     quote.serial = await documents.assign_folio(db, SalesQuote, facility=quote.facility)
     quote.completed = True
     quote.updater = current.employee_id
-    quote.modification_time = datetime.now()
+    quote.modification_time = local_now()
     await db.commit()
     await db.refresh(quote)
     return await attach_derived(db, quote)
@@ -442,7 +443,7 @@ async def cancel_quote(db: AsyncSession, quote: SalesQuote, *, current: CurrentU
         )
     quote.cancelled = True
     quote.updater = current.employee_id
-    quote.modification_time = datetime.now()
+    quote.modification_time = local_now()
     await db.commit()
     await db.refresh(quote)
     return await attach_derived(db, quote)
@@ -453,7 +454,7 @@ async def duplicate_quote(
 ) -> SalesQuote:
     """A fresh editable quote dated today, re-priced from the customer's current list (FR-033)."""
     employee = current.employee_id
-    now = datetime.now()
+    now = local_now()
     customer = await _customer_or_404(db, quote.customer)
 
     copy = SalesQuote(
@@ -531,7 +532,7 @@ async def convert_to_order(
         )
 
     customer = await _customer_or_404(db, quote.customer)
-    now = datetime.now()
+    now = local_now()
     terms = PaymentTerms(quote.payment_terms)
 
     # The quote's terms become the order's, and until #219 nothing revisited them on the way

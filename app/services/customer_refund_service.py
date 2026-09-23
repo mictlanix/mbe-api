@@ -14,13 +14,13 @@ the check at edit time can go stale between two clerks working the same order.
 """
 
 from collections.abc import Sequence
-from datetime import datetime
 from decimal import Decimal
 
 from fastapi import HTTPException, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.clock import local_now
 from app.core.deps import CurrentUser
 from app.enums import CurrencyCode, PaymentMethod, PaymentType, TransactionType
 from app.models.product import Product
@@ -255,7 +255,7 @@ async def open_refund(
             detail='No refundable items remain on this order',
         )
 
-    now = datetime.now()
+    now = local_now()
     refund = CustomerRefund(
         sales_order=order.sales_order_id,
         customer=order.customer,
@@ -371,7 +371,7 @@ async def update_line(
         line.warehouse = changes['warehouse']
 
     refund.updater = current.employee_id
-    refund.modification_time = datetime.now()
+    refund.modification_time = local_now()
     await db.commit()
     await db.refresh(refund)
     return await attach_derived(db, refund)
@@ -466,7 +466,7 @@ async def confirm_refund(
         ]
     ).total
 
-    now = datetime.now()
+    now = local_now()
     refund.serial = await documents.assign_folio(db, CustomerRefund, facility=refund.facility)
     refund.date = now
     refund.completed = True
@@ -501,7 +501,7 @@ async def _pay_customer_back(
     employee: int,
 ) -> None:
     """Return the full refund total as cash or store credit (FR-065)."""
-    now = datetime.now()
+    now = local_now()
 
     payment = CustomerPayment(
         customer=refund.customer,
@@ -558,7 +558,7 @@ async def cancel_refund(
 
     refund.cancelled = True
     refund.updater = current.employee_id
-    refund.modification_time = datetime.now()
+    refund.modification_time = local_now()
     await db.commit()
     await db.refresh(refund)
     return await attach_derived(db, refund)

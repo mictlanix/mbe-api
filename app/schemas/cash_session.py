@@ -1,9 +1,9 @@
-from datetime import datetime
 from decimal import Decimal
 from enum import StrEnum
 
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field
 
+from app.schemas import LocalDateTime
 from app.schemas.core import CashDrawerSummary, EmployeeResponse
 
 
@@ -70,8 +70,8 @@ class CashSessionResponse(BaseModel):
         validation_alias=AliasChoices('cash_drawer_detail', 'cash_drawer')
     )
     cashier: EmployeeResponse = Field(validation_alias=AliasChoices('cashier_detail', 'cashier'))
-    start: datetime
-    end: datetime | None
+    start: LocalDateTime
+    end: LocalDateTime | None
     cash_supervisor: EmployeeResponse | None = Field(
         validation_alias=AliasChoices('cash_supervisor_detail', 'cash_supervisor')
     )

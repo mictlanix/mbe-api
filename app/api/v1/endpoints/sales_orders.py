@@ -1,12 +1,10 @@
-from datetime import datetime
-
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.deps import CurrentUser, require_privilege
 from app.db.session import get_db
 from app.enums import AccessRight, OrderOrigin, SystemObject
-from app.schemas import ListResponse
+from app.schemas import ListResponse, LocalDateTime
 from app.schemas.customer_payment import OrderApplicationResponse
 from app.schemas.sales_order import (
     ProductLookupResponse,
@@ -41,8 +39,8 @@ async def list_sales_orders(
     customer: int | None = Query(None),
     salesperson: int | None = Query(None),
     order_status: str | None = Query(None, alias='status'),
-    date_from: datetime | None = Query(None),
-    date_to: datetime | None = Query(None),
+    date_from: LocalDateTime | None = Query(None),
+    date_to: LocalDateTime | None = Query(None),
     facility: int | None = Query(None),
     point_sale: int | None = Query(None),
     origin: OrderOrigin | None = Query(None),

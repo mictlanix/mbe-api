@@ -1,5 +1,4 @@
 import datetime as dt
-from datetime import datetime
 from decimal import Decimal
 
 from pydantic import (
@@ -12,7 +11,9 @@ from pydantic import (
     model_validator,
 )
 
+from app.core.clock import local_today
 from app.enums import AddressType, EntityStatus, FacilityType, PaymentMethod
+from app.schemas import LocalDateTime
 from app.schemas.sat_catalog import SatCatalogResponse
 from app.services.image_service import image_url
 
@@ -561,8 +562,8 @@ class VehicleOperatorResponse(BaseModel):
     issue_date: dt.date
     expiration_date: dt.date
     issuing_location: str
-    creation_time: datetime
-    modification_time: datetime
+    creation_time: LocalDateTime
+    modification_time: LocalDateTime
     creator: EmployeeResponse = Field(validation_alias=AliasChoices('creator_detail', 'creator'))
     updater: EmployeeResponse = Field(validation_alias=AliasChoices('updater_detail', 'updater'))
     status: EntityStatus
@@ -570,5 +571,5 @@ class VehicleOperatorResponse(BaseModel):
 
     @model_validator(mode='after')
     def compute_days_until_expiry(self) -> 'VehicleOperatorResponse':
-        self.days_until_expiry = (self.expiration_date - dt.date.today()).days
+        self.days_until_expiry = (self.expiration_date - local_today()).days
         return self

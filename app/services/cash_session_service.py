@@ -15,6 +15,7 @@ from fastapi import HTTPException, status
 from sqlalchemy import and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.clock import local_now, local_today
 from app.core.deps import CurrentUser
 from app.enums import CashCountType
 from app.models.core import CashCount, CashDrawer, CashSession, Employee
@@ -247,7 +248,7 @@ async def open_session(
         )
 
     session = CashSession(
-        start=datetime.now(), end=None, cashier=cashier, cash_drawer=drawer_id,
+        start=local_now(), end=None, cashier=cashier, cash_drawer=drawer_id,
         cash_supervisor=None,
     )
     db.add(session)
@@ -289,7 +290,7 @@ async def close_session(
             )
         )
 
-    session.end = datetime.now()
+    session.end = local_now()
     session.cash_supervisor = employee
     await db.commit()
     await db.refresh(session)
@@ -301,7 +302,7 @@ async def current_session(
 ) -> tuple[SessionState, CashSession | None]:
     cashier = current.employee_id
     session = await open_session_for_cashier(db, cashier)
-    state = session_state(session, today=date.today())
+    state = session_state(session, today=local_today())
     if session is not None:
         await attach_derived(db, session)
     return state, session
@@ -350,7 +351,7 @@ async def list_sessions(
     if date_to is not None:
         both(CashSession.start <= date_to)
     if session_status is not None:
-        both(_status_clause(session_status, today=date.today()))
+        both(_status_clause(session_status, today=local_today()))
 
     total: int = (await db.execute(count_q)).scalar_one()
     ordering = _ORDERINGS[sort if sort is not None else CashSessionSort.ID_DESC]
