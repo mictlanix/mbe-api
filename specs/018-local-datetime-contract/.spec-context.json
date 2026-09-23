@@ -1,0 +1,306 @@
+{
+  "workflow": "speckit",
+  "specName": "Local Datetime Contract",
+  "branch": "018-local-datetime-contract",
+  "currentStep": "implement",
+  "status": "implemented",
+  "history": [
+    {
+      "step": "specify",
+      "substep": null,
+      "kind": "start",
+      "by": "extension",
+      "at": "2026-09-22T23:31:47.098Z"
+    },
+    {
+      "step": "specify",
+      "substep": null,
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-09-22T23:33:09.661Z"
+    },
+    {
+      "step": "plan",
+      "substep": null,
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-09-23T00:05:40.275Z"
+    },
+    {
+      "step": "tasks",
+      "substep": null,
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-09-23T00:07:02.681Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T001",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-09-23T02:01:05.970Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T002",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-09-23T02:01:05.971Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T003",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-09-23T02:01:05.971Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T004",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-09-23T02:01:05.971Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T005",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-09-23T02:01:05.971Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T006",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-09-23T02:01:05.971Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T007",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-09-23T02:01:05.971Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T008",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-09-23T02:01:05.971Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T009",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-09-23T02:01:05.971Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T010",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-09-23T02:01:05.971Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T011",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-09-23T02:01:05.971Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T012",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-09-23T02:01:05.971Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T013",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-09-23T02:01:05.971Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T014",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-09-23T02:01:05.971Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T015",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-09-23T02:01:05.971Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T016",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-09-23T02:01:05.971Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T017",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-09-23T02:01:05.971Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T018",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-09-23T02:01:05.971Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T019",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-09-23T02:01:05.971Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T020",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-09-23T02:01:05.971Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T021",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-09-23T02:01:05.971Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T022",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-09-23T02:01:05.971Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T023",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-09-23T02:01:05.971Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T024",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-09-23T02:01:05.971Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T025",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-09-23T02:01:05.971Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T026",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-09-23T02:01:05.971Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-09-23T02:01:05.971Z"
+    }
+  ],
+  "telemetryInstanceId": "8261be5b-cba4-43bd-8dfe-98ad4f3e9836",
+  "last_action": "living specs evaluated — skipped (not configured)",
+  "coverage": {
+    "FR-001": {
+      "title": "Business timezone is a required setting (America/Mexico_City in .env and .env.example); startup fails if missing or invalid"
+    },
+    "FR-002": {
+      "title": "Every current time recorded or compared is business-timezone wall-clock, host TZ irrelevant"
+    },
+    "FR-003": {
+      "title": "Vehicle operator create/update records business-timezone time, not UTC"
+    },
+    "FR-004": {
+      "title": "Offset-aware inbound datetimes (body or query) are converted to business-timezone wall-clock"
+    },
+    "FR-005": {
+      "title": "Naive inbound datetimes are accepted unchanged"
+    },
+    "FR-006": {
+      "title": "Every datetime field in the schema states the local wall-clock, no-offset convention"
+    },
+    "FR-007": {
+      "title": "Response datetimes keep their current wire format"
+    },
+    "FR-008": {
+      "title": "Token expiry stays an absolute UTC instant"
+    }
+  },
+  "size": "oversized",
+  "classification": {
+    "projectedFiles": 28,
+    "projectedTasks": 16,
+    "scopeSignal": "none",
+    "verdict": "oversized"
+  },
+  "expectations": [
+    "aware UTC storage (option A)",
+    "migrating existing data",
+    "changing response wire format",
+    "mbe-ui client fix"
+  ],
+  "context": [
+    "area: app/services (53 naive datetime.now() calls across 11 files)",
+    "area: app/schemas (datetime request and response fields)",
+    "area: app/api/v1/endpoints (date_from/date_to query params on 5 endpoints)",
+    "area: app/core/config.py, app/core/security.py",
+    "constraint: shared DB with legacy C# monolith writing Mexico City wall-clock",
+    "constraint: reuse csd_service.py:110 conversion pattern",
+    "probe: mbe_dev vehicle_operator has 2 rows possibly UTC-shifted; no backfill",
+    "constraint: user asked for America/Mexico_City to be written in the config file (.env), not only as a code default",
+    "decision: timezone setting is required, no code default (user, 2026-09-22)"
+  ],
+  "intent": "Make every API datetime Mexico City wall-clock time from one source, normalize inbound offsets, and document the convention in the schema (#228)",
+  "currentTask": "T026"
+}
