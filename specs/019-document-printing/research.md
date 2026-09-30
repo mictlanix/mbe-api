@@ -85,19 +85,34 @@ Templates never contain `http(s)` URLs. The facility logo is passed as an absolu
 
 **Evidence**: The shared `FontConfiguration` cut the warm median from 255 ms to 116 ms for a 20-line ticket, and from 374 ms to 229 ms for a 30-line letter document. Per-render setup was re-reading fontconfig and rewriting every font file to a temp directory.
 
-## R6. Barcodes: Code128 SVG as a `data:` URI
+**Found during implementation** (strict font assertions, plus a read-only render of 280 real `mbe_dev` records):
+- **Glyphs outside the bundled fonts pull in a host font**, which makes output depend on the machine. Three causes were found and fixed:
+  - legacy's `✕` (U+2715) became `×` (U+00D7);
+  - a soft-hyphen line break inserts U+2010 by default, so both stylesheets set `hyphenate-character: '-'`;
+  - C0/C1 control characters from legacy mojibake (U+009D, U+0081) are stripped from every rendered value by the Jinja `finalize` hook.
+- **Remaining gap**: across all 21,368 product names, the only other character the fonts lack is `Ṕ` (U+1E54, 2 names). It still falls back to a host font, and was left as is.
+- **Font cache folder**: the shared `FontConfiguration` creates one `weasyprint-*` folder in the temp directory on the first render in a process, copies the bundled fonts into it, and removes it at exit. It is a font cache, not document output. No PDF is ever written (FR-001).
 
-**Decision**:
-- `python-barcode`'s `code128` with `SVGWriter`, written to a `BytesIO`.
-- Options: `write_text=False` (the template prints the id as text, like legacy), `quiet_zone` 2.0, `compress=False`.
-- Embedded as `<img src="data:image/svg+xml;base64,…">`.
+## R6. Barcodes: Code128-B SVG as a `data:` URI, at legacy's size
+
+**Decision** (revised 2026-09-27, after comparison with a legacy print of order 337416):
+- `formatting.code128b_codes` encodes in **subset B only**, as legacy does: `Code128Content.cs` supports A/B, and B wins ties, so digits are B.
+- `barcode_data_uri` draws an SVG sized like legacy's `MakeBarcodeImage(id, 2, false)`:
+  - 2 px per module;
+  - no quiet zone;
+  - height = ceil(15% of width).
+  - An 8-digit order id is 246 × 37 px (about 65 × 10 mm, nearly the full ticket width). A 6-digit session id is 202 × 31 px.
+- python-barcode supplies only the symbol tables (`barcode.charsets.code128`).
+- The 13-module stop symbol includes its final 2-module bar; the table's `STOP` omits it.
+- Embedded as `<img src="data:image/svg+xml;base64,…">` at natural size.
+
+**Why the revision**: The first version used python-barcode's `Code128` writer. It switches to subset C for digit runs, so `00337416` was 4 digit pairs (79 modules), drawn at python-barcode's default size (about 20 × 15 mm). It scanned to the same value, but it looked nothing like legacy's 123-module, full-width barcode.
 
 **Payload**: the id as legacy displays it.
 - A sales order id is zero-padded to 8 digits (`SalesOrder.cs:44-55`, `{0:D8}`).
 - A cash session id is padded to 6 digits (`CashCountReport.cs:41`).
-- Legacy encodes Code128 subset B (`Code128Content.cs:10,99`). python-barcode chooses its own subset, and the scanned value is the same string either way.
 
-**Rationale**: An inline `<svg>` also renders, but WeasyPrint logs an "Ignored `fill:black`" warning per bar. The `data:` URI is silent, can be sized with CSS, and passes the fetcher as `data`. Output is deterministic.
+**Rationale for the embedding**: An inline `<svg>` also renders, but WeasyPrint logs an "Ignored `fill:black`" warning per bar. The `data:` URI is silent and passes the fetcher as `data`. The output is deterministic.
 
 ## R7. Stylesheets: hand-written, not Bootstrap 3
 
@@ -170,7 +185,7 @@ Templates never contain `http(s)` URLs. The facility logo is passed as an absolu
   - "uno" shortens to "un" or "ún" before a noun or "mil" (`VEINTIÚN PESOS`, `CIENTO UN MIL`).
   - An exact million or millions takes "DE" before the currency (`UN MILLÓN DE PESOS`, `DOS MILLONES DE PESOS`).
 
-Legacy's grammar defects are fixed rather than reproduced, in line with the spec's treatment of the `IsPaid` bug. The user chose full correction on 2026-09-25. The defects include:
+Legacy's grammar defects are fixed rather than reproduced, in the same way FR-032 corrects a legacy label. The user chose full correction on 2026-09-25. The defects include:
 
 | Legacy output | This feature |
 |---|---|
@@ -195,7 +210,11 @@ The format (currency names, `cc/100`, `M. N.`, `USD`, `EUR`, rounding) is unchan
 - Using the API's balance keeps the printed receipt consistent with every screen in mbe-ui.
 - The difference is recorded here and not "fixed" in this feature.
 
-**Discount**: No discount total exists today. The documents compute it as the sum over lines of `quantity × price × discount_rate`, in the line's price basis, using `totals.line_amounts`' existing discount step. It is shown only when non-zero.
+**Discount and Subtotal** (corrected during implementation, 2026-09-25): no discount total exists today, and `attach_derived`'s subtotal is already net of discount. Legacy prints a pre-discount Subtotal and a tax-exclusive Descuento (`ModelHelpers.Discount`), so that Subtotal − Descuento + IVA = Total. The documents follow that:
+- The discount is, per line, the net amount at `discount_rate = 0` minus the actual net amount, both from `totals.line_amounts`, summed and rounded to cents.
+- The printed Subtotal is `total − tax_total + discount`, so the printed identity holds exactly despite rounding.
+- Descuento is shown only when non-zero.
+- The first design, Σ `quantity × price × discount_rate` beneath the net subtotal, read as a discount taken twice.
 
 **Refunds and credit notes on the receipt**:
 - `customer_refund_service` already filters by order.

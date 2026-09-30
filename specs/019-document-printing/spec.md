@@ -21,6 +21,10 @@
 - Q: Should the amount in words fix only legacy's listed defects, or all of its Spanish grammar? → A: All of it. Legacy's format stays, but the Spanish is correct: `UN PESO 50/100`, `CIENTO UN PESOS`, `VEINTIÚN MIL`, `UN MILLÓN DE PESOS` (research R10).
 - Q: What page height should tickets use? → A: Fitted height. Each ticket is a single page, 72 mm wide and exactly as tall as its content, replacing legacy's fixed 297 mm pages. A short ticket feeds no blank paper, and a long ticket never has a page boundary (or a driver cut) in the middle.
 
+### Session 2026-09-27
+
+- Q: On a paid receipt, should "Pagado" show legacy's check mark or the amount paid? → A: The check mark, as legacy does (FR-012). The earlier reading of legacy's output as a printed boolean was wrong: its Boolean display template draws `true.png`.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - A cashier prints the sale ticket (Priority: P1)
@@ -144,7 +148,7 @@ An operator runs the API on a host with no outbound internet access, under norma
   - payment rows, with the change row when change is above zero;
   - the paid or balance row (see FR-012);
   - the payment-on-delivery block, the "Por cobrar" block, the card legend and signature, the pagaré and signature, the receipt message, and the cancellation stamp. Each appears under the same condition as in legacy.
-- **FR-012**: A paid order's receipt MUST show a "Pagado" row. Legacy printed the literal boolean in that row, which is a bug and is not reproduced.
+- **FR-012**: A paid order's receipt MUST show a "Pagado" row with a check mark, as legacy's Boolean display template draws it (`true.png`). No amount is printed there; the payment rows above already carry the amounts.
 - **FR-013**: An immediate payment taken through a payment option whose "display on ticket" flag is off MUST be labelled with its base payment method name, not the option name. Its amount is unchanged. Other payment types print as "{type} - {id}", as legacy does, so the flag does not apply to them.
 - **FR-014**: The pagaré wording MUST come from configuration, defaulting to legacy's text, with placeholders for customer name, balance, due date and issuing taxpayer name.
 

@@ -49,3 +49,16 @@ curl -sf -H "Authorization: Bearer $TOKEN" $API/cash-sessions/<closed id>/ticket
 2. **Open session**: `curl -i …/cash-sessions/<open id>/ticket` → `409`.
 3. **Thermal printer (SC-007)**: open `ticket.pdf` in Chrome, print at 100% scale with margins set to "None" on the 72 mm printer, and check that nothing is clipped and the barcode scans back to the 8-digit id.
 4. **Timing (SC-004)**: `curl -w '%{time_total}\n' -o /dev/null …/ticket` stays under 1 s.
+
+## Results (2026-09-25)
+
+| Check | Result |
+|---|---|
+| Automated suite | 2,718 passed, ruff clean. Includes geometry, zero-network with byte-identical output, bundled fonts only, OpenAPI binary schema, 401/403/404/409, and the route sweep with no 500s. |
+| Event loop (SC-005) | `/health` p95 rose by 0.05–0.14 ms with 10 renders in flight, against a 100 ms budget. |
+| Real data, read-only | 280 renders from `mbe_dev` through the real context builders, 0 failures, every page at the right size and only bundled fonts. The sample covered: recent completed, draft, cancelled and unpaid credit orders; 2013-era orders; orders with refunds and credit notes; the longest orders (up to 106 lines, 4 letter pages); and closed cash sessions from 2024, 2025 (negative credit notes) and the latest. It surfaced two fallback-font causes, soft hyphens and mojibake control characters, now fixed (research R5). |
+| Timing (SC-004) | Real-data render time p50 88–123 ms, p95 196–414 ms. The max, about 2 s, was the 106-line, 4-page letter document, above SC-004's 50-line scope. Not yet measured end to end through HTTP on a running server. |
+| Fidelity against legacy (SC-001) | **Pending**: needs legacy's jsreport output for the same ids. |
+| Open session 409 | Covered by API tests. Not yet checked against a running server. |
+| Thermal printer (SC-007) | **Pending**: needs the physical 80 mm printer, including that Chrome prints the fitted page at actual size. |
+

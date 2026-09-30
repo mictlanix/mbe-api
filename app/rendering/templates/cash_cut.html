@@ -1,0 +1,94 @@
+{#- Cash cut ("Corte de Caja"), ported from legacy Views/Payments/_CashCountTicket.cshtml (#230).
+Context: print_contexts.cash_cut_context.
+
+The title prints in the layout's header, so legacy's "Corte de Caja" table heading is not repeated.
+"Ventas en Efectivo" replaces legacy's misleading "Efectivo Contado" (FR-032). -#}
+{% extends "_ticket_layout.html" %}
+{% block main %}
+<table>
+	<tr>
+		<td colspan="2" class="line title center">Información de la Sesión</td>
+	</tr>
+	<tr>
+		<td class="right">Caja :</td>
+		<td class="left">{{ drawer }}</td>
+	</tr>
+	<tr>
+		<td class="right">Fecha de Inicio :</td>
+		<td class="left">{{ start }}</td>
+	</tr>
+	<tr>
+		<td class="right">Fecha de Fin :</td>
+		<td class="left">{{ end }}</td>
+	</tr>
+	<tr>
+		<td class="line right">Cajero :</td>
+		<td class="line left">{{ cashier }}</td>
+	</tr>
+	<tr>
+		<td colspan="2" class="line title center">Ventas</td>
+	</tr>
+	{% for row in sales %}
+	<tr>
+		<td class="right">{{ row.method }} :</td>
+		<td class="number">{{ row.amount }}</td>
+	</tr>
+	{% endfor %}
+	<tr>
+		<td class="line right">Total :</td>
+		<td class="line number">{{ sales_total }}</td>
+	</tr>
+	<tr>
+		<td colspan="2" class="line title center">Devoluciones</td>
+	</tr>
+	{% for row in refunds %}
+	<tr>
+		<td class="right">{{ row.method }} :</td>
+		<td class="number">{{ row.amount }}</td>
+	</tr>
+	{% endfor %}
+	<tr>
+		<td colspan="2" class="line title center">Gastos</td>
+	</tr>
+	{% for row in expenses %}
+	<tr>
+		<td class="right">{{ row.method }} :</td>
+		<td class="number">{{ row.amount }}</td>
+	</tr>
+	{% endfor %}
+	<tr>
+		<td colspan="2" class="line title center">Movimientos en Caja</td>
+	</tr>
+	<tr>
+		<td class="right">Efectivo Inicial :</td>
+		<td class="number">{{ starting_cash }}</td>
+	</tr>
+	<tr>
+		<td class="right">Ventas en Efectivo :</td>
+		<td class="number">{{ cash_sales }}</td>
+	</tr>
+	<tr>
+		<td class="right">Gastos :</td>
+		<td class="number">{{ expenses_total }}</td>
+	</tr>
+	<tr>
+		<td class="right">Devoluciones :</td>
+		<td class="number">{{ cash_refunds }}</td>
+	</tr>
+	<tr>
+		<td colspan="2" class="line title center">Balance de Caja</td>
+	</tr>
+	<tr>
+		<td class="right">Efectivo Final :</td>
+		<td class="number">{{ counted_cash }}</td>
+	</tr>
+	<tr>
+		<td class="line right">{{ difference_label }} :</td>
+		<td class="line number">{{ difference }}</td>
+	</tr>
+</table>
+{% endblock %}
+{% block footer %}
+<img src="{{ barcode }}" alt="{{ session_id }}">
+<p>{{ session_id }}</p>
+{% endblock %}

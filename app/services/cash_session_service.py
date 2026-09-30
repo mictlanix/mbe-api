@@ -8,8 +8,9 @@ starting-cash type, which is how the legacy schema records it.
 """
 
 from collections.abc import Sequence
+from dataclasses import dataclass
 from datetime import date, datetime, time
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 
 from fastapi import HTTPException, status
 from sqlalchemy import and_, func, select
@@ -17,9 +18,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.clock import local_now, local_today
 from app.core.deps import CurrentUser
-from app.enums import CashCountType
+from app.enums import CashCountType, PaymentMethod, PaymentType
 from app.models.core import CashCount, CashDrawer, CashSession, Employee
-from app.models.sales import CustomerPayment
+from app.models.purchases import ExpenseVoucher, ExpenseVoucherDetail
+from app.models.sales import CustomerPayment, SalesOrderPayment
 from app.schemas.cash_session import (
     CashSessionClose,
     CashSessionOpen,
@@ -144,6 +146,134 @@ async def payments_by_method(db: AsyncSession, cash_session_id: int) -> list[dic
         )
     ).all()
     return [{'method': method, 'total': total or Decimal(0)} for method, total in rows]
+
+
+@dataclass(frozen=True)
+class CashCutFigures:
+    """The cash cut's figures (data-model.md › CashCutFigures). Every amount is rounded to cents."""
+
+    sales_by_method: list[tuple[int, Decimal]]
+    sales_total: Decimal
+    refunds_by_method: list[tuple[int, Decimal]]
+    expenses_total: Decimal
+    starting_cash: Decimal
+    cash_sales: Decimal
+    cash_refunds: Decimal
+    cash_in_drawer: Decimal
+    counted_cash: Decimal
+    difference: Decimal
+    is_shortage: bool
+
+
+def _cents(value: Decimal) -> Decimal:
+    return value.quantize(Decimal('0.01'), ROUND_HALF_UP)
+
+
+async def cut_figures(db: AsyncSession, session_id: int) -> CashCutFigures:
+    """Port of legacy `CashCountReport`, classifying each payment by type *and* sign.
+
+    A refund is a credit-note payment or any negative one, reported as its absolute amount; a sale
+    is any other positive payment, of any type including 0 (N/A), net of the change handed back
+    on its live applications. Legacy selected by type alone, which mis-sums the negative refund
+    conventions in the shared database, mbe-api's own cash payouts among them (FR-031).
+    """
+    payments = (
+        (
+            await db.execute(
+                select(CustomerPayment).where(CustomerPayment.cash_session == session_id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    change: dict[int, Decimal] = {}
+    if payments:
+        applications = (
+            (
+                await db.execute(
+                    select(SalesOrderPayment).where(
+                        SalesOrderPayment.customer_payment.in_(
+                            [p.customer_payment_id for p in payments]
+                        )
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        for application in applications:
+            if not application.cancelled:
+                change[application.customer_payment] = (
+                    change.get(application.customer_payment, Decimal(0)) + application.amount_change
+                )
+
+    sales: dict[int, Decimal] = {}
+    refunds: dict[int, Decimal] = {}
+    for payment in payments:
+        if payment.payment_type == PaymentType.CREDIT_NOTE or payment.amount < 0:
+            refunds[payment.method] = refunds.get(payment.method, Decimal(0)) + abs(payment.amount)
+        elif payment.amount > 0:
+            sales[payment.method] = (
+                sales.get(payment.method, Decimal(0))
+                + payment.amount
+                - change.get(payment.customer_payment_id, Decimal(0))
+            )
+
+    # NULL `completed`/`cancelled` read as false: none exist in the data, and neither would mean
+    # the voucher was ever settled.
+    vouchers = (
+        await db.execute(
+            select(ExpenseVoucher, ExpenseVoucherDetail)
+            .join(
+                ExpenseVoucherDetail,
+                ExpenseVoucherDetail.expense_voucher == ExpenseVoucher.expense_voucher_id,
+            )
+            .where(ExpenseVoucher.cash_session == session_id)
+        )
+    ).all()
+    expenses = sum(
+        (
+            detail.amount
+            for voucher, detail in vouchers
+            if voucher.completed and not voucher.cancelled
+        ),
+        Decimal(0),
+    )
+
+    counts = (
+        (
+            await db.execute(
+                select(CashCount).where(
+                    CashCount.session == session_id,
+                    CashCount.type == int(CashCountType.COUNTED_CASH),
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    counted = _cents(sum((c.denomination * c.quantity for c in counts), Decimal(0)))
+
+    sales_by_method = [(method, _cents(sales[method])) for method in sorted(sales)]
+    refunds_by_method = [(method, _cents(refunds[method])) for method in sorted(refunds)]
+    starting = _cents(await opening_amount(db, session_id))
+    cash_sales = dict(sales_by_method).get(PaymentMethod.CASH, Decimal(0))
+    cash_refunds = dict(refunds_by_method).get(PaymentMethod.CASH, Decimal(0))
+    expenses = _cents(expenses)
+    in_drawer = starting + cash_sales - expenses - cash_refunds
+    return CashCutFigures(
+        sales_by_method=sales_by_method,
+        sales_total=sum((amount for _, amount in sales_by_method), Decimal(0)),
+        refunds_by_method=refunds_by_method,
+        expenses_total=expenses,
+        starting_cash=starting,
+        cash_sales=cash_sales,
+        cash_refunds=cash_refunds,
+        cash_in_drawer=in_drawer,
+        counted_cash=counted,
+        difference=abs(counted - in_drawer),
+        is_shortage=in_drawer > counted,
+    )
 
 
 async def attach_relations(db: AsyncSession, sessions: Sequence[CashSession]) -> None:

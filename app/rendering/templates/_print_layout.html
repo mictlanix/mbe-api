@@ -1,0 +1,38 @@
+{#- Letter layout, ported from legacy Views/Shared/_PrintLayout.cshtml (#230).
+
+Context contract (StrictUndefined: every key must be present):
+  header.title          document title, used as <title> (the child prints its own heading)
+  header.name           store name
+  header.taxpayer_name  taxpayer (issuer) name, or None / ''
+  header.rfc            taxpayer RFC, or None / ''
+  header.address        list of address lines
+  header.logo           absolute file:// URL of the logo under images_dir, or None
+
+Blocks: main, footer. Legacy's print-on-load script is not carried over. -#}
+<!DOCTYPE html>
+<html>
+<head>
+	<meta charset="utf-8">
+	<title>{{ header.title }}</title>
+	<link rel="stylesheet" href="print.css">
+</head>
+<body>
+	<header>
+		<div class="issuer">
+			<h1 class="uppercase">
+				{{ header.name }}
+				{% if header.taxpayer_name %}<br>{{ header.taxpayer_name }}{% endif %}
+				{% if header.rfc %}<br>{{ header.rfc }}{% endif %}
+			</h1>
+			<h3>{% for line in header.address %}{{ line }}{% if not loop.last %}<br>{% endif %}{% endfor %}</h3>
+		</div>
+		<div id="logo">
+			{% if header.logo %}<img src="{{ header.logo }}" alt="Logo">{% endif %}
+		</div>
+	</header>
+	{% block main %}{% endblock %}
+	<footer>
+		{% block footer %}{% endblock %}
+	</footer>
+</body>
+</html>

@@ -1,0 +1,100 @@
+{#- Sales order document (pedido), ported from legacy Views/SalesOrders/Print.cshtml (#230).
+Context: print_contexts.sales_order_context.
+
+Legacy's Bootstrap grid is replaced by two floated halves; widths follow its col-xs-* classes. -#}
+{% extends "_print_layout.html" %}
+{% block main %}
+<div>
+	<div style="float: left; width: 49.5%;">
+		<h2 class="uppercase">Cliente</h2>
+		<p><span class="mylabel">Nombre</span></p>
+		<p>{{ customer }}</p>
+		{% if contact %}
+		<p><span class="mylabel">Contacto</span></p>
+		<p>{{ contact }}</p>
+		{% endif %}
+		{% if ship_to %}
+		<p><span class="mylabel">Datos de Entrega</span></p>
+		<p>{% for line in ship_to %}{{ line }}{% if not loop.last %}<br>{% endif %}{% endfor %}</p>
+		{% endif %}
+		{% if comment %}
+		<p><span class="mylabel">Comentario</span></p>
+		<p>{{ comment }}</p>
+		{% endif %}
+	</div>
+	<div style="float: right; width: 49.5%; text-align: right;">
+		<h2 class="text-right uppercase">Pedido {{ order_id }}</h2>
+		<p><span class="mylabel">Vendedor</span></p>
+		<p>{{ salesperson }}</p>
+		<p><span class="mylabel">Fecha</span></p>
+		<p>{{ date }}</p>
+		<p><span class="mylabel">Fecha Promesa</span></p>
+		<p>{{ promise_date }}</p>
+		<p><span class="mylabel">Forma de Pago</span></p>
+		<p>{{ terms }}</p>
+		{% if is_credit %}
+		<p><span class="mylabel">Fecha de Vencimiento</span></p>
+		<p>{{ due_date }}</p>
+		{% endif %}
+	</div>
+	<div style="clear: both;"></div>
+</div>
+
+<div style="margin-top: 5mm; min-height: 2.2mm; border-top: #333 solid 1px; border-bottom: #333 solid 3px;"></div>
+
+<table style="border-spacing: 0 4px; border-collapse: separate;">
+	<thead>
+		<tr>
+			<th class="text-center" style="width: 8.33%;">Cantidad</th>
+			<th class="text-center" style="width: 25%;">Código</th>
+			<th class="text-center" style="width: 50%;">Producto</th>
+			<th class="text-center" style="width: 8.33%;">Precio</th>
+			<th class="text-center" style="width: 8.33%;">Importe</th>
+		</tr>
+	</thead>
+	<tbody>
+		{% for line in lines %}
+		<tr class="alt">
+			<td class="nowrap text-right">{{ line.quantity }}</td>
+			<td class="text-center">{{ line.code }}</td>
+			<td class="text-center">{{ line.name }}{% if line.comment %} {{ line.comment }}{% endif %}</td>
+			<td class="nowrap text-right">{{ line.price }}</td>
+			<td class="nowrap text-right">{{ line.amount }}</td>
+		</tr>
+		{% endfor %}
+	</tbody>
+</table>
+
+<div style="min-height: 2.2mm; border-top: #333 solid 3px; border-bottom: #333 solid 1px;"></div>
+
+<table>
+	<tfoot>
+		<tr>
+			<td rowspan="{{ 4 if discount else 3 }}" class="text-center" style="width: 83.33%; vertical-align: middle;">
+				<p class="amount-words">{{ amount_in_words }}</p>
+			</td>
+			<td class="nowrap text-right">Subtotal</td>
+			<td class="nowrap text-right">{{ subtotal }}</td>
+		</tr>
+		{% if discount %}
+		<tr>
+			<th class="nowrap text-right">Descuento</th>
+			<td class="nowrap text-right">{{ discount }}</td>
+		</tr>
+		{% endif %}
+		<tr>
+			<td class="nowrap text-right">IVA</td>
+			<td class="nowrap text-right">{{ taxes }}</td>
+		</tr>
+		<tr>
+			<td class="nowrap text-right">Total</td>
+			<td class="nowrap text-right">{{ total }}</td>
+		</tr>
+		{% if savings %}
+		<tr>
+			<td class="text-center">{{ savings }}</td>
+		</tr>
+		{% endif %}
+	</tfoot>
+</table>
+{% endblock %}

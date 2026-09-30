@@ -1,0 +1,46 @@
+{#- 72 mm ticket layout, ported from legacy Views/Shared/_TicketLayout.cshtml (#230).
+
+Context contract (StrictUndefined: every key must be present):
+  header.title         document title, printed under the store block and used as <title>
+  header.name          store name
+  header.logo          absolute file:// URL of the logo under images_dir, or None
+  header.skip_address  when true, the RFC and address lines are not printed
+  header.rfc           taxpayer RFC, or None / '' (read only when skip_address is false)
+  header.address       list of address lines (read only when skip_address is false)
+
+Blocks: main, footer. #ticket-end must stay the last element of <body>: render_pdf cuts the page
+at its position (research R8). -#}
+<!DOCTYPE html>
+<html>
+<head>
+	<meta charset="utf-8">
+	<title>{{ header.title }}</title>
+	<link rel="stylesheet" href="ticket.css">
+</head>
+<body class="ticket">
+	<header>
+		<table>
+			<tr>
+				{% if header.logo %}
+				<td><div id="logo"><img src="{{ header.logo }}" alt="Logo"></div></td>
+				{% endif %}
+				<td>
+					<h2 class="text-center">{{ header.name }}</h2>
+					{% if not header.skip_address %}
+					{% if header.rfc %}<h3 class="text-center">{{ header.rfc }}</h3>{% endif %}
+					{% for line in header.address %}<h3 class="text-center">{{ line }}</h3>{% endfor %}
+					{% endif %}
+				</td>
+			</tr>
+		</table>
+		<h2 class="text-center">{{ header.title }}</h2>
+	</header>
+	<section id="main">
+		{% block main %}{% endblock %}
+	</section>
+	<footer>
+		{% block footer %}{% endblock %}
+	</footer>
+	<div id="ticket-end"></div>
+</body>
+</html>

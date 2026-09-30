@@ -1,0 +1,160 @@
+/* Ported from legacy mbe/Web/Content/ticket.css, without Bootstrap (#230, research R7).
+   The page is a 72 mm probe; render_pdf cuts it to the height of #ticket-end (research R8). */
+@font-face { font-family: 'Open Sans'; font-weight: 400; src: url(fonts/OpenSans-Regular.ttf); }
+@font-face { font-family: 'Open Sans'; font-weight: 700; src: url(fonts/OpenSans-Bold.ttf); }
+@font-face { font-family: 'Roboto'; font-weight: 700; src: url(fonts/Roboto-Bold.ttf); }
+@font-face { font-family: 'Roboto Mono'; font-weight: 400; src: url(fonts/RobotoMono-Regular.ttf); }
+@page {
+	size: 72mm 5000mm;
+	margin: 0;
+	font-family: 'Open Sans', sans-serif;
+}
+html {
+	font-family: 'Open Sans', sans-serif;
+	/* A soft-hyphen break inserts U+2010 by default, which Open Sans lacks (#230) */
+	hyphenate-character: '-';
+}
+body {
+	margin: 0;
+	padding: 1px;
+	font: normal 7.5pt 'Open Sans', sans-serif;
+}
+footer {
+	text-align: center;
+}
+img {
+	border: none;
+}
+h1, h2 {
+	font-family: 'Roboto', sans-serif;
+	font-weight: bold;
+}
+h1 {
+	font-size: 14.6pt;
+}
+h2 {
+	font-size: 12pt;
+	margin-top: 10px;
+	margin-bottom: 10px;
+}
+h3 {
+	font: normal 9pt 'Open Sans', sans-serif;
+	margin: 0;
+}
+label {
+	font-family: 'Roboto', sans-serif;
+	font-weight: bold;
+	margin-bottom: 0;
+}
+td.text-right {
+	padding-right: 3px;
+}
+td.text-right:last-child {
+	padding-right: 0;
+}
+.text-center, .center {
+	text-align: center;
+}
+.text-right {
+	text-align: right;
+}
+.left {
+	text-align: left;
+}
+.right, .number {
+	text-align: right;
+	padding-right: 5px;
+}
+.date {
+	white-space: nowrap;
+}
+.left.floating {
+	float: left;
+	clear: left;
+}
+.right.floating {
+	float: right;
+	clear: right;
+}
+.total {
+	font-family: 'Roboto', sans-serif;
+	font-weight: bold;
+}
+table {
+	margin: 10px 0;
+	width: 100%;
+	border-collapse: collapse;
+}
+td.line {
+	border-bottom: 1px solid black;
+}
+td.line-top {
+	border-top: 1px solid black;
+}
+td.title {
+	font-size: 13px;
+	font-weight: bold;
+}
+th {
+	font-size: 18px;
+	font-weight: bold;
+}
+th.line {
+	border-bottom: 1px solid black;
+}
+.display-label {
+	margin-top: 5px;
+}
+.display-field {
+	margin-bottom: 3px;
+}
+.signature {
+	margin: 50px 20px;
+	border-top: 1px solid black;
+	text-align: center;
+}
+.legend {
+	margin-top: 2px;
+	margin-bottom: 2px;
+	text-align: justify;
+}
+#logo {
+	display: inline-block;
+	margin: 10px;
+	text-align: center;
+}
+#logo img {
+	width: 120px;
+}
+header h1 {
+	font-size: 10pt;
+	margin-top: 2px;
+	margin-bottom: 3px;
+}
+header h2 {
+	font-size: 9pt;
+	margin-top: 2px;
+	margin-bottom: 3px;
+}
+header h3 {
+	font-size: 7pt;
+	margin-top: 2px;
+	margin-bottom: 2px;
+}
+#main .display-label {
+	font-size: 6pt;
+	margin-top: 1px;
+	margin-bottom: 0;
+}
+#main table {
+	font-size: 6pt;
+	margin-top: 4px;
+	margin-bottom: 2px;
+}
+#main table tr:first-child {
+	border-top: 1px solid black;
+}
+.details tbody td {
+	padding-left: 2px;
+	padding-right: 2px;
+}
