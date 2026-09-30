@@ -298,7 +298,7 @@
   - A note on the deliberate deviations from legacy: amount-in-words fixes, "Ventas en Efectivo", and the API balance.
 - [X] T035 [P] Add a commented `PROMISSORY_NOTE_TEMPLATE=` line to `.env.example`, stating that the default is the legacy pagaré text.
 - [X] T036 Run `uv run ruff check app/ migrations/ tests/` and `uv run pytest`. Both must pass with zero failures.
-- [ ] T037 Run the manual checks in `quickstart.md` against `mbe_dev`: fidelity against legacy output for one record of each type (SC-001), a 409 on an open session, the timing check (SC-004), and the thermal printer (SC-007). Record the results, including any mismatch, in `specs/019-document-printing/quickstart.md` under a "Results" heading. SC-007 needs the physical printer. If it is unavailable, record it as pending rather than passed.
+- [X] T037 Run the manual checks in `quickstart.md` against `mbe_dev`: fidelity against legacy output for one record of each type (SC-001), a 409 on an open session, the timing check (SC-004), and the thermal printer (SC-007). Record the results, including any mismatch, in `specs/019-document-printing/quickstart.md` under a "Results" heading. SC-007 needs the physical printer. If it is unavailable, record it as pending rather than passed.
 
 ---
 

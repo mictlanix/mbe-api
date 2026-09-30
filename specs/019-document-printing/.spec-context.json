@@ -3,7 +3,7 @@
   "specName": "Document Printing",
   "branch": "019-document-printing",
   "currentStep": "implement",
-  "status": "implementing",
+  "status": "completed",
   "history": [
     {
       "step": "specify",
@@ -320,6 +320,13 @@
       "kind": "complete",
       "by": "extension",
       "at": "2026-09-25T18:16:04.269Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-09-30T03:11:27.286Z"
     }
   ],
   "telemetryInstanceId": "9305d45f-cdf4-4d54-b92a-7223c082625d",
