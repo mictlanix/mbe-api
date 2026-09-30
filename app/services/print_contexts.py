@@ -12,7 +12,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
-from app.enums import PaymentMethod, PaymentTerms, PaymentType
+from app.enums import CurrencyCode, PaymentMethod, PaymentTerms, PaymentType
 from app.models.core import (
     Address,
     CashSession,
@@ -22,7 +22,7 @@ from app.models.core import (
     PaymentMethodOption,
 )
 from app.models.customer import Customer
-from app.models.fiscal import TaxpayerIssuer
+from app.models.fiscal import FiscalDocument, TaxpayerBatch, TaxpayerIssuer
 from app.models.sales import (
     CreditNote,
     CustomerPayment,
@@ -30,10 +30,26 @@ from app.models.sales import (
     CustomerRefundDetail,
     SalesOrder,
 )
+from app.models.sat_catalog import SatCfdiUsage, SatTaxRegime
 from app.rendering import formatting, words
-from app.services import cash_session_service, customer_payment_service, totals
+from app.services import cash_session_service, cfdi, customer_payment_service, totals
 
 _CARD_METHODS = {PaymentMethod.CREDIT_CARD, PaymentMethod.DEBIT_CARD}
+
+
+def _image_uri(value: str | None) -> str | None:
+    """A `file://` URL for an image under `images_dir`, or None when it is not there.
+
+    mbe-api stores a bare file name; legacy renders the column with `Url.Content`, so its rows
+    can hold a path or URL ('/images/x.png', '~/Content/x.png'). Only the file name is looked up,
+    and only inside `images_dir`.
+    """
+    name = PurePosixPath(urlsplit(value or '').path).name
+    if name:
+        path = Path(settings.images_dir, name)
+        if path.is_file():
+            return path.resolve().as_uri()
+    return None
 
 
 async def header_context(
@@ -67,20 +83,10 @@ async def header_context(
             f'{address.postal_code} {address.borough}, {address.state}',
         ]
 
-    logo = None
-    # mbe-api stores a bare file name; legacy renders the column with `Url.Content`, so its rows
-    # can hold a path or URL ('/images/x.png', '~/Content/x.png'). Only the file name is looked up,
-    # and only inside `images_dir`.
-    name = PurePosixPath(urlsplit(facility.logo or '').path).name
-    if name:
-        path = Path(settings.images_dir, name)
-        if path.is_file():
-            logo = path.resolve().as_uri()
-
     return {
         'title': title,
         'name': facility.name,
-        'logo': logo,
+        'logo': _image_uri(facility.logo),
         'skip_address': skip_address,
         'rfc': issuer.taxpayer_issuer_id if issuer else '',
         'taxpayer_name': (issuer.name or '') if issuer else '',
@@ -432,3 +438,191 @@ async def sales_order_context(db: AsyncSession, order: SalesOrder) -> tuple[str,
         'savings': f'¡Usted ahorró {money(discount)} en esta compra!' if discount > 0 else None,
     }
     return 'sales_order.html', context
+
+
+# ── CFDI (spec 020) ───────────────────────────────────────────────────────────
+
+_CFDI_CURRENCIES = {'MXN': CurrencyCode.MXN, 'USD': CurrencyCode.USD, 'EUR': CurrencyCode.EUR}
+
+
+def _cfdi_payments(doc: cfdi.Cfdi) -> list[dict]:
+    """A payment receipt's Pagos 2.0 complement: each payment and the documents it settled."""
+    money = formatting.money
+    payments = []
+    for pago in doc.pagos:
+        attrs = pago['attrs']
+        currency = attrs.get('MonedaP', 'MXN')
+        rate = attrs.get('TipoCambioP')
+        documents = []
+        for number, settled in enumerate(pago['documentos'], 1):
+            settled_currency = settled.get('MonedaDR', currency)
+            if settled_currency != currency and settled.get('EquivalenciaDR'):
+                settled_currency += f' / {settled["EquivalenciaDR"]}'
+            # Padded like every other folio: legacy prints `{Batch} {Serial:D6}`.
+            folio = f'{settled.get("Serie", "")} {settled.get("Folio", "").zfill(6)}'.strip()
+            documents.append(
+                {
+                    'number': number,
+                    'uuid': settled.get('IdDocumento', ''),
+                    'folio': folio,
+                    'installment': settled.get('NumParcialidad', ''),
+                    'currency': settled_currency,
+                    'previous': money(Decimal(settled.get('ImpSaldoAnt') or 0)),
+                    'paid': money(Decimal(settled.get('ImpPagado') or 0)),
+                    'outstanding': money(Decimal(settled.get('ImpSaldoInsoluto') or 0)),
+                }
+            )
+        payments.append(
+            {
+                'date': attrs.get('FechaPago', '')[:10],
+                'form': formatting.payment_form_label(attrs.get('FormaDePagoP')),
+                'reference': attrs.get('NumOperacion') or None,
+                'foreign_bank': attrs.get('NomBancoOrdExt') or None,
+                'currency': currency,
+                'exchange_rate': (
+                    formatting.price4(Decimal(rate)) if currency != 'MXN' and rate else None
+                ),
+                'amount': money(Decimal(attrs.get('Monto') or 0)),
+                'documents': documents,
+            }
+        )
+    return payments
+
+
+def _coded(code: str | None, description: str | None) -> str:
+    """A SAT code followed by its description, as legacy printed regimes and uses."""
+    return f'{code} {description}' if description else (code or '')
+
+
+async def fiscal_document_context(
+    db: AsyncSession, document: FiscalDocument, xml: str
+) -> tuple[str, dict]:
+    """The printed representation of a stamped CFDI 4.0, ported from legacy `Print40T02Blue`.
+
+    Every amount, code, seal, certificate number, UUID and date is the stamped XML's, so the
+    printout says what SAT holds (research R1). The database supplies only what the XML does not
+    carry: catalog descriptions, the issuer's postal code, line comments, the reference, the batch
+    settings and the cancellation. `document` comes from `fiscal_document_service.get_document`,
+    with its `lines`. Raises `cfdi.CfdiError` when `xml` is not a stamped CFDI.
+    """
+    money = formatting.money
+    doc = cfdi.parse(xml)
+    comprobante, emisor, receptor, timbre = doc.comprobante, doc.emisor, doc.receptor, doc.timbre
+
+    batch_query = select(TaxpayerBatch).where(
+        TaxpayerBatch.taxpayer == document.issuer, TaxpayerBatch.batch == document.batch
+    )
+    batch = (await db.execute(batch_query)).scalars().first()
+    batch_settings = cfdi.batch_settings(batch.template if batch is not None else None)
+    issuer = await db.get(TaxpayerIssuer, emisor.get('Rfc'))
+    regime = await db.get(SatTaxRegime, receptor.get('RegimenFiscalReceptor'))
+    usage = await db.get(SatCfdiUsage, receptor.get('UsoCFDI'))
+
+    is_payment = comprobante.get('TipoDeComprobante') == 'P'
+    # Comments exist only in the database. Pair them by position, and only when the counts agree,
+    # so a comment is never printed under the wrong concept.
+    comments = [line.comment for line in document.lines]
+    if len(comments) != len(doc.conceptos):
+        comments = [None] * len(doc.conceptos)
+    lines = [
+        {
+            'number': number,
+            'quantity': formatting.qty(Decimal(concepto['Cantidad'])),
+            'unit': ' / '.join(
+                v for v in (concepto.get('ClaveUnidad'), concepto.get('Unidad')) if v
+            ),
+            'code': concepto.get('ClaveProdServ', ''),
+            'description': concepto.get('Descripcion', ''),
+            'product_code': concepto.get('NoIdentificacion') or None,
+            'comment': comment or None,
+            'price': formatting.price4(Decimal(concepto['ValorUnitario'])),
+            'amount': formatting.price4(Decimal(concepto['Importe'])),
+        }
+        for number, (concepto, comment) in enumerate(zip(doc.conceptos, comments), 1)
+        if not is_payment
+    ]
+
+    currency = comprobante.get('Moneda', 'MXN')
+    exchange_rate = comprobante.get('TipoCambio')
+    total = Decimal(comprobante['Total'])
+    discount = Decimal(comprobante.get('Descuento') or 0)
+    payments = _cfdi_payments(doc) if is_payment else []
+    # A payment receipt's stamped total is 0: its amount in words is what the payments add up to.
+    if is_payment:
+        words_amount = sum((Decimal(p['attrs'].get('Monto') or 0) for p in doc.pagos), Decimal(0))
+        words_currency = doc.pagos[0]['attrs'].get('MonedaP', 'MXN') if doc.pagos else 'MXN'
+    else:
+        words_amount, words_currency = total, currency
+    context = {
+        'title': formatting.fiscal_type_title(document.type),
+        'logo': _image_uri(batch_settings.logo_name),
+        'folio': f'{comprobante.get("Serie", "")} {comprobante.get("Folio", "").zfill(6)}'.strip(),
+        'certificate': comprobante.get('NoCertificado', ''),
+        'uuid': timbre['UUID'],
+        'expedition': (
+            f'C.P. {comprobante.get("LugarExpedicion", "")} / {comprobante["Fecha"][:10]}'
+        ),
+        'recipient': {
+            'rfc': receptor.get('Rfc', ''),
+            'name': receptor.get('Nombre', ''),
+            'postal_code': receptor.get('DomicilioFiscalReceptor', ''),
+            'usage': _coded(receptor.get('UsoCFDI'), usage.description if usage else None),
+            'regime': _coded(
+                receptor.get('RegimenFiscalReceptor'), regime.description if regime else None
+            ),
+        },
+        'issuer': {
+            'rfc': emisor.get('Rfc', ''),
+            'name': emisor.get('Nombre', ''),
+            'regime': _coded(emisor.get('RegimenFiscal'), document.issuer_regime_name),
+            'postal_code': (issuer.postal_code or '') if issuer is not None else '',
+        },
+        'qr': formatting.qr_data_uri(cfdi.sat_qr_payload(doc)),
+        'reference': document.reference or None,
+        'is_payment': is_payment,
+        'lines': lines,
+        'payment_method': formatting.payment_method_label(comprobante.get('MetodoPago')),
+        'payment_form': formatting.payment_form_label(comprobante.get('FormaPago')),
+        'currency': currency,
+        'exchange_rate': (
+            formatting.price4(Decimal(exchange_rate))
+            if currency != 'MXN' and exchange_rate
+            else None
+        ),
+        # A payment receipt has no concept totals: its figures are the payments'.
+        'subtotal': None if is_payment else money(Decimal(comprobante.get('SubTotal') or 0)),
+        'discount': money(discount) if discount and not is_payment else None,
+        'taxes': None if is_payment else money(Decimal(doc.traslados_total or 0)),
+        'retentions': money(Decimal(doc.retenciones_total)) if doc.retenciones_total else None,
+        'total': None if is_payment else money(total),
+        'amount_in_words': words.amount_in_words(
+            words_amount, _CFDI_CURRENCIES.get(words_currency, CurrencyCode.MXN)
+        ),
+        # A payment receipt's related documents are its settled invoices, printed as payments.
+        'related': []
+        if is_payment
+        else [(formatting.relation_label(code), uuids) for code, uuids in doc.relacionados],
+        'payments': payments,
+        'stamp': {
+            'sat_certificate': timbre.get('NoCertificadoSAT', ''),
+            'date': timbre.get('FechaTimbrado', '').replace('T', ' '),
+            'pac': timbre.get('RfcProvCertif', ''),
+            'original_string': cfdi.tfd_original_string(timbre),
+            'issuer_seal': comprobante.get('Sello', ''),
+            'sat_seal': timbre.get('SelloSAT', ''),
+        },
+        'footer': {
+            'height_mm': batch_settings.footer_height_mm,
+            'accounts': batch_settings.accounts,
+        },
+        'cancelled': (
+            {
+                'date': formatting.date_short(document.cancellation_date)
+                if document.cancellation_date
+                else None
+            }
+            if document.cancelled
+            else None
+        ),
+    }
+    return 'fiscal_document.html', context

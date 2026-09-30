@@ -25,6 +25,7 @@ from app import rendering
 from app.core.config import settings
 from app.enums import CashCountType, CurrencyCode, PaymentMethod, PaymentTerms, PaymentType
 from app.models.core import Address, CashCount, CashSession, Expense, Facility
+from app.models.fiscal import TaxpayerBatch
 from app.models.purchases import ExpenseVoucher, ExpenseVoucherDetail
 from app.models.sales import (
     CreditNote,
@@ -36,8 +37,14 @@ from app.models.sales import (
     SalesOrderPayment,
 )
 from app.rendering import render_pdf
-from app.services import print_contexts, sales_order_service
-from tests.integration.seed import ISSUER_RFC, POSTAL_CODE, seed_sales_order
+from app.services import cfdi, print_contexts, sales_order_service
+from tests.integration.seed import (
+    CFDI_FIXTURES,
+    ISSUER_RFC,
+    POSTAL_CODE,
+    seed_fiscal_document,
+    seed_sales_order,
+)
 
 _HEADER = {
     'name': 'Sucursal Centro',
@@ -624,6 +631,165 @@ async def test_sales_order_document_paginates_on_letter(
     assert 'X059' in pages[-1].extract_text()
 
 
+# ── CFDI (spec 020) ───────────────────────────────────────────────────────────
+
+_LEGEND = 'Este documento es una representación impresa de un CFDI.'
+
+
+async def _cfdi_pages(client: AsyncClient, document_id: int) -> list[str]:
+    """Each page's text, with whitespace collapsed."""
+    response = await client.get(f'/api/v1/fiscal-documents/{document_id}/pdf')
+    assert response.status_code == 200, response.text
+    assert response.headers['content-type'] == 'application/pdf'
+    pages = PdfReader(io.BytesIO(response.content)).pages
+    assert pages
+    for page in pages:
+        assert (float(page.mediabox.width), float(page.mediabox.height)) == (612, 792)
+    return [' '.join(page.extract_text().split()) for page in pages]
+
+
+def _squeezed(text: str) -> str:
+    """Seals and the original string wrap anywhere, so compare them without whitespace."""
+    return ''.join(text.split())
+
+
+@pytest.mark.usefixtures('seeded')
+async def test_cfdi_invoice_renders(client: AsyncClient, db: AsyncSession) -> None:
+    doc = cfdi.parse((CFDI_FIXTURES / 'invoice.xml').read_text(encoding='utf-8'))
+    document_id = await seed_fiscal_document(db, 'invoice')
+
+    pages = await _cfdi_pages(client, document_id)
+
+    text = ' '.join(pages)
+    for expected in (
+        'Factura',
+        'RH 011405',
+        doc.timbre['UUID'],
+        doc.comprobante['NoCertificado'],
+        doc.timbre['NoCertificadoSAT'],
+        'XAÑ010101AB1',
+        'EMPRESA DEMO',
+        'Gastos en general',
+        *(c['Descripcion'] for c in doc.conceptos),
+        *(c['ClaveProdServ'] for c in doc.conceptos),
+        'Subtotal',
+        '$2,896.54',
+        'Descuento',
+        '$172.41',
+        'IVA',
+        '$435.87',
+        '$3,160.00',
+        'TRES MIL CIENTO SESENTA PESOS 00/100 M. N.',
+        'Fecha de Certificación',
+        'Página 1 de 1',
+        _LEGEND,
+    ):
+        assert expected in text, expected
+    squeezed = _squeezed(text)
+    assert _squeezed(cfdi.tfd_original_string(doc.timbre)) in squeezed
+    assert doc.comprobante['Sello'] in squeezed
+    assert doc.timbre['SelloSAT'] in squeezed
+    assert 'IVA Retenido' not in text
+    assert 'CANCELADO' not in text
+
+
+@pytest.mark.usefixtures('seeded')
+async def test_cfdi_invoice_shows_retentions(client: AsyncClient, db: AsyncSession) -> None:
+    document_id = await seed_fiscal_document(db, 'invoice_retention')
+
+    text = ' '.join(await _cfdi_pages(client, document_id))
+
+    assert 'IVA Retenido' in text
+    assert '$278.57' in text
+
+
+def _many_concepts(n: int) -> str:
+    xml = (CFDI_FIXTURES / 'invoice.xml').read_text(encoding='utf-8')
+    start = xml.index('<cfdi:Concepto ')
+    end = xml.index('</cfdi:Concepto>', start) + len('</cfdi:Concepto>')
+    return xml[:start] + xml[start:end] * n + xml[end:]
+
+
+@pytest.mark.usefixtures('seeded')
+async def test_cfdi_footer_repeats_on_every_page(client: AsyncClient, db: AsyncSession) -> None:
+    document_id = await seed_fiscal_document(db, 'invoice', xml=_many_concepts(80))
+
+    pages = await _cfdi_pages(client, document_id)
+
+    assert len(pages) >= 2
+    for number, page in enumerate(pages, 1):
+        assert _LEGEND in page
+        assert f'Página {number} de {len(pages)}' in page
+
+
+@pytest.mark.usefixtures('seeded')
+async def test_cfdi_cancelled_is_marked_on_every_page(
+    client: AsyncClient, db: AsyncSession
+) -> None:
+    document_id = await seed_fiscal_document(
+        db, 'invoice', cancelled=True, xml=_many_concepts(80)
+    )
+
+    pages = await _cfdi_pages(client, document_id)
+
+    assert len(pages) >= 2
+    for page in pages:
+        assert 'CANCELADO' in page
+        assert '2026-09-29' in page
+
+
+@pytest.mark.usefixtures('seeded')
+@pytest.mark.parametrize(
+    ('fixture', 'title', 'label', 'related'),
+    [
+        (
+            'credit_note',
+            'Nota de Crédito',
+            '01 : Nota de Crédito de los Documentos Relacionados',
+            '5691CD2C-45B6-5A26-97EF-E6209C062EFB',
+        ),
+        (
+            'advance',
+            'Aplicación de Anticipos',
+            '07 : CFDI por Aplicación de Anticipo',
+            'E68D8C69-5706-5E5B-B544-C789F78DF2D8',
+        ),
+    ],
+)
+async def test_cfdi_related_documents_render(
+    client: AsyncClient, db: AsyncSession, fixture: str, title: str, label: str, related: str
+) -> None:
+    document_id = await seed_fiscal_document(db, fixture)
+
+    text = ' '.join(await _cfdi_pages(client, document_id))
+
+    for expected in (title, 'CFDI Relacionados', 'Tipo de Relación', label, related):
+        assert expected in text, expected
+
+
+@pytest.mark.usefixtures('seeded')
+async def test_cfdi_payment_receipt_renders(client: AsyncClient, db: AsyncSession) -> None:
+    doc = cfdi.parse((CFDI_FIXTURES / 'payment.xml').read_text(encoding='utf-8'))
+    document_id = await seed_fiscal_document(db, 'payment')
+
+    text = ' '.join(await _cfdi_pages(client, document_id))
+
+    for expected in (
+        'Recibo Electrónico de Pago',
+        'Fecha del Pago',
+        '2026-08-19',
+        'Saldo Anterior',
+        'Importe Pagado',
+        'Saldo Insoluto',
+        'Importe Total',
+        '$269,206.00',
+        'DOSCIENTOS SESENTA Y NUEVE MIL DOSCIENTOS SEIS PESOS 00/100 M. N.',
+        *(d['IdDocumento'] for d in doc.pagos[0]['documentos']),
+    ):
+        assert expected in text, expected
+    assert 'CFDI Relacionados' not in text
+
+
 # ── Non-functional guarantees (US5) ───────────────────────────────────────────
 
 
@@ -689,10 +855,13 @@ async def test_zero_network_and_deterministic(
     await _pay(db, order_id, amount='1200', applied='1160', change='40', cash_session=session)
     cut = await seed_closed_session(db)
     document = await seed_document_order(db)
+    # The CFDI's logo is its batch's, not the facility's (spec 020, research R5).
+    invoice = await seed_fiscal_document(db, 'invoice', template="{'Logo': 'logo.png'}")
     urls = [
         f'/api/v1/sales-orders/{order_id}/ticket',
         f'/api/v1/cash-sessions/{cut}/ticket',
         f'/api/v1/sales-orders/{document}/document',
+        f'/api/v1/fiscal-documents/{invoice}/pdf',
     ]
     images = Path(settings.images_dir)
     images.mkdir(parents=True, exist_ok=True)
@@ -739,6 +908,8 @@ async def test_zero_network_and_deterministic(
         assert image, 'the logo is not drawn'
 
     await _set(db, Facility, 1, logo='missing.png')
+    await db.execute(update(TaxpayerBatch).values(template="{'Logo': 'missing.png'}"))
+    await db.commit()
     for pdf in await render_all():
         assert _pdf_facts(pdf)[1] is False
 

@@ -1,0 +1,181 @@
+{#- Printed representation of a stamped CFDI 4.0, ported from legacy
+Views/FiscalDocuments/Print40T02Blue.cshtml and its _PageFoot (#230, spec 020).
+Context: print_contexts.fiscal_document_context. Every value arrives formatted.
+
+Standalone rather than extending _print_layout.html: a CFDI's header is its own (title, folio,
+UUID, parties), not the store block. The footer is a running element placed in the page's bottom
+margin, and the page counter a margin box, so both repeat on every page (research R4). -#}
+<!DOCTYPE html>
+<html>
+<head>
+	<meta charset="utf-8">
+	<title>{{ title }} {{ folio }}</title>
+	<link rel="stylesheet" href="print.css">
+	<style>@page cfdi { margin-bottom: {{ footer.height_mm + 6 }}mm; }</style>
+</head>
+<body class="cfdi">
+	{% if cancelled %}
+	<div class="cfdi-cancelled">CANCELADO{% if cancelled.date %}<br><span>{{ cancelled.date }}</span>{% endif %}</div>
+	{% endif %}
+
+	<div class="cfdi-footer">
+		<p class="cfdi-accounts">
+			{% for account in footer.accounts %}
+			Banco: {{ account.Bank }} Cuenta: {{ account.Account }} CLABE: {{ account.CLABE }} {{ account.Currency }}{% if not loop.last %}<br>{% endif %}
+			{% endfor %}
+		</p>
+		<p><span class="cfdi-brand">FacturaElectronicaSimple.mx</span> Este documento es una representación impresa de un CFDI.</p>
+	</div>
+
+	<header class="cfdi-header">
+		<div class="cfdi-logo">{% if logo %}<img src="{{ logo }}" alt="Logo">{% endif %}</div>
+		<table class="cfdi-title">
+			<tr><th colspan="2">{{ title }} {{ folio }}</th></tr>
+			<tr><td class="mylabel">Certificado</td><td>{{ certificate }}</td></tr>
+			<tr><td class="mylabel">Folio Fiscal</td><td>{{ uuid }}</td></tr>
+			<tr><td class="mylabel">Expedición</td><td>{{ expedition }}</td></tr>
+		</table>
+	</header>
+
+	<table class="cfdi-parties">
+		<tr>
+			<td style="width: 40%;">
+				<h2>Receptor</h2>
+				<p>{{ recipient.rfc }}<br><span class="uppercase">{{ recipient.name }}</span></p>
+				<p><span class="mylabel">Dom. Fiscal (C.P.)</span> {{ recipient.postal_code }}</p>
+				<p><span class="mylabel">Uso CFDI</span> {{ recipient.usage }}</p>
+				<p><span class="mylabel">Régimen Fiscal</span> {{ recipient.regime }}</p>
+			</td>
+			<td style="width: 40%;">
+				<h2>Emisor</h2>
+				<p>{{ issuer.rfc }}<br><span class="uppercase">{{ issuer.name }}</span></p>
+				<p><span class="mylabel">Régimen Fiscal</span> {{ issuer.regime }}</p>
+				<p><span class="mylabel">Dom. Fiscal (C.P.)</span> {{ issuer.postal_code }}</p>
+			</td>
+			<td class="text-right" style="width: 20%;"><img class="cfdi-qr" src="{{ qr }}" alt="QR"></td>
+		</tr>
+	</table>
+
+	{% if reference %}<p class="text-right"><span class="mylabel">Referencia</span> {{ reference }}</p>{% endif %}
+
+	{% if payments %}
+	{% for payment in payments %}
+	<table class="cfdi-lines">
+		<thead>
+			<tr>
+				<th class="text-center">No.</th>
+				<th class="text-center">Folio Fiscal</th>
+				<th class="text-center">Serie Folio</th>
+				<th class="text-center">Núm. Parc.</th>
+				<th class="text-center">Moneda / Tipo de Cambio</th>
+				<th class="text-center">Saldo Anterior</th>
+				<th class="text-center">Importe Pagado</th>
+				<th class="text-center">Saldo Insoluto</th>
+			</tr>
+		</thead>
+		<tbody>
+			{% for settled in payment.documents %}
+			<tr>
+				<td class="text-center">{{ settled.number }}</td>
+				<td class="text-center">{{ settled.uuid }}</td>
+				<td class="text-center">{{ settled.folio }}</td>
+				<td class="text-center">{{ settled.installment }}</td>
+				<td class="text-center">{{ settled.currency }}</td>
+				<td class="nowrap text-right">{{ settled.previous }}</td>
+				<td class="nowrap text-right">{{ settled.paid }}</td>
+				<td class="nowrap text-right">{{ settled.outstanding }}</td>
+			</tr>
+			{% endfor %}
+		</tbody>
+	</table>
+	<table class="cfdi-totals">
+		<tr>
+			<td style="width: 70%;">
+				<p><span class="mylabel">Fecha del Pago</span> {{ payment.date }}</p>
+				{% if payment.foreign_bank %}<p><span class="mylabel">Nombre del Banco Ordenante (Extranjero)</span> {{ payment.foreign_bank }}</p>{% endif %}
+				<p><span class="mylabel">Forma de Pago</span> {{ payment.form }}</p>
+				{% if payment.reference %}<p><span class="mylabel">Referencia de Pago</span> {{ payment.reference }}</p>{% endif %}
+				<p><span class="mylabel">Moneda</span> {{ payment.currency }}{% if payment.exchange_rate %} <span class="mylabel">Tipo de Cambio</span> {{ payment.exchange_rate }}{% endif %}</p>
+			</td>
+			<td class="text-right" style="width: 30%;">
+				<span class="total">Importe Total</span> <span class="nowrap total">{{ payment.amount }}</span>
+			</td>
+		</tr>
+	</table>
+	{% endfor %}
+	{% else %}
+	<table class="cfdi-lines">
+		<thead>
+			<tr>
+				<th class="text-center">No.</th>
+				<th class="text-center">Cantidad</th>
+				<th class="text-center">UM</th>
+				<th class="text-center">Código</th>
+				<th class="text-center">Producto</th>
+				<th class="text-center">Precio</th>
+				<th class="text-center">Importe</th>
+			</tr>
+		</thead>
+		<tbody>
+			{% for line in lines %}
+			<tr>
+				<td class="text-center">{{ line.number }}</td>
+				<td class="nowrap text-right">{{ line.quantity }}</td>
+				<td class="text-center">{{ line.unit }}</td>
+				<td class="text-center">{{ line.code }}</td>
+				<td>{{ line.description }}{% if line.product_code %} ({{ line.product_code }}){% endif %}
+					{% if line.comment %}<p class="pre-wrapped">{{ line.comment }}</p>{% endif %}</td>
+				<td class="nowrap text-right">{{ line.price }}</td>
+				<td class="nowrap text-right">{{ line.amount }}</td>
+			</tr>
+			{% endfor %}
+		</tbody>
+	</table>
+
+	<table class="cfdi-totals">
+		<tr>
+			<td style="width: 60%;">
+				<p><span class="mylabel">Método de Pago</span> {{ payment_method }}</p>
+				<p><span class="mylabel">Forma de Pago</span> {{ payment_form }}</p>
+				<p><span class="mylabel">Moneda</span> {{ currency }}{% if exchange_rate %} <span class="mylabel">Tipo de Cambio</span> {{ exchange_rate }}{% endif %}</p>
+			</td>
+			<td style="width: 40%;">
+				<table>
+					<tr><td class="text-right">Subtotal</td><td class="nowrap text-right">{{ subtotal }}</td></tr>
+					{% if discount %}<tr><td class="text-right">Descuento</td><td class="nowrap text-right">{{ discount }}</td></tr>{% endif %}
+					<tr><td class="text-right">IVA</td><td class="nowrap text-right">{{ taxes }}</td></tr>
+					{% if retentions %}<tr><td class="text-right">IVA Retenido</td><td class="nowrap text-right">{{ retentions }}</td></tr>{% endif %}
+					<tr><td class="text-right total">Total</td><td class="nowrap text-right total">{{ total }}</td></tr>
+				</table>
+			</td>
+		</tr>
+	</table>
+	{% endif %}
+
+	<p class="amount-words text-center">{{ amount_in_words }}</p>
+
+	{% if related %}
+	<h2>CFDI Relacionados</h2>
+	{% for label, uuids in related %}
+	<p><span class="mylabel">Tipo de Relación</span> {{ label }}</p>
+	<table class="cfdi-related">
+		{% for uuid in uuids %}<tr><td class="text-center" style="width: 8%;">{{ loop.index }}</td><td>{{ uuid }}</td></tr>{% endfor %}
+	</table>
+	{% endfor %}
+	{% endif %}
+
+	<table class="cfdi-stamp">
+		<tr>
+			<td><span class="mylabel">Certificado Digital SAT</span> {{ stamp.sat_certificate }}</td>
+			<td><span class="mylabel">Fecha de Certificación</span> {{ stamp.date }}</td>
+			<td><span class="mylabel">RFC del proveedor de certificación</span> {{ stamp.pac }}</td>
+		</tr>
+	</table>
+	<p class="mylabel">Cadena Original</p>
+	<p class="cfdi-seal">{{ stamp.original_string }}</p>
+	<p class="mylabel">Sello Digital del Emisor</p>
+	<p class="cfdi-seal">{{ stamp.issuer_seal }}</p>
+	<p class="mylabel">Sello Digital del SAT</p>
+	<p class="cfdi-seal">{{ stamp.sat_seal }}</p>
+</body>
+</html>

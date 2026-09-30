@@ -1,0 +1,849 @@
+{
+  "workflow": "companion",
+  "specName": "CFDI Invoice PDF",
+  "branch": "main",
+  "currentStep": "implement",
+  "status": "completed",
+  "history": [
+    {
+      "step": "specify",
+      "substep": null,
+      "kind": "start",
+      "by": "extension",
+      "at": "2026-09-30T03:13:36.077Z"
+    },
+    {
+      "step": "specify",
+      "substep": null,
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-09-30T03:20:09.668Z"
+    },
+    {
+      "step": "clarify",
+      "substep": null,
+      "kind": "complete",
+      "by": "ai",
+      "at": "2026-09-30T03:33:36.083Z"
+    },
+    {
+      "step": "plan",
+      "substep": null,
+      "kind": "start",
+      "by": "extension",
+      "at": "2026-09-30T03:35:36.210Z"
+    },
+    {
+      "step": "plan",
+      "substep": "research",
+      "kind": "complete",
+      "by": "ai",
+      "at": "2026-09-30T03:42:17.748Z"
+    },
+    {
+      "step": "plan",
+      "substep": "design",
+      "kind": "complete",
+      "by": "ai",
+      "at": "2026-09-30T03:44:06.527Z"
+    },
+    {
+      "step": "plan",
+      "substep": null,
+      "kind": "complete",
+      "by": "ai",
+      "at": "2026-09-30T03:44:27.763Z"
+    },
+    {
+      "step": "tasks",
+      "substep": null,
+      "kind": "start",
+      "by": "extension",
+      "at": "2026-09-30T04:07:00.155Z"
+    },
+    {
+      "step": "tasks",
+      "substep": "generate",
+      "kind": "complete",
+      "by": "ai",
+      "at": "2026-09-30T04:09:10.913Z"
+    },
+    {
+      "step": "tasks",
+      "substep": null,
+      "kind": "complete",
+      "by": "ai",
+      "at": "2026-09-30T04:09:27.222Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "kind": "start",
+      "by": "extension",
+      "at": "2026-09-30T20:07:50.365Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T001",
+      "kind": "complete",
+      "by": "ai",
+      "at": "2026-09-30T20:09:21.066Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T002",
+      "kind": "complete",
+      "by": "ai",
+      "at": "2026-09-30T20:10:31.421Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T003",
+      "kind": "complete",
+      "by": "ai",
+      "at": "2026-09-30T20:11:39.105Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T004",
+      "kind": "complete",
+      "by": "ai",
+      "at": "2026-09-30T20:12:00.033Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T005",
+      "kind": "complete",
+      "by": "ai",
+      "at": "2026-09-30T20:13:42.631Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T006",
+      "kind": "complete",
+      "by": "ai",
+      "at": "2026-09-30T20:13:43.431Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T007",
+      "kind": "complete",
+      "by": "ai",
+      "at": "2026-09-30T20:14:20.537Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T008",
+      "kind": "complete",
+      "by": "ai",
+      "at": "2026-09-30T20:15:32.211Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T009",
+      "kind": "complete",
+      "by": "ai",
+      "at": "2026-09-30T20:17:09.018Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T010",
+      "kind": "complete",
+      "by": "ai",
+      "at": "2026-09-30T20:17:31.084Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T011",
+      "kind": "complete",
+      "by": "ai",
+      "at": "2026-09-30T20:17:40.939Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T012",
+      "kind": "complete",
+      "by": "ai",
+      "at": "2026-09-30T20:19:37.116Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T013",
+      "kind": "complete",
+      "by": "ai",
+      "at": "2026-09-30T20:20:36.421Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T014",
+      "kind": "complete",
+      "by": "ai",
+      "at": "2026-09-30T20:20:37.499Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T015",
+      "kind": "complete",
+      "by": "ai",
+      "at": "2026-09-30T20:21:51.660Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T016",
+      "kind": "complete",
+      "by": "ai",
+      "at": "2026-09-30T20:23:54.320Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T017",
+      "kind": "complete",
+      "by": "ai",
+      "at": "2026-09-30T20:23:55.351Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T018",
+      "kind": "complete",
+      "by": "ai",
+      "at": "2026-09-30T20:26:59.484Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T019",
+      "kind": "complete",
+      "by": "ai",
+      "at": "2026-09-30T20:29:22.886Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T020",
+      "kind": "complete",
+      "by": "ai",
+      "at": "2026-09-30T20:30:12.622Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T021",
+      "kind": "complete",
+      "by": "ai",
+      "at": "2026-09-30T20:30:13.671Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T022",
+      "kind": "complete",
+      "by": "ai",
+      "at": "2026-09-30T20:30:40.086Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T023",
+      "kind": "complete",
+      "by": "ai",
+      "at": "2026-09-30T20:30:41.217Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T024",
+      "kind": "complete",
+      "by": "ai",
+      "at": "2026-09-30T20:31:58.219Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T025",
+      "kind": "complete",
+      "by": "ai",
+      "at": "2026-09-30T20:31:59.416Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T026",
+      "kind": "complete",
+      "by": "ai",
+      "at": "2026-09-30T20:33:21.387Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T027",
+      "kind": "complete",
+      "by": "ai",
+      "at": "2026-09-30T20:33:22.176Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T028",
+      "kind": "complete",
+      "by": "ai",
+      "at": "2026-09-30T20:34:24.856Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T029",
+      "kind": "complete",
+      "by": "ai",
+      "at": "2026-09-30T20:36:00.157Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T030",
+      "kind": "complete",
+      "by": "ai",
+      "at": "2026-09-30T22:01:56.957Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "kind": "complete",
+      "by": "ai",
+      "at": "2026-09-30T22:01:57.345Z"
+    }
+  ],
+  "telemetryInstanceId": "4c586b67-1384-4d88-a8e8-945f7f179741",
+  "last_action": "All SC met on xolotl; 2,831 tests pass; ruff clean",
+  "coverage": {
+    "FR-001": {
+      "title": "List fiscal documents, newest first, paginated, searchable",
+      "tasks": "T005,T006,T009,T019",
+      "tests": "tests/integration/test_fiscal_document_queries.py::test_list_search,tests/api/test_fiscal_documents.py::test_list_passes_every_parameter_to_the_service"
+    },
+    "FR-002": {
+      "title": "Filter the list by issuer, type, status (draft, issued, cancelled) and issue-date range",
+      "tasks": "T006,T009,T019",
+      "tests": "tests/integration/test_fiscal_document_queries.py::test_list_filters,tests/api/test_fiscal_documents.py::test_list_rejects_an_unknown_status"
+    },
+    "FR-003": {
+      "title": "Read one fiscal document with header, status and lines",
+      "tasks": "T006,T009,T010,T019",
+      "tests": "tests/integration/test_fiscal_document_queries.py::test_get_document_with_lines_in_order,tests/api/test_fiscal_documents.py::test_detail_returns_the_document_with_its_lines"
+    },
+    "FR-004": {
+      "title": "Download an issued document XML unchanged, any version",
+      "tasks": "T006,T009,T019",
+      "tests": "tests/api/test_fiscal_documents.py::test_xml_is_the_stored_text_as_an_attachment,tests/integration/test_fiscal_document_queries.py::test_get_xml"
+    },
+    "FR-005": {
+      "title": "Letter PDF for stamped CFDI 4.0 invoice, credit note, applied advance and payment receipt",
+      "tasks": "T014,T018,T021,T025",
+      "tests": "tests/integration/test_print_render.py::test_cfdi_invoice_renders,tests/integration/test_print_render.py::test_cfdi_payment_receipt_renders"
+    },
+    "FR-006": {
+      "title": "Every printed amount, code, seal, certificate, UUID and date comes from the stamped XML",
+      "tasks": "T003,T007,T012,T015",
+      "tests": "tests/unit/test_print_contexts.py::TestFiscalDocument::test_header_and_parties_come_from_the_xml"
+    },
+    "FR-007": {
+      "title": "SAT verification QR payload and image",
+      "tasks": "T003,T004,T007,T008,T012",
+      "tests": "tests/unit/test_cfdi.py::test_qr_payload_of_a_payment_escapes_an_ampersand_and_totals_zero,tests/unit/test_rendering.py::test_qr_data_uri_is_segno_svg_without_quiet_zone"
+    },
+    "FR-008": {
+      "title": "Stamp block with TFD original string and both seals, wrapped",
+      "tasks": "T003,T007,T014,T016,T017",
+      "tests": "tests/unit/test_cfdi.py::test_tfd_original_string_follows_sat_order,tests/integration/test_print_render.py::test_cfdi_invoice_renders"
+    },
+    "FR-009": {
+      "title": "Same content and sections as legacy Print40T02Blue",
+      "tasks": "T014,T016,T030"
+    },
+    "FR-010": {
+      "title": "Lines and totals for invoices, credit notes and applied advances",
+      "tasks": "T012,T014,T015,T016",
+      "tests": "tests/unit/test_print_contexts.py::TestFiscalDocument::test_concepts_and_totals_come_from_the_xml"
+    },
+    "FR-011": {
+      "title": "Related CFDIs section with relation type and UUIDs",
+      "tasks": "T020,T021,T022,T023",
+      "tests": "tests/integration/test_print_render.py::test_cfdi_related_documents_render"
+    },
+    "FR-012": {
+      "title": "Payment receipt section and payment amount in words",
+      "tasks": "T024,T025,T026,T027",
+      "tests": "tests/unit/test_print_contexts.py::TestFiscalDocumentPayment,tests/integration/test_print_render.py::test_cfdi_payment_receipt_renders"
+    },
+    "FR-013": {
+      "title": "Amount in words uses spec 019 corrected wording, in the document currency",
+      "tasks": "T012,T015",
+      "tests": "tests/unit/test_print_contexts.py::TestFiscalDocument::test_amount_in_words_uses_the_xml_currency"
+    },
+    "FR-014": {
+      "title": "Batch settings drive logo, footer height and bank accounts",
+      "tasks": "T003,T007,T012,T015,T017",
+      "tests": "tests/unit/test_cfdi.py::test_batch_settings_read_bank_accounts,tests/unit/test_print_contexts.py::TestFiscalDocument::test_footer_from_batch_settings"
+    },
+    "FR-015": {
+      "title": "Footer on every page with page number and page count",
+      "tasks": "T014,T016,T017",
+      "tests": "tests/integration/test_print_render.py::test_cfdi_footer_repeats_on_every_page"
+    },
+    "FR-016": {
+      "title": "Refuse the PDF with a distinct error for never-issued, non-4.0 and unstamped 4.0 documents",
+      "tasks": "T018",
+      "tests": "tests/api/test_fiscal_documents.py::test_pdf_conflicts"
+    },
+    "FR-017": {
+      "title": "Clear error when an issued document XML is missing, or for the PDF unreadable",
+      "tasks": "T018,T019",
+      "tests": "tests/api/test_fiscal_documents.py::test_pdf_of_unreadable_xml_is_409,tests/api/test_fiscal_documents.py::test_xml_conflicts"
+    },
+    "FR-018": {
+      "title": "Every route requires the fiscal documents read privilege",
+      "tasks": "T018,T019",
+      "tests": "tests/api/test_fiscal_documents.py::test_every_route_requires_authentication_and_the_privilege,tests/api/test_fiscal_documents.py::test_pdf_requires_the_fiscal_documents_read_privilege"
+    },
+    "FR-019": {
+      "title": "Rendered by the spec 019 core: zero network, off the loop, deterministic, not stored",
+      "tasks": "T014,T018,T030",
+      "tests": "tests/integration/test_print_render.py::test_zero_network_and_deterministic"
+    },
+    "FR-020": {
+      "title": "PDF and XML routes publish binary response schemas",
+      "tasks": "T013,T018,T019",
+      "tests": "tests/api/test_print_endpoints.py::test_pdf_routes_declare_binary_schema,tests/api/test_fiscal_documents.py::test_xml_route_declares_a_binary_schema"
+    },
+    "FR-021": {
+      "title": "PDF and XML stay separate files",
+      "tasks": "T018,T019"
+    },
+    "FR-022": {
+      "title": "Cancelled document PDF shows a cancellation mark with the date on every page",
+      "tasks": "T012,T014,T015,T016,T017",
+      "tests": "tests/integration/test_print_render.py::test_cfdi_cancelled_is_marked_on_every_page,tests/unit/test_print_contexts.py::TestFiscalDocument::test_cancellation_mark"
+    }
+  },
+  "size": "oversized",
+  "classification": {
+    "projectedFiles": 15,
+    "projectedTasks": 22,
+    "scopeSignal": "none",
+    "verdict": "oversized"
+  },
+  "expectations": [
+    "stamping, cancelling or creating fiscal documents",
+    "email delivery",
+    "print layouts for CFDI 2.0/2.2/3.2/3.3",
+    "PDF/A-3 XML embedding",
+    "ESC/POS and direct printing"
+  ],
+  "context": [
+    "area: legacy mbe Web/Controllers/Mvc/FiscalDocumentsController.cs Pdf (L159-197), view Print40T02Blue + _PageFoot, QR format resx:2150",
+    "area: app/models/fiscal.py (no stored totals or issuer seal; XML in fiscal_document_xml.data)",
+    "area: spec 019 rendering core app/rendering/ and app/services/print_contexts.py",
+    "area: mbe_dev fiscal data: 17,433 stamped 4.0 docs (types 0/100/101/200), all with XML; all batches use T02Blue; template JSON is single-quoted",
+    "constraint: print content compared with legacy, not layout (user decision 2026-09-29)",
+    "constraint: SystemObject.FISCAL_DOCUMENTS read privilege"
+  ],
+  "intent": "Read fiscal documents, download their stamped XML, and print CFDI 4.0 documents as the legacy Print40T02Blue content with the SAT QR",
+  "decisions": [
+    {
+      "decision": "Print every amount, code, seal, UUID and date from the stamped XML; DB only for catalog descriptions, line comments and cancellation date",
+      "why": "No stored totals or issuer seal; QR tt must equal the stamped total; 377/377 sampled seals and UUIDs match",
+      "rejected": "Legacy approach of printing DB columns and recomputing totals"
+    },
+    {
+      "decision": "Rebuild the TFD 1.1 original string from the XML",
+      "why": "Equals stored original_string on 377/377; seven fields, no XSLT needed",
+      "rejected": "lxml + SAT XSLT, or printing the stored copy"
+    },
+    {
+      "decision": "segno SVG QR inlined as data URI; escape only & in RFCs as %26",
+      "why": "One recipient RFC has & which breaks legacy QR; 1,674 docs with Ñ keep legacy raw form",
+      "rejected": "qrcode lib; anonymous QR image route; full percent-encoding"
+    },
+    {
+      "decision": "Stdlib ElementTree for XML",
+      "why": "Stored PAC output; expat blocks external entities and limits expansion",
+      "rejected": "defusedxml, lxml"
+    },
+    {
+      "decision": "Batch template parsed with ast.literal_eval, defaults on any failure; logo by file name under images_dir",
+      "why": "All templates are single-quoted; logo path points into legacy app",
+      "rejected": "json.loads after quote rewrite; bundling tenant logo"
+    },
+    {
+      "decision": "Status from completed/cancelled: draft/issued/cancelled; XML route needs issued, PDF needs 4.0 + stamp",
+      "why": "CFD 2.0/2.2 are issued with XML but never stamped",
+      "rejected": "Status from stamp_uuid, which mislabels 6,866 CFDs as drafts"
+    },
+    {
+      "decision": "List total read from page rows XML",
+      "why": "No totals column; <=100 rows of ~5.9 KB",
+      "rejected": "SQL recomputation, REGEXP_SUBSTR (MariaDB-only, tests on SQLite), new column"
+    },
+    {
+      "decision": "Plain-string 409 details, distinct per case, checked in fixed order",
+      "why": "Codebase convention",
+      "rejected": "422 for unsupported version"
+    },
+    {
+      "decision": "Keep Ñ raw in the QR payload; correction: no stamped 4.0 document has Ñ in an RFC (the earlier 1,674 was a utf8mb4_general_ci collation artifact)",
+      "why": "Matches legacy; affects no real document today",
+      "rejected": "Percent-encoding the whole payload"
+    },
+    {
+      "decision": "fiscal_document.html is a standalone letter template linking print.css",
+      "why": "The CFDI header is title, folio, UUID and parties, not the store block _print_layout prints",
+      "rejected": "Extending _print_layout.html as the plan said"
+    },
+    {
+      "decision": "CFDI page rules on a named page (@page cfdi, body.cfdi)",
+      "why": "An unscoped @page margin box would stamp a page counter onto the spec 019 pedido",
+      "rejected": "Global @page rules in print.css"
+    },
+    {
+      "decision": "Page counter in a @bottom-right margin box; legend and accounts in a running element",
+      "why": "Margin-box counters are reliable in WeasyPrint 70",
+      "rejected": "counter(pages) inside the running element"
+    },
+    {
+      "decision": "Reuse qty for 0.####; add price4 for #,###.00##; no new Jinja filters",
+      "why": "qty already matched legacy; contexts pre-format every value",
+      "rejected": "qty4 duplicate and filter registration"
+    },
+    {
+      "decision": "QR as segno full SVG with viewBox (omitsize) and no border",
+      "why": "svg_inline lacks xmlns and viewBox, so an img data URI would not render or scale",
+      "rejected": "svg_inline"
+    },
+    {
+      "decision": "Extracted _image_uri from header_context for the CFDI logo",
+      "why": "Same file-name-only lookup under images_dir, one implementation",
+      "rejected": "Duplicating the lookup"
+    }
+  ],
+  "step_summaries": {
+    "plan": {
+      "summary": "Plan: read-only /fiscal-documents router (list, detail, xml, pdf) with a CFDI XML module and one template on the spec 019 core; one new dependency (segno)",
+      "key_finding": "Every printed value is in the stamped XML and matches stored seals/UUIDs; only descriptions, line comments and the cancellation date come from the DB"
+    },
+    "tasks": {
+      "summary": "30 tasks in 7 phases after analyze remediation: route tests merged into their route tasks (T018, T019), lowercase total for CFD/CFDI 3.2, SC-005 in T030, currency mapping for amount in words"
+    },
+    "implement": {
+      "summary": "Four /fiscal-documents routes and the CFDI 4.0 PDF for all four types; 29/30 tasks, T030 open pending legacy PDFs and a phone scan"
+    }
+  },
+  "approach": "Parse the stored stamped XML with ElementTree into plain dicts; build the render context from it plus catalog descriptions, line comments and the cancellation date; render one Jinja template on the spec 019 WeasyPrint core with a segno SVG QR and a running footer. Routes live in a new fiscal_documents router backed by a service that derives status from completed/cancelled.",
+  "currentTask": "T030",
+  "task_summaries": {
+    "T001": {
+      "status": "DONE",
+      "did": "Added segno 1.6.6 as a runtime dependency; import verified",
+      "files": [
+        "pyproject.toml",
+        "uv.lock"
+      ]
+    },
+    "T002": {
+      "status": "DONE",
+      "did": "Five anonymized stamped 4.0 XML fixtures from mbe_dev (invoice, retention, credit note, advance, payment) plus README",
+      "files": [
+        "tests/fixtures/cfdi/"
+      ]
+    },
+    "T003": {
+      "status": "DONE",
+      "did": "Unit tests for CFDI parse, TFD original string, SAT QR payload and batch settings",
+      "files": [
+        "tests/unit/test_cfdi.py"
+      ]
+    },
+    "T004": {
+      "status": "DONE",
+      "did": "Formatter tests: qr_data_uri vs segno SVG, qty reuse for 0.####, price4, type title, relation, payment method and form labels",
+      "files": [
+        "tests/unit/test_rendering.py"
+      ]
+    },
+    "T005": {
+      "status": "DONE",
+      "did": "Unit tests for document_status, classify_search and xml_total incl. lowercase total",
+      "files": [
+        "tests/unit/test_fiscal_document_service.py"
+      ]
+    },
+    "T006": {
+      "status": "DONE",
+      "did": "Integration tests for list (order, status, total, search, filters, paging), get_document, get_xml",
+      "files": [
+        "tests/integration/test_fiscal_document_queries.py"
+      ]
+    },
+    "T007": {
+      "status": "DONE",
+      "did": "cfdi.py: parse to verbatim attribute dicts, TFD original string, SAT QR payload with & escaped, batch_settings via ast.literal_eval",
+      "files": [
+        "app/services/cfdi.py"
+      ]
+    },
+    "T008": {
+      "status": "DONE",
+      "did": "formatting.py: price4, fiscal_type_title, relation_label, payment_method_label, payment_form_label, qr_data_uri (segno SVG with viewBox); reuses qty for 0.####; no filter registration needed since contexts pre-format",
+      "files": [
+        "app/rendering/formatting.py"
+      ]
+    },
+    "T009": {
+      "status": "DONE",
+      "did": "fiscal_document_service: status rule, search classification, xml_total (Total/total), get_document with lines/status/total, get_xml, list_documents with filters and per-page XML totals",
+      "files": [
+        "app/services/fiscal_document_service.py"
+      ]
+    },
+    "T010": {
+      "status": "DONE",
+      "did": "FiscalDocumentSummary, FiscalDocumentLine, FiscalDocumentResponse with LocalDateTime datetimes",
+      "files": [
+        "app/schemas/fiscal.py"
+      ]
+    },
+    "T011": {
+      "status": "DONE",
+      "did": "seed_fiscal_document builds document, details, XML and single-quoted batch from a fixture; seeds issuer and SAT catalog rows",
+      "files": [
+        "tests/integration/seed.py"
+      ]
+    },
+    "T012": {
+      "status": "DONE",
+      "did": "Context unit tests: XML-sourced parties and totals vs stale row, descriptions, comment pairing, discount/retention rows, USD words, stamp block, QR, footer, logo, cancellation",
+      "files": [
+        "tests/unit/test_print_contexts.py"
+      ]
+    },
+    "T013": {
+      "status": "DONE",
+      "did": "Added the fiscal document PDF route to _PDF_ROUTES (fails until the route exists)",
+      "files": [
+        "tests/api/test_print_endpoints.py"
+      ]
+    },
+    "T014": {
+      "status": "DONE",
+      "did": "Integration renders: invoice sections/seals/original string, retentions, 80-concept footer per page, cancelled mark per page, zero-network URL",
+      "files": [
+        "tests/integration/test_print_render.py"
+      ]
+    },
+    "T015": {
+      "status": "DONE",
+      "did": "fiscal_document_context: XML-sourced header, parties, concepts, totals, words in XML currency, stamp, QR, footer, cancellation; _image_uri shared with header_context",
+      "files": [
+        "app/services/print_contexts.py"
+      ]
+    },
+    "T016": {
+      "status": "DONE",
+      "did": "fiscal_document.html: standalone letter CFDI with header, parties + QR, concepts, totals, words, stamp block, running footer, cancellation mark; related/payments slots",
+      "files": [
+        "app/rendering/templates/fiscal_document.html"
+      ]
+    },
+    "T017": {
+      "status": "DONE",
+      "did": "print.css: named page cfdi with running footer, page counter margin box, QR 29 mm, wrapping seals, fixed cancellation mark; pedido pages untouched",
+      "files": [
+        "app/rendering/static/print.css"
+      ]
+    },
+    "T018": {
+      "status": "DONE",
+      "did": "PDF route tests written first (200, 404, 401, 403, 409 in contract order, unreadable XML), then GET /fiscal-documents/{id}/pdf and router registration; zero-network test extended with the batch logo",
+      "files": [
+        "tests/api/test_fiscal_documents.py",
+        "app/api/v1/endpoints/fiscal_documents.py",
+        "app/api/v1/router.py",
+        "tests/integration/test_print_render.py"
+      ]
+    },
+    "T019": {
+      "status": "DONE",
+      "did": "List/detail/XML tests written first (params, 422 status, lines, 404, XML bytes + attachment, 409s, 401/403, binary schema), then the three routes",
+      "files": [
+        "tests/api/test_fiscal_documents.py",
+        "app/api/v1/endpoints/fiscal_documents.py"
+      ]
+    },
+    "T020": {
+      "status": "DONE",
+      "did": "Context tests: related labels and UUIDs for credit note (01) and advance (07), none for an invoice",
+      "files": [
+        "tests/unit/test_print_contexts.py"
+      ]
+    },
+    "T021": {
+      "status": "DONE",
+      "did": "Render tests: credit note and advance show title, CFDI Relacionados, relation label and related UUID",
+      "files": [
+        "tests/integration/test_print_render.py"
+      ]
+    },
+    "T022": {
+      "status": "DONE",
+      "did": "Context fills related as (relation_label, uuids) for non-payment documents",
+      "files": [
+        "app/services/print_contexts.py"
+      ]
+    },
+    "T023": {
+      "status": "DONE",
+      "did": "Template related section: CFDI Relacionados, Tipo de Relación label, numbered UUIDs",
+      "files": [
+        "app/rendering/templates/fiscal_document.html"
+      ]
+    },
+    "T024": {
+      "status": "DONE",
+      "did": "Context tests: payments replace concepts and totals, payment and settled-document fields, currency equivalence, words from the payment total",
+      "files": [
+        "tests/unit/test_print_contexts.py"
+      ]
+    },
+    "T025": {
+      "status": "DONE",
+      "did": "Render test: payment receipt shows title, payment fields, settled UUIDs, balances, total and words; no related section",
+      "files": [
+        "tests/integration/test_print_render.py"
+      ]
+    },
+    "T026": {
+      "status": "DONE",
+      "did": "Context fills payments from Pagos 2.0 via _cfdi_payments, drops concept rows and totals for receipts, words from the payment total",
+      "files": [
+        "app/services/print_contexts.py"
+      ]
+    },
+    "T027": {
+      "status": "DONE",
+      "did": "Template payments section: settled-documents table and payment block with Importe Total",
+      "files": [
+        "app/rendering/templates/fiscal_document.html"
+      ]
+    },
+    "T028": {
+      "status": "DONE",
+      "did": "CHANGELOG Unreleased/Added: the four fiscal document routes, XML as the source, segno, departures from legacy, logo operations note",
+      "files": [
+        "CHANGELOG.md"
+      ]
+    },
+    "T029": {
+      "status": "DONE",
+      "did": "Full suite 2,831 passed (113 new), ruff clean; recorded in quickstart Results",
+      "files": [
+        "specs/020-cfdi-invoice-pdf/quickstart.md"
+      ]
+    },
+    "T030": {
+      "status": "DONE",
+      "did": "Manual checks recorded: SC-001 passed on content (folio padding fixed; Uso CFDI from stamp is an expected difference), SC-002/003/007 200/200, SC-004 passed, SC-006 passed (user report), SC-005 not met on xolotl pending libharfbuzz-subset0",
+      "files": [
+        "specs/020-cfdi-invoice-pdf/quickstart.md",
+        "app/services/print_contexts.py",
+        "tests/unit/test_print_contexts.py"
+      ]
+    }
+  },
+  "verified": [
+    {
+      "what": "full test suite",
+      "command": "uv run pytest -q",
+      "source": "derived",
+      "exitCode": 0,
+      "durationSeconds": 64.1,
+      "result": "........................................................................ [ 99%] · .......................                                                  [100%] · 2831 passed in 59.61s"
+    },
+    {
+      "what": "ruff gate",
+      "command": "uv run ruff check app/ migrations/ tests/",
+      "source": "derived",
+      "exitCode": 0,
+      "durationSeconds": 0.6,
+      "result": "All checks passed!"
+    },
+    {
+      "what": "200-document sample on xolotl: SC-002 QR payload, SC-003 printed values, SC-007 XML bytes",
+      "command": "scratchpad sample_check.py over mbe_dev",
+      "result": "200/200 pass; 196 one-page, 4 two-page; render p50 159 ms, max 332 ms"
+    },
+    {
+      "what": "SC-004 timing over localhost on xolotl",
+      "command": "curl x10 per route",
+      "result": "50-line document p50 0.485 s, max 0.596 s; invoice max 0.274 s"
+    },
+    {
+      "what": "Visual check of a real invoice (63868) and payment receipt (63165) render",
+      "command": "pdftoppm + inspection",
+      "result": "all sections, QR, footer and counter present"
+    },
+    {
+      "what": "SC-001 content fidelity against legacy for 9 documents",
+      "command": "OCR + fuzzy match of 987 XML values, visual checks",
+      "result": "all values match; one fix (settled folio padding); Uso CFDI legacy prints DB value, ours the stamp"
+    },
+    {
+      "what": "SC-006 phone scan of QR codes",
+      "command": "manual, by the user",
+      "result": "reported working"
+    },
+    {
+      "what": "SC-005 on xolotl after installing libharfbuzz-subset0",
+      "command": "sample_check.py (200 docs, network blocked) + 4 renders 1.1 s apart",
+      "result": "200/200 byte-identical; 4/4 identical; no fontTools warning"
+    },
+    {
+      "what": "Invoice logo on xolotl",
+      "command": "PDF XObject check + visual",
+      "result": "casamaestra.png embedded and printed"
+    }
+  ],
+  "concerns": [
+    {
+      "note": "SC-005 not met on xolotl: libharfbuzz-subset0 missing, WeasyPrint falls back to fontTools which timestamps font subsets (proven with SOURCE_DATE_EPOCH). Needs sudo apt install libharfbuzz-subset0; also affects spec 019 tickets there.",
+      "step": "implement"
+    },
+    {
+      "note": "T030 open: SC-001 needs legacy PDFs for 63868, 63165, 60648, 63821; SC-006 needs a phone scan of 63868 and 57904.",
+      "step": "implement"
+    },
+    {
+      "note": "Earlier claim of 1,674 documents with Ñ in an RFC was a utf8mb4_general_ci collation artifact; binary count is 0. Research R3 corrected.",
+      "step": "implement"
+    },
+    {
+      "note": "Invoice logo (casamaestra.png) is not in IMAGES_DIR; invoices print without it until copied from legacy Web/Content/images.",
+      "step": "implement"
+    }
+  ]
+}

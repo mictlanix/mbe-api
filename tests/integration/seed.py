@@ -8,9 +8,13 @@ order with lines, a confirmed delivery — it creates through the API, because c
 API is the thing under test.
 """
 
+import xml.etree.ElementTree as ET
 from datetime import date, datetime
 from decimal import Decimal
+from pathlib import Path
+from types import EllipsisType
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.enums import (
@@ -31,10 +35,17 @@ from app.models.core import (
     Warehouse,
 )
 from app.models.customer import Customer, TaxpayerRecipient
-from app.models.fiscal import TaxpayerIssuer
+from app.models.fiscal import (
+    FiscalDocument,
+    FiscalDocumentDetail,
+    FiscalDocumentXml,
+    TaxpayerBatch,
+    TaxpayerIssuer,
+)
 from app.models.product import PriceList, Product, ProductPrice
 from app.models.sales import SalesOrder, SalesOrderDetail
 from app.models.sat_catalog import (
+    SatCfdiUsage,
     SatPostalCode,
     SatProductService,
     SatTaxRegime,
@@ -268,3 +279,174 @@ async def seed_sales_order(
     )
     await db.commit()
     return order.sales_order_id
+
+
+CFDI_FIXTURES = Path(__file__).parent.parent / 'fixtures' / 'cfdi'
+_FIXTURE_TYPES = {
+    'invoice': 0,
+    'invoice_retention': 0,
+    'credit_note': 100,
+    'advance': 101,
+    'payment': 200,
+}
+# Every batch in `mbe_dev` holds this text, single quotes included (spec 020, research R5).
+LEGACY_BATCH_TEMPLATE = """{
+    'Name': 'T02Blue',
+    'Logo': '~/Content/images/casamaestra.png',
+    'HeaderHeight': 0,
+    'FooterHeight': 15,
+    'ExtraInfo': []
+}"""
+
+
+def _attrs(element: ET.Element) -> dict[str, str]:
+    return {key.split('}')[-1]: value for key, value in element.attrib.items()}
+
+
+async def seed_fiscal_document(
+    db: AsyncSession,
+    fixture: str,
+    *,
+    completed: bool = True,
+    cancelled: bool = False,
+    stamp: bool = True,
+    xml: str | None | EllipsisType = ...,
+    comments: list[str | None] | None = None,
+    template: str = LEGACY_BATCH_TEMPLATE,
+    **overrides: object,
+) -> int:
+    """A fiscal document built from a stamped fixture in `tests/fixtures/cfdi/`.
+
+    The row's values are read from the fixture, as legacy copied them at stamping. `xml` defaults
+    to the fixture's text for an issued document and to none for a draft, as in `mbe_dev`.
+    `overrides` set any other `fiscal_document` column.
+    """
+    text = (CFDI_FIXTURES / f'{fixture}.xml').read_text(encoding='utf-8')
+    root = ET.fromstring(text.encode('utf-8'))
+    comprobante = _attrs(root)
+    emisor = _attrs(root.find('{*}Emisor'))
+    receptor = _attrs(root.find('{*}Receptor'))
+    timbre = _attrs(root.find('.//{*}TimbreFiscalDigital'))
+    conceptos = [_attrs(c) for c in root.findall('.//{*}Concepto')]
+
+    # Catalog rows and the issuer, created once per test database.
+    rows = [
+        TaxpayerIssuer(
+            taxpayer_issuer_id=emisor['Rfc'],
+            name=emisor['Nombre'],
+            regime=REGIME,
+            postal_code=POSTAL_CODE,
+            provider=FiscalCertificationProvider.NONE,
+        ),
+        SatTaxRegime(sat_tax_regime_id='612', description='Personas Físicas con Actividades'),
+        SatTaxRegime(sat_tax_regime_id='626', description='Régimen Simplificado de Confianza'),
+        *(
+            SatCfdiUsage(sat_cfdi_usage_id=code, description=description)
+            for code, description in (
+                ('G01', 'Adquisición de mercancías'),
+                ('G02', 'Devoluciones, descuentos o bonificaciones'),
+                ('G03', 'Gastos en general'),
+                ('CP01', 'Pagos'),
+            )
+        ),
+        *(
+            SatProductService(sat_product_service_id=c['ClaveProdServ'], description='Fixture')
+            for c in conceptos
+        ),
+        *(
+            SatUnitOfMeasurement(
+                sat_unit_of_measurement_id=c['ClaveUnidad'], name=c.get('Unidad', ''), symbol=''
+            )
+            for c in conceptos
+        ),
+    ]
+    for row in rows:
+        await db.merge(row)
+    await db.flush()
+    batch = comprobante.get('Serie')
+    existing = await db.execute(
+        select(TaxpayerBatch).where(
+            TaxpayerBatch.taxpayer == emisor['Rfc'], TaxpayerBatch.batch == batch
+        )
+    )
+    if existing.first() is None:
+        db.add(
+            TaxpayerBatch(
+                taxpayer=emisor['Rfc'], batch=batch, type=_FIXTURE_TYPES[fixture], template=template
+            )
+        )
+
+    issued = datetime.fromisoformat(comprobante['Fecha'])
+    values = dict(
+        creation_time=issued,
+        modification_time=issued,
+        creator=1,
+        updater=1,
+        issuer=emisor['Rfc'],
+        issuer_name=emisor['Nombre'],
+        issuer_regime=emisor['RegimenFiscal'],
+        issuer_regime_name='General de Ley Personas Morales',
+        customer=1,
+        recipient=receptor['Rfc'],
+        recipient_name=receptor['Nombre'],
+        taxpayer_regime=receptor['RegimenFiscalReceptor'],
+        taxpayer_postal_code=receptor['DomicilioFiscalReceptor'],
+        usage=receptor['UsoCFDI'],
+        type=_FIXTURE_TYPES[fixture],
+        facility=1,
+        batch=batch,
+        serial=int(comprobante['Folio']),
+        issued=issued,
+        issued_location=comprobante['LugarExpedicion'],
+        completed=completed,
+        cancelled=cancelled,
+        cancellation_date=datetime(2026, 9, 29, 10, 0) if cancelled else None,
+        payment_method=int(comprobante.get('FormaPago', '99')),
+        exchange_rate=Decimal('1'),
+        currency=CurrencyCode.MXN,
+        payment_terms=0 if comprobante.get('MetodoPago') != 'PPD' else 1,
+        version=Decimal('4.0'),
+        provider=0,
+        retention_rate=Decimal('0'),
+        local_retention_rate=Decimal('0'),
+    )
+    if stamp:
+        values.update(
+            stamped=datetime.fromisoformat(timbre['FechaTimbrado']),
+            stamp_uuid=timbre['UUID'],
+            authority_digital_seal=timbre['SelloSAT'],
+            authority_certificate_number=timbre['NoCertificadoSAT'],
+            rfc_pac=timbre['RfcProvCertif'],
+        )
+    values.update(overrides)
+    document = FiscalDocument(**values)
+    db.add(document)
+    await db.flush()
+
+    comments = comments or [None] * len(conceptos)
+    for concepto, comment in zip(conceptos, comments, strict=True):
+        db.add(
+            FiscalDocumentDetail(
+                document=document.fiscal_document_id,
+                product=1,
+                product_service=concepto['ClaveProdServ'],
+                product_code=concepto.get('NoIdentificacion'),
+                product_name=concepto['Descripcion'],
+                unit_of_measurement=concepto['ClaveUnidad'],
+                unit_of_measurement_name=concepto.get('Unidad'),
+                quantity=Decimal(concepto['Cantidad']),
+                price=Decimal(concepto['ValorUnitario']),
+                discount=Decimal('0'),
+                tax_rate=Decimal('0.16'),
+                exchange_rate=Decimal('1'),
+                currency=CurrencyCode.MXN,
+                tax_included=False,
+                comment=comment,
+            )
+        )
+    if xml is ...:
+        xml = text if completed else None
+    if xml is not None:
+        db.add(FiscalDocumentXml(fiscal_document_xml_id=document.fiscal_document_id, data=xml))
+    await db.commit()
+    return document.fiscal_document_id

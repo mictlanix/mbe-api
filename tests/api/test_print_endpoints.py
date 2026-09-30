@@ -259,6 +259,7 @@ _PDF_ROUTES = {
     '/api/v1/sales-orders/{sales_order_id}/ticket',
     '/api/v1/sales-orders/{sales_order_id}/document',
     '/api/v1/cash-sessions/{cash_session_id}/ticket',
+    '/api/v1/fiscal-documents/{fiscal_document_id}/pdf',
 }
 
 

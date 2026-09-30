@@ -15,6 +15,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **Client note: the midnight-UTC workaround now means the previous evening.** mbe-ui sends date-only values as `…T00:00:00.000Z` to satisfy its serializer, and those were stored as midnight only because the offset was dropped. They now convert to 18:00 on the previous day. The client has to send the naive local midnight instead, so ship its side of mictlanix/mbe-ui#176 together with this change.
 
 ### Added
+- **Fiscal documents can be read, downloaded and printed** (#230, spec 020). The API stored every stamped CFDI but exposed none of them. Four read-only routes, all behind the fiscal documents read privilege:
+  - `GET /fiscal-documents`: newest first, paginated. `search` takes a series and folio (`GR4776`), a folio, a UUID, or part of the recipient's RFC or name. It filters by `issuer`, `type`, `status` (`draft`, `issued`, `cancelled`) and `date_from`/`date_to`. `total` is read from each row's XML, including the lowercase `total` of CFD 2.0/2.2 and CFDI 3.2.
+  - `GET /fiscal-documents/{id}`: the document with its lines.
+  - `GET /fiscal-documents/{id}/xml`: the stored XML, unchanged, as an attachment, for any issued version.
+  - `GET /fiscal-documents/{id}/pdf`: the letter-size printed representation of a stamped CFDI 4.0 (invoice, credit note, applied advance or payment receipt), with the content of legacy's `Print40T02Blue`. It has the SAT verification QR code, the stamp block, the batch's bank accounts and a page counter on every page, and a cancellation mark on every page of a cancelled document. It returns 409, with a distinct message, for a document never issued, a version before 4.0, a 4.0 document with no stamp, or missing or unreadable XML.
+- **The printout reads every amount, code, seal, UUID and date from the stamped XML**, not from the database columns legacy printed from, so it matches what SAT holds. Both file routes publish a binary schema.
+- **New dependency: `segno`**, to draw the QR code as an inline SVG. The XML is parsed with the standard library.
+- **Deliberate departures from legacy's CFDI printout:**
+  - A cancelled document carries a visible cancellation mark.
+  - An `&` in an RFC is written as `%26` in the QR code, where legacy's raw `&` broke the verification link.
+  - A draft is refused rather than printed as a generic page.
+  - The QR code is inlined in the PDF. Legacy served it from an anonymous image route keyed by a sequential id.
+- **Operations note: the invoice logo.** Every batch points at legacy's `casamaestra.png`. Copy it from `mbe/Web/Content/images/` into `IMAGES_DIR`, or invoices print without a logo.
 - **Documents print as PDF** (#230). mbe-ui had nothing to print, so a store running on it could hand a customer no receipt and close a shift with no cut. Three routes render in-process with WeasyPrint and return the PDF inline, never storing it:
   - `GET /sales-orders/{id}/ticket`: the 72 mm pre-payment ticket before the order is completed and the final receipt ("Ticket de Venta") after, with the cancellation stamp on a cancelled one. Same privilege as reading the order.
   - `GET /cash-sessions/{id}/ticket`: the cut ("Corte de Caja") of a closed session, and 409 for an open one. Same privilege as reading the session.
