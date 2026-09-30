@@ -1,11 +1,13 @@
 """Document rendering: config, formatters, fetcher and barcode (#230)."""
 
 import base64
+import io
 from datetime import date, datetime
 from decimal import Decimal
 from pathlib import Path
 
 import pytest
+import segno
 
 from app.core.config import settings
 from app.rendering.fetcher import ASSETS_DIR, LocalOnlyFetcher
@@ -15,13 +17,19 @@ from app.rendering.formatting import (
     date_long,
     date_short,
     date_time,
+    fiscal_type_title,
     method_name,
     money,
     pad6,
     pad8,
+    payment_form_label,
+    payment_method_label,
     payment_type_name,
     percent,
+    price4,
+    qr_data_uri,
     qty,
+    relation_label,
     terms_name,
 )
 
@@ -161,3 +169,78 @@ def test_stripping_keeps_markup_unescaped() -> None:
 
     rendered = environment.from_string('{{ value }}').render(value=Markup('<b>a\x9db</b>'))
     assert rendered == '<b>ab</b>'
+
+
+# ── CFDI formats (spec 020, research R8) ──────────────────────────────────────
+
+
+def test_qr_data_uri_is_segno_svg_without_quiet_zone() -> None:
+    payload = 'https://verificacfdi.facturaelectronica.sat.gob.mx/default.aspx?id=X&tt=0'
+    buffer = io.BytesIO()
+    segno.make(payload, error='m').save(
+        buffer, kind='svg', xmldecl=False, border=0, omitsize=True
+    )
+    svg = buffer.getvalue()
+
+    assert b'xmlns="http://www.w3.org/2000/svg"' in svg
+    assert b'viewBox=' in svg
+    assert qr_data_uri(payload) == 'data:image/svg+xml;base64,' + base64.b64encode(svg).decode()
+
+
+def test_quantity_follows_legacy_four_decimal_format() -> None:
+    assert qty(Decimal('3.0000')) == '3'
+    assert qty(Decimal('24.0530')) == '24.053'
+
+
+@pytest.mark.parametrize(
+    ('value', 'expected'),
+    [
+        ('474.137931', '474.1379'),
+        ('1422.41', '1,422.41'),
+        ('1698.116207', '1,698.1162'),
+        ('0', '.00'),
+        ('844827.586207', '844,827.5862'),
+    ],
+)
+def test_price4_follows_legacy_hash_format(value: str, expected: str) -> None:
+    """`#,###.00##`: at least two decimals, at most four, and no leading zero."""
+    assert price4(Decimal(value)) == expected
+
+
+@pytest.mark.parametrize(
+    ('code', 'title'),
+    [
+        (0, 'Factura'),
+        (100, 'Nota de Crédito'),
+        (101, 'Aplicación de Anticipos'),
+        (200, 'Recibo Electrónico de Pago'),
+        (999, 'CFDI'),
+    ],
+)
+def test_fiscal_type_title(code: int, title: str) -> None:
+    assert fiscal_type_title(code) == title
+
+
+@pytest.mark.parametrize(
+    ('code', 'label'),
+    [
+        ('01', '01 : Nota de Crédito de los Documentos Relacionados'),
+        ('04', '04 : Sustitución de los CFDI Previos'),
+        ('07', '07 : CFDI por Aplicación de Anticipo'),
+        ('03', '03'),
+    ],
+)
+def test_relation_label(code: str, label: str) -> None:
+    assert relation_label(code) == label
+
+
+def test_payment_method_label() -> None:
+    assert payment_method_label('PUE') == 'PUE : Pago en una sola exhibición'
+    assert payment_method_label('PPD') == 'PPD : Pago en parcialidades o diferido'
+    assert payment_method_label(None) == ''
+
+
+def test_payment_form_label() -> None:
+    assert payment_form_label('03') == '03 : Transferencia Electrónica'
+    assert payment_form_label('99') == '99 : Por Definir'
+    assert payment_form_label(None) == ''

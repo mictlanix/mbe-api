@@ -1,11 +1,13 @@
 """Values as legacy's `es-MX` views printed them, independent of the host locale (#230)."""
 
 import base64
+import io
 import math
 import re
 from datetime import date, datetime
 from decimal import ROUND_HALF_UP, Decimal
 
+import segno
 from barcode.charsets import code128
 
 from app.enums import PaymentMethod, PaymentTerms, PaymentType
@@ -78,6 +80,15 @@ def pad6(value: int) -> str:
     return f'{value:06d}'
 
 
+def price4(value: Decimal) -> str:
+    """Legacy's `#,###.00##` (spec 020, research R8): two to four decimals, no leading zero."""
+    amount = value.quantize(Decimal('0.0001'), ROUND_HALF_UP)
+    whole, fraction = f'{abs(amount):,.4f}'.split('.')
+    return f'{"-" if amount < 0 else ""}{"" if whole == "0" else whole}.' + (
+        fraction.rstrip('0').ljust(2, '0')
+    )
+
+
 def method_name(code: int) -> str:
     return _METHOD_NAMES.get(code, str(code))
 
@@ -122,3 +133,53 @@ def barcode_data_uri(value: str) -> str:
         f' viewBox="0 0 {width} {height}" shape-rendering="crispEdges">{bars}</svg>'
     )
     return 'data:image/svg+xml;base64,' + base64.b64encode(svg.encode()).decode()
+
+
+# ── CFDI (spec 020, research R7 and R8) ───────────────────────────────────────
+
+# Legacy `FiscalDocumentType` display names.
+_FISCAL_TYPE_TITLES = {
+    0: 'Factura',
+    1: 'Recibo de Honorarios',
+    2: 'Recibo de Arrendamiento',
+    3: 'Nota de Cargo',
+    100: 'Nota de Crédito',
+    101: 'Aplicación de Anticipos',
+    200: 'Recibo Electrónico de Pago',
+}
+# Legacy's `Resources.resx` texts for the SAT `c_TipoRelacion` codes it prints.
+_RELATION_LABELS = {
+    '01': '01 : Nota de Crédito de los Documentos Relacionados',
+    '04': '04 : Sustitución de los CFDI Previos',
+    '07': '07 : CFDI por Aplicación de Anticipo',
+}
+_PAYMENT_METHOD_LABELS = {
+    'PUE': 'PUE : Pago en una sola exhibición',
+    'PPD': 'PPD : Pago en parcialidades o diferido',
+}
+
+
+def fiscal_type_title(code: int) -> str:
+    return _FISCAL_TYPE_TITLES.get(code, 'CFDI')
+
+
+def relation_label(code: str) -> str:
+    return _RELATION_LABELS.get(code, code)
+
+
+def payment_method_label(code: str | None) -> str:
+    return _PAYMENT_METHOD_LABELS.get(code, code or '')
+
+
+def payment_form_label(code: str | None) -> str:
+    """A SAT `c_FormaPago` code with legacy's name; the codes equal `PaymentMethod`'s values."""
+    if not code:
+        return ''
+    return f'{code} : {method_name(int(code))}' if code.isdigit() else code
+
+
+def qr_data_uri(payload: str) -> str:
+    """The QR code as an SVG `data:` URI with no quiet zone, sized by CSS through its viewBox."""
+    buffer = io.BytesIO()
+    segno.make(payload, error='m').save(buffer, kind='svg', xmldecl=False, border=0, omitsize=True)
+    return 'data:image/svg+xml;base64,' + base64.b64encode(buffer.getvalue()).decode()

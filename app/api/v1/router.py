@@ -16,6 +16,7 @@ from app.api.v1.endpoints import (
     exchange_rates,
     expenses,
     facilities,
+    fiscal_documents,
     health,
     labels,
     payment_method_options,
@@ -66,6 +67,9 @@ api_router.include_router(
 )
 api_router.include_router(
     taxpayer_recipients.router, prefix='/taxpayer-recipients', tags=['taxpayer-recipients']
+)
+api_router.include_router(
+    fiscal_documents.router, prefix='/fiscal-documents', tags=['fiscal-documents']
 )
 api_router.include_router(suppliers.router, prefix='/suppliers', tags=['suppliers'])
 api_router.include_router(employees.router, prefix='/employees', tags=['employees'])

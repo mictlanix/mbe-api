@@ -138,3 +138,86 @@ p.amount-words {
 	border-top: 1px solid black;
 	text-align: center;
 }
+
+/* CFDI 4.0 (spec 020, research R4). The footer is a running element in the bottom margin and
+   the counter a margin box, so both repeat on every page. A named page, so the pedido's pages are
+   untouched. The bottom margin is set per batch by the template (legacy's FooterHeight plus the
+   6 mm page margin). */
+body.cfdi {
+	page: cfdi;
+}
+@page cfdi {
+	@bottom-center {
+		content: element(cfdi-footer);
+		vertical-align: top;
+	}
+	@bottom-right {
+		content: 'Página ' counter(page) ' de ' counter(pages);
+		font: normal 7pt 'Open Sans', sans-serif;
+		vertical-align: bottom;
+	}
+}
+.cfdi-footer {
+	position: running(cfdi-footer);
+	font-size: 7pt;
+	text-align: center;
+}
+.cfdi-footer p {
+	margin: 0;
+}
+.cfdi-brand {
+	color: #4c9fdc;
+}
+.cfdi-header {
+	display: table;
+	width: 100%;
+	margin-bottom: 3mm;
+}
+.cfdi-logo, .cfdi-title {
+	display: table-cell;
+	vertical-align: top;
+}
+.cfdi-logo {
+	width: 45%;
+}
+.cfdi-logo img {
+	max-width: 80mm;
+	max-height: 20mm;
+}
+.cfdi-title th {
+	text-align: right;
+	font: bold 12pt 'Roboto', sans-serif;
+	border-bottom: 1px solid #333;
+}
+.cfdi-title td, .cfdi-parties td, .cfdi-totals td, .cfdi-stamp td {
+	font-size: 8pt;
+}
+.cfdi tbody > tr:nth-child(odd) > td {
+	background-color: transparent;
+}
+.cfdi-lines td {
+	font-size: 8pt;
+	border-bottom: 1px solid #ccc;
+}
+.cfdi-qr {
+	width: 29mm;
+	height: 29mm;
+}
+.cfdi-seal {
+	font: normal 6pt 'Roboto Mono', monospace;
+	overflow-wrap: anywhere;
+	word-break: break-all;
+}
+.cfdi-cancelled {
+	position: fixed;
+	top: 90mm;
+	left: 0;
+	width: 100%;
+	text-align: center;
+	color: rgba(200, 0, 0, .35);
+	font: bold 60pt 'Roboto', sans-serif;
+	transform: rotate(-30deg);
+}
+.cfdi-cancelled span {
+	font-size: 24pt;
+}

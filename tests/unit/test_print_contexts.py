@@ -16,12 +16,15 @@ from app.core.config import settings
 from app.enums import CurrencyCode, PaymentMethod, PaymentTerms, PaymentType
 from app.models.core import Address, Contact, Employee, Facility, PaymentMethodOption
 from app.models.customer import Customer
-from app.models.fiscal import TaxpayerIssuer
+from app.models.fiscal import TaxpayerBatch, TaxpayerIssuer
 from app.models.sales import CreditNote, CustomerPayment, CustomerRefund
-from app.rendering.formatting import barcode_data_uri
+from app.models.sat_catalog import SatCfdiUsage, SatTaxRegime
+from app.rendering.formatting import barcode_data_uri, qr_data_uri
+from app.services import cfdi
 from app.services.cash_session_service import CashCutFigures
 from app.services.print_contexts import (
     cash_cut_context,
+    fiscal_document_context,
     gross_subtotal_and_discount,
     header_context,
     sale_ticket_context,
@@ -40,6 +43,9 @@ class _Result:
 
     def all(self) -> list:
         return self._rows
+
+    def first(self) -> object:
+        return self._rows[0] if self._rows else None
 
 
 class _Db:
@@ -908,3 +914,252 @@ class TestSalesOrderDocument:
 
         words.assert_called_once_with(Decimal('1160.00'), CurrencyCode.USD)
         assert context['amount_in_words'] == 'X'
+
+
+# ── CFDI (spec 020) ───────────────────────────────────────────────────────────
+
+_CFDI_FIXTURES = Path(__file__).parent.parent / 'fixtures' / 'cfdi'
+_CFDI_ISSUER = 'EKU9003173C9'
+
+
+def _cfdi_xml(name: str) -> str:
+    return (_CFDI_FIXTURES / f'{name}.xml').read_text(encoding='utf-8')
+
+
+def _fiscal_line(comment: str | None = None) -> SimpleNamespace:
+    return SimpleNamespace(comment=comment)
+
+
+def _fiscal_document(**overrides) -> SimpleNamespace:
+    """A row whose values deliberately disagree with the XML, so any value printed from the row
+    instead of the XML shows up (research R1)."""
+    base = dict(
+        fiscal_document_id=9,
+        type=0,
+        issuer=_CFDI_ISSUER,
+        issuer_regime_name='General de Ley Personas Morales',
+        recipient='STALE010101AAA',
+        batch='RH',
+        serial=11405,
+        reference=None,
+        cancelled=False,
+        cancellation_date=None,
+        lines=[_fiscal_line(), _fiscal_line(), _fiscal_line()],
+    )
+    base.update(overrides)
+    return SimpleNamespace(**base)
+
+
+def _fiscal_db(template: str | None = None) -> _Db:
+    rows = {
+        (TaxpayerIssuer, _CFDI_ISSUER): SimpleNamespace(postal_code='06000'),
+        (SatTaxRegime, '601'): SimpleNamespace(description='General de Ley Personas Morales'),
+        (SatTaxRegime, '612'): SimpleNamespace(description='Personas Físicas'),
+        (SatCfdiUsage, 'G03'): SimpleNamespace(description='Gastos en general'),
+    }
+    batches = [SimpleNamespace(template=template)] if template is not None else []
+    return _Db(rows, {TaxpayerBatch: batches})
+
+
+async def _fiscal(name: str = 'invoice', db: _Db | None = None, **overrides) -> dict:
+    template, context = await fiscal_document_context(
+        db or _fiscal_db(), _fiscal_document(**overrides), _cfdi_xml(name)
+    )
+    assert template == 'fiscal_document.html'
+    return context
+
+
+class TestFiscalDocument:
+    async def test_header_and_parties_come_from_the_xml(self) -> None:
+        context = await _fiscal()
+
+        assert context['title'] == 'Factura'
+        assert context['folio'] == 'RH 011405'
+        assert context['uuid'] == 'BDCAD3DC-5428-5E2D-89AE-588872E59495'
+        assert context['expedition'] == 'C.P. 06000 / 2026-09-29'
+        assert context['recipient'] == {
+            'rfc': 'XAÑ010101AB1',
+            'name': 'CLIENTE DEMO',
+            'postal_code': '06000',
+            'usage': 'G03 Gastos en general',
+            'regime': '601 General de Ley Personas Morales',
+        }
+        assert context['issuer'] == {
+            'rfc': 'EKU9003173C9',
+            'name': 'EMPRESA DEMO',
+            'regime': '601 General de Ley Personas Morales',
+            'postal_code': '06000',
+        }
+        assert context['reference'] is None
+
+    async def test_concepts_and_totals_come_from_the_xml(self) -> None:
+        context = await _fiscal()
+
+        assert len(context['lines']) == 3
+        first = context['lines'][0]
+        assert first['number'] == 1
+        assert first['unit'].startswith('H87 / ')
+        assert first['comment'] is None
+        assert context['payment_method'] == 'PUE : Pago en una sola exhibición'
+        assert context['payment_form'] == '03 : Transferencia Electrónica'
+        assert context['currency'] == 'MXN'
+        assert context['exchange_rate'] is None
+        assert (context['subtotal'], context['discount'], context['taxes'], context['total']) == (
+            '$2,896.54',
+            '$172.41',
+            '$435.87',
+            '$3,160.00',
+        )
+        assert context['retentions'] is None
+        assert context['is_payment'] is False
+
+    async def test_no_discount_row_without_a_discount(self) -> None:
+        context = await _fiscal('credit_note', lines=[_fiscal_line()])
+
+        assert context['discount'] is None
+
+    async def test_retentions_only_when_stamped(self) -> None:
+        context = await _fiscal('invoice_retention', lines=[_fiscal_line()])
+
+        assert context['retentions'] == '$278.57'
+
+    async def test_comments_pair_with_concepts_by_position(self) -> None:
+        context = await _fiscal(lines=[_fiscal_line('uno'), _fiscal_line(), _fiscal_line('tres')])
+
+        assert [line['comment'] for line in context['lines']] == ['uno', None, 'tres']
+
+    async def test_comments_are_dropped_when_the_counts_differ(self) -> None:
+        context = await _fiscal(lines=[_fiscal_line('uno')])
+
+        assert [line['comment'] for line in context['lines']] == [None, None, None]
+
+    async def test_amount_in_words_uses_the_xml_currency(self) -> None:
+        usd = _cfdi_xml('invoice').replace('Moneda="MXN"', 'Moneda="USD" TipoCambio="17.5"')
+        with patch('app.rendering.words.amount_in_words', return_value='X') as words:
+            _, context = await fiscal_document_context(_fiscal_db(), _fiscal_document(), usd)
+
+        words.assert_called_once_with(Decimal('3160.00'), CurrencyCode.USD)
+        assert context['currency'] == 'USD'
+        assert context['exchange_rate'] == '17.50'
+
+    async def test_stamp_block_and_qr(self) -> None:
+        doc = cfdi.parse(_cfdi_xml('invoice'))
+
+        context = await _fiscal()
+
+        assert context['stamp'] == {
+            'sat_certificate': '00001000000719545303',
+            'date': '2026-09-29 18:28:56',
+            'pac': 'LSO1306189R5',
+            'original_string': cfdi.tfd_original_string(doc.timbre),
+            'issuer_seal': doc.comprobante['Sello'],
+            'sat_seal': doc.timbre['SelloSAT'],
+        }
+        assert context['qr'] == qr_data_uri(cfdi.sat_qr_payload(doc))
+
+    async def test_footer_from_batch_settings(self) -> None:
+        template = (
+            "{'FooterHeight': 20, 'ExtraInfo': [{'Bank': 'BBVA', 'Account': '1', 'CLABE': '2'}]}"
+        )
+
+        context = await _fiscal(db=_fiscal_db(template))
+
+        assert context['footer'] == {
+            'height_mm': 20,
+            'accounts': [{'Bank': 'BBVA', 'Account': '1', 'CLABE': '2', 'Currency': ''}],
+        }
+
+    async def test_footer_defaults_without_a_batch(self) -> None:
+        context = await _fiscal()
+
+        assert context['footer'] == {'height_mm': 15, 'accounts': []}
+
+    async def test_logo_only_when_the_file_exists(self, _images: Path) -> None:
+        template = "{'Logo': '~/Content/images/casamaestra.png'}"
+
+        assert (await _fiscal(db=_fiscal_db(template)))['logo'] is None
+        (_images / 'casamaestra.png').write_bytes(b'png')
+        logo = (await _fiscal(db=_fiscal_db(template)))['logo']
+        assert logo == (_images / 'casamaestra.png').resolve().as_uri()
+
+    @pytest.mark.parametrize(
+        ('cancelled', 'date', 'expected'),
+        [
+            (False, None, None),
+            (True, datetime(2026, 9, 29, 10, 0), {'date': '2026-09-29'}),
+            (True, None, {'date': None}),
+        ],
+    )
+    async def test_cancellation_mark(
+        self, cancelled: bool, date: datetime | None, expected: dict | None
+    ) -> None:
+        context = await _fiscal(cancelled=cancelled, cancellation_date=date)
+
+        assert context['cancelled'] == expected
+
+
+class TestFiscalDocumentRelated:
+    async def test_credit_note_relations(self) -> None:
+        context = await _fiscal('credit_note', type=100, lines=[_fiscal_line()])
+
+        assert context['related'] == [
+            (
+                '01 : Nota de Crédito de los Documentos Relacionados',
+                ['5691CD2C-45B6-5A26-97EF-E6209C062EFB'],
+            )
+        ]
+
+    async def test_advance_relations(self) -> None:
+        context = await _fiscal('advance', type=101, lines=[_fiscal_line()])
+
+        assert context['related'] == [
+            ('07 : CFDI por Aplicación de Anticipo', ['E68D8C69-5706-5E5B-B544-C789F78DF2D8'])
+        ]
+
+    async def test_an_invoice_has_none(self) -> None:
+        assert (await _fiscal())['related'] == []
+
+
+class TestFiscalDocumentPayment:
+    async def test_payments_replace_the_concepts(self) -> None:
+        context = await _fiscal('payment', type=200, lines=[_fiscal_line()])
+
+        assert context['is_payment'] is True
+        assert context['lines'] == []
+        assert (context['subtotal'], context['taxes'], context['total']) == (None, None, None)
+        assert context['related'] == []
+        [payment] = context['payments']
+        assert payment['date'] == '2026-08-19'
+        assert payment['form'] == '03 : Transferencia Electrónica'
+        assert payment['reference'] == '000123'
+        assert payment['foreign_bank'] is None
+        assert (payment['currency'], payment['exchange_rate']) == ('MXN', None)
+        assert payment['amount'] == '$269,206.00'
+        first = payment['documents'][0]
+        assert first == {
+            'number': 1,
+            'uuid': '4492E5A7-3DBE-50A5-82FF-7F1880C7AECA',
+            'folio': 'GR 004702',
+            'installment': '1',
+            'currency': 'MXN',
+            'previous': '$269,206.00',
+            'paid': '$100,000.00',
+            'outstanding': '$169,206.00',
+        }
+
+    async def test_a_document_in_another_currency_shows_its_equivalence(self) -> None:
+        xml = _cfdi_xml('payment').replace(
+            'MonedaDR="MXN" EquivalenciaDR="1"', 'MonedaDR="USD" EquivalenciaDR="0.0571"'
+        )
+
+        _, context = await fiscal_document_context(
+            _fiscal_db(), _fiscal_document(type=200, lines=[_fiscal_line()]), xml
+        )
+
+        assert context['payments'][0]['documents'][0]['currency'] == 'USD / 0.0571'
+
+    async def test_amount_in_words_is_the_payment_total(self) -> None:
+        with patch('app.rendering.words.amount_in_words', return_value='X') as words:
+            await _fiscal('payment', type=200, lines=[_fiscal_line()])
+
+        words.assert_called_once_with(Decimal('269206.00'), CurrencyCode.MXN)
