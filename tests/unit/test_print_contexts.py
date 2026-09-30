@@ -479,7 +479,7 @@ class TestPayments:
             _order(completed=True), db, (_application(5, amount=Decimal('300')),)
         )
 
-        assert context['payments'] == [{'label': 'Pago de Crédito - 00000005', 'amount': '$300.00'}]
+        assert context['payments'] == [{'label': 'Pago de Crédito - 5', 'amount': '$300.00'}]
 
     async def test_cancelled_applications_never_appear(self) -> None:
         db = _db(payments=(_payment(5), _payment(6)))
@@ -594,7 +594,7 @@ class TestRefundsAndCreditNotes:
         _, context = await _context(_order(completed=True), db)
 
         assert context['credit_notes'] == [
-            {'label': 'Nota de Crédito - 00000012', 'amount': '$50.00'}
+            {'label': 'Nota de Crédito - 12', 'amount': '$50.00'}
         ]
 
 
