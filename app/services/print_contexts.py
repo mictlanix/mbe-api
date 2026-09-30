@@ -156,7 +156,7 @@ async def sale_ticket_context(db: AsyncSession, order: SalesOrder) -> tuple[str,
         else:
             label = (
                 f'{formatting.payment_type_name(payment.payment_type)} - '
-                f'{formatting.pad8(payment.customer_payment_id)}'
+                f'{payment.customer_payment_id}'
             )
             amount = application['amount']
         payment_rows.append({'label': label, 'amount': money(amount)})
@@ -302,7 +302,7 @@ async def _credit_note_rows(db: AsyncSession, sales_order_id: int) -> list[dict]
         {
             'label': (
                 f'{formatting.payment_type_name(payment.payment_type)} - '
-                f'{formatting.pad8(payment.customer_payment_id)}'
+                f'{payment.customer_payment_id}'
             ),
             'amount': formatting.money(payment.amount),
         }

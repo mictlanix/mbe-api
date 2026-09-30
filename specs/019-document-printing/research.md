@@ -162,6 +162,7 @@ Templates never contain `http(s)` URLs. The facility logo is passed as an absolu
 | Quantity | up to 4 decimals, trailing zeros trimmed (`0.####`) | `SalesOrderDetail.cs:56` |
 | Discount rate | `10.00 %` | `{0:p}` in es-MX |
 | Folio, order id, payment id, refund id | 8-digit zero-padded | `{0:D8}` |
+| Payment id in a receipt's payment line ("Nota de Crédito - 294674") | Unpadded | `Payments/Print.cshtml:118,137` concatenates `Payment.Id` as a plain string, so `CustomerPayment.Id`'s `{0:D8}` never applies (found in T037, 2026-09-29) |
 | Cash session id | 6-digit zero-padded | `{0:000000}` |
 
 - Spanish day and month names come from a fixed table in the formatting module, not from the process locale, so output does not depend on the host.
