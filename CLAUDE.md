@@ -72,5 +72,5 @@ You (Opus) are the orchestrator. Plan, decompose, synthesize. Reason through the
 <!-- SPECKIT START -->
 For additional context about technologies to be used, project structure,
 shell commands, and other important information, read the current plan
-at specs/019-document-printing/plan.md
+at specs/020-cfdi-invoice-pdf/plan.md
 <!-- SPECKIT END -->
