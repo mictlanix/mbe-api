@@ -1,6 +1,7 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app import rendering
 from app.core.deps import CurrentUser, require_privilege
 from app.db.session import get_db
 from app.enums import AccessRight, SystemObject
@@ -13,7 +14,7 @@ from app.schemas.cash_session import (
     CashSessionStatus,
     CurrentSessionResponse,
 )
-from app.services import cash_session_service
+from app.services import cash_session_service, print_contexts
 
 router = APIRouter()
 
@@ -92,6 +93,26 @@ async def get_cash_session(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Cash session not found')
     await cash_session_service.attach_derived(db, session)
     return CashSessionResponse.model_validate(session)
+
+
+@router.get('/{cash_session_id}/ticket', response_class=Response, responses=rendering.PDF_RESPONSE)
+async def print_cash_session_cut(
+    cash_session_id: int,
+    _: CurrentUser = Depends(_READ),
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    """The "Corte de Caja" of a closed session (#230)."""
+    session = await cash_session_service.get_session(db, cash_session_id)
+    if session is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Cash session not found')
+    if session.end is None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail='Cash session is not closed'
+        )
+    await cash_session_service.attach_derived(db, session)
+    template, context = await print_contexts.cash_cut_context(db, session)
+    pdf = await rendering.render_pdf(template, context)
+    return rendering.pdf_response(pdf, f'corte-{session.cash_session_id:06d}.pdf')
 
 
 @router.post('/{cash_session_id}/close', response_model=CashSessionResponse)

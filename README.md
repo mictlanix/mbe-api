@@ -8,6 +8,14 @@ MBE Web API — FastAPI/Python 3.12+ backend for the business management system,
 - [uv](https://docs.astral.sh/uv/) package manager
 - MariaDB 10.11 (TCP or Unix socket)
 
+## System libraries
+
+Document rendering (WeasyPrint) loads pango, pangoft2, harfbuzz, fontconfig and gobject at
+runtime. The API cannot render documents without them.
+
+- macOS: `brew install pango`
+- Debian/Ubuntu: `sudo apt install libpango-1.0-0 libpangoft2-1.0-0 libharfbuzz0b libharfbuzz-subset0 libfontconfig1`
+
 ## Setup
 
 ```bash

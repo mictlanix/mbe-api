@@ -64,6 +64,15 @@ class Settings(BaseSettings):
     # waiting rather than because it was abandoned (#210). 0 exempts scheduled orders entirely.
     scheduled_order_expiry_days: int = 30
 
+    # Pagaré wording (replaces legacy Web.config:14 PromissoryNoteContent). {customer}, {balance},
+    # {due_date} and {issuer} replace legacy's {0}, {1:c}, {2:d} and {3}; the values are already
+    # formatted strings by the time they reach this template.
+    promissory_note_template: str = (
+        'Por este PAGARÉ, yo {customer} prometo incondicionalmente pagar a la orden de {issuer}, '
+        'la cantidad de {balance} el día {due_date}. Obligándome a pagar para el caso de mora un '
+        'interés equivalente al ____ mensual durante todo el tiempo que permanezca insoluto.'
+    )
+
     # Directory where uploaded product images are stored
     images_dir: str = 'images'
     # Base URL used to construct full image URLs in API responses (e.g. https://api.example.com)

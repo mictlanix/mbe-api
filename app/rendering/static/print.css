@@ -1,0 +1,140 @@
+/* Ported from legacy mbe/Web/Content/print.css, without Bootstrap (#230, research R7).
+   The margin is legacy's jsreport paper margin (6 mm), which overrode its CSS 10 mm (R8). */
+@font-face { font-family: 'Open Sans'; font-weight: 400; src: url(fonts/OpenSans-Regular.ttf); }
+@font-face { font-family: 'Open Sans'; font-weight: 700; src: url(fonts/OpenSans-Bold.ttf); }
+@font-face { font-family: 'Roboto'; font-weight: 700; src: url(fonts/Roboto-Bold.ttf); }
+@font-face { font-family: 'Roboto Mono'; font-weight: 400; src: url(fonts/RobotoMono-Regular.ttf); }
+@page {
+	size: Letter;
+	margin: 6mm;
+	font-family: 'Open Sans', sans-serif;
+}
+html {
+	font-family: 'Open Sans', sans-serif;
+	/* A soft-hyphen break inserts U+2010 by default, which Open Sans lacks (#230) */
+	hyphenate-character: '-';
+}
+body {
+	margin: 0;
+	font: normal 9pt 'Open Sans', sans-serif;
+}
+header {
+	margin-bottom: 4mm;
+}
+header::after {
+	content: '';
+	display: block;
+	clear: both;
+}
+header .issuer {
+	float: left;
+	width: 58.33%;
+	padding-top: 3mm;
+	text-align: center;
+}
+header .issuer h1, header .issuer h3 {
+	text-align: center;
+}
+#logo {
+	float: right;
+	width: 41.67%;
+	text-align: right;
+}
+#logo img {
+	max-width: 85mm;
+	max-height: 15mm;
+}
+h1, h2, h3, h4 {
+	text-align: left;
+	margin: 1mm 1mm 1mm 0;
+}
+h1, h2 {
+	font: bold 10pt 'Roboto', sans-serif;
+}
+h2 {
+	font-size: 11pt;
+}
+h3, h4 {
+	font: normal 10pt 'Open Sans', sans-serif;
+}
+h4 {
+	font-size: 8pt;
+}
+p {
+	margin: 0 0 5px;
+}
+dt, dd {
+	line-height: 1.2;
+}
+table {
+	width: 100%;
+	border-collapse: collapse;
+}
+thead, tfoot {
+	display: table-row-group;
+}
+tfoot {
+	page-break-inside: avoid;
+}
+th, td {
+	padding: 4px;
+	line-height: 1.42857143;
+	vertical-align: top;
+	font: normal 10pt 'Open Sans', sans-serif;
+}
+thead > tr > th {
+	border-bottom: 1px solid #333;
+	font-weight: bold;
+}
+tfoot > tr > th, tfoot > tr > td {
+	font-weight: bold;
+}
+tbody > tr:nth-child(odd) > td, tbody > tr:nth-child(odd) > th {
+	background-color: #ECECEC;
+}
+tr.alt > td {
+	border-bottom: 1px solid #333;
+}
+.text-center {
+	text-align: center;
+}
+.text-right {
+	text-align: right;
+}
+.uppercase {
+	text-transform: uppercase;
+}
+.nowrap {
+	white-space: nowrap;
+}
+.mylabel {
+	padding: .1em .1em .2em;
+	font-weight: bold;
+	background-color: #ECECEC;
+}
+.monospaced {
+	font: normal 6pt 'Roboto Mono', monospace;
+}
+.pre-wrapped {
+	white-space: pre-wrap;
+}
+td .pre-wrapped {
+	margin: 0 1cm;
+	text-align: left;
+	color: #777;
+}
+p.amount-words {
+	margin: 0 .6cm;
+	border-top: solid black 1px;
+	border-bottom: solid black 1px;
+	font-size: 8pt;
+}
+.total {
+	font-family: 'Roboto', sans-serif;
+	font-weight: bold;
+}
+.signature {
+	margin: 50px 20px;
+	border-top: 1px solid black;
+	text-align: center;
+}

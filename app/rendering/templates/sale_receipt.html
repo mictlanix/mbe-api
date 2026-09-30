@@ -1,0 +1,147 @@
+{#- Final receipt, ported from legacy Views/Payments/Print.cshtml and
+Views/Shared/MiniPrinterCancellationStamp.cshtml (#230).
+Context: print_contexts.sale_ticket_context.
+
+Legacy placed the stamp at `top: 200px` of the page, which lies below a short ticket that is cut to
+its content. Here it sits at the top of a `position: relative` wrapper around the lines, so it always
+overlays the order and never reaches past #ticket-end. -#}
+{% extends "_ticket_layout.html" %}
+{% block main %}
+<div class="display-label text-left">
+	<label>Folio</label> {{ folio }}
+	&emsp;
+	<label>Fecha</label> {{ date }}
+</div>
+<div class="display-label text-left">
+	<label>Vendedor</label> {{ salesperson }}
+</div>
+<div class="display-label">
+	<label>Cliente</label> {{ customer }}
+	&emsp;
+	{{ customer_name }}
+</div>
+<div class="display-label date">
+	<label>Forma de Pago</label><br>
+	{{ terms }}
+</div>
+{% if is_credit %}
+<div class="display-label date">
+	<label>Fecha de Vencimiento</label><br>
+	{{ due_date }}
+</div>
+{% endif %}
+<div style="position: relative;">
+	{% if cancelled %}
+	<div id="cancellation_stamp" style="position: absolute; top: 0; left: 0; width: 100%; text-align: center; transform: rotate(-35deg);">
+		<span style="font-size: 3.2em; font-weight: bold; display: block; background-color: white; padding-bottom: 2px;">Cancelado</span>
+		<span style="display: block; background-color: white; margin-top: 0; font-size: 0.9em;">{{ cancelled_at }}</span>
+		<span style="display: block; background-color: white; font-size: 0.9em;">{{ sales_order_id }}</span>
+	</div>
+	{% endif %}
+	<table>
+		{% for line in lines %}
+		<tr>
+			<td colspan="2">
+				{{ line.quantity }} × {{ line.price }}
+				{% if line.discount %}- {{ line.discount }}{% endif %}
+				<span>{{ line.code }}</span>
+			</td>
+		</tr>
+		<tr>
+			<td class="line">{{ line.name }}{% if line.comment %} <b><i>{{ line.comment }}</i></b>{% endif %}</td>
+			<td class="line number">{{ line.total }}</td>
+		</tr>
+		{% endfor %}
+		<tr>
+			<td class="text-right">Subtotal</td>
+			<td class="number">{{ subtotal }}</td>
+		</tr>
+		{% if discount %}
+		<tr>
+			<td class="text-right">Descuento</td>
+			<td class="number">{{ discount }}</td>
+		</tr>
+		{% endif %}
+		<tr>
+			<td class="text-right">IVA</td>
+			<td class="number">{{ taxes }}</td>
+		</tr>
+		<tr>
+			<td class="total text-right">Total</td>
+			<td class="total number">{{ total }}</td>
+		</tr>
+		{% for refund in refunds %}
+		<tr>
+			<td class="total text-right">{{ refund.label }}</td>
+			<td class="total number">{{ refund.amount }}</td>
+		</tr>
+		{% endfor %}
+		{% for payment in payments %}
+		<tr>
+			<td class="text-right">{{ payment.label }}</td>
+			<td class="number">{{ payment.amount }}</td>
+		</tr>
+		{% endfor %}
+		{% if change %}
+		<tr>
+			<td class="text-right">Cambio</td>
+			<td class="number">{{ change }}</td>
+		</tr>
+		{% endif %}
+		{% for note in credit_notes %}
+		<tr>
+			<td class="text-right">{{ note.label }}</td>
+			<td class="number">{{ note.amount }}</td>
+		</tr>
+		{% endfor %}
+		{% if is_paid %}
+		<tr>
+			<td class="total text-right">Pagado</td>
+			{# Legacy's Boolean display template: the true.png check, not an amount (#230) #}
+			<td class="total number"><img src="check.svg" alt="Sí"></td>
+		</tr>
+		{% else %}
+		<tr>
+			<td class="total text-right">Saldo</td>
+			<td class="total number">{{ balance }}</td>
+		</tr>
+		{% endif %}
+	</table>
+</div>
+{% if on_delivery_payments %}
+<div class="text-center" style="font-size: large;">
+	<span>Contraentrega</span>
+	{% for payment in on_delivery_payments %}
+	<div>{{ payment.method }} : {{ payment.amount }}</div>
+	{% endfor %}
+</div>
+{% endif %}
+{% if por_cobrar %}
+<div class="text-center" style="font-size: large;">
+	<div>Por Cobrar : {{ balance }}</div>
+</div>
+{% endif %}
+{% if has_card_payment %}
+<div class="legend">Cobro con tarjeta de crédito o débito</div>
+<div class="signature">
+	{{ customer }}<br>
+	Acepto
+</div>
+{% endif %}
+{% if promissory_note %}
+<div class="legend">{{ promissory_note }}</div>
+<div class="signature">
+	{{ customer }}<br>
+	Acepto
+</div>
+{% endif %}
+{% if receipt_message %}
+<div class="legend">
+	<p class="text-center">{{ receipt_message }}</p>
+</div>
+{% endif %}
+{% endblock %}
+{% block footer %}
+<img src="{{ barcode }}" alt="{{ order_id }}">
+<p>{{ order_id }}</p>
+{% endblock %}

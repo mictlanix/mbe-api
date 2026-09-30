@@ -1,6 +1,7 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app import rendering
 from app.core.deps import CurrentUser, require_privilege
 from app.db.session import get_db
 from app.enums import AccessRight, OrderOrigin, SystemObject
@@ -15,7 +16,7 @@ from app.schemas.sales_order import (
     SalesOrderSummary,
     SalesOrderUpdate,
 )
-from app.services import customer_payment_service, sales_order_service
+from app.services import customer_payment_service, print_contexts, sales_order_service
 
 router = APIRouter()
 
@@ -135,6 +136,36 @@ async def list_sales_order_payments(
     order = await _order_or_404(db, sales_order_id)
     rows = await customer_payment_service.list_order_applications(db, order.sales_order_id)
     return [OrderApplicationResponse.model_validate(r) for r in rows]
+
+
+@router.get('/{sales_order_id}/ticket', response_class=Response, responses=rendering.PDF_RESPONSE)
+async def print_sales_order_ticket(
+    sales_order_id: int,
+    _: CurrentUser = Depends(_READ),
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    """The pre-payment ticket before the order is completed, the final receipt after (#230)."""
+    order = await _order_or_404(db, sales_order_id)
+    await sales_order_service.attach_derived(db, order)
+    template, context = await print_contexts.sale_ticket_context(db, order)
+    pdf = await rendering.render_pdf(template, context)
+    return rendering.pdf_response(pdf, f'ticket-{order.sales_order_id:08d}.pdf')
+
+
+@router.get(
+    '/{sales_order_id}/document', response_class=Response, responses=rendering.PDF_RESPONSE
+)
+async def print_sales_order_document(
+    sales_order_id: int,
+    _: CurrentUser = Depends(_READ),
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    """The letter-size pedido, for an order in any state (#230)."""
+    order = await _order_or_404(db, sales_order_id)
+    await sales_order_service.attach_derived(db, order)
+    template, context = await print_contexts.sales_order_context(db, order)
+    pdf = await rendering.render_pdf(template, context)
+    return rendering.pdf_response(pdf, f'pedido-{order.sales_order_id:08d}.pdf')
 
 
 @router.post('/{sales_order_id}/confirm', response_model=SalesOrderResponse)

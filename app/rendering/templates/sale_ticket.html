@@ -1,0 +1,71 @@
+{#- Pre-payment ticket, ported from legacy Views/POS/Print.cshtml (#230).
+Context: print_contexts.sale_ticket_context. -#}
+{% extends "_ticket_layout.html" %}
+{% block main %}
+<div class="display-label text-left">
+	<label>Folio</label> {{ folio }}
+	&emsp;
+	<label>Fecha</label> {{ date }}
+</div>
+<div class="display-label text-left">
+	<label>Vendedor</label> {{ salesperson }}
+</div>
+<div class="display-label">
+	<label>Cliente</label> {{ customer }}
+	&emsp;
+	{{ customer_name }}
+</div>
+{% if is_credit %}
+<div class="display-label date">
+	<label>Fecha de Vencimiento</label><br>
+	{{ due_date }}
+</div>
+{% endif %}
+<table>
+	{% for line in lines %}
+	<tr>
+		<td colspan="2">
+			{{ line.quantity }} × {{ line.price }}
+			{% if line.discount %}- {{ line.discount }}{% endif %}
+			<span>{{ line.code }}</span>
+		</td>
+	</tr>
+	<tr>
+		<td class="line">{{ line.name }}</td>
+		<td class="line number">{{ line.total }}</td>
+	</tr>
+	{% endfor %}
+	<tr>
+		<td class="text-right">IVA</td>
+		<td class="number">{{ taxes }}</td>
+	</tr>
+	<tr>
+		<td class="total text-right">Total</td>
+		<td class="total number">{{ total }}</td>
+	</tr>
+	{% if payments %}
+	{% if refunds %}
+	<tr>
+		<td class="total text-right">Devolución</td>
+	</tr>
+	{% endif %}
+	<tr>
+		<td class="total text-right">Pagado</td>
+		<td class="total number">{{ paid }}</td>
+	</tr>
+	<tr>
+		<td class="total text-right">Saldo</td>
+		<td class="total number">{{ balance }}</td>
+	</tr>
+	{% endif %}
+</table>
+{% if not is_credit %}
+<div class="text-center" style="font-size: large;">
+	<span>Este recibo no es un comprobante de pago.</span>
+</div>
+{% endif %}
+{% endblock %}
+{% block footer %}
+<img src="{{ barcode }}" alt="{{ order_id }}">
+<p>{{ order_id }}</p>
+{% endblock %}
