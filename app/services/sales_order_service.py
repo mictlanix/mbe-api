@@ -42,7 +42,7 @@ from app.schemas.sales_order import (
     SalesOrderUpdate,
 )
 from app.schemas.sat_catalog import SatUnitOfMeasurementResponse
-from app.services import documents, image_service, stock_ledger, totals
+from app.services import documents, image_service, stock_ledger, totals, warehouse_service
 
 # ── Decision rules (pure) ─────────────────────────────────────────────────────
 
@@ -1052,6 +1052,9 @@ async def add_line(
     listed = await _price_for(db, product, customer.price_list)
     cost_row = await _price_for(db, product, COST_PRICE_LIST_ID)
 
+    if data.warehouse is not None:
+        await warehouse_service.assert_sellable(db, data.warehouse)
+
     quantity = data.quantity if data.quantity is not None else Decimal(product.min_order_qty)
     assert_quantity_allowed(quantity, min_order_qty=product.min_order_qty)
 
@@ -1102,6 +1105,8 @@ async def update_line(
         line.quantity = changes['quantity']
     if 'price' in changes and changes['price'] is not None:
         line.price = changes['price']
+    if changes.get('warehouse') is not None:
+        await warehouse_service.assert_sellable(db, changes['warehouse'])
     for field in ('discount_rate', 'tax_rate', 'warehouse', 'comment'):
         if field in changes and changes[field] is not None:
             setattr(line, field, changes[field])
