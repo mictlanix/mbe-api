@@ -34,7 +34,7 @@ from app.models.sales import (
 )
 from app.schemas.customer_refund import CustomerRefundLineUpdate, RefundPayout
 from app.schemas.sales_order import derive_status
-from app.services import cash_session_service, documents, stock_ledger, totals
+from app.services import cash_session_service, documents, stock_ledger, totals, warehouse_service
 
 # ── Decision rules (pure) ─────────────────────────────────────────────────────
 
@@ -368,6 +368,8 @@ async def update_line(
             assert_quantity_refundable(changes['quantity'], await line_refundable(db, order_line))
         line.quantity = changes['quantity']
     if 'warehouse' in changes:
+        if changes['warehouse'] is not None:
+            await warehouse_service.assert_sellable(db, changes['warehouse'])
         line.warehouse = changes['warehouse']
 
     refund.updater = current.employee_id

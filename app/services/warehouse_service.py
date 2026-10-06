@@ -1,5 +1,6 @@
 from collections.abc import Iterable, Sequence
 
+from fastapi import HTTPException, status
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
@@ -114,6 +115,25 @@ async def transit_warehouses_for(
         )
     ).all()
     return {dispatch_id: transit_id for dispatch_id, transit_id in rows}
+
+
+async def assert_sellable(db: AsyncSession, warehouse_id: int) -> None:
+    """Reject a document line's warehouse that does not exist or is an in-transit location (#234).
+
+    Unknown is 404, as it is for a point of sale. In transit is 422: the picker hides those rows,
+    and stock sold or returned there would be misfiled into a virtual location (spec 013, FR-012).
+
+    Another facility's warehouse is allowed on purpose. Legacy sells across facilities every day
+    (14% of 2026's sales order lines on mbe_dev, e.g. Casa Maestra stores selling from Zumpango).
+    """
+    warehouse = await db.get(Warehouse, warehouse_id)
+    if warehouse is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Warehouse not found')
+    if warehouse.in_transit:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=f'Warehouse {warehouse_id} is an in-transit location',
+        )
 
 
 async def create_warehouse(db: AsyncSession, data: WarehouseCreate) -> Warehouse:
