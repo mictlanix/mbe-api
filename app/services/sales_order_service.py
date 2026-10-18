@@ -23,7 +23,7 @@ from app.core.config import settings
 from app.core.constants import COST_PRICE_LIST_ID
 from app.core.deps import CurrentUser
 from app.enums import CurrencyCode, OrderOrigin, PaymentTerms
-from app.models.core import ExchangeRate, Warehouse
+from app.models.core import ExchangeRate, Facility, Warehouse
 from app.models.customer import Customer
 from app.models.product import Product, ProductPrice
 from app.models.sales import (
@@ -1380,10 +1380,22 @@ async def lookup_products(
         if warehouse is not None
         else and_(Warehouse.warehouse_id > 0, Warehouse.in_transit.is_(False))
     )
-    rows = (await db.execute(select(Warehouse.warehouse_id, Warehouse.name).where(offered))).all()
-    names: dict[int, str | None] = {wid: name for wid, name in rows}
+    # The owning facility rides along so a cashier can group other branches' stock without
+    # `WAREHOUSES READ`, which `GET /warehouses` would demand (#242).
+    rows = (
+        await db.execute(
+            select(Warehouse.warehouse_id, Warehouse.name, Facility.facility_id, Facility.name)
+            .join(Facility, Facility.facility_id == Warehouse.facility)
+            .where(offered)
+        )
+    ).all()
+    known: dict[int, dict[str, object]] = {
+        wid: {'warehouse_name': name, 'facility': fid, 'facility_name': fname}
+        for wid, name, fid, fname in rows
+    }
     # An explicitly named warehouse is reported even when no row matches, as it always was.
-    warehouses = names if warehouse is None else {warehouse: names.get(warehouse)}
+    unknown: dict[str, object] = {'warehouse_name': None, 'facility': None, 'facility_name': None}
+    warehouses = known if warehouse is None else {warehouse: known.get(warehouse, unknown)}
 
     # Two aggregate queries for the whole result set, not two per product per warehouse.
     stockable = {p.product_id for p in found if p.stockable}
@@ -1396,13 +1408,13 @@ async def lookup_products(
         listed = await _price_for(db, product, customer.price_list)
         stock: list[dict] = []
         if product.stockable:
-            for wid, warehouse_name in warehouses.items():
+            for wid, located in warehouses.items():
                 held = on_hand_totals.get((product.product_id, wid), Decimal(0))
                 claimed = reserved_totals.get((product.product_id, wid), Decimal(0))
                 stock.append(
                     {
                         'warehouse': wid,
-                        'warehouse_name': warehouse_name,
+                        **located,
                         'on_hand': held,
                         # What confirmation will actually allow: a salesperson shown raw on-hand
                         # sees five units and is refused, because those five are reserved.
