@@ -306,6 +306,11 @@ async def attach_relations(db: AsyncSession, sessions: Sequence[CashSession]) ->
 async def attach_derived(db: AsyncSession, session: CashSession) -> CashSession:
     session.__dict__['opening_amount'] = await opening_amount(db, session.cash_session_id)
     session.__dict__['payments_by_method'] = await payments_by_method(db, session.cash_session_id)
+    # The cut's own figure, so the close screen expects what the printed cut will report: gross
+    # payments overstate the drawer by every peso of change handed back (#239).
+    session.__dict__['expected_cash'] = (
+        await cut_figures(db, session.cash_session_id)
+    ).cash_in_drawer
     await attach_relations(db, [session])
     return session
 

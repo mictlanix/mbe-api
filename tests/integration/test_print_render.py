@@ -37,7 +37,7 @@ from app.models.sales import (
     SalesOrderPayment,
 )
 from app.rendering import render_pdf
-from app.services import cfdi, print_contexts, sales_order_service
+from app.services import cash_session_service, cfdi, print_contexts, sales_order_service
 from tests.integration.seed import (
     CFDI_FIXTURES,
     ISSUER_RFC,
@@ -491,6 +491,22 @@ async def test_cash_cut_renders(client: AsyncClient, db: AsyncSession) -> None:
     assert 'Efectivo Contado' not in text
     assert 'Av. Reforma' not in text
     assert ISSUER_RFC not in text
+
+
+@pytest.mark.usefixtures('seeded')
+async def test_the_session_expects_what_the_cut_reports(
+    client: AsyncClient, db: AsyncSession
+) -> None:
+    """#239 — the close screen and the printed cut must agree on the drawer: net of the 40 change,
+    the 80 of expenses and the 100 cash payout, and blind to the store-credit note."""
+    session = await seed_closed_session(db)
+
+    response = await client.get(f'/api/v1/cash-sessions/{session}')
+
+    assert response.status_code == 200, response.text
+    assert response.json()['expected_cash'] == '1480.00'
+    figures = await cash_session_service.cut_figures(db, session)
+    assert figures.cash_in_drawer == Decimal('1480.00')
 
 
 # ── Sales order document (US3) ────────────────────────────────────────────────
