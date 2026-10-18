@@ -36,6 +36,7 @@ System login account.
 | `employee` | int(11) | NO | Linked employee record. Required since migration `012` — an account with no employee could not be attributed in any audit trail |
 | `administrator` | bit(1) | NO | Full admin flag — bypasses all privilege checks |
 | `session_version` | int(11) | NO | Incremented to invalidate existing sessions |
+| `must_change_password` | tinyint(1) | NO | `1` while the password is one an administrator issued (`POST /users`, or set by hand). Cleared by change-password and recover. While set, every endpoint except `GET /auth/me` and `POST /auth/change-password` answers 403 `password_change_required`. Default `0`, so legacy-created users are never flagged (migration `021`, #240) |
 | `status` | smallint(6) | NO | `EntityStatus` — `0` active, `1` inactive, `2` archived |
 | `profile` | int(11) | YES | FK → `user_profile.user_profile_id` — the profile this account was last provisioned from. **Provenance only**: no authorization decision reads it, a hand-edit of privileges does not clear it, and it goes stale by design (spec 014) |
 

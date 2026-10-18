@@ -26,12 +26,19 @@ class CurrentUser:
     employee_id: int
     point_sale_id: int | None = None
     cash_drawer_id: int | None = None
+    must_change_password: bool = False
 
 
-async def get_current_user(
+async def get_signed_in_user(
     token: str = Depends(oauth2_scheme),
     db: AsyncSession = Depends(get_db),
 ) -> CurrentUser:
+    """A valid session, whether or not the user still has to change their password.
+
+    Only `/auth/me` and `/auth/change-password` take this directly: they are what a user with an
+    administrator-issued password needs to get rid of it. Everything else goes through
+    `get_current_user`.
+    """
     exc = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail='Invalid or expired credentials',
@@ -62,7 +69,20 @@ async def get_current_user(
         employee_id=user.employee_id,
         point_sale_id=settings.point_sale_id if settings else None,
         cash_drawer_id=settings.cash_drawer_id if settings else None,
+        must_change_password=user.must_change_password,
     )
+
+
+async def get_current_user(
+    current_user: CurrentUser = Depends(get_signed_in_user),
+) -> CurrentUser:
+    """A signed-in user who may use the API. Refused while a password change is pending (#240):
+    otherwise the client's prompt could be skipped by calling the API directly."""
+    if current_user.must_change_password:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail='password_change_required'
+        )
+    return current_user
 
 
 def require_admin(current_user: CurrentUser = Depends(get_current_user)) -> CurrentUser:

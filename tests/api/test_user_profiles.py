@@ -50,6 +50,7 @@ def _user(user_id: str = 'jdoe') -> User:
         status=EntityStatus.ACTIVE,
         session_version=1,
         profile_id=1,
+        must_change_password=False,
     )
     user.settings = None
     user.privileges = []
