@@ -261,6 +261,10 @@ class SalesOrderSummary(BaseModel):
 class ProductStockResponse(BaseModel):
     warehouse: int
     warehouse_name: str | None = None
+    #: The facility that owns the warehouse (#242). `None` only for an explicitly requested
+    #: warehouse that does not exist, which is still reported, with zero stock.
+    facility: int | None = None
+    facility_name: str | None = None
     #: What is physically there.
     on_hand: Decimal
     #: What can still be promised: on-hand less what confirmed orders have reserved. This is the

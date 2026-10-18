@@ -235,14 +235,22 @@ async def test_the_product_lookup_answers_for_a_set_of_ids(
 async def test_the_product_lookup_names_each_warehouse(
     client: AsyncClient, seeded: None
 ) -> None:
-    """`warehouse_name` was declared and never filled (#237). In-transit stays out."""
+    """`warehouse_name` was declared and never filled (#237), and the owning facility lets a
+    cashier group other branches' stock (#242). In-transit stays out."""
     response = await client.get(
         '/api/v1/sales-orders/product-lookup', params={'customer': 1, 'products': [1]}
     )
 
     assert response.status_code == 200, response.text
     assert response.json()[0]['stock'] == [
-        {'warehouse': 1, 'warehouse_name': 'Almacén', 'on_hand': '0', 'available': '0'}
+        {
+            'warehouse': 1,
+            'warehouse_name': 'Almacén',
+            'facility': 1,
+            'facility_name': 'Matriz',
+            'on_hand': '0',
+            'available': '0',
+        }
     ]
 
 
@@ -255,7 +263,34 @@ async def test_the_product_lookup_names_an_explicit_warehouse(
     )
 
     assert response.status_code == 200, response.text
-    assert response.json()[0]['stock'][0]['warehouse_name'] == 'Almacén'
+    row = response.json()[0]['stock'][0]
+    assert (row['warehouse_name'], row['facility'], row['facility_name']) == (
+        'Almacén',
+        1,
+        'Matriz',
+    )
+
+
+async def test_an_unknown_explicit_warehouse_is_still_reported(
+    client: AsyncClient, seeded: None
+) -> None:
+    """Unchanged behaviour: a zero row rather than nothing, with nothing invented about it."""
+    response = await client.get(
+        '/api/v1/sales-orders/product-lookup',
+        params={'customer': 1, 'products': [1], 'warehouse': 99},
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()[0]['stock'] == [
+        {
+            'warehouse': 99,
+            'warehouse_name': None,
+            'facility': None,
+            'facility_name': None,
+            'on_hand': '0',
+            'available': '0',
+        }
+    ]
 
 
 async def test_raising_a_delivery_order_from_a_sale(
