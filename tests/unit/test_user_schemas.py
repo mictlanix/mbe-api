@@ -13,15 +13,15 @@ from app.schemas.user import UserCreate, UserUpdate
 class TestUserCreateRequiresAnEmployee:
     def test_rejects_a_user_with_no_employee(self):
         with pytest.raises(ValidationError) as exc:
-            UserCreate(user_id='newuser', password='secret', email='a@b.com')
+            UserCreate(user_id='newuser', password='Secret123', email='a@b.com')
         assert 'employee_id' in str(exc.value)
 
     def test_rejects_an_explicit_null(self):
         with pytest.raises(ValidationError):
-            UserCreate(user_id='newuser', password='secret', email='a@b.com', employee_id=None)
+            UserCreate(user_id='newuser', password='Secret123', email='a@b.com', employee_id=None)
 
     def test_accepts_a_linked_user(self):
-        data = UserCreate(user_id='newuser', password='secret', email='a@b.com', employee_id=7)
+        data = UserCreate(user_id='newuser', password='Secret123', email='a@b.com', employee_id=7)
         assert data.employee_id == 7
 
 

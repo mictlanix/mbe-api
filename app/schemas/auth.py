@@ -1,4 +1,6 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
+
+from app.core.password_policy import NewPassword
 
 
 class LoginRequest(BaseModel):
@@ -11,6 +13,14 @@ class TokenResponse(BaseModel):
     token_type: str = 'bearer'
 
 
+class PasswordPolicyResponse(BaseModel):
+    min_length: int
+    require_upper: bool
+    require_lower: bool
+    require_digit: bool
+    require_symbol: bool
+
+
 class RecoverPasswordAdminResponse(BaseModel):
     """Returned to admin after triggering a password recovery for a user."""
 
@@ -20,4 +30,4 @@ class RecoverPasswordAdminResponse(BaseModel):
 
 class ConfirmRecoveryRequest(BaseModel):
     recovery_token: str
-    new_password: str = Field(min_length=6)
+    new_password: NewPassword

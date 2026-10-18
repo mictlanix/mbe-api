@@ -25,6 +25,14 @@ class Settings(BaseSettings):
     jwt_access_token_expire_minutes: int = 480  # 8 hours
     jwt_recovery_token_expire_hours: int = 24
 
+    # Password strength, enforced whenever a password is set and published at
+    # `GET /auth/password-policy` (#241). Existing passwords are not re-checked.
+    password_min_length: int = 8
+    password_require_upper: bool = True
+    password_require_lower: bool = True
+    password_require_digit: bool = True
+    password_require_symbol: bool = False
+
     # "Managed" = admin sets facility/POS/drawer; "SelfService" = user selects after login
     user_settings_mode: str = 'Managed'
 

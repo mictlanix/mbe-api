@@ -44,7 +44,7 @@ async def _new_user(client: AsyncClient, user_id: str, **extra) -> dict:
         '/api/v1/users',
         json={
             'user_id': user_id,
-            'password': 'secret1',
+            'password': 'Secret123',
             'email': f'{user_id}@example.com',
             'employee_id': 1,
             **extra,
