@@ -17,9 +17,10 @@ from httpx import AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.enums import DeliveryOrderStatus
+from app.enums import CurrencyCode, DeliveryOrderStatus, EntityStatus
 from app.models.logistics import DeliveryOrder, DeliveryOrderDetail
-from tests.integration.seed import seed_sales_order
+from app.models.product import Product
+from tests.integration.seed import UNIT, seed_sales_order
 
 
 async def test_a_sales_order_is_opened_lined_and_read(client: AsyncClient, seeded: None) -> None:
@@ -185,6 +186,76 @@ async def test_the_product_lookup_answers_with_price_and_unit(
     assert row['price'] == '100.0000'
     assert row['unit_of_measurement']['id'] == 'H87'
     assert row['photo'] == '/images/p1.png'
+
+
+async def _add_product(db: AsyncSession, product_id: int, code: str, *, salable: bool) -> None:
+    db.add(
+        Product(
+            product_id=product_id,
+            code=code,
+            name=f'Otro {product_id}',
+            unit_of_measurement=UNIT,
+            stockable=True,
+            perishable=False,
+            seriable=False,
+            purchasable=True,
+            salable=salable,
+            invoiceable=True,
+            tax_rate=Decimal('0.16'),
+            tax_included=False,
+            price_type=0,
+            currency=CurrencyCode.MXN,
+            min_order_qty=1,
+            status=EntityStatus.ACTIVE,
+            stock_verification=True,
+        )
+    )
+    await db.commit()
+
+
+async def test_the_product_lookup_answers_for_a_set_of_ids(
+    client: AsyncClient, db: AsyncSession, seeded: None
+) -> None:
+    """#237 — exactly the salable products asked for, including a 13-digit `code` with no
+    `bar_code` (#208); unknown and unsalable ids are left out rather than refused."""
+    await _add_product(db, 2, '0294070404530', salable=True)
+    await _add_product(db, 3, 'P3', salable=False)
+
+    response = await client.get(
+        '/api/v1/sales-orders/product-lookup',
+        params={'customer': 1, 'products': [1, 2, 3, 999]},
+    )
+
+    assert response.status_code == 200, response.text
+    rows = {r['product']: r for r in response.json()}
+    assert set(rows) == {1, 2}
+    assert rows[2]['stock_required'] is True
+
+
+async def test_the_product_lookup_names_each_warehouse(
+    client: AsyncClient, seeded: None
+) -> None:
+    """`warehouse_name` was declared and never filled (#237). In-transit stays out."""
+    response = await client.get(
+        '/api/v1/sales-orders/product-lookup', params={'customer': 1, 'products': [1]}
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()[0]['stock'] == [
+        {'warehouse': 1, 'warehouse_name': 'Almacén', 'on_hand': '0', 'available': '0'}
+    ]
+
+
+async def test_the_product_lookup_names_an_explicit_warehouse(
+    client: AsyncClient, seeded: None
+) -> None:
+    response = await client.get(
+        '/api/v1/sales-orders/product-lookup',
+        params={'customer': 1, 'products': [1], 'warehouse': 1},
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()[0]['stock'][0]['warehouse_name'] == 'Almacén'
 
 
 async def test_raising_a_delivery_order_from_a_sale(
