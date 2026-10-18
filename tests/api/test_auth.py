@@ -214,7 +214,7 @@ async def test_create_user_rejects_invalid_status() -> None:
             '/api/v1/users',
             json={
                 'user_id': 'newuser1',
-                'password': 'secret',
+                'password': 'Secret123',
                 'email': 'new@example.com',
                 'status': 5,
             },

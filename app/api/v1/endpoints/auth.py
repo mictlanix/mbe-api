@@ -4,10 +4,11 @@ from jose import JWTError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.deps import CurrentUser, get_current_user
+from app.core.password_policy import current_policy
 from app.core.security import create_access_token, decode_token
 from app.db.session import get_db
 from app.models.user import User
-from app.schemas.auth import ConfirmRecoveryRequest, TokenResponse
+from app.schemas.auth import ConfirmRecoveryRequest, PasswordPolicyResponse, TokenResponse
 from app.schemas.user import ChangePasswordRequest, UserResponse
 from app.services import user_service
 
@@ -41,6 +42,12 @@ async def get_me(
     if user is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='User not found')
     return UserResponse.model_validate(user)
+
+
+@router.get('/password-policy', response_model=PasswordPolicyResponse)
+async def get_password_policy() -> PasswordPolicyResponse:
+    """The rules a new password must meet. Public: `/auth/recover` is used before login (#241)."""
+    return PasswordPolicyResponse.model_validate(current_policy())
 
 
 @router.post('/recover', status_code=status.HTTP_204_NO_CONTENT)

@@ -2,6 +2,7 @@ import re
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from app.core.password_policy import NewPassword
 from app.enums import EntityStatus, SystemObject
 
 _USERNAME_RE = re.compile(r'^[0-9a-zA-Z]+$')
@@ -143,7 +144,7 @@ class UserSettingsUpdate(BaseModel):
 
 class UserCreate(BaseModel):
     user_id: str = Field(min_length=4, max_length=20)
-    password: str = Field(min_length=1)
+    password: NewPassword
     email: str
     # Required, and NOT NULL in the database since migration 012 (#127). A user with no employee
     # can log in and then be refused by every service that authors a document
@@ -209,4 +210,4 @@ class UserResponse(BaseModel):
 
 class ChangePasswordRequest(BaseModel):
     old_password: str
-    new_password: str = Field(min_length=6)
+    new_password: NewPassword
