@@ -26,8 +26,9 @@ Stdlib only. Safe to run anywhere `python3` is available.
 from __future__ import annotations
 
 import argparse
+import os
 import re
-from datetime import datetime
+from datetime import datetime, timezone
 import sys
 from pathlib import Path
 
@@ -87,6 +88,7 @@ from capture import (  # noqa: E402,F401
     apply_batch,
     append_string_list,
     append_verification_runs,
+    record_plan_check,
     set_classification,
     set_fields,
     set_living_specs_loaded,
@@ -126,6 +128,37 @@ from living_spec_fold import (  # noqa: E402,F401
 )
 
 
+def _pointer_resolved(args) -> bool:
+    """True when the spec dir came from `.specify/feature.json` or the git branch:
+    no `--feature-dir`, no `--tasks-file`, and neither SPECIFY_* env pointer set."""
+    return (
+        not args.feature_dir and not args.tasks_file
+        and not os.environ.get("SPECIFY_FEATURE_DIRECTORY")
+        and not os.environ.get("SPECIFY_FEATURE")
+    )
+
+
+def _plain_step_write(args, capture_mode: bool) -> bool:
+    """True for the bare `--step <s> [--status] [--kind]` write, the branch nothing
+    else in the invocation claims."""
+    return not (
+        capture_mode or args.set_pairs or args.living_specs or args.living_spec_skips
+        or args.fold_living_spec or args.tasks_file or args.task or args.close_task
+        or args.mark_complete or args.finish or args.advance or args.materialize
+    )
+
+
+def _unscoped_specify_on_finished_spec(args, feature_dir: Path, capture_mode: bool) -> bool:
+    """A pointer-resolved specify start / status write / `--advance` against a spec
+    whose history already holds the step-level specify complete."""
+    if args.step != "specify" or not _pointer_resolved(args):
+        return False
+    if not (args.advance or _plain_step_write(args, capture_mode)):
+        return False
+    log = canonical_log(read_ctx(feature_dir / ".spec-context.json"))
+    return _has_complete(log, "specify")
+
+
 def update_context(
     feature_dir: Path, step: str, status: str | None, by: str, kind: str = "start",
     substep: str | None = None, at: str | None = None,
@@ -152,14 +185,25 @@ def update_context(
 
     log = canonical_log(ctx)
     fill_required(ctx, feature_dir, branch)
+    # `branch` is frozen at the first write, which lands before the feature branch exists; a step start records where the work moved to.
+    # Asked of the spec's own folder, never the fallback repo: a spec outside git has no working branch to record.
+    checked_out = _git_branch(feature_dir) if kind == "start" else None
+    if checked_out and checked_out != "HEAD":
+        if checked_out == ctx.get("branch"):
+            ctx.pop("workingBranch", None)
+        else:
+            ctx["workingBranch"] = checked_out
 
-    ctx["currentStep"] = step
+    # A start that lands after its step already finished is late, not a re-open.
+    late_start = kind == "start" and substep is None and _has_complete(log, step)
+    if not late_start:
+        ctx["currentStep"] = step
     # A start carries the step forward and leaves status alone. `--status` used to
     # default to "specified" and was written on every branch, so opening a step
     # without naming a status was indistinguishable from asking to go back to the
     # first one: a run would read currentStep=implement alongside status=specified
     # for the whole step, and only the later complete repaired it.
-    if status is not None:
+    if status is not None and not late_start:
         ctx["status"] = status
 
     if kind == "complete":
@@ -265,6 +309,13 @@ def journal_advance(feature_dir: Path, step: str, by: str) -> Path | None:
     return target
 
 
+UNVERIFIED_NOTE = "finished, unverified"
+
+
+def _has_entries(value) -> bool:
+    return isinstance(value, list) and bool(value)
+
+
 def mark_spec_complete(feature_dir: Path, by: str) -> Path | None:
     """Promote a finished spec to the terminal `completed` status.
 
@@ -323,6 +374,16 @@ def mark_spec_complete(feature_dir: Path, by: str) -> Path | None:
     if from_implementing_at_100:
         append_complete(log, "implement", by=by, at=_now_iso())
     ctx["status"] = "completed"
+    # Nothing is in flight in a finished spec; the task steps leave the last finished id here.
+    ctx["currentTask"] = None
+    if not _has_entries(ctx.get("verified")) and not ctx.get("concerns"):
+        # Added to the record this function is about to publish, so the status and its caveat land in one write.
+        ctx["concerns"] = [{"note": UNVERIFIED_NOTE, "step": "implement"}]
+        print(
+            f"[companion] Warning: {target} completed with nothing verified and no "
+            f'concern explaining why; recorded "{UNVERIFIED_NOTE}".',
+            file=sys.stderr,
+        )
     commit_log(ctx, log)
     atomic_write(target, ctx)
     _gc_events_log(feature_dir)
@@ -338,8 +399,9 @@ def _main() -> int:
     parser.add_argument("--kind", default="start", choices=["start", "complete"])
     parser.add_argument(
         "--at", default=None, metavar="ISO8601",
-        help="Timestamp for a step START the dispatcher already decided (the GUI's "
-             "dispatch time). Refused for anything else: a hand-chosen clock on a "
+        help="Timestamp for a step START read from a real clock before the feature "
+             "directory existed (the GUI's dispatch time, or the clock stock specify "
+             "notes as its first action). Refused for anything else: a hand-chosen clock on a "
              "finish is the batched-timestamp defect the doctor exists to catch.")
     parser.add_argument(
         "--substep", default=None,
@@ -543,6 +605,19 @@ def _main() -> int:
         _record_outcome(False, msg)
         return 0  # best-effort: never fail the host command
 
+    # A bare specify start or advance that the pointer (feature.json / branch)
+    # resolved to a spec whose specify is already closed is aimed at the PREVIOUS
+    # spec: the create command has not rewritten the pointer yet, or never will.
+    # Silently absorbing it is what left a new spec stuck on `specifying` with its
+    # close recorded nowhere. Name the flag that fixes it and fail loudly; an
+    # explicit --feature-dir keeps every idempotent path exactly as it was.
+    if _unscoped_specify_on_finished_spec(args, feature_dir, capture_mode):
+        msg = (f"refusing: {feature_dir} already finished specify; this is the previous "
+               f"spec. Pass --feature-dir <the new spec folder>.")
+        print(f"[companion] {msg}", file=sys.stderr)
+        _record_outcome(False, msg)
+        return 2
+
     # Caller-error validation for --classification (exit 2, per the capture contract):
     # a malformed classification is a bug in the emitting body, not a runtime miss.
     # Validated before anything is written so a bad value records nothing at all.
@@ -577,6 +652,8 @@ def _main() -> int:
             print(f"[companion] {msg}", file=sys.stderr)
             _record_outcome(False, msg)
             return 2
+        utc = _parsed_at.astimezone(timezone.utc)
+        args.at = utc.strftime("%Y-%m-%dT%H:%M:%S.") + f"{utc.microsecond // 1000:03d}Z"
 
     if args.batch:
         try:
@@ -788,6 +865,16 @@ def _main() -> int:
     # recorded failure whose cause is only on the terminal cannot be diagnosed
     # from the trace file afterwards, which is the trace file's whole job.
     _record_outcome(target is not None, _DECLINED)
+
+    closes_plan = args.step == "plan" and not args.substep and (
+        args.finish or args.advance
+        or not (args.mark_complete or args.materialize or args.close_task or args.task or args.tasks_file)
+        and args.kind == "complete")
+    if target is not None and closes_plan:
+        try:
+            record_plan_check(feature_dir)
+        except Exception as exc:  # noqa: BLE001 - the close already landed
+            print(f"[companion] Warning: skipped the plan blocks check: {exc}", file=sys.stderr)
 
     if target is not None and not args.tasks_file:
         if args.mark_complete:
