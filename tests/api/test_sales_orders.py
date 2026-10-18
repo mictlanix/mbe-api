@@ -428,6 +428,32 @@ async def test_product_lookup_requires_a_pattern() -> None:
     assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
 
 
+@pytest.mark.asyncio
+async def test_product_lookup_accepts_product_ids_instead_of_a_pattern() -> None:
+    """#237 — stock for lines already on a sale, which a text search cannot reliably find."""
+    _auth()
+    lookup = AsyncMock(return_value=[])
+    with patch('app.services.sales_order_service.lookup_products', lookup):
+        async with await _client() as client:
+            response = await client.get(
+                '/api/v1/sales-orders/product-lookup?customer=2&products=12&products=40'
+            )
+
+    assert response.status_code == status.HTTP_200_OK
+    assert lookup.await_args.kwargs['products'] == [12, 40]
+    assert lookup.await_args.kwargs['pattern'] is None
+
+
+@pytest.mark.asyncio
+async def test_product_lookup_refuses_more_ids_than_the_cap() -> None:
+    _auth()
+    ids = '&'.join(f'products={i}' for i in range(1, 102))
+    async with await _client() as client:
+        response = await client.get(f'/api/v1/sales-orders/product-lookup?customer=2&{ids}')
+
+    assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
+
+
 # ── Point-of-sale scoping and applied payments ────────────────────────────────
 
 

@@ -79,16 +79,31 @@ async def list_sales_orders(
     return ListResponse(items=[SalesOrderSummary.model_validate(o) for o in items], total=total)
 
 
+#: Ids a single batch lookup accepts — a sale's distinct products, with room to spare (#237).
+PRODUCT_LOOKUP_MAX_IDS = 100
+
+
 @router.get('/product-lookup', response_model=list[ProductLookupResponse])
 async def lookup_products(
-    pattern: str = Query(..., min_length=1),
+    pattern: str | None = Query(None, min_length=1),
+    products: list[int] | None = Query(None),
     customer: int = Query(...),
     warehouse: int | None = Query(None),
     _: CurrentUser = Depends(_READ),
     db: AsyncSession = Depends(get_db),
 ) -> list[ProductLookupResponse]:
+    if not pattern and not products:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail='Either pattern or products is required',
+        )
+    if products and len(products) > PRODUCT_LOOKUP_MAX_IDS:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=f'At most {PRODUCT_LOOKUP_MAX_IDS} products per lookup',
+        )
     rows = await sales_order_service.lookup_products(
-        db, pattern=pattern, customer_id=customer, warehouse=warehouse
+        db, pattern=pattern, products=products, customer_id=customer, warehouse=warehouse
     )
     return [ProductLookupResponse.model_validate(r) for r in rows]
 

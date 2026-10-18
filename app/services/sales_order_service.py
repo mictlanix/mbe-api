@@ -15,7 +15,7 @@ from datetime import datetime, timedelta
 from decimal import Decimal
 
 from fastapi import HTTPException, status
-from sqlalchemy import func, or_, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.clock import local_now
@@ -1331,30 +1331,18 @@ async def _find_salable(db: AsyncSession, *, pattern: str, limit: int) -> Sequen
     )
 
 
-async def lookup_products(
-    db: AsyncSession,
-    *,
-    pattern: str,
-    customer_id: int,
-    warehouse: int | None = None,
-    limit: int = 20,
-) -> list[dict]:
-    """Find salable products with the customer's price and per-warehouse stock (FR-021)."""
-    products = await _find_salable(db, pattern=pattern, limit=limit)
-    customer = await _customer_or_404(db, customer_id)
+async def _salable_by_id(db: AsyncSession, product_ids: list[int]) -> Sequence[Product]:
+    """The salable products among `product_ids`; unknown or unsalable ids are simply absent (#237).
 
-    # In-transit locations are ordinary warehouse rows so `on_hand` reports their balances with
-    # no new mechanism (spec 012, research R3). Goods on a truck are not pickable, so offering one
-    # here would invite a salesperson to promise stock that has already left. There is one per
-    # facility now, so all of them are excluded by flag (spec 013, FR-012).
-    warehouses = (
-        [warehouse]
-        if warehouse is not None
-        else (
+    A client checking stock for lines already on a sale knows the ids, and a text search cannot
+    reliably get back to them: `code` matches siblings under `limit`, and a 13-digit `code` with no
+    `bar_code` matched nothing at all before #208.
+    """
+    return (
+        (
             await db.execute(
-                select(Warehouse.warehouse_id).where(
-                    Warehouse.warehouse_id > 0,
-                    Warehouse.in_transit.is_(False),
+                select(Product).where(
+                    Product.salable.is_(True), Product.product_id.in_(product_ids)
                 )
             )
         )
@@ -1362,23 +1350,59 @@ async def lookup_products(
         .all()
     )
 
+
+async def lookup_products(
+    db: AsyncSession,
+    *,
+    pattern: str | None = None,
+    products: list[int] | None = None,
+    customer_id: int,
+    warehouse: int | None = None,
+    limit: int = 20,
+) -> list[dict]:
+    """Find salable products with the customer's price and per-warehouse stock (FR-021).
+
+    By `products` when given, otherwise by `pattern`.
+    """
+    found = (
+        await _salable_by_id(db, products)
+        if products
+        else await _find_salable(db, pattern=pattern or '', limit=limit)
+    )
+    customer = await _customer_or_404(db, customer_id)
+
+    # In-transit locations are ordinary warehouse rows so `on_hand` reports their balances with
+    # no new mechanism (spec 012, research R3). Goods on a truck are not pickable, so offering one
+    # here would invite a salesperson to promise stock that has already left. There is one per
+    # facility now, so all of them are excluded by flag (spec 013, FR-012).
+    offered = (
+        Warehouse.warehouse_id == warehouse
+        if warehouse is not None
+        else and_(Warehouse.warehouse_id > 0, Warehouse.in_transit.is_(False))
+    )
+    rows = (await db.execute(select(Warehouse.warehouse_id, Warehouse.name).where(offered))).all()
+    names: dict[int, str | None] = {wid: name for wid, name in rows}
+    # An explicitly named warehouse is reported even when no row matches, as it always was.
+    warehouses = names if warehouse is None else {warehouse: names.get(warehouse)}
+
     # Two aggregate queries for the whole result set, not two per product per warehouse.
-    stockable = {p.product_id for p in products if p.stockable}
+    stockable = {p.product_id for p in found if p.stockable}
     on_hand_totals = await stock_ledger.on_hand_by_warehouse(db, products=stockable)
     reserved_totals = await stock_ledger.reserved_by_warehouse(db, products=stockable)
-    units = await units_by_product(db, {p.product_id for p in products})
+    units = await units_by_product(db, {p.product_id for p in found})
 
     results: list[dict] = []
-    for product in products:
+    for product in found:
         listed = await _price_for(db, product, customer.price_list)
         stock: list[dict] = []
         if product.stockable:
-            for wid in warehouses:
+            for wid, warehouse_name in warehouses.items():
                 held = on_hand_totals.get((product.product_id, wid), Decimal(0))
                 claimed = reserved_totals.get((product.product_id, wid), Decimal(0))
                 stock.append(
                     {
                         'warehouse': wid,
+                        'warehouse_name': warehouse_name,
                         'on_hand': held,
                         # What confirmation will actually allow: a salesperson shown raw on-hand
                         # sees five units and is refused, because those five are reserved.
