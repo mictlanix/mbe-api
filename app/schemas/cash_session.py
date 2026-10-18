@@ -77,6 +77,9 @@ class CashSessionResponse(BaseModel):
     )
     opening_amount: Decimal
     payments_by_method: list[MethodTotal] = []
+    #: Cash the drawer should hold: opening + cash sales net of change − expenses − cash refunds,
+    #: the cut's `cash_in_drawer`. Single-session reads only; `None` on the list (#239).
+    expected_cash: Decimal | None = None
 
 
 class CurrentSessionResponse(BaseModel):

@@ -239,6 +239,55 @@ async def test_a_cash_session_opens_reports_itself_and_closes(
     assert reopened.status_code == 201, reopened.text
 
 
+async def test_the_open_session_expects_cash_net_of_change(
+    client: AsyncClient, db: AsyncSession, seeded: None
+) -> None:
+    """#239 — 1,200 tendered on a 1,160 sale with 40 handed back leaves 1,160 in the drawer.
+
+    `payments_by_method` still reports the gross 1,200 taken, which is why the close screen,
+    working from it, told an exact cashier they were 40 short.
+    """
+    opened = await client.post(
+        '/api/v1/cash-sessions', json={'cash_drawer': 1, 'opening_amount': '500'}
+    )
+    assert opened.status_code == 201, opened.text
+    session_id = opened.json()['cash_session_id']
+    order_id, total = await _completed_order_with_total(client, db)
+
+    payment = await client.post(
+        '/api/v1/customer-payments',
+        json={'customer': 1, 'amount': '1200', 'method': PaymentMethod.CASH},
+    )
+    assert payment.status_code == 201, payment.text
+    applied = await client.post(
+        f'/api/v1/customer-payments/{payment.json()["customer_payment_id"]}/applications',
+        json={'sales_order': order_id, 'amount': total, 'amount_change': '40'},
+    )
+    assert applied.status_code == 201, applied.text
+
+    read = await client.get(f'/api/v1/cash-sessions/{session_id}')
+    assert read.status_code == 200, read.text
+    assert read.json()['expected_cash'] == '1660.00'
+    assert read.json()['payments_by_method'] == [
+        {'method': PaymentMethod.CASH, 'total': '1200.0000'}
+    ]
+
+    current = await client.get('/api/v1/cash-sessions/current')
+    assert current.json()['session']['expected_cash'] == '1660.00'
+
+
+async def test_the_session_list_does_not_compute_expected_cash(
+    client: AsyncClient, seeded: None
+) -> None:
+    """A cut per row would be a page of cuts; the list leaves the field empty (#239)."""
+    await client.post('/api/v1/cash-sessions', json={'cash_drawer': 1, 'opening_amount': '500'})
+
+    listed = await client.get('/api/v1/cash-sessions')
+
+    assert listed.status_code == 200, listed.text
+    assert listed.json()['items'][0]['expected_cash'] is None
+
+
 async def test_a_refund_is_refused_until_the_sale_is_paid(
     client: AsyncClient, db: AsyncSession, seeded: None
 ) -> None:
