@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from httpx import ASGITransport, AsyncClient
 
-from app.core.deps import CurrentUser, get_current_user, require_admin
+from app.core.deps import CurrentUser, get_signed_in_user, require_admin
 from app.core.security import create_access_token
 from app.db.session import get_db
 from app.enums import EntityStatus
@@ -28,6 +28,7 @@ def _make_user(
         administrator=administrator,
         status=status,
         session_version=session_version,
+        must_change_password=False,
     )
     user.settings = None
     user.privileges = []
@@ -74,7 +75,7 @@ def _clear_overrides() -> AsyncGenerator[None, None]:
 @pytest.mark.asyncio
 async def test_auth_me_returns_own_profile_for_non_admin() -> None:
     user = _make_user(user_id='jdoe', administrator=False, session_version=1)
-    app.dependency_overrides[get_current_user] = lambda: CurrentUser(
+    app.dependency_overrides[get_signed_in_user] = lambda: CurrentUser(
         user_id=user.user_id,
         session_version=user.session_version,
         administrator=False,
@@ -99,7 +100,7 @@ async def test_auth_me_returns_own_profile_for_non_admin() -> None:
 @pytest.mark.asyncio
 async def test_auth_me_returns_own_profile_for_admin() -> None:
     user = _make_user(user_id='admin', administrator=True, session_version=2)
-    app.dependency_overrides[get_current_user] = lambda: CurrentUser(
+    app.dependency_overrides[get_signed_in_user] = lambda: CurrentUser(
         user_id=user.user_id,
         session_version=user.session_version,
         administrator=True,
@@ -122,7 +123,7 @@ async def test_auth_me_includes_location_names() -> None:
         point_sale=PointSale(point_sale_id=18, code='01', name='PV ZUMPANGO'),
         cash_drawer=CashDrawer(cash_drawer_id=14, code='01', name='CC ZUMPANGO'),
     )
-    app.dependency_overrides[get_current_user] = lambda: CurrentUser(
+    app.dependency_overrides[get_signed_in_user] = lambda: CurrentUser(
         user_id=user.user_id, session_version=1, administrator=False, facility_id=51, employee_id=7
     )
     app.dependency_overrides[get_db] = _db_override(user)
@@ -147,7 +148,7 @@ async def test_auth_me_includes_location_names() -> None:
 async def test_auth_me_omits_names_for_unset_locations() -> None:
     user = _make_user(user_id='jdoe')
     user.settings = _make_settings(user_id='jdoe', point_sale=None, cash_drawer=None)
-    app.dependency_overrides[get_current_user] = lambda: CurrentUser(
+    app.dependency_overrides[get_signed_in_user] = lambda: CurrentUser(
         user_id=user.user_id, session_version=1, administrator=False, facility_id=51, employee_id=7
     )
     app.dependency_overrides[get_db] = _db_override(user)

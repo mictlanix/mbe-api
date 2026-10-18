@@ -11,6 +11,8 @@ class LoginRequest(BaseModel):
 class TokenResponse(BaseModel):
     access_token: str
     token_type: str = 'bearer'
+    #: Saves a round trip to `/auth/me`: the client can send the user straight to change it (#240).
+    must_change_password: bool = False
 
 
 class PasswordPolicyResponse(BaseModel):

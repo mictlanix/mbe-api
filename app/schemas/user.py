@@ -169,6 +169,8 @@ class UserUpdate(BaseModel):
     employee_id: int | None = None
     administrator: bool | None = None
     status: EntityStatus | None = None
+    # Lets an administrator force a change by hand, or lift one (#240).
+    must_change_password: bool | None = None
     # Full privilege list — server upserts all provided entries
     privileges: list[PrivilegeUpdate] | None = None
     settings: UserSettingsUpdate | None = None
@@ -182,6 +184,7 @@ class UserListItem(BaseModel):
     employee_id: int
     administrator: bool
     status: EntityStatus
+    must_change_password: bool = False
     # Provenance, carried on every row so the list is legible as well as filterable (FR-020).
     # `profile_name` is resolved for the whole page in one query — see user_service.to_list_items.
     profile_id: int | None = None
@@ -202,6 +205,7 @@ class UserResponse(BaseModel):
     administrator: bool
     status: EntityStatus
     session_version: int
+    must_change_password: bool = False
     profile_id: int | None = None
     profile_name: str | None = None
     settings: UserSettingsResponse | None

@@ -10,7 +10,7 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 
 from app.core.config import settings
-from app.core.deps import CurrentUser, get_current_user, require_admin
+from app.core.deps import CurrentUser, get_signed_in_user, require_admin
 from app.core.password_policy import failed_rules
 from app.main import app
 
@@ -25,7 +25,7 @@ def _signed_in() -> None:
     caller = CurrentUser(
         user_id='admin', session_version=1, administrator=True, facility_id=None, employee_id=1
     )
-    app.dependency_overrides[get_current_user] = lambda: caller
+    app.dependency_overrides[get_signed_in_user] = lambda: caller
     app.dependency_overrides[require_admin] = lambda: caller
 
 

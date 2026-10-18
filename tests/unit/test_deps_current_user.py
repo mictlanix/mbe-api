@@ -13,7 +13,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from fastapi import HTTPException
 
-from app.core.deps import CurrentUser, get_current_user
+from app.core.deps import CurrentUser, get_current_user, get_signed_in_user
 from app.enums import EntityStatus
 
 
@@ -25,6 +25,7 @@ def _user(*, employee_id: int = 7, settings: object | None = None) -> SimpleName
         status=EntityStatus.ACTIVE,
         session_version=1,
         settings=settings,
+        must_change_password=False,
     )
 
 
@@ -41,7 +42,8 @@ async def _resolve(user: SimpleNamespace) -> CurrentUser:
         'app.core.deps.decode_token',
         return_value={'sub': 'tester', 'session_version': 1, 'facility_id': 1},
     ):
-        return await get_current_user(token='irrelevant', db=db)
+        signed_in = await get_signed_in_user(token='irrelevant', db=db)
+    return await get_current_user(current_user=signed_in)
 
 
 @pytest.mark.asyncio
@@ -94,3 +96,17 @@ def test_only_the_settings_fields_default() -> None:
     assert current.employee_id == 7
     assert current.point_sale_id is None
     assert current.cash_drawer_id is None
+
+
+@pytest.mark.asyncio
+async def test_a_pending_password_change_signs_in_but_is_refused_everywhere_else() -> None:
+    """#240 — `/auth/me` and `/auth/change-password` take the signed-in user; everything else is
+    behind `get_current_user`, which refuses with a detail the client can match on."""
+    user = _user(settings=_settings())
+    user.must_change_password = True
+
+    with pytest.raises(HTTPException) as exc:
+        await _resolve(user)
+
+    assert exc.value.status_code == 403
+    assert exc.value.detail == 'password_change_required'

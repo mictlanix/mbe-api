@@ -3,7 +3,7 @@ from fastapi.security import OAuth2PasswordRequestForm
 from jose import JWTError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.deps import CurrentUser, get_current_user
+from app.core.deps import CurrentUser, get_signed_in_user
 from app.core.password_policy import current_policy
 from app.core.security import create_access_token, decode_token
 from app.db.session import get_db
@@ -29,12 +29,12 @@ async def login(
         )
     facility_id = user.settings.facility_id if user.settings else None
     token = create_access_token(user.user_id, user.session_version, user.administrator, facility_id)
-    return TokenResponse(access_token=token)
+    return TokenResponse(access_token=token, must_change_password=user.must_change_password)
 
 
 @router.get('/me', response_model=UserResponse)
 async def get_me(
-    current_user: CurrentUser = Depends(get_current_user),
+    current_user: CurrentUser = Depends(get_signed_in_user),
     db: AsyncSession = Depends(get_db),
 ) -> UserResponse:
     """Return the authenticated caller's own profile, settings, and privileges."""
@@ -79,7 +79,7 @@ async def confirm_recovery(
 @router.post('/change-password', status_code=status.HTTP_204_NO_CONTENT)
 async def change_password(
     data: ChangePasswordRequest,
-    current_user: CurrentUser = Depends(get_current_user),
+    current_user: CurrentUser = Depends(get_signed_in_user),
     db: AsyncSession = Depends(get_db),
 ) -> None:
     """Change the authenticated user's own password (requires old password verification)."""

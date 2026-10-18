@@ -160,6 +160,8 @@ async def create_user(
         administrator=data.administrator,
         status=data.status,
         session_version=0,
+        # An administrator typed it, so it is not the user's own yet (#240).
+        must_change_password=True,
         profile_id=profile.user_profile_id if profile is not None else None,
     )
     db.add(user)
@@ -204,6 +206,8 @@ async def update_user(db: AsyncSession, user: User, data: UserUpdate) -> User:
         user.administrator = data.administrator
     if data.status is not None:
         user.status = data.status
+    if data.must_change_password is not None:
+        user.must_change_password = data.must_change_password
 
     if data.privileges is not None:
         existing = {p.system_object: p for p in user.privileges}
@@ -252,6 +256,7 @@ async def authenticate_user(db: AsyncSession, username: str, password: str) -> U
 
 async def change_password(db: AsyncSession, user: User, new_password: str) -> None:
     user.password = sha1_hash(new_password)
+    user.must_change_password = False
     await db.commit()
 
 
@@ -264,6 +269,8 @@ async def initiate_recovery(db: AsyncSession, user: User) -> tuple[str, datetime
 
 async def complete_recovery(db: AsyncSession, user: User, new_password: str) -> None:
     user.password = sha1_hash(new_password)
+    # The user chose this one themselves, through the recovery token.
+    user.must_change_password = False
     await db.commit()
 
 

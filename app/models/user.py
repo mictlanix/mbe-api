@@ -24,6 +24,10 @@ class User(Base):
         Integer, default=EntityStatus.ACTIVE, server_default='0'
     )
     session_version: Mapped[int] = mapped_column(Integer, default=0, server_default='0')
+    # Set when an administrator issues the password, cleared when the user chooses one; while set,
+    # every endpoint but `/auth/me` and `/auth/change-password` refuses the caller (#240,
+    # migration 021). The default keeps it invisible to the legacy application.
+    must_change_password: Mapped[bool] = mapped_column(Boolean, default=False, server_default='0')
     # The profile this account was last provisioned from — provenance only (spec 014, FR-022).
     # No authorization decision reads it, and hand-editing privileges does not clear it. Nullable
     # because every account predating spec 014 has no origin, as does any created without one.
