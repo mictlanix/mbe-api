@@ -74,3 +74,11 @@ For additional context about technologies to be used, project structure,
 shell commands, and other important information, read the current plan
 at specs/020-cfdi-invoice-pdf/plan.md
 <!-- SPECKIT END -->
+
+# Roadmap tracking
+
+Work is planned in mictlanix/mbe-roadmap (GitHub Project #4 "New MBE — Road to Go-Live"). Each plan issue is one scope feature and layer; this repo's issues are titled `[API] …`.
+
+- When running `/speckit.specify`, if the request does not say which plan issues the spec covers, ask. List them in the spec's Input line as `mictlanix/mbe-roadmap#NN`.
+- In the PR description, under "Roadmap", write `Closes mictlanix/mbe-roadmap#NN` for each plan issue the PR finishes and `Part of mictlanix/mbe-roadmap#NN` for partial coverage. Merging into main closes them, and that close date is what counts as progress.
+- Bug fixes on `fix/…` branches keep closing their own issue (`Closes #NN`).
