@@ -68,12 +68,12 @@ When a product is created, the controller automatically:
 5. Sets `Photo = WebConfig.DefaultPhotoFile`
 6. Sets `StockRequired = true`
 7. Creates one `product_price` row for **every existing `price_list`** (price = 0 until edited)
-8. Logs an `Incidence` record (`SourceType.Product`)
+8. Writes one `incidence` row (`SourceType.PRODUCT`, keyed by the product id, updater = the acting employee) in the same transaction as the change: reason `Product {code} created`, content the product name.
 
 ### Delete Behavior
 1. Hard-deletes all `product_price` rows for this product
 2. Hard-deletes the `product` record
-3. Logs an `Incidence` record (`SourceType.Product`)
+3. Writes one `incidence` row in the same transaction, before the delete: reason `Product {code} deleted`, content `{code} {name}`.
 
 ### Merge Feature
 **Route**: `POST /products/merge`  
@@ -87,7 +87,7 @@ Merges a duplicate product into a canonical product:
 Tables remapped during merge include: `sales_order_detail`, `purchase_order_detail`, `inventory_receipt_detail`, `inventory_issue_detail`, `inventory_transfer_detail`, `product_price`, `lot_serial_tracking`, `product_label`, and others.
 
 ### Incidence Logging
-Create, Edit, and Delete all write an `incidence` record with `source_type = SourceType.Product`.
+Create, Edit, and Delete each write one `incidence` row with `source = SourceType.PRODUCT` (9), `instance_id` = the product id and `updater` = the acting employee, committed with the change. Edit's reason is `Product {code} updated` and its content is `Changed: {sorted field names sent}`. Product merge writes none.
 
 ### Business Rules
 - `code` must be unique across all products.

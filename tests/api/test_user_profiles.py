@@ -231,6 +231,26 @@ class TestApply:
         assert response.json()['user_id'] == 'jdoe'
 
     @pytest.mark.asyncio
+    async def test_apply_passes_the_acting_employee_as_updater(self, client: AsyncClient) -> None:
+        from app.schemas.user import UserResponse
+
+        mock_apply = AsyncMock(return_value=_user())
+        with (
+            patch(
+                'app.services.user_profile_service.get_profile',
+                AsyncMock(return_value=_profile()),
+            ),
+            patch('app.services.user_service.get_user', AsyncMock(return_value=_user())),
+            patch('app.services.user_service.apply_profile', mock_apply),
+            patch(
+                'app.services.user_service.to_response',
+                AsyncMock(return_value=UserResponse.model_validate(_user())),
+            ),
+        ):
+            await client.post(f'{BASE}/1/apply/jdoe')
+        assert mock_apply.await_args.kwargs['updater'] == 1
+
+    @pytest.mark.asyncio
     async def test_apply_unknown_profile_is_404(self, client: AsyncClient) -> None:
         with patch('app.services.user_profile_service.get_profile', AsyncMock(return_value=None)):
             response = await client.post(f'{BASE}/999/apply/jdoe')

@@ -848,3 +848,28 @@ async def test_the_three_endpoints_accept_the_same_filter_set() -> None:
     # The missing-price facets take no `missing_price_list` of their own, deliberately (#184):
     # clicking one chip must not change the numbers on the chips beside it.
     assert listing - prices == {'missing_price_list'}, listing ^ prices
+
+
+@pytest.mark.asyncio
+async def test_product_routes_pass_the_acting_employee_as_updater() -> None:
+    """Spec 021 US3: the audit row names the signed-in employee (7), not a default."""
+    _auth()
+    mock_create = AsyncMock(return_value=_product())
+    mock_update = AsyncMock(return_value=_product())
+    mock_delete = AsyncMock(return_value=None)
+    with (
+        patch('app.services.product_service.get_product', new=AsyncMock(return_value=_product())),
+        patch('app.services.product_service.create_product', new=mock_create),
+        patch('app.services.product_service.update_product', new=mock_update),
+        patch('app.services.product_service.delete_product', new=mock_delete),
+    ):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as c:
+            await c.post(
+                '/api/v1/products',
+                json={'code': 'P001', 'name': 'Widget Alpha', 'unit_of_measurement': 'PCS'},
+            )
+            await c.put('/api/v1/products/1', json={'name': 'Widget Beta'})
+            await c.delete('/api/v1/products/1')
+    assert mock_create.call_args.kwargs['updater'] == 7
+    assert mock_update.call_args.kwargs['updater'] == 7
+    assert mock_delete.call_args.kwargs['updater'] == 7

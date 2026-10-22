@@ -1,4 +1,5 @@
 from collections.abc import AsyncGenerator
+from datetime import datetime
 from typing import Any
 from unittest.mock import AsyncMock, patch
 
@@ -12,6 +13,7 @@ from app.enums import EntityStatus
 from app.main import app
 from app.models.core import CashDrawer, Facility, PointSale
 from app.models.user import User, UserSettings
+from app.schemas.user import UserResponse
 
 
 def _make_user(
@@ -271,3 +273,34 @@ async def test_auth_me_rejects_archived_user() -> None:
         response = await client.get('/api/v1/auth/me', headers={'Authorization': f'Bearer {token}'})
 
     assert response.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_user_admin_routes_pass_the_acting_employee_as_updater() -> None:
+    """Spec 021 US3: PUT, DELETE and recover-password audit under the admin's employee id."""
+    app.dependency_overrides[require_admin] = lambda: CurrentUser(
+        user_id='admin', session_version=1, administrator=True, facility_id=None, employee_id=7
+    )
+    app.dependency_overrides[get_db] = _db_override(None)
+    target = _make_user(user_id='jdoe')
+    mock_update = AsyncMock(return_value=target)
+    mock_delete = AsyncMock(return_value=None)
+    mock_recover = AsyncMock(return_value=('tok', datetime.now()))
+    with (
+        patch('app.services.user_service.get_user', new=AsyncMock(return_value=target)),
+        patch('app.services.user_service.update_user', new=mock_update),
+        patch('app.services.user_service.delete_user', new=mock_delete),
+        patch('app.services.user_service.initiate_recovery', new=mock_recover),
+        patch(
+            'app.services.user_service.to_response',
+            new=AsyncMock(return_value=UserResponse.model_validate(target)),
+        ),
+    ):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as client:
+            await client.put('/api/v1/users/jdoe', json={'email': 'x@example.com'})
+            await client.delete('/api/v1/users/jdoe')
+            await client.post('/api/v1/users/jdoe/recover-password')
+
+    assert mock_update.await_args.kwargs['updater'] == 7
+    assert mock_delete.await_args.kwargs['updater'] == 7
+    assert mock_recover.await_args.kwargs['updater'] == 7

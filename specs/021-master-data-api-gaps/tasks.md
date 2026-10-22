@@ -188,13 +188,13 @@
 
 ### Tests (write first, must fail)
 
-- [ ] T028 [P] [US3] **(commit with T033)** Unit tests in `test_product_service.py`, patching `app.services.product_service.incidences.record` and asserting the exact keyword arguments from data-model.md:
+- [X] T028 [P] [US3] **(commit with T033)** Unit tests in `test_product_service.py`, patching `app.services.product_service.incidences.record` and asserting the exact keyword arguments from data-model.md:
   - **create**: `source=SourceType.PRODUCT`, `instance_id=<new id>`, `updater=<given>`, `reason='Product {code} created'`, `context=<name>`.
   - **update**: `reason='Product {code} updated'`, `context='Changed: <sorted model_fields_set>'`.
   - **delete**: `reason='Product {code} deleted'`, `context='{code} {name}'`, and the record is staged before `db.delete` (check the call order on the mock).
 
   File: `tests/unit/test_product_service.py`
-- [ ] T029 [P] [US3] **(commit with T035)** Unit tests in `test_user_service.py`:
+- [X] T029 [P] [US3] **(commit with T035)** Unit tests in `test_user_service.py`:
   - **update**: `source=SourceType.USER_SETTINGS`, `instance_id=user.employee_id`, `updater=<acting>`, `reason='User {user_id} updated'`, `context` starting with `'{user_id} updated; changed: '`, followed by sorted field names and no values (send a `password`-like or privileges payload and assert that no value appears).
   - **delete**: `reason='User {user_id} deleted'`, `context='{user_id} deleted'`.
   - **apply_profile**: `reason='User {user_id} profile applied'`, `context='{user_id} profile {profile_id} applied'`.
@@ -203,13 +203,13 @@
   - Fix the existing `apply_profile` calls (lines 134–155) and the update/delete calls to pass `updater`.
 
   File: `tests/unit/test_user_service.py`
-- [ ] T030 [P] [US3] **(commit with T034)** API tests asserting that the product routes pass `updater=7`, the `employee_id` of the overridden `CurrentUser`, to `create_product`, `update_product` and `delete_product`. Cover `POST /products/{id}/image`'s call to `update_product` too · `tests/api/test_products.py`
-- [ ] T031 [P] [US3] **(commit with T036)** API tests asserting that the user routes pass `updater=<CurrentUser.employee_id>`:
+- [X] T030 [P] [US3] **(commit with T034)** API tests asserting that the product routes pass `updater=7`, the `employee_id` of the overridden `CurrentUser`, to `create_product`, `update_product` and `delete_product`. Cover `POST /products/{id}/image`'s call to `update_product` too · `tests/api/test_products.py`
+- [X] T031 [P] [US3] **(commit with T036)** API tests asserting that the user routes pass `updater=<CurrentUser.employee_id>`:
   - `PUT /users/{id}`, `DELETE /users/{id}` and `POST /users/{id}/recover-password`, in the existing users route tests in `tests/api/test_auth.py`;
   - the profile-apply route, extending the patch at `tests/api/test_user_profiles.py:223`.
 
   Files: `tests/api/test_auth.py`, `tests/api/test_user_profiles.py`
-- [ ] T032 [P] [US3] **(commit with T036)** Integration test on SQLite:
+- [X] T032 [P] [US3] **(commit with T036)** Integration test on SQLite:
   - Create, update and delete a product, then update and delete a user. Read `incidence` rows and assert one per action with the expected `source`, `instance_id`, `updater`, `comment` and `content`.
   - Apply a profile to a user, then call `POST /users/{id}/recover-password`. Assert one `USER_SETTINGS` row for each, with `instance_id` set to the user's employee id and the reason and content from data-model.md. For the recovery token, this also proves that `initiate_recovery`'s new commit saves the row.
   - A create with a duplicate code (409) leaves no new incidence.
@@ -218,14 +218,14 @@
 
 ### Implementation
 
-- [ ] T033 [US3] Product incidences:
+- [X] T033 [US3] Product incidences:
   - `create_product`, `update_product` and `delete_product` gain a keyword-only `updater: int`.
   - Stage `incidences.record(...)` with the wording from data-model.md. For create, record after the flush, so that `product_id` exists, and before the commit. For update, record before the commit, using `sorted(data.model_fields_set)`. For delete, record before `db.delete`.
   - Import `incidences` the way `facility_service.py` does.
 
   File: `app/services/product_service.py`
-- [ ] T034 [US3] The product routes rename `_` to `current` and pass `updater=current.employee_id` to create, update, delete and the image upload's `update_product` · `app/api/v1/endpoints/products.py`
-- [ ] T035 [US3] User incidences:
+- [X] T034 [US3] The product routes rename `_` to `current` and pass `updater=current.employee_id` to create, update, delete and the image upload's `update_product` · `app/api/v1/endpoints/products.py`
+- [X] T035 [US3] User incidences:
   - `update_user` and `delete_user` gain a keyword-only `updater: int`.
   - Replace both `# TODO` lines with `incidences.record(...)`, staged **before** `commit`, with `instance_id=user.employee_id` and the wording from data-model.md (clarification Q3).
   - In `delete_user`, capture `user_id` and `employee_id` before `db.delete`.
@@ -233,8 +233,8 @@
   - `initiate_recovery` gains `updater`, stages its incidence and commits.
 
   File: `app/services/user_service.py`
-- [ ] T036 [US3] `PUT` and `DELETE /users/{user_id}`, `POST /users/{user_id}/recover-password`, and the user-profiles apply route (`user_profiles.py:101`) rename `_` to `current` and pass `updater=current.employee_id`. Files: `app/api/v1/endpoints/users.py`, `app/api/v1/endpoints/user_profiles.py`
-- [ ] T037 [P] [US3] Docs:
+- [X] T036 [US3] `PUT` and `DELETE /users/{user_id}`, `POST /users/{user_id}/recover-password`, and the user-profiles apply route (`user_profiles.py:101`) rename `_` to `current` and pass `updater=current.employee_id`. Files: `app/api/v1/endpoints/users.py`, `app/api/v1/endpoints/user_profiles.py`
+- [X] T037 [P] [US3] Docs:
   - Scope 01 §1: replace "Logs an `Incidence` record (`SourceType.Product`)" with the delivered wording.
   - Scope 12 §1: list the four actions that each write one `UserSettings` incidence (edit, delete, profile application and an administrator-issued recovery token). Incidences are keyed by the affected user's employee id, and the content starts with the user id and lists field names only.
 
