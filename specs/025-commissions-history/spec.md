@@ -70,7 +70,12 @@
 
 ### Session 2026-10-22
 
-- (Pending: `/speckit.clarify` settles the business rules, as the request asks: FR-008, FR-010 and FR-013.)
+- Q: What happens to `commissions_history`? → A: Nothing. The current system has only its on-the-fly report, and `commissions_history` is a stale table. The history design starts from scratch: new periods and stored lines. The legacy table is neither read nor migrated (FR-013).
+- Q: Which date places a paid order in a period? → A: `balance_zeroed_time`, which is set once when the balance reaches zero. This API never stamped it, so its payment path now stamps it the way the current system's `PaymentsController` does (FR-008, FR-008a).
+- Q: What is a commission period? → A: A calendar month in the business time zone, created on demand and identified by its year and month. Periods therefore never overlap or leave gaps (FR-006, FR-010).
+- Q: Can a closed but unpaid period be reopened? → A: Yes, until it is paid. Reopening discards its stored lines and returns it to open, so the next close recomputes it with current data. It requires Update on commissions, and who reopened it and when is recorded. A paid period never reopens (FR-010, FR-011).
+- Q: Does "from scratch" also cover the commission settings? → A: No. This API maintains the existing shared settings tables (`commission`, `commission_product`, `commission_agent`, `commission_participation`, `commission_salesperson`), which the current system's live report also reads, so both agree during the pilot. Only periods and stored lines are new (FR-002, FR-013).
+- Q: When may a month's period be closed? → A: Only after the month has ended in business time. Closing October is refused before November 1st (FR-007).
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -129,7 +134,7 @@ Report §37, "Commissions by Salesperson", and the agent ticket can read commiss
 - each agent's totals by label;
 - whether the period is open, closed or paid.
 
-The 1,650 historical lines already in `commissions_history` (2024–2025) remain readable.
+History starts with the first period this system closes; the stale `commissions_history` table plays no part.
 
 **Why this priority**: The report itself is out of scope, but it depends on this read (#32).
 
@@ -139,7 +144,6 @@ The 1,650 historical lines already in `commissions_history` (2024–2025) remain
 
 1. **Given** a period, **When** its history is read for an agent, **Then** the response carries the lines and the per-label totals the current system's ticket and CSV show.
 2. **Given** an open period, **Then** its history is the live computation, marked as not final.
-3. **Given** the historical `commissions_history` rows, **Then** they remain readable, untouched.
 
 ---
 
@@ -151,7 +155,9 @@ The 1,650 historical lines already in `commissions_history` (2024–2025) remain
 - **Customer without a salesperson:** treated as a non-agent.
 - **Refund of an order paid in a closed period:** it lands in the period that contains the refund, as a negative line.
 - **Refund before the order is paid:** it nets against the sale in the period the order is paid, and is never charged twice (the September fix).
-- **Overlapping periods:** refused. A line belongs to at most one closed period.
+- **An order that becomes unpaid again** (a payment application is reversed): while its period is open, it drops out of the computation, and it comes back when it is paid again, still dated by its first `balance_zeroed_time`. If its period has already closed, the closed lines stand, as with any later change, and no clawback is made. A refund, not a payment reversal, is how money comes back out of a closed period (FR-009).
+- **Closing the current month:** refused until the month has ended.
+- **Two periods for one month:** refused. A line belongs to at most one closed period, the month of its paid date, or of its refund's date.
 - **An order edited after its period closed:** the closed period does not change. If the edit is a refund, see above.
 - **Rounding:** commissions are rounded to cents per line, and totals are the sum of the rounded lines.
 
@@ -196,11 +202,12 @@ The 1,650 historical lines already in `commissions_history` (2024–2025) remain
 
 **Periods and stable history**
 
-- **FR-006**: A period MUST have a date range, a state (**open → closed → paid**), who closed it and when, and who paid it and when. Periods MUST NOT overlap.
-- **FR-007**: Closing a period MUST store its computed lines, per FR-005, as they are at that moment: agent, participation, rates, amounts, and customer, product and label names. From then on, reading it MUST return the stored lines, whatever later happens to customers, settings or orders.
-- **FR-008**: The paid date that places an order in a period is [NEEDS CLARIFICATION: the order's `balance_zeroed_time`, which is set once when the balance reaches zero (recommended), or the current system's `modification_time`, which moves with later edits (19 orders in the last year)?]
+- **FR-006**: A period MUST be one calendar month: from the 1st at 00:00 to the last day at 23:59:59, business time. It has a state (**open → closed → paid**, with **closed → open** allowed by reopening, FR-010), who closed, reopened and paid it, and when. There is at most one period per month.
+- **FR-007**: A period MUST NOT be closed before its month has ended in business time (refused with 409). Closing a period MUST store its computed lines, per FR-005, as they are at that moment: agent, participation, rates, amounts, and customer, product and label names. From then on, reading it MUST return the stored lines, whatever later happens to customers, settings or orders.
+- **FR-008**: The paid date that places an order in a period MUST be the order's `balance_zeroed_time`: the moment its balance reached zero. Later edits do not move it, unlike the current system's `modification_time`, which put 19 orders in the last year in a different month.
+- **FR-008a**: When applications make an order paid, this API MUST set `balance_zeroed_time` to that moment if it is not already set, as the current system does in every payment path (`PaymentsController.cs:1458`, `:1526`, `:1600`, `:1948`). Once set, it stays. This corrects spec 011 FR-065a's reading of the column as a supervisor-only act; the refund path still never writes it. The orders this API marked paid before this feature have no stamp (6 in mbe_dev), so the migration backfills them from their last applied payment's date.
 - **FR-009**: A refund dated after the period holding its order closed MUST be deducted in the period containing the refund, never in the closed one.
-- **FR-010**: A period is [NEEDS CLARIFICATION: always a calendar month, or any date range a manager chooses, as in the current system? Can a closed but unpaid period be reopened, and by whom?]
+- **FR-010**: A period is created on demand for a given year and month, and computing a month that has no period yet treats it as open. A closed, unpaid period MAY be reopened by a user with Update on commissions. Its stored lines are discarded, it returns to open, and who reopened it and when is recorded. A paid period MUST NOT be reopened.
 - **FR-011**: Paying a period MUST mark it paid and record who and when. A paid period is final: it cannot be reopened, recomputed or changed.
 
 **Reading history**
@@ -211,7 +218,7 @@ The 1,650 historical lines already in `commissions_history` (2024–2025) remain
   - the period's state.
 
   Open periods are computed live and flagged as not final. Closed and paid periods are served from their stored lines.
-- **FR-013**: The 1,650 rows already in `commissions_history` MUST remain unchanged and readable as legacy history. [NEEDS CLARIFICATION: should they also be grouped into closed or paid periods (May–September 2025, by month), or only read as-is?]
+- **FR-013**: `commissions_history` is a stale table: no system reads or writes it. This feature MUST NOT read, migrate or change it. Commission history starts with the first period this system closes. The settings tables (`commission`, `commission_product`, `commission_agent`, `commission_participation`, `commission_salesperson`) remain the shared live configuration that both this API and the current system's report read during the pilot.
 
 **Access**
 
@@ -224,9 +231,9 @@ The 1,650 historical lines already in `commissions_history` (2024–2025) remain
 - **Agent** (`commission_agent`): an employee who can earn commissions.
 - **Participation type** (`commission_participation`): why an agent earns on a line.
 - **Agent rate** (`commission_salesperson`): an agent's share for a label and a participation.
-- **Commission period** (new): a date range, its state, who closed and paid it, and when.
+- **Commission period** (new): a calendar month (year, month), its state, who closed and paid it, and when.
 - **Commission line** (stored on close): one row per (order line or refund line, agent, participation), with every FR-005 value frozen.
-- **Legacy history** (`commissions_history`): 1,650 rows from 2024–2025, kept as-is.
+- **`commissions_history`** (existing, stale): not used.
 
 ## Success Criteria *(mandatory)*
 
@@ -236,7 +243,7 @@ The 1,650 historical lines already in `commissions_history` (2024–2025) remain
 - **SC-002**: For an open period, the computed totals per agent and label equal what the current system's report (post-PR #58) produces for the same range and data, checked against mbe_dev for at least one full month.
 - **SC-003**: No order line or refund line appears in two closed periods, so a deduction is never charged twice.
 - **SC-004**: Every settings change, close and payment is permitted only to users with the commissions privilege, and records who made it.
-- **SC-005**: The 1,650 legacy history rows are unchanged after the feature is deployed.
+- **SC-005**: `commissions_history` is untouched: the same 1,650 rows before and after deployment.
 
 ## Assumptions
 
@@ -251,4 +258,5 @@ The 1,650 historical lines already in `commissions_history` (2024–2025) remain
 - The UI (mictlanix/mbe-roadmap#34).
 - The commissions report and its PDF ticket or CSV (Reports epic, mictlanix/mbe-roadmap#100/#101). This feature provides the data they read.
 - Changing the current system's report.
-- Recomputing or correcting any period paid outside this system, including the legacy `commissions_history` rows.
+- Recomputing or correcting any period paid outside this system.
+- `commissions_history`: it is not read, migrated or dropped. Dropping it belongs to the current system's schema.

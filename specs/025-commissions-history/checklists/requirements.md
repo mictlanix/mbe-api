@@ -13,7 +13,7 @@
 
 ## Requirement Completeness
 
-- [ ] No [NEEDS CLARIFICATION] markers remain
+- [x] No [NEEDS CLARIFICATION] markers remain
 - [x] Requirements are testable and unambiguous
 - [x] Success criteria are measurable
 - [x] Success criteria are technology-agnostic (no implementation details)
@@ -31,5 +31,5 @@
 
 ## Notes
 
-- Three markers are left for `/speckit.clarify`, as the request asks for the business rules: FR-008 (the paid-date basis), FR-010 (the period shape and reopening) and FR-013 (the legacy history).
+- The three markers (FR-008, FR-010, FR-013) were resolved by `/speckit.clarify` on 2026-10-22, with five questions.
 - The spec names tables, columns and the SystemObject on purpose. The request is an API and scope-document feature defined against the current system's data.
