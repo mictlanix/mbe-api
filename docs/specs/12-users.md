@@ -239,6 +239,8 @@ Incrementing `user.session_version` immediately invalidates all existing JWTs fo
 - Administrators bypass all privilege checks.
 - Missing `access_privilege` row = no access (deny by default).
 - Check pattern: `user.IsAdministrator || GetPrivilege(systemObject).AllowRead`.
+- A lookup route also accepts Read on the modules whose screens make the lookup (spec 022). For example, `GET /employees` also accepts Read on SalesOrders, because the sales-order editor picks a salesperson. The current system enforces privileges only through menu and button visibility, so these lookups have always worked there for any signed-in user. The route-by-route table is in `specs/022-master-data-privileges/contracts/route-privileges.md`.
+- `PUT /customers/{id}` with a body that sets only `addresses` and/or `contacts` also accepts SalesOrders or SalesQuotes Update. mbe-ui links a new ship-to address or contact from the sales-order editor through it.
 
 ### Password Storage Migration
 Current storage is SHA1 (no salt, weak). During rewrite:

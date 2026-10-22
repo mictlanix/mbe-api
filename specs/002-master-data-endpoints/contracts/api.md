@@ -207,6 +207,8 @@ Response `200`: `{"items": [{"category": "table.column", "count": N}, ...], "tot
 
 **Prefix**: `/api/v1/price-lists`
 
+**Privileges**: `PRICE_LISTS (5)`, access right matching the operation; `403` without it. The list and `GET /{id}` also accept Read on `CUSTOMERS (2)` or `PRICING (106)`; the delete preview takes Read. See [route privileges](../../022-master-data-privileges/contracts/route-privileges.md).
+
 ### `GET /api/v1/price-lists`
 
 Query: `search` (name), `skip`, `limit`  
@@ -250,6 +252,8 @@ Error `409` if any Customer references this price list.
 ## 3. Customers
 
 **Prefix**: `/api/v1/customers`
+
+**Privileges**: `CUSTOMERS (2)`, access right matching the operation; `403` without it. The list and `GET /{id}` also accept Read on `SALES_ORDERS (7)`, `SALES_QUOTES (30)` or `POS (44)`. Discounts take `CUSTOMERS`: Read to list, Update to add, edit or remove. A `PUT` whose body sets only `addresses` and/or `contacts` also accepts Update on `SALES_ORDERS` or `SALES_QUOTES`. See [route privileges](../../022-master-data-privileges/contracts/route-privileges.md).
 
 ### `GET /api/v1/customers`
 
@@ -339,6 +343,8 @@ Error `409` if `customer_id == settings.default_customer_id`.
 
 **Prefix**: `/api/v1/labels`
 
+**Privileges**: `LABELS (1)`, access right matching the operation; `403` without it. The list and `GET /{id}` also accept Read on `PRODUCTS (0)` or `PRICING (106)`. See [route privileges](../../022-master-data-privileges/contracts/route-privileges.md).
+
 ### `GET /api/v1/labels`
 
 Query: `search` (name), `skip`, `limit`  
@@ -363,6 +369,8 @@ LabelResponse:
 ## 5. Taxpayer Recipients
 
 **Prefix**: `/api/v1/taxpayer-recipients`
+
+**Privileges**: `TAXPAYER_RECIPIENTS (54)`, access right matching the operation; `403` without it. The list and `GET /{rfc}` also accept Read on `SALES_ORDERS (7)` or `CUSTOMERS (2)`. See [route privileges](../../022-master-data-privileges/contracts/route-privileges.md).
 
 ### `GET /api/v1/taxpayer-recipients`
 
@@ -404,6 +412,8 @@ Both are **sent as codes and returned as objects**, which is why a recipient emb
 
 **Prefix**: `/api/v1/suppliers`
 
+**Privileges**: `SUPPLIERS (3)`, access right matching the operation; `403` without it. The list and `GET /{id}` also accept Read on `PRODUCTS (0)` or `PRICING (106)`. Agreements take `SUPPLIERS`: Read to list, Update to add, edit or remove. See [route privileges](../../022-master-data-privileges/contracts/route-privileges.md).
+
 Filters: `search` (code, name, zone).
 
 ```
@@ -440,6 +450,8 @@ resource. See [021 contract](../../021-master-data-api-gaps/contracts/master-dat
 ## 7. Employees
 
 **Prefix**: `/api/v1/employees`
+
+**Privileges**: `EMPLOYEES (6)`, access right matching the operation; `403` without it. The list and `GET /{id}` also accept Read on `SALES_ORDERS (7)`, `SALES_QUOTES (30)`, `POS (44)`, `CUSTOMERS (2)` or `VEHICLE_OPERATORS (89)`. See [route privileges](../../022-master-data-privileges/contracts/route-privileges.md).
 
 Filters: `search` (first name, last name, nickname), `status` (EntityStatus),
 `sales_person` (bool).
@@ -608,6 +620,8 @@ FacilityResponse:
 
 **Prefix**: `/api/v1/exchange-rates`
 
+**Privileges**: `EXCHANGE_RATES (43)`, access right matching the operation; `403` without it.
+
 Query filters: `date_from` (date), `date_to` (date), `base` (int CurrencyCode), `target` (int CurrencyCode).
 
 ```
@@ -633,6 +647,8 @@ Conflict `409` on duplicate `(date, base, target)`.
 
 **Prefix**: `/api/v1/expenses`
 
+**Privileges**: `EXPENSES (81)`, access right matching the operation; `403` without it.
+
 Filters: `search` (expense name).
 
 ```
@@ -651,6 +667,8 @@ ExpenseResponse:
 ## 14. Payment Method Options
 
 **Prefix**: `/api/v1/payment-method-options`
+
+**Privileges**: `PAYMENT_METHOD_OPTIONS (84)`, access right matching the operation; `403` without it. The list and `GET /{id}` also accept Read on `SALES_ORDERS (7)`, `POS (44)` or `CUSTOMER_PAYMENTS (8)`. See [route privileges](../../022-master-data-privileges/contracts/route-privileges.md).
 
 Filters: `facility` (int), `status` (EntityStatus).
 
@@ -693,6 +711,8 @@ considered and deferred; see #137.
 
 **Prefix**: `/api/v1/vehicles`
 
+**Privileges**: `VEHICLE (88)`, access right matching the operation; `403` without it.
+
 Filters: `search` (license plate, name, nickname), `status` (EntityStatus).
 
 ```
@@ -717,6 +737,8 @@ VehicleResponse:
 ## 16. Vehicle Operators
 
 **Prefix**: `/api/v1/vehicle-operators`
+
+**Privileges**: `VEHICLE_OPERATORS (89)`, access right matching the operation; `403` without it. Uploading or removing the license photo takes Update; fetching it takes Read.
 
 Filters: `search` (licence number, issuing location), `employee` (int — filters by
 `VehicleOperator.driver`), `status` (EntityStatus).

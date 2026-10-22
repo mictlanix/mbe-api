@@ -3,13 +3,19 @@ from datetime import date
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.deps import CurrentUser, get_current_user
+from app.core.deps import CurrentUser, require_privilege
 from app.db.session import get_db
+from app.enums import AccessRight, SystemObject
 from app.schemas import ListResponse
 from app.schemas.core import ExchangeRateCreate, ExchangeRateResponse, ExchangeRateUpdate
 from app.services import exchange_rate_service
 
 router = APIRouter()
+
+_READ = require_privilege(SystemObject.EXCHANGE_RATES, AccessRight.READ)
+_CREATE = require_privilege(SystemObject.EXCHANGE_RATES, AccessRight.CREATE)
+_UPDATE = require_privilege(SystemObject.EXCHANGE_RATES, AccessRight.UPDATE)
+_DELETE = require_privilege(SystemObject.EXCHANGE_RATES, AccessRight.DELETE)
 
 
 @router.get('', response_model=ListResponse[ExchangeRateResponse])
@@ -20,7 +26,7 @@ async def list_exchange_rates(
     target: int | None = Query(None),
     skip: int = Query(0, ge=0),
     limit: int = Query(20, ge=1, le=100),
-    _: CurrentUser = Depends(get_current_user),
+    _: CurrentUser = Depends(_READ),
     db: AsyncSession = Depends(get_db),
 ) -> ListResponse[ExchangeRateResponse]:
     items, total = await exchange_rate_service.list_exchange_rates(
@@ -32,7 +38,7 @@ async def list_exchange_rates(
 @router.post('', response_model=ExchangeRateResponse, status_code=status.HTTP_201_CREATED)
 async def create_exchange_rate(
     data: ExchangeRateCreate,
-    _: CurrentUser = Depends(get_current_user),
+    _: CurrentUser = Depends(_CREATE),
     db: AsyncSession = Depends(get_db),
 ) -> ExchangeRateResponse:
     er = await exchange_rate_service.create_exchange_rate(db, data)
@@ -42,7 +48,7 @@ async def create_exchange_rate(
 @router.get('/{exchange_rate_id}', response_model=ExchangeRateResponse)
 async def get_exchange_rate(
     exchange_rate_id: int,
-    _: CurrentUser = Depends(get_current_user),
+    _: CurrentUser = Depends(_READ),
     db: AsyncSession = Depends(get_db),
 ) -> ExchangeRateResponse:
     er = await exchange_rate_service.get_exchange_rate(db, exchange_rate_id)
@@ -55,7 +61,7 @@ async def get_exchange_rate(
 async def update_exchange_rate(
     exchange_rate_id: int,
     data: ExchangeRateUpdate,
-    _: CurrentUser = Depends(get_current_user),
+    _: CurrentUser = Depends(_UPDATE),
     db: AsyncSession = Depends(get_db),
 ) -> ExchangeRateResponse:
     er = await exchange_rate_service.get_exchange_rate(db, exchange_rate_id)
@@ -68,7 +74,7 @@ async def update_exchange_rate(
 @router.delete('/{exchange_rate_id}', status_code=status.HTTP_204_NO_CONTENT)
 async def delete_exchange_rate(
     exchange_rate_id: int,
-    _: CurrentUser = Depends(get_current_user),
+    _: CurrentUser = Depends(_DELETE),
     db: AsyncSession = Depends(get_db),
 ) -> None:
     er = await exchange_rate_service.get_exchange_rate(db, exchange_rate_id)

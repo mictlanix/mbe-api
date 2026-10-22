@@ -2,14 +2,27 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi import status as http_status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.deps import CurrentUser, get_current_user
+from app.core.deps import CurrentUser, require_any_privilege, require_privilege
 from app.db.session import get_db
-from app.enums import EntityStatus
+from app.enums import AccessRight, EntityStatus, SystemObject
 from app.schemas import ListResponse
 from app.schemas.core import EmployeeCreate, EmployeeResponse, EmployeeUpdate
 from app.services import employee_service
 
 router = APIRouter()
+
+_CREATE = require_privilege(SystemObject.EMPLOYEES, AccessRight.CREATE)
+_UPDATE = require_privilege(SystemObject.EMPLOYEES, AccessRight.UPDATE)
+_DELETE = require_privilege(SystemObject.EMPLOYEES, AccessRight.DELETE)
+# Also read from other modules' screens (spec 022 FR-005).
+_LOOKUP = require_any_privilege(
+    (SystemObject.EMPLOYEES, AccessRight.READ),
+    (SystemObject.SALES_ORDERS, AccessRight.READ),
+    (SystemObject.SALES_QUOTES, AccessRight.READ),
+    (SystemObject.POS, AccessRight.READ),
+    (SystemObject.CUSTOMERS, AccessRight.READ),
+    (SystemObject.VEHICLE_OPERATORS, AccessRight.READ),
+)
 
 
 @router.get('', response_model=ListResponse[EmployeeResponse])
@@ -19,7 +32,7 @@ async def list_employees(
     sales_person: bool | None = Query(None),
     skip: int = Query(0, ge=0),
     limit: int = Query(20, ge=1, le=100),
-    _: CurrentUser = Depends(get_current_user),
+    _: CurrentUser = Depends(_LOOKUP),
     db: AsyncSession = Depends(get_db),
 ) -> ListResponse[EmployeeResponse]:
     items, total = await employee_service.list_employees(
@@ -31,7 +44,7 @@ async def list_employees(
 @router.post('', response_model=EmployeeResponse, status_code=http_status.HTTP_201_CREATED)
 async def create_employee(
     data: EmployeeCreate,
-    _: CurrentUser = Depends(get_current_user),
+    _: CurrentUser = Depends(_CREATE),
     db: AsyncSession = Depends(get_db),
 ) -> EmployeeResponse:
     employee = await employee_service.create_employee(db, data)
@@ -41,7 +54,7 @@ async def create_employee(
 @router.get('/{employee_id}', response_model=EmployeeResponse)
 async def get_employee(
     employee_id: int,
-    _: CurrentUser = Depends(get_current_user),
+    _: CurrentUser = Depends(_LOOKUP),
     db: AsyncSession = Depends(get_db),
 ) -> EmployeeResponse:
     employee = await employee_service.get_employee(db, employee_id)
@@ -54,7 +67,7 @@ async def get_employee(
 async def update_employee(
     employee_id: int,
     data: EmployeeUpdate,
-    _: CurrentUser = Depends(get_current_user),
+    _: CurrentUser = Depends(_UPDATE),
     db: AsyncSession = Depends(get_db),
 ) -> EmployeeResponse:
     employee = await employee_service.get_employee(db, employee_id)
@@ -67,7 +80,7 @@ async def update_employee(
 @router.delete('/{employee_id}', status_code=http_status.HTTP_204_NO_CONTENT)
 async def delete_employee(
     employee_id: int,
-    _: CurrentUser = Depends(get_current_user),
+    _: CurrentUser = Depends(_DELETE),
     db: AsyncSession = Depends(get_db),
 ) -> None:
     employee = await employee_service.get_employee(db, employee_id)

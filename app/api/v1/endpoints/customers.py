@@ -3,9 +3,15 @@ from fastapi import status as http_status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
-from app.core.deps import CurrentUser, get_current_user
+from app.core.deps import (
+    CurrentUser,
+    get_current_user,
+    has_any_privilege,
+    require_any_privilege,
+    require_privilege,
+)
 from app.db.session import get_db
-from app.enums import EntityStatus
+from app.enums import AccessRight, EntityStatus, SystemObject
 from app.schemas import ListResponse
 from app.schemas.customer import (
     CustomerCreate,
@@ -20,6 +26,18 @@ from app.services import customer_discount_service, customer_service
 
 router = APIRouter()
 
+_READ = require_privilege(SystemObject.CUSTOMERS, AccessRight.READ)
+_CREATE = require_privilege(SystemObject.CUSTOMERS, AccessRight.CREATE)
+_UPDATE = require_privilege(SystemObject.CUSTOMERS, AccessRight.UPDATE)
+_DELETE = require_privilege(SystemObject.CUSTOMERS, AccessRight.DELETE)
+# Also read from other modules' screens (spec 022 FR-005).
+_LOOKUP = require_any_privilege(
+    (SystemObject.CUSTOMERS, AccessRight.READ),
+    (SystemObject.SALES_ORDERS, AccessRight.READ),
+    (SystemObject.SALES_QUOTES, AccessRight.READ),
+    (SystemObject.POS, AccessRight.READ),
+)
+
 
 @router.get('', response_model=ListResponse[CustomerListItem])
 async def list_customers(
@@ -29,7 +47,7 @@ async def list_customers(
     salesperson: int | None = Query(None),
     skip: int = Query(0, ge=0),
     limit: int = Query(20, ge=1, le=100),
-    _: CurrentUser = Depends(get_current_user),
+    _: CurrentUser = Depends(_LOOKUP),
     db: AsyncSession = Depends(get_db),
 ) -> ListResponse[CustomerListItem]:
     items, total = await customer_service.list_customers(
@@ -47,7 +65,7 @@ async def list_customers(
 @router.post('', response_model=CustomerResponse, status_code=http_status.HTTP_201_CREATED)
 async def create_customer(
     data: CustomerCreate,
-    _: CurrentUser = Depends(get_current_user),
+    _: CurrentUser = Depends(_CREATE),
     db: AsyncSession = Depends(get_db),
 ) -> CustomerResponse:
     customer = await customer_service.create_customer(db, data)
@@ -57,7 +75,7 @@ async def create_customer(
 @router.get('/{customer_id}', response_model=CustomerResponse)
 async def get_customer(
     customer_id: int,
-    _: CurrentUser = Depends(get_current_user),
+    _: CurrentUser = Depends(_LOOKUP),
     db: AsyncSession = Depends(get_db),
 ) -> CustomerResponse:
     customer = await customer_service.get_customer(db, customer_id)
@@ -70,9 +88,21 @@ async def get_customer(
 async def update_customer(
     customer_id: int,
     data: CustomerUpdate,
-    _: CurrentUser = Depends(get_current_user),
+    current: CurrentUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> CustomerResponse:
+    # mbe-ui links a new ship-to address or contact from the sales-order editor through this
+    # route, so a body that touches nothing else also accepts a sales Update (spec 022 FR-006).
+    grants = [(SystemObject.CUSTOMERS, AccessRight.UPDATE)]
+    if data.model_dump(exclude_none=True).keys() <= {'addresses', 'contacts'}:
+        grants += [
+            (SystemObject.SALES_ORDERS, AccessRight.UPDATE),
+            (SystemObject.SALES_QUOTES, AccessRight.UPDATE),
+        ]
+    if not current.administrator and not await has_any_privilege(db, current.user_id, grants):
+        raise HTTPException(
+            status_code=http_status.HTTP_403_FORBIDDEN, detail='Insufficient privileges'
+        )
     customer = await customer_service.get_customer(db, customer_id)
     if customer is None:
         raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail='Customer not found')
@@ -83,7 +113,7 @@ async def update_customer(
 @router.delete('/{customer_id}', status_code=http_status.HTTP_204_NO_CONTENT)
 async def delete_customer(
     customer_id: int,
-    _: CurrentUser = Depends(get_current_user),
+    _: CurrentUser = Depends(_DELETE),
     db: AsyncSession = Depends(get_db),
 ) -> None:
     customer = await customer_service.get_customer(db, customer_id)
@@ -108,7 +138,7 @@ async def _require_discount(db: AsyncSession, customer_id: int, customer_discoun
 @router.get('/{customer_id}/discounts', response_model=list[CustomerDiscountResponse])
 async def list_discounts(
     customer_id: int,
-    _: CurrentUser = Depends(get_current_user),
+    _: CurrentUser = Depends(_READ),
     db: AsyncSession = Depends(get_db),
 ) -> list[CustomerDiscountResponse]:
     await _require_customer(db, customer_id)
@@ -124,7 +154,7 @@ async def list_discounts(
 async def create_discount(
     customer_id: int,
     data: CustomerDiscountCreate,
-    _: CurrentUser = Depends(get_current_user),
+    _: CurrentUser = Depends(_UPDATE),
     db: AsyncSession = Depends(get_db),
 ) -> CustomerDiscountResponse:
     await _require_customer(db, customer_id)
@@ -139,7 +169,7 @@ async def update_discount(
     customer_id: int,
     customer_discount_id: int,
     data: CustomerDiscountUpdate,
-    _: CurrentUser = Depends(get_current_user),
+    _: CurrentUser = Depends(_UPDATE),
     db: AsyncSession = Depends(get_db),
 ) -> CustomerDiscountResponse:
     discount = await _require_discount(db, customer_id, customer_discount_id)
@@ -154,7 +184,7 @@ async def update_discount(
 async def delete_discount(
     customer_id: int,
     customer_discount_id: int,
-    _: CurrentUser = Depends(get_current_user),
+    _: CurrentUser = Depends(_UPDATE),
     db: AsyncSession = Depends(get_db),
 ) -> None:
     discount = await _require_discount(db, customer_id, customer_discount_id)
