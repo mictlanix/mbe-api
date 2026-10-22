@@ -26,7 +26,7 @@ Later line updates and customer changes never re-apply the override.
 
 ## Order confirm: `POST /sales-orders/{id}/confirm`
 
-New refusals, checked after the existing credit-hold check and before the line checks:
+New refusals. (1) is checked after the existing credit-hold check and before the line checks. (2) is checked where the existing credit-limit check runs, after the line, price and stock checks:
 
 1. **Back-office delivery details** (`origin = 1` only):
 
