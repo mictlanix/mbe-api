@@ -1,6 +1,7 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app import rendering
 from app.core.deps import CurrentUser, require_privilege
 from app.db.session import get_db
 from app.enums import AccessRight, SystemObject
@@ -14,7 +15,7 @@ from app.schemas.sales_quote import (
     SalesQuoteSummary,
     SalesQuoteUpdate,
 )
-from app.services import sales_quote_service
+from app.services import print_contexts, sales_quote_service
 
 router = APIRouter()
 
@@ -77,6 +78,22 @@ async def get_sales_quote(
     quote = await _quote_or_404(db, sales_quote_id)
     await sales_quote_service.attach_derived(db, quote)
     return SalesQuoteResponse.model_validate(quote)
+
+
+@router.get(
+    '/{sales_quote_id}/document', response_class=Response, responses=rendering.PDF_RESPONSE
+)
+async def print_sales_quote_document(
+    sales_quote_id: int,
+    _: CurrentUser = Depends(_READ),
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    """The letter-size cotización, for a quote in any state (spec 024)."""
+    quote = await _quote_or_404(db, sales_quote_id)
+    await sales_quote_service.attach_derived(db, quote)
+    template, context = await print_contexts.sales_quote_context(db, quote)
+    pdf = await rendering.render_pdf(template, context)
+    return rendering.pdf_response(pdf, f'cotizacion-{quote.sales_quote_id:08d}.pdf')
 
 
 @router.put('/{sales_quote_id}', response_model=SalesQuoteResponse)

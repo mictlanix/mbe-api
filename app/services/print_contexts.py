@@ -29,6 +29,7 @@ from app.models.sales import (
     CustomerRefund,
     CustomerRefundDetail,
     SalesOrder,
+    SalesQuote,
 )
 from app.models.sat_catalog import SatCfdiUsage, SatTaxRegime
 from app.rendering import formatting, words
@@ -366,6 +367,24 @@ async def cash_cut_context(db: AsyncSession, session: CashSession) -> tuple[str,
     return 'cash_cut.html', context
 
 
+def _ship_to_lines(ship_to: Address | None) -> list[str]:
+    """The ship-to block legacy's letter documents print, one line per non-empty group."""
+    if ship_to is None:
+        return []
+    parts = [
+        (' ', (ship_to.street, ship_to.exterior_number, ship_to.interior_number)),
+        (', ', (ship_to.neighborhood, ship_to.borough)),
+        (', ', (ship_to.state, ship_to.country, ship_to.postal_code)),
+        ('', (ship_to.comment,)),
+    ]
+    lines = []
+    for separator, values in parts:
+        line = separator.join(v.strip() for v in values if v and v.strip())
+        if line:
+            lines.append(line)
+    return lines
+
+
 async def sales_order_context(db: AsyncSession, order: SalesOrder) -> tuple[str, dict]:
     """The letter-size pedido, ported from legacy `SalesOrders/Print`, for an order in any state.
 
@@ -383,18 +402,7 @@ async def sales_order_context(db: AsyncSession, order: SalesOrder) -> tuple[str,
     contact = await db.get(Contact, order.contact) if order.contact is not None else None
     ship_to = await db.get(Address, order.ship_to) if order.ship_to is not None else None
 
-    ship_to_lines = []
-    if ship_to is not None:
-        parts = [
-            (' ', (ship_to.street, ship_to.exterior_number, ship_to.interior_number)),
-            (', ', (ship_to.neighborhood, ship_to.borough)),
-            (', ', (ship_to.state, ship_to.country, ship_to.postal_code)),
-            ('', (ship_to.comment,)),
-        ]
-        for separator, values in parts:
-            line = separator.join(v.strip() for v in values if v and v.strip())
-            if line:
-                ship_to_lines.append(line)
+    ship_to_lines = _ship_to_lines(ship_to)
 
     lines = []
     for line in order.lines:
@@ -438,6 +446,80 @@ async def sales_order_context(db: AsyncSession, order: SalesOrder) -> tuple[str,
         'savings': f'¡Usted ahorró {money(discount)} en esta compra!' if discount > 0 else None,
     }
     return 'sales_order.html', context
+
+
+async def sales_quote_context(db: AsyncSession, quote: SalesQuote) -> tuple[str, dict]:
+    """The letter-size cotización, ported from legacy `Quotations/Print.cshtml` (spec 024).
+
+    `quote` must already have been through `sales_quote_service.attach_derived`, whose totals the
+    document prints, so it cannot disagree with the quote's own figures. A line shows its net unit
+    price after its discount, so that quantity × price is the line amount. Legacy left the payment
+    terms off; this prints them, with the customer's credit days on a credit quote.
+    """
+    money = formatting.money
+    header = await header_context(
+        db, quote.facility, f'Cotización - {formatting.pad8(quote.sales_quote_id)}', letter=True
+    )
+    # Legacy blanked the taxpayer on quotes too (`Print.cshtml:10-11`).
+    header['rfc'] = header['taxpayer_name'] = ''
+    customer = await db.get(Customer, quote.customer)
+    salesperson = await db.get(Employee, quote.salesperson)
+    contact = await db.get(Contact, quote.contact) if quote.contact is not None else None
+    ship_to = await db.get(Address, quote.ship_to) if quote.ship_to is not None else None
+
+    phone = None
+    if contact is not None:
+        if contact.mobile and contact.mobile.strip():
+            phone = contact.mobile.strip()
+        elif contact.phone and contact.phone.strip():
+            phone = contact.phone.strip()
+            if contact.phone_ext and contact.phone_ext.strip():
+                phone += f' ext. {contact.phone_ext.strip()}'
+
+    terms = formatting.terms_name(quote.payment_terms)
+    if quote.payment_terms == PaymentTerms.NET_D:
+        terms += f' – {customer.credit_days or 0} días'
+
+    lines = []
+    for line in quote.lines:
+        unit, _ = totals.line_amounts(
+            quantity=Decimal(1),
+            price=line.price + line.price_adjustment,
+            discount_rate=line.discount_rate,
+            tax_rate=line.tax_rate,
+            tax_included=line.tax_included,
+        )
+        lines.append(
+            {
+                'quantity': formatting.qty(line.quantity),
+                'code': line.product_code,
+                'name': line.product_name,
+                'comment': line.comment or '',
+                'price': money(unit),
+                'amount': money(line.subtotal),
+            }
+        )
+
+    comment = (quote.comment or '').strip()
+    context = {
+        'header': header,
+        'quote_id': quote.sales_quote_id,
+        'customer': customer.name,
+        'contact': contact.name if contact is not None else None,
+        'contact_phone': phone,
+        'ship_to': _ship_to_lines(ship_to),
+        'comment': comment or None,
+        'salesperson': f'{salesperson.first_name} {salesperson.last_name}'.strip(),
+        'date': formatting.date_short(quote.date),
+        'due_date': formatting.date_short(quote.due_date),
+        'terms': terms,
+        'lines': lines,
+        'subtotal': money(quote.subtotal),
+        'taxes': money(quote.tax_total),
+        'total': money(quote.total),
+        'amount_in_words': words.amount_in_words(quote.total, quote.currency),
+    }
+    return 'sales_quote.html', context
 
 
 # ── CFDI (spec 020) ───────────────────────────────────────────────────────────

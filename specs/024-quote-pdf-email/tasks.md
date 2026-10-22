@@ -17,7 +17,8 @@
 
 ## Phase 1: Setup
 
-- [ ] T001 Record the baseline before any change: run `uv run ruff check app/ migrations/ tests/` and `uv run pytest -q`. Write the counts under this task · `specs/024-quote-pdf-email/tasks.md`
+- [X] T001 Record the baseline before any change: run `uv run ruff check app/ migrations/ tests/` and `uv run pytest -q`. Write the counts under this task · `specs/024-quote-pdf-email/tasks.md`
+  - **Baseline (2026-10-22)**: ruff clean; pytest 3270 passed, 0 failed.
 
 ---
 
@@ -27,13 +28,13 @@
 
 **Independent test**: a confirmed quote with 3 lines renders a letter PDF whose text holds every FR-002 element. A missing quote gives 404, and no privilege gives 403.
 
-- [ ] T002 [P] [US1] Write `tests/api/test_quote_document_email.py`, document part (commit with T004–T006). Patch `sales_quote_service.get_quote`, `sales_quote_service.attach_derived`, `print_contexts.sales_quote_context` and `rendering.render_pdf` (returning `b'%PDF-1.7 test'`). Cases:
+- [X] T002 [P] [US1] Write `tests/api/test_quote_document_email.py`, document part (commit with T004–T006). Patch `sales_quote_service.get_quote`, `sales_quote_service.attach_derived`, `print_contexts.sales_quote_context` and `rendering.render_pdf` (returning `b'%PDF-1.7 test'`). Cases:
   - 200, `content-type: application/pdf`, `content-disposition: inline; filename="cotizacion-00000007.pdf"`;
   - 404 `Sales quote not found` when `get_quote` returns None;
   - 401 with no token;
   - 403 with `_auth(administrator=False)` and `_deny_privileges()`;
   - the OpenAPI document's 200 response for this route has only `application/pdf` with `{"type": "string", "format": "binary"}`.
-- [ ] T003 [P] [US1] Write `tests/integration/test_quote_document_render.py` (commit with T004–T006). Use the `client` and `seeded` fixtures. Create a customer with `credit_days=30`, then through the API create a quote on credit terms (`payment_terms: 1`) with a comment, add 3 lines (one with `discount_rate: "0.1"`), and confirm it. Then `GET /sales-quotes/{id}/document` and extract the text. Assert:
+- [X] T003 [P] [US1] Write `tests/integration/test_quote_document_render.py` (commit with T004–T006). Use the `client` and `seeded` fixtures. Create a customer with `credit_days=30`, then through the API create a quote on credit terms (`payment_terms: 1`) with a comment, add 3 lines (one with `discount_rate: "0.1"`), and confirm it. Then `GET /sales-quotes/{id}/document` and extract the text. Assert:
   - the facility name, the customer name, `Cotización {id}`, and the date and validity date as `formatting.date_short` prints them;
   - `Crédito` and `30`;
   - the comment;
@@ -43,7 +44,7 @@
   - `Elaborada por` and the salesperson name.
 
   Second test: a draft quote with 50 lines renders more than one page, and the last product code is on the last page. Third test: a cancelled quote renders (200).
-- [ ] T004 [US1] Add `async def sales_quote_context(db, quote) -> tuple[str, dict]` to `app/services/print_contexts.py`, after `sales_order_context`. Follow it closely (research R2):
+- [X] T004 [US1] Add `async def sales_quote_context(db, quote) -> tuple[str, dict]` to `app/services/print_contexts.py`, after `sales_order_context`. Follow it closely (research R2):
   - **Header:** `header_context(db, quote.facility, f'Cotización - {formatting.pad8(id)}', letter=True)`, with the taxpayer blanked.
   - **Parties:** the customer, and the contact: name, plus `mobile`, or `phone` and `phone_ext` when there is no mobile.
   - **Ship-to:** the lines built the same way as on the order.
@@ -54,7 +55,7 @@
   - **Footer:** the salesperson's name.
 
   Return `'sales_quote.html', context`. Give it a docstring citing legacy `Quotations/Print.cshtml` and spec 024.
-- [ ] T005 [US1] Create `app/rendering/templates/sales_quote.html` from `sales_order.html`:
+- [X] T005 [US1] Create `app/rendering/templates/sales_quote.html` from `sales_order.html`:
   - title "Cotización {id}";
   - Fecha and Vigencia;
   - a "Condiciones de pago" line with the terms (and the credit days);
@@ -64,12 +65,13 @@
   - the "Elaborada por" footer.
 
   No promise date or savings line.
-- [ ] T006 [US1] Add `GET /{sales_quote_id}/document` to `app/api/v1/endpoints/sales_quotes.py`, mirroring `print_sales_order_document` in `sales_orders.py`:
+- [X] T006 [US1] Add `GET /{sales_quote_id}/document` to `app/api/v1/endpoints/sales_quotes.py`, mirroring `print_sales_order_document` in `sales_orders.py`:
   - **Decorator and guard:** `response_class=Response, responses=rendering.PDF_RESPONSE`, `Depends(_READ)`;
   - **Body:** `_quote_or_404` → `attach_derived` → `print_contexts.sales_quote_context` → `rendering.render_pdf` → `rendering.pdf_response(pdf, f'cotizacion-{id:08d}.pdf')`;
   - **Docstring:** "The letter-size cotización, for a quote in any state (spec 024)."
 
   Run T002 and T003: green. Commit T002–T006.
+  - **As built:** the ship-to block of `sales_order_context` moved into a shared `_ship_to_lines(address)` helper, which both documents call. The existing print tests pass unchanged.
 
 **Checkpoint**: the PDF works on its own.
 
