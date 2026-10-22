@@ -17,7 +17,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.clock import local_now
 from app.core.deps import CurrentUser
-from app.enums import CommissionMovement, CommissionPeriodStatus, CommissionScheme
+from app.enums import (
+    CommissionMovement,
+    CommissionPeriodStatus,
+    CommissionScheme,
+    SourceType,
+)
 from app.models.commission import (
     Commission,
     CommissionAgent,
@@ -27,7 +32,9 @@ from app.models.commission import (
     CommissionProduct,
     CommissionSalesperson,
 )
+from app.models.core import Employee
 from app.models.customer import Customer
+from app.models.product import Product
 from app.models.sales import (
     CustomerPayment,
     CustomerRefund,
@@ -36,7 +43,18 @@ from app.models.sales import (
     SalesOrderDetail,
     SalesOrderPayment,
 )
+from app.schemas.commission import (
+    CommissionAgentCreate,
+    CommissionAgentRateCreate,
+    CommissionAgentRateUpdate,
+    CommissionAgentUpdate,
+    CommissionLabelCreate,
+    CommissionLabelUpdate,
+    CommissionParticipationBody,
+)
 from app.services import commission_rules as rules
+from app.services import incidences
+from app.services.references import assert_not_referenced
 
 CENTS = Decimal('0.01')
 # A legacy row's "unset" `balance_zeroed_time`.
@@ -594,3 +612,363 @@ async def read_period(
         lines=lines,
         totals=_totals(lines),
     )
+
+
+# ── Settings ──────────────────────────────────────────────────────────────────
+
+
+def _audit(db: AsyncSession, current: CurrentUser, instance_id: int, reason: str, context: str):
+    incidences.record(
+        db,
+        source=SourceType.COMMISSION,
+        instance_id=instance_id,
+        updater=current.employee_id,
+        reason=reason,
+        context=context,
+    )
+
+
+def _not_found(what: str) -> HTTPException:
+    return HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f'{what} not found')
+
+
+async def _get_or_404[T](db: AsyncSession, model: type[T], pk: int, what: str) -> T:
+    row = await db.get(model, pk)
+    if row is None:
+        raise _not_found(what)
+    return row
+
+
+async def list_labels(db: AsyncSession) -> Sequence[Commission]:
+    query = select(Commission).order_by(Commission.name, Commission.commission_id)
+    return (await db.execute(query)).scalars().all()
+
+
+async def create_label(
+    db: AsyncSession, data: CommissionLabelCreate, *, current: CurrentUser
+) -> Commission:
+    label = Commission(
+        name=data.name, commission_rate=data.commission_rate, comment=data.comment or '0'
+    )
+    db.add(label)
+    await db.flush()
+    _audit(
+        db,
+        current,
+        label.commission_id,
+        'Commission label created',
+        f'{label.name} rate {data.commission_rate}',
+    )
+    await db.commit()
+    return label
+
+
+async def update_label(
+    db: AsyncSession, commission_id: int, data: CommissionLabelUpdate, *, current: CurrentUser
+) -> Commission:
+    label = await _get_or_404(db, Commission, commission_id, 'Commission label')
+    changes: list[str] = []
+    if data.name is not None and data.name != label.name:
+        changes.append(f'name {label.name} → {data.name}')
+        label.name = data.name
+    if data.commission_rate is not None and data.commission_rate != label.commission_rate:
+        changes.append(f'{label.name} rate {label.commission_rate:g} → {data.commission_rate:g}')
+        label.commission_rate = data.commission_rate
+    if data.comment is not None and data.comment != label.comment:
+        changes.append(f'comment {label.comment} → {data.comment}')
+        label.comment = data.comment
+    _audit(
+        db, current, commission_id, 'Commission label updated', '; '.join(changes) or 'no changes'
+    )
+    await db.commit()
+    return label
+
+
+async def delete_label(db: AsyncSession, commission_id: int, *, current: CurrentUser) -> None:
+    label = await _get_or_404(db, Commission, commission_id, 'Commission label')
+    await assert_not_referenced(db, label)
+    _audit(db, current, commission_id, 'Commission label deleted', label.name)
+    await db.delete(label)
+    await db.commit()
+
+
+async def list_participations(db: AsyncSession) -> Sequence[CommissionParticipation]:
+    query = select(CommissionParticipation).order_by(
+        CommissionParticipation.name, CommissionParticipation.commission_participation_id
+    )
+    return (await db.execute(query)).scalars().all()
+
+
+async def create_participation(
+    db: AsyncSession, data: CommissionParticipationBody, *, current: CurrentUser
+) -> CommissionParticipation:
+    row = CommissionParticipation(name=data.name)
+    db.add(row)
+    await db.flush()
+    _audit(
+        db, current, row.commission_participation_id, 'Commission participation created', data.name
+    )
+    await db.commit()
+    return row
+
+
+async def update_participation(
+    db: AsyncSession,
+    participation_id: int,
+    data: CommissionParticipationBody,
+    *,
+    current: CurrentUser,
+) -> CommissionParticipation:
+    row = await _get_or_404(
+        db, CommissionParticipation, participation_id, 'Commission participation'
+    )
+    _audit(
+        db,
+        current,
+        participation_id,
+        'Commission participation updated',
+        f'{row.name} → {data.name}',
+    )
+    row.name = data.name
+    await db.commit()
+    return row
+
+
+async def delete_participation(
+    db: AsyncSession, participation_id: int, *, current: CurrentUser
+) -> None:
+    row = await _get_or_404(
+        db, CommissionParticipation, participation_id, 'Commission participation'
+    )
+    await assert_not_referenced(db, row)
+    _audit(db, current, participation_id, 'Commission participation deleted', row.name)
+    await db.delete(row)
+    await db.commit()
+
+
+def _agent_query():  # noqa: ANN202
+    name = (Employee.first_name + ' ' + Employee.last_name).label('name')
+    return (
+        select(CommissionAgent.employee, name, CommissionAgent.scheme)
+        .join(Employee, Employee.employee_id == CommissionAgent.employee)
+        .order_by(CommissionAgent.employee)
+    )
+
+
+async def list_agents(db: AsyncSession):  # noqa: ANN201
+    return (await db.execute(_agent_query())).all()
+
+
+async def _read_agent(db: AsyncSession, employee: int):  # noqa: ANN202
+    query = _agent_query().where(CommissionAgent.employee == employee)
+    return (await db.execute(query)).one()
+
+
+async def create_agent(  # noqa: ANN201
+    db: AsyncSession, data: CommissionAgentCreate, *, current: CurrentUser
+):
+    if await db.get(Employee, data.employee) is None:
+        raise _not_found('Employee')
+    if await db.get(CommissionAgent, data.employee) is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail='Employee is already an agent'
+        )
+    db.add(CommissionAgent(employee=data.employee, scheme=int(data.scheme)))
+    await db.flush()
+    _audit(
+        db,
+        current,
+        data.employee,
+        'Commission agent created',
+        f'scheme {int(data.scheme)}',
+    )
+    await db.commit()
+    return await _read_agent(db, data.employee)
+
+
+async def update_agent(  # noqa: ANN201
+    db: AsyncSession, employee: int, data: CommissionAgentUpdate, *, current: CurrentUser
+):
+    agent = await _get_or_404(db, CommissionAgent, employee, 'Commission agent')
+    _audit(
+        db,
+        current,
+        employee,
+        'Commission agent scheme changed',
+        f'scheme {agent.scheme} → {int(data.scheme)}',
+    )
+    agent.scheme = int(data.scheme)
+    await db.commit()
+    return await _read_agent(db, employee)
+
+
+async def delete_agent(db: AsyncSession, employee: int, *, current: CurrentUser) -> None:
+    agent = await _get_or_404(db, CommissionAgent, employee, 'Commission agent')
+    await assert_not_referenced(db, agent)
+    _audit(db, current, employee, 'Commission agent deleted', f'scheme {agent.scheme}')
+    await db.delete(agent)
+    await db.commit()
+
+
+async def list_agent_rates(
+    db: AsyncSession, *, salesperson: int | None = None, commission: int | None = None
+) -> Sequence[CommissionSalesperson]:
+    query = select(CommissionSalesperson).order_by(CommissionSalesperson.commission_salesperson_id)
+    if salesperson is not None:
+        query = query.where(CommissionSalesperson.salesperson == salesperson)
+    if commission is not None:
+        query = query.where(CommissionSalesperson.commission == commission)
+    return (await db.execute(query)).scalars().all()
+
+
+async def create_agent_rate(
+    db: AsyncSession, data: CommissionAgentRateCreate, *, current: CurrentUser
+) -> CommissionSalesperson:
+    if await db.get(CommissionAgent, data.salesperson) is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail='Salesperson is not an agent'
+        )
+    await _get_or_404(db, Commission, data.commission, 'Commission label')
+    await _get_or_404(
+        db, CommissionParticipation, data.commission_participation, 'Commission participation'
+    )
+    duplicate = select(CommissionSalesperson.commission_salesperson_id).where(
+        CommissionSalesperson.salesperson == data.salesperson,
+        CommissionSalesperson.commission == data.commission,
+        CommissionSalesperson.commission_participation == data.commission_participation,
+    )
+    if (await db.execute(duplicate)).first() is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail='Rate already exists for this agent, label and participation',
+        )
+    row = CommissionSalesperson(
+        salesperson=data.salesperson,
+        commission=data.commission,
+        commission_participation=data.commission_participation,
+        participation_rate=data.participation_rate,
+    )
+    db.add(row)
+    await db.flush()
+    _audit(
+        db,
+        current,
+        row.commission_salesperson_id,
+        'Commission agent rate created',
+        f'agent {data.salesperson} label {data.commission} '
+        f'participation {data.commission_participation} share {data.participation_rate:g}',
+    )
+    await db.commit()
+    return row
+
+
+async def update_agent_rate(
+    db: AsyncSession, rate_id: int, data: CommissionAgentRateUpdate, *, current: CurrentUser
+) -> CommissionSalesperson:
+    row = await _get_or_404(db, CommissionSalesperson, rate_id, 'Commission agent rate')
+    _audit(
+        db,
+        current,
+        rate_id,
+        'Commission agent rate updated',
+        f'share {row.participation_rate:g} → {data.participation_rate:g}',
+    )
+    row.participation_rate = data.participation_rate
+    await db.commit()
+    return row
+
+
+async def delete_agent_rate(db: AsyncSession, rate_id: int, *, current: CurrentUser) -> None:
+    row = await _get_or_404(db, CommissionSalesperson, rate_id, 'Commission agent rate')
+    await assert_not_referenced(db, row)
+    _audit(
+        db,
+        current,
+        rate_id,
+        'Commission agent rate deleted',
+        f'agent {row.salesperson} label {row.commission} share {row.participation_rate:g}',
+    )
+    await db.delete(row)
+    await db.commit()
+
+
+async def list_product_labels(
+    db: AsyncSession,
+    *,
+    commission: int | None = None,
+    product: int | None = None,
+    skip: int = 0,
+    limit: int = 20,
+):  # noqa: ANN201
+    filters = []
+    if commission is not None:
+        filters.append(CommissionProduct.commission == commission)
+    if product is not None:
+        filters.append(CommissionProduct.product == product)
+    total: int = (
+        await db.execute(select(func.count()).select_from(CommissionProduct).where(*filters))
+    ).scalar_one()
+    query = (
+        select(
+            CommissionProduct.product,
+            Product.code.label('product_code'),
+            Product.name.label('product_name'),
+            CommissionProduct.commission,
+        )
+        .join(Product, Product.product_id == CommissionProduct.product)
+        .where(*filters)
+        .order_by(CommissionProduct.product)
+        .offset(skip)
+        .limit(limit)
+    )
+    return (await db.execute(query)).all(), total
+
+
+async def _read_product_label(db: AsyncSession, product: int):  # noqa: ANN202
+    query = (
+        select(
+            CommissionProduct.product,
+            Product.code.label('product_code'),
+            Product.name.label('product_name'),
+            CommissionProduct.commission,
+        )
+        .join(Product, Product.product_id == CommissionProduct.product)
+        .where(CommissionProduct.product == product)
+    )
+    return (await db.execute(query)).one()
+
+
+async def set_product_label(  # noqa: ANN201
+    db: AsyncSession, product: int, commission: int, *, current: CurrentUser
+):
+    await _get_or_404(db, Product, product, 'Product')
+    await _get_or_404(db, Commission, commission, 'Commission label')
+    existing = (
+        (await db.execute(select(CommissionProduct).where(CommissionProduct.product == product)))
+        .scalars()
+        .first()
+    )
+    if existing is None:
+        db.add(CommissionProduct(product=product, commission=commission))
+        reason, context = 'Product commission label set', f'label {commission}'
+    else:
+        reason = 'Product commission label changed'
+        context = f'label {existing.commission} → {commission}'
+        existing.commission = commission
+    _audit(db, current, product, reason, context)
+    await db.commit()
+    return await _read_product_label(db, product)
+
+
+async def delete_product_label(db: AsyncSession, product: int, *, current: CurrentUser) -> None:
+    row = (
+        (await db.execute(select(CommissionProduct).where(CommissionProduct.product == product)))
+        .scalars()
+        .first()
+    )
+    if row is None:
+        raise _not_found('Product commission label')
+    await assert_not_referenced(db, row)
+    _audit(db, current, product, 'Product commission label removed', f'label {row.commission}')
+    await db.delete(row)
+    await db.commit()

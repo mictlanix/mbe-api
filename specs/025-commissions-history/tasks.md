@@ -147,7 +147,7 @@
 - Deleting a label in use → 409.
 - Each change writes one incidence (source 12).
 
-- [ ] T015 [P] [US2] Write `tests/api/test_commission_settings.py` (commit with T016–T017). For each resource in the contract (labels, participations, agents, agent rates, product labels):
+- [X] T015 [P] [US2] Write `tests/api/test_commission_settings.py` (commit with T016–T017). For each resource in the contract (labels, participations, agents, agent rates, product labels):
   - list, create, update and delete → 200/201/204;
   - unknown id → 404;
   - validation → 422 (rate outside 0–1, scheme not 1 or 2, a share for a non-agent);
@@ -157,13 +157,13 @@
   - `incidences.record` called once per change with `source=SourceType.COMMISSION`.
 
   Add one integration case: `PUT /product-labels/{product}` changes an existing label.
-- [ ] T016 [US2] Add the settings functions to `commission_service.py`:
+- [X] T016 [US2] Add the settings functions to `commission_service.py`:
   - list, create, update and delete for `Commission`, `CommissionParticipation`, `CommissionAgent` (with `scheme`), `CommissionSalesperson` and `CommissionProduct` (set or change, and remove);
   - each write calls `incidences.record(db, source=SourceType.COMMISSION, instance_id=…, updater=current.employee_id, reason=…, context=…)` in the same transaction;
   - `Commission.comment` defaults to `'0'` (research R5).
 
   FK violations surface as 409 through the existing IntegrityError handler; check that `tests/api/test_constraint_errors.py` covers the pattern.
-- [ ] T017 [US2] Add the settings schemas to `app/schemas/commission.py` and the routes to `app/api/v1/endpoints/commissions.py` per the contract, with Create/Update/Delete guards. Run T015: green. Commit T015–T017.
+- [X] T017 [US2] Add the settings schemas to `app/schemas/commission.py` and the routes to `app/api/v1/endpoints/commissions.py` per the contract, with Create/Update/Delete guards. Run T015: green. Commit T015–T017.
 
 **Checkpoint**: settings are maintainable through the API.
 

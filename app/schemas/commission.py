@@ -1,11 +1,11 @@
 """Commission settings and periods (spec 025, contracts/commissions.md)."""
 
 from decimal import Decimal
-from typing import Literal
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from app.enums import CommissionMovement
+from app.enums import CommissionMovement, CommissionScheme
 from app.schemas import LocalDateTime
 
 # ── Periods ───────────────────────────────────────────────────────────────────
@@ -91,3 +91,91 @@ class CommissionPeriodDetail(CommissionPeriodResponse):
 
 class CommissionPeriodSummary(CommissionPeriodResponse):
     total: Decimal = Field(description='Sum of the stored lines; 0 for a reopened month.')
+
+
+# ── Settings ──────────────────────────────────────────────────────────────────
+
+_Rate = Annotated[Decimal, Field(ge=0, le=1)]
+
+
+class CommissionLabelCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=50)
+    commission_rate: _Rate
+    comment: str | None = Field(None, max_length=50)
+
+
+class CommissionLabelUpdate(BaseModel):
+    name: str | None = Field(None, min_length=1, max_length=50)
+    commission_rate: _Rate | None = None
+    comment: str | None = Field(None, max_length=50)
+
+
+class CommissionLabelResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    commission_id: int
+    name: str
+    commission_rate: Decimal
+    comment: str | None
+
+
+class CommissionParticipationBody(BaseModel):
+    name: str = Field(min_length=1, max_length=50)
+
+
+class CommissionParticipationResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    commission_participation_id: int
+    name: str
+
+
+class CommissionAgentCreate(BaseModel):
+    employee: int
+    scheme: CommissionScheme = CommissionScheme.FULLY_PAID
+
+
+class CommissionAgentUpdate(BaseModel):
+    scheme: CommissionScheme
+
+
+class CommissionAgentResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    employee: int
+    name: str
+    scheme: int
+
+
+class CommissionAgentRateCreate(BaseModel):
+    salesperson: int
+    commission: int
+    commission_participation: int
+    participation_rate: _Rate
+
+
+class CommissionAgentRateUpdate(BaseModel):
+    participation_rate: _Rate
+
+
+class CommissionAgentRateResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    commission_salesperson_id: int
+    salesperson: int
+    commission: int
+    commission_participation: int
+    participation_rate: Decimal
+
+
+class CommissionProductLabelSet(BaseModel):
+    commission: int
+
+
+class CommissionProductLabelResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    product: int
+    product_code: str
+    product_name: str
+    commission: int
