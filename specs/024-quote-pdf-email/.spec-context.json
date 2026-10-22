@@ -1,0 +1,23 @@
+{
+  "workflow": "speckit",
+  "specName": "Quotation PDF and Email",
+  "branch": "024-quote-pdf-email",
+  "currentStep": "specify",
+  "status": "specified",
+  "history": [
+    {
+      "step": "specify",
+      "substep": null,
+      "kind": "start",
+      "by": "extension",
+      "at": "2026-10-22T20:29:29.000Z"
+    },
+    {
+      "step": "specify",
+      "substep": null,
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-10-22T20:38:06.657Z"
+    }
+  ]
+}
