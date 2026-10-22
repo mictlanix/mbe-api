@@ -187,7 +187,7 @@
 
 ## Phase 6: Polish & Cross-Cutting
 
-- [ ] T020 [P] Write `docs/specs/02-sales.md` **§10 Commissions** (FR-001, research R8). Cover:
+- [X] T020 [P] Write `docs/specs/02-sales.md` **§10 Commissions** (FR-001, research R8). Cover:
   - **The current system:** the settings; the computation, with the three branches, the refund rules and the September fix; no periods; the report, ticket and CSV; login-only access; `commissions_history` stale.
   - **The new MBE:**
     - monthly periods that close in sequence and can be reopened while unpaid;
@@ -195,8 +195,8 @@
     - the two schemes per agent, with the scheme 2 formula and the spec's worked example;
     - the paid-date and refund-date basis;
     - the routes and SystemObject 112.
-- [ ] T021 [P] Add notes to `docs/specs/11-reports.md` §37 (it reads `GET /commissions/periods/{y}/{m}`; `commissions_history` is not its source) and to `specs/011-sales-cycle-endpoints/spec.md` FR-065a (spec 025 corrected it: payments stamp `balance_zeroed_time`).
-- [ ] T022 [P] Add to `CHANGELOG.md` `[Unreleased]`:
+- [X] T021 [P] Add notes to `docs/specs/11-reports.md` §37 (it reads `GET /commissions/periods/{y}/{m}`; `commissions_history` is not its source) and to `specs/011-sales-cycle-endpoints/spec.md` FR-065a (spec 025 corrected it: payments stamp `balance_zeroed_time`).
+- [X] T022 [P] Add to `CHANGELOG.md` `[Unreleased]`:
   - **`### Added`:** commissions (mictlanix/mbe-roadmap#32, #33, spec 025) — the settings API, schemes, periods and stable history.
   - **`### Changed`:** `balance_zeroed_time` is stamped when payments settle an order.
   - **Upgrade note:** migration 023; every agent starts on scheme 1; the first closed month starts the chain.

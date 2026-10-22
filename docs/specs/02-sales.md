@@ -408,3 +408,62 @@ Supervisory queue to verify unverified customer payments — typically used when
 ### Actions
 - **Verify**: sets `verifier = current_employee_id`
 - **Reject**: flag for investigation via `incidence` log
+
+---
+
+## 10. Commissions
+
+**Current system**: `ReportsController.CommissionsBySalesPerson` (report, ticket, CSV); `CommissionsController` (no working screen)
+**SystemObject**: `CommissionsBySalesPerson` (112)
+**API (spec 025)**: `/api/v1/commissions/...`
+
+### Purpose
+Agents earn a share of the sales they bring in, by product category. Commissions are paid by month.
+
+### Settings (tables shared with the current system)
+- **Labels** (`commission`): a category with a rate, e.g. CONCRETOS 2.5%, TABIQUES 4%, FERRETERÍA 4%, ARMEX 0.2%.
+- **Product labels** (`commission_product`): one label per product. The current system can add a missing label but never change one; the API can change it.
+- **Agents** (`commission_agent`): the employees who earn commissions, each with a **scheme** (API only; see below).
+- **Participation types** (`commission_participation`): 1 CLIENTE VITALICIO, 2 CANALIZACIÓN, 3 ATENCIÓN EN CAMPO.
+- **Agent rates** (`commission_salesperson`): an agent's share for each (label, participation). Today it is 100% as CLIENTE VITALICIO and 50% as ATENCIÓN EN CAMPO.
+
+The current system has no screen for these: they are edited in the database. The API maintains them (`/commissions/labels`, `/participations`, `/agents`, `/agent-rates`, `/product-labels`), and each change writes an `incidence` (source 12).
+
+### How a line earns (both systems)
+Each line of a completed, non-cancelled order is credited by comparing the **order's** salesperson (osp) with the **customer's** (csp):
+- **CLIENTE VITALICIO:** csp = osp, and that agent earns at their rate.
+- Otherwise, osp earns as **CANALIZACIÓN** and csp as **ATENCIÓN EN CAMPO**, each at their own rate.
+- Only agents earn. A customer with no salesperson matches no branch, so its orders earn nothing.
+
+The line amount is the price after discount, tax included, times the quantity. The rate is the label's rate × the agent's share, and the commission is the amount × the rate, rounded to cents. An unlabelled product, or a missing rate row, earns 0 and still lists, so that someone labels it.
+
+### The current system: a live report
+- **No periods.** A period is whatever date range the user types. The report recomputes from live sales on every run, and nothing is ever closed or marked paid.
+- **Which orders:** paid orders whose `modification_time` falls in the range.
+- **Reassignment rewrites history:** csp is read **at report time**, so reassigning a customer re-credits every past period. A rate change rewrites the past too.
+- **Refunds** are negative lines:
+  - in the month the order is paid, for refunds dated up to that month's end;
+  - in the refund's month, for orders paid earlier.
+
+  Before mbe PR #58 (September 2026), a refund booked before its order was paid was charged twice, which over-debited agents $23,196.76 over 15 months.
+- **Output:** the report lists the lines, the agent ticket (`PrintCommissionTicket`) sums them by label, and `DownloadCSV` exports every agent's lines.
+- **Access:** a login only. SystemObject 112 controls the menu entry.
+- **`commissions_history`** is a stale snapshot (May–September 2025) that nothing reads or writes.
+
+### The new MBE: periods with stable history (spec 025)
+- **Monthly periods.** A month moves from open to closed to paid.
+  - **Closing:** allowed only after the month ends, and only if the previous month is closed. The first close starts the chain, and months before it stay open and are computed live.
+  - **Reopening:** only the latest closed, unpaid month.
+  - **Paying:** a paid month is final.
+- **Stable history.** Closing stores every line with its agent, participation, rates, amounts, and customer, product and label names copied. Reassigning a customer, changing a rate or relabelling a product never changes a closed month. Once a line has been stored, its agents and rates stay those stored, so a later refund is charged to **the agent who was paid**, at the rate that was paid.
+- **Paid date.** An order belongs to the month of its `balance_zeroed_time`, set once when payments bring its balance to zero. The current system stamps it in every payment path, and since spec 025 so does the API. A refund belongs to the month of its `date`, set on completion.
+- **Two schemes, chosen per agent:**
+  - **Scheme 1, fully paid** (the default, and the current system's rule): a line earns its full commission, less anything already stored, in the month its order is paid. An order whose payment was reversed before its month closed is picked up by the month it is paid again.
+  - **Scheme 2, partial payments:** a line earns in proportion to what has been paid, as of each month's end:
+
+    `ROUND(full commission × min(applied ÷ (order total − refunds), 1), 2) − what earlier months stored`
+
+    Example: an order of $10,000 with one line at 1% ($100), paid $4,000 in March, $3,000 returned in April, and $3,000 paid in May. March earns $40; April earns $17.14 for the share and −$30 for the refund; May earns $42.86. The total is $70, the commission on the $7,000 net sale. A reversed payment comes back as a negative amount in the next month.
+  - **Both schemes:** a refund is a negative line, deducted once. No line ever earns more than its full commission across all months, even across a scheme change.
+- **Access.** Every route requires SystemObject 112: Read to view, Create/Update/Delete to change settings, Update to close, reopen or pay.
+- **Reading.** `GET /commissions/periods/{year}/{month}?salesperson=` returns the lines and the totals per agent and label, with `final` true once closed. `GET /commissions/periods` lists the months closed so far.
