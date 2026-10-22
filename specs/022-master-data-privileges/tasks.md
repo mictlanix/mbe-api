@@ -204,7 +204,7 @@
     - customer link (SO Update with Addresses or Contacts Create).
 
     The strict-check counts were 1 to 23.
-- [ ] T032 **Confirm with the user before deploying.** Then deploy the branch to the test instance (`/var/www/mbe-api-test`, systemd `mbe-api-test`, as `mictlanix@xolotl`) and run the manual checks 1–4 in `quickstart.md`. Remove any address created in check 2. Record the outcome in `specs/022-master-data-privileges/quickstart.md` under a "Checks on the test deployment" heading. Next to the results, record the mbe-ui commit that is deployed at https://test.mbe.mictlanix.com (`git -C /var/www/mbe-ui-test …` or the build's version file).
+- [X] T032 **Confirm with the user before deploying.** Then deploy the branch to the test instance (`/var/www/mbe-api-test`, systemd `mbe-api-test`, as `mictlanix@xolotl`) and run the manual checks 1–4 in `quickstart.md`. Remove any address created in check 2. Record the outcome in `specs/022-master-data-privileges/quickstart.md` under a "Checks on the test deployment" heading. Next to the results, record the mbe-ui commit that is deployed at https://test.mbe.mictlanix.com (`git -C /var/www/mbe-ui-test …` or the build's version file).
 
 ---
 

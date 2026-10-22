@@ -43,7 +43,7 @@ mbe-ui reads these modules from other modules' screens. It does so through the s
 | Vehicle operator form and list (`vehicleOperators` Read) | `GET /employees`, `GET /employees/{id}` |
 | User administration (`users` Read; the router requires an administrator) | `GET /employees`, `GET /employees/{id}` |
 
-mbe-ui has no sales-quote screens yet, and no screen calls `/customers/{id}/discounts`, `/exchange-rates`, `/expenses`, `/vehicles` or `/vehicle-operators` from outside their own catalog.
+Re-checked on 2026-10-22 against mbe-ui `origin/main` at `2ab245e`: the table above was built from an older clone. Two newer call sites are covered by the hosts below: the POS advanced product search (gated on `products` Read) loads labels and suppliers, and the quote screens (`salesQuotes` Read) search customers and show employee names. At the time of the first analysis mbe-ui had no sales-quote screens, and no screen calls `/customers/{id}/discounts`, `/exchange-rates`, `/expenses`, `/vehicles` or `/vehicle-operators` from outside their own catalog.
 
 ### Measured in mbe_dev (2026-10-22)
 

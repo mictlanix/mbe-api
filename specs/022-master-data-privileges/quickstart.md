@@ -49,3 +49,33 @@ Deploy the branch to `/var/www/mbe-api-test` (https://test.api.mbe.mictlanix.com
 2. **Link exception.** As a user with SalesOrders Update but no Customers Update (`cristian`, `margaritagodinez` or `carmengodinez`), add a new address from the order header's address picker. The address appears on the customer. `PUT /customers/{id}` with `{"name": "x"}` from the same token: 403. Remove the test address afterwards.
 3. **Product manager.** As a user with Products Read but no Labels or Suppliers Read, open a product. The labels and the supplier picker load.
 4. **Strict module.** As a user with no Vehicle row, call `GET /vehicles`: 403. As an administrator: 200 with the same body as before the deploy.
+
+## Checks on the test deployment: 2026-10-22 (branch `022-master-data-privileges` at `03f5051`)
+
+The branch was deployed to `/var/www/mbe-api-test` (`git checkout`, `uv sync`, `systemctl restart mbe-api-test`). No migration was needed. The checks called the local service on xolotl against `mbe_dev` with short-lived tokens, minted on the box for real accounts from the instance's own `.env`. They replay the exact calls mbe-ui makes; no browser session was used. All 20 checks returned the expected status.
+
+1. **Seller** (`robertomendoza`: SalesOrders 15, POS 2, Customers 15; no Employees, Taxpayer recipients or Payment method options row) ✅
+   - These returned 200:
+     - `GET /customers?search=a&limit=10`;
+     - `GET /customers/{id}`;
+     - `GET /employees?sales_person=true`;
+     - `GET /taxpayer-recipients`;
+     - `GET /payment-method-options?facility=1&limit=100`.
+   - These returned 403:
+     - `DELETE /payment-method-options/999999`;
+     - `GET /vehicles`;
+     - `POST /labels`.
+2. **Link exception** (`cristian`: SalesOrders 7, Customers 3, Addresses 7) ✅
+   - `POST /addresses` returned 201.
+   - `PUT /customers/1` with only `addresses` (the existing list plus the new id) returned 200, and the address appeared on the customer.
+   - The same token with `{"name": "x"}` got 403.
+   - An admin token restored the original list and deleted the test address. Afterwards no `spec 022 check` address remains, and customer 1 has its original 8 links.
+3. **Product manager** (`manuelvargas`: Products 2 only) ✅: `GET /labels?limit=100` and `GET /suppliers?search=a` returned 200. `GET /price-lists` returned 403, since Products does not host price lists.
+4. **Strict module** ✅: `manuelvargas` got 403 on `GET /vehicles`, and an admin got 200.
+
+**mbe-ui build**: https://test.mbe.mictlanix.com serves build 423034. Its `main.dart.js` is dated 2026-10-21 12:34 -0600. The build does not record its source commit, but it predates mbe-ui `origin/main` at `2ab245e` (2026-10-21 19:33), so the checks below cover a superset of what it calls. The spec's call-site analysis was made on a local clone 183 commits older (`cf3115e`). It was re-checked against `origin/main` at `2ab245e` with `git grep`, and two new call sites turned up, both already covered:
+- the POS **advanced product search** loads labels and suppliers. It is gated on Products Read, in the router and on the POS button, and Products is a host for both.
+- the **quote screens** search and fetch customers and show employee names. SalesQuotes is a host for both. They pick no salesperson, invoice recipient or payment option.
+
+`customer_repository_impl.dart` still sends only the fields that are set, so the address and contact pickers send link-only bodies.
+
