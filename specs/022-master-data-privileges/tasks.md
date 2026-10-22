@@ -17,13 +17,14 @@
 
 ## Phase 1: Setup
 
-- [ ] T001 Record the baseline before any change: run `uv run ruff check app/ migrations/ tests/` and `uv run pytest -q`. Write the pass/fail counts under this task. Any failure that already exists is listed here so it isn't attributed to this work · `specs/022-master-data-privileges/tasks.md`
+- [X] T001 Record the baseline before any change: run `uv run ruff check app/ migrations/ tests/` and `uv run pytest -q`. Write the pass/fail counts under this task. Any failure that already exists is listed here so it isn't attributed to this work · `specs/022-master-data-privileges/tasks.md`
+  - **Baseline (2026-10-22)**: ruff clean; pytest 3048 passed, 0 failed.
 
 ---
 
 ## Phase 2: Foundational (blocks all stories)
 
-- [ ] T002 [P] Write unit tests for the new dependency in `tests/unit/test_deps_privileges.py` (commit with T003). Use a fake `AsyncSession` whose `execute` returns a result with `.all()` → a list of `(system_object, privileges)` rows. Cases:
+- [X] T002 [P] Write unit tests for the new dependency in `tests/unit/test_deps_privileges.py` (commit with T003). Use a fake `AsyncSession` whose `execute` returns a result with `.all()` → a list of `(system_object, privileges)` rows. Cases:
   - **`has_any_privilege`**:
     - no rows → False;
     - a row with mask 0 → False;
@@ -35,7 +36,7 @@
     - when refused, it raises `HTTPException` 403 with detail `Insufficient privileges`;
     - an administrator returns without calling `db.execute` (assert not awaited).
   - **`grants`:** `require_any_privilege(a, b).grants == (a, b)` and `require_privilege(X, R).grants == ((X, R),)`.
-- [ ] T003 Implement in `app/core/deps.py`, below `require_privilege` (research R1):
+- [X] T003 Implement in `app/core/deps.py`, below `require_privilege` (research R1):
   - **`async def has_any_privilege(db, user_id: str, grants: Sequence[tuple[SystemObject, AccessRight]]) -> bool`**: one `select(AccessPrivilege.system_object, AccessPrivilege.privileges)` with `user_id ==` and `system_object.in_(...)`. Read `.all()`, and return True if any row's mask holds the right paired with its object.
   - **`def require_any_privilege(*grants)`**: a dependency factory with the same signature shape as `require_privilege`. It lets administrators through, calls `has_any_privilege` for everyone else, and raises the identical 403. Its docstring cites spec 022 FR-005.
   - **Grants attribute:** set `_check.grants = grants` in the new factory, and add `_check.grants = ((system_object, right),)` to `require_privilege`. That one line is the only change to `require_privilege`.

@@ -1,8 +1,10 @@
+from collections.abc import Sequence
 from dataclasses import dataclass
 
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from jose import JWTError
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security import decode_token
@@ -117,4 +119,41 @@ def require_privilege(system_object: SystemObject, right: AccessRight = AccessRi
             )
         return current_user
 
+    _check.grants = ((system_object, right),)
+    return _check
+
+
+async def has_any_privilege(
+    db: AsyncSession, user_id: str, grants: Sequence[tuple[SystemObject, AccessRight]]
+) -> bool:
+    """True when the user holds the right paired with at least one of the objects."""
+    rights = {int(obj): int(right) for obj, right in grants}
+    result = await db.execute(
+        select(AccessPrivilege.system_object, AccessPrivilege.privileges).where(
+            AccessPrivilege.user_id == user_id,
+            AccessPrivilege.system_object.in_(list(rights)),
+        )
+    )
+    return any(mask & rights[obj] for obj, mask in result.all())
+
+
+def require_any_privilege(*grants: tuple[SystemObject, AccessRight]):
+    """Like `require_privilege`, but any one of several grants opens the route.
+
+    A lookup also accepts Read on the modules whose screens make it (spec 022 FR-005).
+    """
+
+    async def _check(
+        current_user: CurrentUser = Depends(get_current_user),
+        db: AsyncSession = Depends(get_db),
+    ) -> CurrentUser:
+        if current_user.administrator:
+            return current_user
+        if not await has_any_privilege(db, current_user.user_id, grants):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN, detail='Insufficient privileges'
+            )
+        return current_user
+
+    _check.grants = grants
     return _check

@@ -2,8 +2,8 @@
   "workflow": "speckit",
   "specName": "Master Data Access Privileges",
   "branch": "022-master-data-privileges",
-  "currentStep": "tasks",
-  "status": "ready-to-implement",
+  "currentStep": "implement",
+  "status": "implementing",
   "history": [
     {
       "step": "specify",
@@ -46,6 +46,13 @@
       "kind": "complete",
       "by": "extension",
       "at": "2026-10-22T17:21:04.535Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "kind": "start",
+      "by": "extension",
+      "at": "2026-10-22T17:44:56.467Z"
     }
   ]
 }
