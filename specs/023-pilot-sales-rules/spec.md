@@ -171,11 +171,11 @@ With intent delivery, a `ship_to` and a date of today or later, it confirms. Wit
 
 ### User Story 4 - The dead PaymentOnDelivery model is gone (Priority: P3)
 
-The API no longer maps a table that the current system has dropped, and the documentation no longer describes it.
+The API no longer maps a table that the current system has dropped, and the data dictionary and schema dump no longer describe it.
 
 **Why this priority**: It has no behaviour; the API should simply not depend on a table that is going away (mictlanix/mbe-api#248).
 
-**Independent Test**: The model is gone and no document mentions it, and the full test suite passes, including the data-dictionary and schema-dump checks.
+**Independent Test**: The model is gone, a search of `app/`, the data dictionary and the schema dump finds no mention of it, and the full test suite passes, including the data-dictionary and schema-dump checks.
 
 **Acceptance Scenarios**:
 
@@ -250,7 +250,7 @@ The API no longer maps a table that the current system has dropped, and the docu
 - **Sales order / quote line**: `discount_rate` now has a default that comes from the override.
 - **Sales order**: `origin`, `fulfillment_intent`, `ship_to`, `promise_date`, `payment_terms`. No new fields.
 - **Sales quote**: `payment_terms` gets a credit default.
-- **Customer**: `credit_limit`, `credit_days`, `status`. These are read to decide whether the customer is a credit customer.
+- **Customer**: `credit_limit`, read to decide whether the customer is a credit customer (FR-010).
 
 ## Success Criteria *(mandatory)*
 
