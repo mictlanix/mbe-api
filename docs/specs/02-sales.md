@@ -45,7 +45,7 @@ Customer quotations (presales). A quote can be converted to a sales order.
 ### Create Defaults
 - Customer: `WebConfig.DefaultCustomer`
 - Salesperson: current user's employee
-- Terms: `Immediate`
+- Terms: `Immediate`. **API (spec 023):** `NetD` for a credit customer (credit limit above 0, not `DefaultCustomer`), `Immediate` otherwise. Moving an `Immediate` quote onto a credit customer, without naming terms, makes it `NetD`.
 - DueDate: `today + WebConfig.DefaultQuotationDueDays`
 - Currency: `WebConfig.DefaultCurrency`
 
@@ -75,7 +75,7 @@ Customer quotations (presales). A quote can be converted to a sales order.
 | Price | `price` | From customer's price list |
 | Price Increment | `price_increment` | Absolute markup over base price |
 | Price Increment Rate | `price_increment_rate` | Percentage markup (0–1); sets `price_increment` |
-| Discount % | `discount_rate` | 0–1 |
+| Discount % | `discount_rate` | 0–1. Starts at the customer's override for the product (`customer_discount`), else 0, when the line is added without one. Never re-read afterwards (spec 023) |
 | Tax Rate | `tax_rate` | From product |
 | Line Note | `comment` | |
 
@@ -91,6 +91,8 @@ Customer quotations (presales). A quote can be converted to a sales order.
 - Expired quotes (`HasExpired`: date > DueDate) cannot be converted to orders.
 - Price below `low_profit_margin` or above `high_profit_margin` is warned via `WebConfig.PriceValidationInRangeRequired`.
 - `NetD` terms require `customer.HasCredit`; customer credit check is performed.
+- **API (spec 023):** a quote is never refused on credit grounds while it is a quote. Conversion applies every order credit check, and the cash rule in §4.
+- Converting and duplicating copy each line's discount; they do not re-read the customer's override.
 
 ---
 
@@ -157,7 +159,7 @@ Full sales order management for credit customers and pre-invoiced sales. Support
 - Customer: `WebConfig.DefaultCustomer`
 - Salesperson: current user's employee
 - Date: now; PromiseDate: `now + WebConfig.MaxDaysToDeliverStockables`; DueDate: now
-- Terms: `NetD` if customer has credit (and is not `DefaultCustomer`), else `Immediate`
+- Terms: `NetD` if customer has credit (and is not `DefaultCustomer`), else `Immediate`. **API:** "has credit" means a credit limit above 0, with credit days ignored. Moving an `Immediate` order onto a credit customer, without naming terms, makes it `NetD` (spec 023).
 - Currency: `WebConfig.DefaultCurrency`; ExchangeRate: today's rate
 
 ### Header Fields
@@ -192,7 +194,7 @@ Full sales order management for credit customers and pre-invoiced sales. Support
 | Quantity | `quantity` | Min = `product.min_order_qty` (enforced on change) |
 | Cost | `cost` | Cost at time of sale (from cost price list, id=0) |
 | Price | `price` | From customer's price list; must be ≥ list price (cannot sell below list without privilege) |
-| Discount % | `discount_rate` | 0–1 |
+| Discount % | `discount_rate` | 0–1. Starts at the customer's override for the product when the line is added without one, else 0. Never re-read on edits or a customer change (spec 023) |
 | Tax Rate | `tax_rate` | From product |
 | Warehouse | `warehouse` | Fulfillment source; required when `StockRequired && IsStockable` |
 | Requires Delivery | `delivery` | Boolean — appears in delivery order creation |
@@ -215,6 +217,15 @@ Full sales order management for credit customers and pre-invoiced sales. Support
 6. Posts `InventoryHelpers.ChangeNotification` (negative quantity) for each stockable line with a warehouse
 7. Sets `IsCompleted = true`
 
+**API additions (spec 023):**
+- **Back-office orders** (`origin = 1`) are refused with 409, naming each missing item, unless they have:
+  - a `fulfillment_intent`;
+  - a `ship_to` when the intent is delivery or mixed;
+  - a `promise_date` that has not passed.
+
+  POS orders and orders with no recorded origin are not checked.
+- **Cash rule:** an `Immediate` order for a credit customer whose credit debt is at or over their limit is refused (422). This applies to every origin.
+
 ### Cancel Action
 - Blocked if `IsPaid = true`
 - Sets `IsCancelled = true`
@@ -229,6 +240,7 @@ Full sales order management for credit customers and pre-invoiced sales. Support
 ### Business Rules
 - `Terms = NetD` requires: customer has credit limit set (`HasCredit`), no expired credits, not over credit limit; `DefaultCustomer` cannot use `NetD`.
 - `DueDate`: `Immediate` → same as order date; `NetD` → order date + `customer.credit_days`.
+- **API (spec 023):** a credit customer may use `Immediate` only while their credit debt is below their limit. At or over it, cash is refused on create, update, confirm and quote conversion, for every origin. Buying in cash is not a way around an unpaid debt. The current system never refused cash.
 - Price validation (if `WebConfig.PriceValidationInRangeRequired` and user lacks `ExcludePriceRangeValidation.AllowUpdate`): price must be in `[low_profit_margin, high_profit_margin]` of product.
 - Stock validation (if `product.StockRequired && product.IsStockable`): warehouse must be set; available stock must cover all SO lines for same product+warehouse.
 - `balance_zeroed_time` is set when a supervisor manually zeros the remaining balance.

@@ -40,7 +40,8 @@ class SalesOrderLineCreate(BaseModel):
     product: int
     quantity: Decimal | None = Field(default=None, gt=0)
     price: Decimal | None = Field(default=None, ge=0)
-    discount_rate: Decimal = Field(default=Decimal(0), ge=0, le=1)
+    #: Omitted means the customer's override for the product, else 0 (spec 023 FR-001).
+    discount_rate: Decimal | None = Field(default=None, ge=0, le=1)
     #: Omitted means the product's own rate. Supplied, it overrides for this line only (#135).
     tax_rate: Decimal | None = Field(default=None, ge=0, le=1)
     warehouse: int | None = None

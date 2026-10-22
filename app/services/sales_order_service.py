@@ -11,7 +11,7 @@ tests need to exercise directly, and keeping them free of I/O is what makes that
 """
 
 from collections.abc import Iterable, Sequence
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 
 from fastapi import HTTPException, status
@@ -22,7 +22,7 @@ from app.core.clock import local_now
 from app.core.config import settings
 from app.core.constants import COST_PRICE_LIST_ID
 from app.core.deps import CurrentUser
-from app.enums import CurrencyCode, OrderOrigin, PaymentTerms
+from app.enums import CurrencyCode, FulfillmentType, OrderOrigin, PaymentTerms
 from app.models.core import ExchangeRate, Facility, Warehouse
 from app.models.customer import Customer
 from app.models.product import Product, ProductPrice
@@ -42,7 +42,14 @@ from app.schemas.sales_order import (
     SalesOrderUpdate,
 )
 from app.schemas.sat_catalog import SatUnitOfMeasurementResponse
-from app.services import documents, image_service, stock_ledger, totals, warehouse_service
+from app.services import (
+    customer_discount_service,
+    documents,
+    image_service,
+    stock_ledger,
+    totals,
+    warehouse_service,
+)
 
 # ── Decision rules (pure) ─────────────────────────────────────────────────────
 
@@ -112,6 +119,28 @@ def stock_shortfalls(
             )
 
     return problems
+
+
+def missing_delivery_details(order: object, *, today: date) -> list[str]:
+    """What a back-office order still lacks before it can be confirmed (spec 023 FR-008).
+
+    - The fulfilment intent, always.
+    - The address, when the intent is delivery or mixed. An unknown intent asks for the intent, not
+      for an address the order may never need.
+    - A promise date that has not passed. The 7-day default counts until it goes stale.
+
+    The address is the order's own `ship_to`. mbe-ui enters addresses only on delivery orders,
+    after confirming, so until it sets this one a back-office delivery cannot be confirmed
+    (FR-018).
+    """
+    missing = []
+    if order.fulfillment_intent is None:
+        missing.append('fulfillment_intent')
+    elif order.fulfillment_intent != FulfillmentType.PICKUP and order.ship_to is None:
+        missing.append('ship_to')
+    if order.promise_date.date() < today:
+        missing.append('promise_date')
+    return missing
 
 
 def assert_can_cancel(order: object, *, live_applications: Sequence[object]) -> None:
@@ -640,6 +669,38 @@ async def _assert_not_on_credit_hold(db: AsyncSession, customer_id: int) -> None
         )
 
 
+def is_credit_customer(customer: object) -> bool:
+    """A credit limit above zero, and never the walk-in customer (spec 023 FR-010).
+
+    The one definition the credit default, the move onto a new customer and the cash rule share.
+    Credit days play no part, unlike the monolith's `HasCredit`: 140 active customers have a limit
+    and no days, and this API has always given them the credit default.
+    """
+    return bool(customer.credit_limit and customer.credit_limit > 0) and (
+        customer.customer_id != settings.default_customer_id
+    )
+
+
+async def _assert_cash_allowed(db: AsyncSession, customer: Customer) -> None:
+    """A credit customer pays cash only while they are under their credit limit (spec 023 FR-012).
+
+    At or over it, credit is already refused (#220), and cash is refused too: buying in cash is not
+    a way around a debt the customer has stopped paying down. The comparison is the debt alone, not
+    the debt plus this order, because a cash order adds nothing to what they owe on credit.
+    """
+    if not is_credit_customer(customer):
+        return
+    debt = await _customer_credit_debt(db, customer.customer_id)
+    if debt >= customer.credit_limit:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=(
+                f'Customer must settle their credit before buying: debt {debt:.2f} of limit '
+                f'{customer.credit_limit:.2f}'
+            ),
+        )
+
+
 async def _assert_credit_allowed(db: AsyncSession, customer: Customer) -> None:
     """Credit terms need a real credit line and a customer in good standing (FR-016).
 
@@ -719,17 +780,13 @@ async def create_order(
     if data.payment_terms is not None:
         terms = data.payment_terms
     else:
-        terms = (
-            PaymentTerms.NET_D
-            if customer.credit_limit
-            and customer.credit_limit > 0
-            and customer.customer_id != settings.default_customer_id
-            else PaymentTerms.IMMEDIATE
-        )
+        terms = PaymentTerms.NET_D if is_credit_customer(customer) else PaymentTerms.IMMEDIATE
     # Outer indentation on purpose: the hold applies to the terms the order will actually carry,
     # whether the caller named them or the derivation above chose them (#207).
     if terms == PaymentTerms.NET_D:
         await _assert_credit_allowed(db, customer)
+    else:
+        await _assert_cash_allowed(db, customer)
 
     order = SalesOrder(
         facility=facility,
@@ -915,6 +972,17 @@ async def update_order(
             previous = await _customer_or_404(db, outgoing)
             if customer.price_list != previous.price_list:
                 await _reprice_lines(db, order, customer)
+            # Credit follows a credit customer, as on create (spec 023 FR-011). Only this
+            # direction: a credit order moved off credit is still the end-state check's to refuse.
+            if (
+                'payment_terms' not in changes
+                and order.payment_terms == PaymentTerms.IMMEDIATE
+                and is_credit_customer(customer)
+            ):
+                order.payment_terms = int(PaymentTerms.NET_D)
+                order.due_date = derive_due_date(
+                    order.date, PaymentTerms.NET_D, credit_days=customer.credit_days or 0
+                )
     if 'payment_terms' in changes and changes['payment_terms'] is not None:
         terms = PaymentTerms(changes['payment_terms'])
         customer = await _customer_or_404(db, order.customer)
@@ -931,6 +999,8 @@ async def update_order(
         order.payment_terms == PaymentTerms.NET_D
     ):
         await _assert_credit_allowed(db, await _customer_or_404(db, order.customer))
+    elif 'customer' in changes or 'payment_terms' in changes:
+        await _assert_cash_allowed(db, await _customer_or_404(db, order.customer))
     if 'currency' in changes and changes['currency'] is not None:
         await _change_currency(db, order, CurrencyCode(changes['currency']))
 
@@ -1060,6 +1130,12 @@ async def add_line(
 
     price = data.price if data.price is not None else (listed.price if listed else Decimal(0))
     cost = cost_row.price if cost_row else Decimal(0)
+    # Read only when the request names no rate: an explicit 0 is a decision, not an absence.
+    discount = data.discount_rate
+    if discount is None:
+        discount = await customer_discount_service.rate_for(
+            db, customer.customer_id, product.product_id
+        ) or Decimal(0)
 
     line = SalesOrderDetail(
         sales_order=order.sales_order_id,
@@ -1067,7 +1143,7 @@ async def add_line(
         quantity=quantity,
         cost=cost,
         price=price,
-        discount_rate=data.discount_rate,
+        discount_rate=discount,
         tax_rate=data.tax_rate if data.tax_rate is not None else product.tax_rate,
         product_code=product.code,
         product_name=product.name,
@@ -1152,6 +1228,13 @@ async def confirm_order(
     # customer who fell behind after capture, an order moved onto a customer in arrears, and a
     # quote converted on credit terms all reached a committed sale unchallenged.
     await _assert_not_on_credit_hold(db, order.customer)
+    if order.origin == OrderOrigin.BACK_OFFICE:
+        missing = missing_delivery_details(order, today=local_now().date())
+        if missing:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail={'message': 'Order is missing delivery details', 'missing': missing},
+            )
     employee = current.employee_id
 
     lines = list(
@@ -1216,6 +1299,8 @@ async def confirm_order(
             await _customer_or_404(db, order.customer),
             adding=computed.total * order.exchange_rate,
         )
+    else:
+        await _assert_cash_allowed(db, await _customer_or_404(db, order.customer))
 
     order.serial = await documents.assign_folio(db, SalesOrder, facility=order.facility)
 

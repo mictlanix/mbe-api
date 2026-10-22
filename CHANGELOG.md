@@ -7,6 +7,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Changed
+- **Pilot sales rules** (mictlanix/mbe-roadmap#149, mictlanix/mbe-roadmap#35, spec 023).
+  - **Customer discounts on lines:** a sales order or quote line added without a `discount_rate` starts at the customer's override for the product, or 0. An explicit rate, 0 included, is kept. The override is read only when the line is added, never on edits, a customer change, conversion or duplication, as in the current system.
+  - **Credit default:** quotes now default to credit for a credit customer (credit limit above 0, not the walk-in customer), as orders already did. Moving an open cash order or quote onto a credit customer, without naming terms, puts it on credit. An order then takes the existing credit checks, so moving one onto a customer on hold is refused at that update. A quote is never refused on credit grounds; conversion checks everything.
+  - **No cash at the limit:** a credit customer whose credit debt is at or over their limit can no longer buy in cash. This is refused (422) on order create, update and confirm, and on quote conversion, for every origin, POS included. Under the limit, cash stays allowed. The current system never refused cash.
+  - **Back-office delivery details:** an order raised on the back-office sales orders screen (`origin = 1`) is confirmed only with a `fulfillment_intent`, its own `ship_to` when it is a delivery or mixed, and a `promise_date` that has not passed. Otherwise confirmation returns 409 naming each missing item. POS orders and orders with no recorded origin are unaffected.
+  - **Client notes:**
+    - `discount_rate` on line create is now nullable, with a default of null (it was 0).
+    - mbe-ui enters delivery addresses only on delivery orders, after confirming. Until it sets the order's own `ship_to`, back-office delivery and mixed orders are refused at confirmation.
 - **The 11 master data routers enforce access privileges** (mictlanix/mbe-roadmap#22, spec 022). Customers, employees, exchange rates, expenses, labels, payment method options, price lists, suppliers, taxpayer recipients, vehicle operators and vehicles used to check only that the user was logged in.
   - **Rights by method:** every route now requires the module's privilege: Read to list or fetch, Create to create, Update to edit, Delete to delete. Administrators bypass the check, and a missing `access_privilege` row means no access.
   - **Nested routes:** they take the parent's object. Customer discounts use Customers and supplier agreements use Suppliers, with Read to list and Update to add, edit or remove. Uploading or removing a vehicle operator's license photo takes Update.
@@ -25,6 +33,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   - **Users:** edit, delete, applying a profile, and an administrator issuing a recovery token each write one `UserSettings` incidence, keyed by the affected user's employee id. The incidence names the user id and the fields changed, never their values.
   - The incidence commits in the same transaction as the change, so a failed change leaves none. This resolves the two TODOs in `user_service`.
   - `POST /users/{id}/recover-password` now writes to the database; the incidence is its only row. Product merge writes no incidence.
+
+### Removed
+- **The `PaymentOnDelivery` model** (#248). The current system dropped `payment_on_delivery` in mictlanix/mbe#84, and nothing in this API read or wrote it. The model, its data-dictionary section and its schema-dump block are gone. The receipt's "Contraentrega" label, for payments collected without a cash session, is unaffected.
 
 ### Added
 - **Bank accounts, supplier sub-panels and agreements** (mictlanix/mbe-roadmap#13, spec 021).

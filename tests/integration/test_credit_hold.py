@@ -312,18 +312,28 @@ class TestTheCreditLimit:
         assert confirmed.status_code == 422, confirmed.text
         assert 'over their credit limit' in confirmed.json()['detail']
 
-    async def test_a_cash_sale_is_weighed_against_no_limit(
+    async def test_a_cash_sale_over_the_limit_is_refused_for_its_own_reason(
         self, client: AsyncClient, db: AsyncSession, seeded: None
     ) -> None:
-        """Only a credit order adds to what the customer owes. The hold from #219 still applies to
-        a cash sale; the limit does not, and the two must not be conflated."""
+        """Only a credit order adds to what the customer owes, so #220's limit check still never
+        weighs a cash sale: the "over their credit limit" refusal is for credit terms alone.
+
+        Spec 023 (FR-012) changed what that means for the customer, deliberately. A credit customer
+        at or over their limit may no longer buy in cash either, so cash cannot be used to keep
+        buying while leaving the debt unpaid. The refusal is its own, asking them to settle first,
+        and it comes before any order exists. This test used to assert the cash sale went through.
+        """
         await _credit_customer(db, 7, limit='1000')
         await _outstanding_credit_order(db, 7, amount='2000')
-        order_id = await _draft_with_a_line(client, 7)
 
-        confirmed = await client.post(f'/api/v1/sales-orders/{order_id}/confirm')
+        created = await client.post(
+            '/api/v1/sales-orders', json={'customer': 7, 'payment_terms': 0}
+        )
 
-        assert 'over their credit limit' not in str(confirmed.json().get('detail')), confirmed.text
+        assert created.status_code == 422, created.text
+        detail = str(created.json().get('detail'))
+        assert detail.startswith('Customer must settle their credit'), detail
+        assert 'over their credit limit' not in detail
 
     async def test_the_walk_in_customer_is_exempt_from_the_limit_too(
         self, client: AsyncClient, db: AsyncSession, seeded: None

@@ -14,7 +14,8 @@ class SalesQuoteLineCreate(BaseModel):
     # An absolute markup over the base price. The source document's percentage
     # `price_increment_rate` has no column and is a client-side calculation (see Divergences).
     price_adjustment: Decimal = Field(default=Decimal(0))
-    discount_rate: Decimal = Field(default=Decimal(0), ge=0, le=1)
+    #: Omitted means the customer's override for the product, else 0 (spec 023 FR-001).
+    discount_rate: Decimal | None = Field(default=None, ge=0, le=1)
     comment: str | None = None
 
 
