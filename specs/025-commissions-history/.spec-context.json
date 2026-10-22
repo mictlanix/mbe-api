@@ -1,0 +1,23 @@
+{
+  "workflow": "speckit",
+  "specName": "Commissions with Stable History",
+  "branch": "025-commissions-history",
+  "currentStep": "specify",
+  "status": "specified",
+  "history": [
+    {
+      "step": "specify",
+      "substep": null,
+      "kind": "start",
+      "by": "extension",
+      "at": "2026-10-22T21:47:22.000Z"
+    },
+    {
+      "step": "specify",
+      "substep": null,
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-10-22T21:53:15.991Z"
+    }
+  ]
+}
