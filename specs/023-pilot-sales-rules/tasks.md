@@ -64,12 +64,12 @@
 - at or over the limit, cash is refused on create, update, confirm and convert;
 - `tests/integration/test_credit_hold.py` passes unchanged.
 
-- [ ] T007 [P] [US2] Add unit tests for `is_credit_customer` to `tests/unit/test_sales_order_service.py` (commit with T009). Build `SimpleNamespace(customer_id=..., credit_limit=...)` stubs:
+- [X] T007 [P] [US2] Add unit tests for `is_credit_customer` to `tests/unit/test_sales_order_service.py` (commit with T009). Build `SimpleNamespace(customer_id=..., credit_limit=...)` stubs:
   - `credit_limit` `None` → False;
   - `0` → False;
   - `5000` → True;
   - the walk-in id (`settings.default_customer_id`) with `5000` → False.
-- [ ] T008 [P] [US2] Write `tests/integration/test_sales_rules_flow.py`, class `TestCreditTerms` (commit with T009–T013).
+- [X] T008 [P] [US2] Write `tests/integration/test_sales_rules_flow.py`, class `TestCreditTerms` (commit with T009–T013).
   - **Seeded customers:**
     - **G:** credit limit 5000, credit days 30, no debt (in good standing).
     - **H:** limit 5000, with one overdue unpaid NET_D order, as `_overdue_credit_order` in `test_credit_hold.py` (on hold).
@@ -86,19 +86,23 @@
     8. **Confirm at the limit:** an open cash draft for L, inserted directly with `db.add(SalesOrder(... payment_terms=0, completed=False ...))` plus a line, then confirm → 422 with the same message.
     9. **Convert at the limit:** a cash quote for L (`POST /sales-quotes {customer: L, payment_terms: 0}` → 201, FR-019), with a line, then `POST /sales-quotes/{id}/convert` → 422 with the same message.
     10. A cash order for the walk-in customer and for N, created and confirmed with a line → no cash-rule refusal.
-- [ ] T009 [US2] In `app/services/sales_order_service.py`, add `def is_credit_customer(customer) -> bool` (research R3): `bool(customer.credit_limit and customer.credit_limit > 0) and customer.customer_id != settings.default_customer_id`. Replace the inline condition in `create_order` with it.
-- [ ] T010 [US2] In `app/services/sales_order_service.py`:
+- [X] T009 [US2] In `app/services/sales_order_service.py`, add `def is_credit_customer(customer) -> bool` (research R3): `bool(customer.credit_limit and customer.credit_limit > 0) and customer.customer_id != settings.default_customer_id`. Replace the inline condition in `create_order` with it.
+- [X] T010 [US2] In `app/services/sales_order_service.py`:
   - **Helper:** add `async def _assert_cash_allowed(db, customer) -> None` (research R5). If `is_credit_customer(customer)` and `await _customer_credit_debt(db, customer.customer_id) >= customer.credit_limit`, raise `HTTPException(422, f'Customer must settle their credit before buying: debt {debt:.2f} of limit {limit:.2f}')`. Give it a docstring citing spec 023 FR-012 and why the comparison uses the debt alone.
   - **Call sites:**
     - (a) in `create_order`, `if terms == PaymentTerms.IMMEDIATE: await _assert_cash_allowed(db, customer)`;
     - (b) in `update_order`, beside the #219 end-state check: when `customer` or `payment_terms` changed and `order.payment_terms == PaymentTerms.IMMEDIATE`, call it with the order's customer;
     - (c) in `confirm_order`, in the branch beside the existing `if order.payment_terms == PaymentTerms.NET_D:` limit check: `else: await _assert_cash_allowed(db, await _customer_or_404(db, order.customer))`.
-- [ ] T011 [US2] In `app/services/sales_order_service.py` `update_order`, inside the customer branch: when the customer moved, `'payment_terms' not in changes`, `order.payment_terms == PaymentTerms.IMMEDIATE` and `is_credit_customer(customer)`, set `order.payment_terms = int(PaymentTerms.NET_D)` and recompute `order.due_date` with `derive_due_date(order.date, PaymentTerms.NET_D, credit_days=customer.credit_days or 0)`. The existing end-state check then applies. Leave the reverse direction alone (research R4).
-- [ ] T012 [US2] In `app/services/sales_quote_service.py`:
+- [X] T011 [US2] In `app/services/sales_order_service.py` `update_order`, inside the customer branch: when the customer moved, `'payment_terms' not in changes`, `order.payment_terms == PaymentTerms.IMMEDIATE` and `is_credit_customer(customer)`, set `order.payment_terms = int(PaymentTerms.NET_D)` and recompute `order.due_date` with `derive_due_date(order.date, PaymentTerms.NET_D, credit_days=customer.credit_days or 0)`. The existing end-state check then applies. Leave the reverse direction alone (research R4).
+- [X] T012 [US2] In `app/services/sales_quote_service.py`:
   - **`create_quote`:** default the terms to `PaymentTerms.NET_D if sales_order_service.is_credit_customer(customer) else PaymentTerms.IMMEDIATE` when `data.payment_terms is None`.
   - **`update_quote`:** in the customer branch, the same derivation as T011 (moved, terms not in the request, quote IMMEDIATE, credit customer → NET_D).
   - **No credit check** in either function (FR-019). Add a one-line comment saying so.
-- [ ] T013 [US2] In `app/services/sales_quote_service.py` `convert_to_order`, beside `if terms == PaymentTerms.NET_D: await sales_order_service._assert_credit_allowed(...)`, add `else: await sales_order_service._assert_cash_allowed(db, customer)`. Then run `uv run pytest tests/integration tests/unit tests/api -q`. All green, including `tests/integration/test_credit_hold.py` unchanged (SC-004). Commit T007–T013.
+- [X] T013 [US2] In `app/services/sales_quote_service.py` `convert_to_order`, beside `if terms == PaymentTerms.NET_D: await sales_order_service._assert_credit_allowed(...)`, add `else: await sales_order_service._assert_cash_allowed(db, customer)`. Then run `uv run pytest tests/integration tests/unit tests/api -q`. All green, including `tests/integration/test_credit_hold.py` unchanged (SC-004). Commit T007–T013.
+  - **Done (2026-10-22)**: 3263 passed. Three things beyond the task list:
+    - `test_credit_hold.py::test_a_cash_sale_is_weighed_against_no_limit` asserted the opposite of FR-012. It is rewritten as `test_a_cash_sale_over_the_limit_is_refused_for_its_own_reason`, and SC-004 now names the exception.
+    - The customer stubs in `TestCustomerChangeGuard` (orders) gained `credit_limit=None`.
+    - In `TestTheSalespersonFollowsTheCustomer` (quotes), the quote stub gained `payment_terms` and the customer stub `credit_limit=None`. The new code reads both.
 
 **Checkpoint**: the credit rules are enforced.
 

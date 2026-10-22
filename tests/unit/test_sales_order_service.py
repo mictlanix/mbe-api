@@ -584,12 +584,20 @@ class TestCustomerChangeGuard:
             modification_time=None,
         )
         reprice = AsyncMock()
+        # No credit line on either: spec 023 moves an immediate order onto credit for a credit
+        # customer and weighs cash against the limit, and both would drag the credit checks in.
         customers = {
             from_customer: SimpleNamespace(
-                customer_id=from_customer, price_list=from_list, salesperson=order_salesperson
+                customer_id=from_customer,
+                price_list=from_list,
+                salesperson=order_salesperson,
+                credit_limit=None,
             ),
             to_customer: SimpleNamespace(
-                customer_id=to_customer, price_list=to_list, salesperson=customer_salesperson
+                customer_id=to_customer,
+                price_list=to_list,
+                salesperson=customer_salesperson,
+                credit_limit=None,
             ),
         }
         with (
@@ -1061,3 +1069,24 @@ class TestOverdueCutoffUsesTheBusinessClock:
 
         statement = db.execute.await_args.args[0]
         assert now in statement.compile().params.values()
+
+
+class TestWhoIsACreditCustomer:
+    """One definition for every credit rule: the order and quote defaults, the move onto a new
+    customer, and the cash rule (spec 023 FR-010). A limit above zero, and never the walk-in."""
+
+    @pytest.mark.parametrize(
+        ('customer_id', 'credit_limit', 'expected'),
+        [
+            (2, None, False),
+            (2, Decimal('0'), False),
+            (2, Decimal('5000'), True),
+            (sales_order_service.settings.default_customer_id, Decimal('5000'), False),
+        ],
+    )
+    def test_a_credit_customer_has_a_limit_and_is_not_the_walk_in(
+        self, customer_id: int, credit_limit: Decimal | None, expected: bool
+    ) -> None:
+        customer = SimpleNamespace(customer_id=customer_id, credit_limit=credit_limit)
+
+        assert sales_order_service.is_credit_customer(customer) is expected

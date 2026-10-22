@@ -13,6 +13,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from fastapi import HTTPException
 
+from app.enums import PaymentTerms
 from app.schemas.sales_quote import SalesQuoteUpdate
 from app.services import documents, sales_quote_service
 from app.services.sales_quote_service import (
@@ -120,12 +121,17 @@ class TestTheSalespersonFollowsTheCustomer:
             sales_quote_id=1,
             customer=from_customer,
             salesperson=quote_salesperson,
+            # Read since spec 023, which moves an immediate quote onto credit for a credit
+            # customer. Neither side has a credit line here, so the terms never move.
+            payment_terms=int(PaymentTerms.IMMEDIATE),
             completed=False,
             cancelled=False,
             updater=None,
             modification_time=None,
         )
-        incoming = SimpleNamespace(customer_id=to_customer, salesperson=customer_salesperson)
+        incoming = SimpleNamespace(
+            customer_id=to_customer, salesperson=customer_salesperson, credit_limit=None
+        )
         with (
             patch.object(sales_quote_service, '_customer_or_404', AsyncMock(return_value=incoming)),
             patch.object(sales_quote_service, 'attach_derived', AsyncMock(return_value=quote)),

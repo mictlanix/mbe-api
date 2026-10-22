@@ -178,7 +178,14 @@ async def create_quote(
     )
     now = data.date or local_now()
     currency = data.currency if data.currency is not None else settings.default_currency
-    terms = data.payment_terms if data.payment_terms is not None else PaymentTerms.IMMEDIATE
+    # The order's credit default, without the order's checks: a quote commits nothing, so it is
+    # never refused on credit grounds, and conversion checks everything (spec 023 FR-019).
+    if data.payment_terms is not None:
+        terms = data.payment_terms
+    elif sales_order_service.is_credit_customer(customer):
+        terms = PaymentTerms.NET_D
+    else:
+        terms = PaymentTerms.IMMEDIATE
 
     quote = SalesQuote(
         facility=current.facility_id,
@@ -296,6 +303,14 @@ async def update_quote(
         # that has not moved the customer would overwrite a deliberate assignment.
         if moved and customer.salesperson is not None:
             quote.salesperson = customer.salesperson
+        # Credit follows a credit customer, unchecked like the create default (spec 023 FR-011).
+        if (
+            moved
+            and 'payment_terms' not in changes
+            and quote.payment_terms == PaymentTerms.IMMEDIATE
+            and sales_order_service.is_credit_customer(customer)
+        ):
+            quote.payment_terms = int(PaymentTerms.NET_D)
     if 'payment_terms' in changes and changes['payment_terms'] is not None:
         quote.payment_terms = int(PaymentTerms(changes['payment_terms']))
     if 'currency' in changes and changes['currency'] is not None:
@@ -548,6 +563,8 @@ async def convert_to_order(
     # result; this API now checks at both ends rather than relying on the backstop.
     if terms == PaymentTerms.NET_D:
         await sales_order_service._assert_credit_allowed(db, customer)
+    else:
+        await sales_order_service._assert_cash_allowed(db, customer)
 
     order = SalesOrder(
         facility=quote.facility,
