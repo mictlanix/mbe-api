@@ -139,14 +139,14 @@
 
 ### Tests (write first, must fail)
 
-- [ ] T020 [P] [US2] **(commit with T025)** Unit tests for the discount service:
+- [X] T020 [P] [US2] **(commit with T025)** Unit tests for the discount service:
   - Create raises 422 `Product not found` for an unknown product, and 409 `Customer already has a discount for this product` for a duplicate.
   - Get, update and delete return `None` or 404 for an override belonging to another customer.
   - Update changes only `discount`.
   - The list is ordered by product code and carries `product_id`, `code` and `name`.
 
   File: `tests/unit/test_customer_discount_service.py`
-- [ ] T021 [P] [US2] **(commit with T026)** API tests for `/customers/{customer_id}/discounts`:
+- [X] T021 [P] [US2] **(commit with T026)** API tests for `/customers/{customer_id}/discounts`:
   - list: 200, and 404 for an unknown customer;
   - POST: 201, 404, 409, and 422 for a rate of `-0.01`, a rate of `1.01`, 9 decimal places, or a missing `product`;
   - PUT: 200 and 404. A body that also sends `product` still returns 200, and `product` is not passed to the service, because the update schema has no such field and extra fields are ignored (FR-011);
@@ -154,7 +154,7 @@
   - 401 on each route.
 
   File: `tests/api/test_customer_discounts.py`
-- [ ] T022 [P] [US2] **(commit with T026)** Integration test on SQLite:
+- [X] T022 [P] [US2] **(commit with T026)** Integration test on SQLite:
   - Add an override and list it.
   - A second override for the same customer and product returns 409 and leaves one row.
   - The same product for a different customer is allowed.
@@ -164,17 +164,17 @@
 
 ### Implementation
 
-- [ ] T023 [P] [US2] Add `__table_args__ = (UniqueConstraint('customer', 'product', name='customer_discount_unique_idx'),)` to `CustomerDiscount`, with a comment that the key already exists in mbe_dev and in `docs/mbe_schema.sql`, so no migration is needed (research R5) · `app/models/customer.py`
-- [ ] T024 [P] [US2] Schemas:
+- [X] T023 [P] [US2] Add `__table_args__ = (UniqueConstraint('customer', 'product', name='customer_discount_unique_idx'),)` to `CustomerDiscount`, with a comment that the key already exists in mbe_dev and in `docs/mbe_schema.sql`, so no migration is needed (research R5) · `app/models/customer.py`
+- [X] T024 [P] [US2] Schemas:
   - `ProductSummary` (`product_id`, `code`, `name`), defined in `app/schemas/product.py` beside `ProductListItem` and imported here.
   - `CustomerDiscountCreate` (`product: int`, `discount: Decimal = Field(ge=0, le=1, decimal_places=8)`).
   - `CustomerDiscountUpdate` (`discount` only).
   - `CustomerDiscountResponse` (`customer_discount_id`, `customer: int`, `product: ProductSummary`, `discount`).
 
   Files: `app/schemas/product.py`, `app/schemas/customer.py`
-- [ ] T025 [US2] Create `customer_discount_service.py` with `list_discounts` (a single join to `product`, ordered by `Product.code`), `get_discount` (scoped to the customer), `create_discount` (product-existence check first, then the duplicate check, then insert), `update_discount` and `delete_discount`. Attach the `ProductSummary` the same way the other services attach expansions. The module docstring states that nothing applies these to prices (clarification Q4) · `app/services/customer_discount_service.py`
-- [ ] T026 [US2] Add `GET` and `POST /{customer_id}/discounts`, and `PUT` and `DELETE /{customer_id}/discounts/{customer_discount_id}`. Each returns 404 for an unknown customer or for an override of another customer. Access stays `get_current_user` · `app/api/v1/endpoints/customers.py`
-- [ ] T027 [P] [US2] Scope 01 §3: describe the discount sub-panel as delivered (routes, the 0–1 rate, unique per product, product fixed after create). Say plainly that sales orders and quotes do not apply these yet · `docs/specs/01-master-data.md`
+- [X] T025 [US2] Create `customer_discount_service.py` with `list_discounts` (a single join to `product`, ordered by `Product.code`), `get_discount` (scoped to the customer), `create_discount` (product-existence check first, then the duplicate check, then insert), `update_discount` and `delete_discount`. Attach the `ProductSummary` the same way the other services attach expansions. The module docstring states that nothing applies these to prices (clarification Q4) · `app/services/customer_discount_service.py`
+- [X] T026 [US2] Add `GET` and `POST /{customer_id}/discounts`, and `PUT` and `DELETE /{customer_id}/discounts/{customer_discount_id}`. Each returns 404 for an unknown customer or for an override of another customer. Access stays `get_current_user` · `app/api/v1/endpoints/customers.py`
+- [X] T027 [P] [US2] Scope 01 §3: describe the discount sub-panel as delivered (routes, the 0–1 rate, unique per product, product fixed after create). Say plainly that sales orders and quotes do not apply these yet · `docs/specs/01-master-data.md`
 
 **Checkpoint**: T020–T022 pass, and so do the contract-doc blocks for `CustomerDiscount*` and `ProductSummary`.
 

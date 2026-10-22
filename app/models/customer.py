@@ -1,6 +1,6 @@
 from decimal import Decimal
 
-from sqlalchemy import Column, ForeignKey, Integer, Numeric, String, Table
+from sqlalchemy import Column, ForeignKey, Integer, Numeric, String, Table, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -70,6 +70,9 @@ class Customer(Base):
 
 class CustomerDiscount(Base):
     __tablename__ = 'customer_discount'
+    # The key already exists in mbe_dev and in docs/mbe_schema.sql, so no migration; declaring it
+    # here makes the SQLite test schema enforce it too.
+    __table_args__ = (UniqueConstraint('customer', 'product', name='customer_discount_unique_idx'),)
 
     customer_discount_id: Mapped[int] = mapped_column(Integer, primary_key=True)
     customer: Mapped[int] = mapped_column(Integer, ForeignKey('customer.customer_id'))

@@ -4,7 +4,7 @@ from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator
 
 from app.enums import EntityStatus
 from app.schemas.core import AddressResponse, ContactResponse, EmployeeResponse
-from app.schemas.product import PriceListResponse
+from app.schemas.product import PriceListResponse, ProductSummary
 from app.schemas.sat_catalog import SatCatalogResponse
 
 # ── Taxpayer Recipient ────────────────────────────────────────────────────────
@@ -125,3 +125,26 @@ class CustomerResponse(BaseModel):
     # A list, not a scalar: `customer_taxpayer` is many-to-many and the legacy data uses it that
     # way — a customer may invoice under more than one RFC (#150).
     taxpayers: list[TaxpayerRecipientResponse] = []
+
+
+# ── Customer discount ─────────────────────────────────────────────────────────
+
+
+class CustomerDiscountCreate(BaseModel):
+    product: int
+    #: A fraction, not a percentage: `0.15` is 15%. Matches the `Numeric(9, 8)` column.
+    discount: Decimal = Field(ge=0, le=1, decimal_places=8)
+
+
+class CustomerDiscountUpdate(BaseModel):
+    # No `product`: the product is fixed once the override exists.
+    discount: Decimal = Field(ge=0, le=1, decimal_places=8)
+
+
+class CustomerDiscountResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    customer_discount_id: int
+    customer: int
+    product: ProductSummary = Field(validation_alias=AliasChoices('product_detail', 'product'))
+    discount: Decimal

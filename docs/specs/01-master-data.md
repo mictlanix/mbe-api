@@ -156,7 +156,14 @@ Buyer entities. All sales orders, payments, and refunds belong to a customer.
 - **Addresses** (`customer_address`): list of shipping/billing addresses.
 - **Contacts** (`customer_contact`): list of contact persons.
 - **Taxpayers** (`customer_taxpayer`): RFC(s) associated for invoicing.
-- **Discounts** (`customer_discount`): product-specific discount overrides.
+- **Discounts** (`customer_discount`): product-specific discount overrides, nested under the
+  customer: `GET` and `POST /customers/{id}/discounts`, `PUT` and `DELETE`
+  `/customers/{id}/discounts/{customer_discount_id}`. The list is ordered by product code and each
+  row carries the product's `product_id`, `code` and `name`. `discount` is a fraction from 0 to 1
+  with up to 8 decimal places. There is one override per product (409 on a repeat), an unknown
+  product returns 422, the product is fixed after create (`PUT` changes only `discount`), and an
+  override of another customer returns 404. Sales orders and quotes do not apply these discounts
+  to prices yet.
 
 ### Business Rules
 - **Cannot delete `WebConfig.DefaultCustomer`**: the system-default customer (used for anonymous POS sales) is protected from deletion. Attempting to delete it returns an error.
