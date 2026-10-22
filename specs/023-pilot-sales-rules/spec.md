@@ -91,7 +91,10 @@ Every one of the 5 back-office orders ever created (the 1 open draft and 4 confi
 
 ### Session 2026-10-22
 
-- (Pending: `/speckit.clarify` confirms the delivery mapping, FR-008, as the request asks, and settles FR-012 and FR-013.)
+- Q: What counts as "delivery details and a delivery date" when a back-office order is confirmed? → A: `fulfillment_intent` is recorded; `ship_to` is set when the intent is delivery or mixed; and `promise_date` is not earlier than today. mbe-ui does not yet set the order's `ship_to`, so back-office delivery orders are refused at confirmation until it does (FR-008, FR-018).
+- Q: When may a credit customer use cash terms? → A: While they are under their credit limit. Credit stays the default. Once their outstanding credit debt reaches or passes the limit, cash is refused as well, so a customer cannot keep buying in cash while leaving their debt unpaid. Overdue credit already blocks confirmation whatever the terms (#219) (FR-012).
+- Q: Which documents do the credit rules cover? → A: All sales orders, including POS counter sales and orders with no recorded origin, and all quotes (FR-013).
+- Q: Should a quote for a credit customer on hold be refused, as an order is (#207)? → A: No. Quotes default to credit for credit customers and are never refused on credit grounds, neither for the hold nor for the cash rule. The credit and cash checks apply when the quote is converted to an order (FR-011, FR-012).
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -119,26 +122,27 @@ A salesperson adds a product to a sales order, a POS sale or a quote for a custo
 
 ---
 
-### User Story 2 - Credit customers buy on credit by default, not in cash (Priority: P1)
+### User Story 2 - Credit customers buy on credit by default, and cannot dodge their debt in cash (Priority: P1)
 
-When a sales order or quote is opened for a customer with a credit line, it starts on credit terms, and the server refuses to put it on cash terms. Customers without a credit line keep buying in cash as today, and the existing credit holds keep applying.
+When a sales order or quote is opened for a customer with a credit line, it starts on credit terms. The customer may still choose to pay cash while they are under their credit limit. Once their credit debt reaches the limit, the server refuses cash as well as credit, so they must pay down what they owe before buying again. Customers without a credit line keep buying in cash as today, and the existing credit holds keep applying.
 
-**Why this priority**: This rule comes from the pilot's own TODO list ("restringir pago de contado"). The measurement shows it changes how a third of credit customers' orders are taken today, so it has to be precise about what happens when credit is not available.
+**Why this priority**: This rule comes from the pilot's own TODO list ("restringir pago de contado"). A third of credit customers' orders are cash today, so the rule restricts cash only where it lets a customer avoid paying their debt.
 
 **Independent Test**:
-- For a credit customer in good standing:
+- For a credit customer under their limit:
   - create an order and a quote without terms: both are on credit;
+  - set an order to cash: accepted.
+- For a credit customer whose debt is at or over their limit:
   - set an order to cash: refused;
-  - confirm an open cash draft for that customer: refused.
+  - confirm an open cash draft: refused.
 - For a customer without a credit line: cash works.
-- For a credit customer on hold: the outcome follows FR-012.
 
 **Acceptance Scenarios**:
 
-1. **Given** a credit customer, **When** a sales order or quote is created without payment terms, **Then** it gets credit terms.
-2. **Given** a credit customer, **When** a create or update asks for cash terms, **Then** it is refused with a message saying the customer buys on credit, and nothing changes. The exception is the case FR-012 allows.
+1. **Given** a credit customer, **When** a sales order or quote is created without payment terms, **Then** it gets credit terms. For an order, the existing credit checks then apply. A quote is never refused, even for a customer on hold (FR-019).
+2. **Given** a credit customer whose credit debt is at or over their limit, **When** an order's create or update asks for cash terms, **Then** it is refused with a message saying the customer must settle their credit first, and nothing changes. Under the limit, cash is accepted.
 3. **Given** an open cash order or quote, **When** its customer changes to a credit customer and the request does not name terms, **Then** the terms become credit, subject to the existing credit checks.
-4. **Given** an open cash draft for a credit customer, **When** it is confirmed (order) or converted (quote), **Then** it is refused under the same rule. mbe_dev holds 37 such orders and 86 such quotes.
+4. **Given** an open cash draft for a credit customer at or over their limit, **When** it is confirmed (order) or converted (quote), **Then** it is refused under the same rule. Of the 37 such orders and 86 such quotes in mbe_dev, only those whose customer is at or over the limit are affected (SC-005).
 5. **Given** a customer without a credit line, or the walk-in customer, **When** an order or quote is created, **Then** it is on cash terms, as today, and credit is still refused.
 6. **Given** any customer, **Then** the existing credit holds (overdue credit, over the limit, no limit, walk-in) behave exactly as before.
 
@@ -150,7 +154,12 @@ An order captured on the back-office sales orders screen cannot be confirmed unt
 
 **Why this priority**: These orders are delivered rather than picked up, and dispatch cannot plan without the details and the date. Today only 1 open order would be affected, because the screen is new, so the rule costs little now and prevents bad data from accumulating.
 
-**Independent Test**: Create a back-office order (origin 1) and add lines. Confirming it without the details or date that FR-008 requires is refused, and the response names what is missing. Once those are filled in, it confirms. A POS order (origin 0) and an order with no origin confirm as today.
+**Independent Test**: Create a back-office order (origin 1) and add lines. Confirming is refused, and the response names what is missing, in each of these cases:
+- no intent;
+- intent delivery with no `ship_to`;
+- a `promise_date` before today.
+
+With intent delivery, a `ship_to` and a date of today or later, it confirms. With intent pickup and no `ship_to`, it also confirms. A POS order (origin 0) and an order with no origin confirm as today.
 
 **Acceptance Scenarios**:
 
@@ -182,7 +191,9 @@ The API no longer maps a table that the current system has dropped, and the docu
 - **Walk-in customer:** the walk-in customer can have overrides like any customer. They apply to lines, while the credit rule never applies to it.
 - **Credit days of 0:** a customer with a credit limit above 0 but 0 credit days (140 active customers) counts as a credit customer, as it does in this API today. The current system would not count it (see Assumptions).
 - **Both fields in one request:** a request that changes the customer and sets cash terms is judged on the state the order ends in, like the existing credit checks (#219).
-- **Converting a quote:** a cash quote for a credit customer that is converted is judged at conversion, the same as confirming an order.
+- **Converting a quote:** a quote is never refused on credit grounds while it is a quote. Converting it judges the resulting order's terms with every credit check and FR-012, the same as confirming an order.
+- **Pickup back-office order:** a back-office order with intent pickup needs no `ship_to`. It still needs a promise date of today or later.
+- **Stale default date:** an order whose defaulted promise date has passed is refused until the date is moved to today or later.
 - **Origin set later:** origin cannot be changed after create, so an order's delivery requirement is fixed when it is created.
 
 ## Requirements *(mandatory)*
@@ -201,23 +212,32 @@ The API no longer maps a table that the current system has dropped, and the docu
 
 - **FR-006**: Confirming a sales order whose origin is back office (1) MUST be refused while the delivery details or the delivery date required by FR-008 are missing.
 - **FR-007**: The refusal MUST name each missing item, and nothing may change: no folio, no stock reservation, no status change.
-- **FR-008**: The required items are [NEEDS CLARIFICATION: the mapping of "delivery details and a delivery date" onto the order's fields, to be confirmed in /speckit.clarify. Proposed: delivery details = `fulfillment_intent` is recorded, and `ship_to` is set when the intent is delivery or mixed; delivery date = `promise_date`. Two facts complicate this:
-  - mbe-ui never sets the order's `ship_to`; it enters addresses on delivery orders after confirming.
-  - `promise_date` can never be empty, because the server defaults it to the order date + 7 days.]
+- **FR-008**: The required items are:
+  - **Fulfilment intent:** `fulfillment_intent` is recorded (pickup, delivery or mixed);
+  - **Delivery address:** `ship_to` is set when the intent is delivery or mixed (a pickup needs no address);
+  - **Delivery date:** `promise_date` is not earlier than today's date. The server's 7-day default passes until it goes stale.
 - **FR-009**: Orders with origin 0 (POS) or no recorded origin MUST be confirmed exactly as today.
 
 **Credit terms (#35)**
 
 - **FR-010**: A credit customer is an active customer with a credit limit above 0 who is not the walk-in customer, the definition this API already uses for the order credit default.
-- **FR-011**: A new sales order (unchanged) and a new sales quote (new) for a credit customer MUST default to credit terms when the request names none. The resulting terms go through the existing credit checks. Changing an open order's or quote's customer to a credit customer, when the request names no terms, MUST set credit terms the same way.
-- **FR-012**: A sales order or quote for a credit customer MUST NOT be on cash terms. The rule is checked on create, on update, when an order is confirmed and when a quote is converted, and a violation is refused with a message saying the customer buys on credit. [NEEDS CLARIFICATION: what happens when the credit customer cannot take credit right now? 154 credit customers are on credit hold, and their cash orders are 832 of the 2,405 cash orders above. Refusing both credit and cash means they cannot buy at all until they pay. The alternatives are to allow cash only while the customer is on hold or over their limit, or to keep cash as a free choice (credit is only the default, as in the current system).]
-- **FR-013**: The scope of FR-012 is [NEEDS CLARIFICATION: every order, including POS counter sales (origin 0), or only back-office orders and quotes? The request says "new orders and quotes". The TODO item that asks for it sits in the general list, and the POS is where a credit customer pays cash at the counter today.]
+- **FR-011**: A new sales order and a new sales quote for a credit customer MUST default to credit terms when the request names none. Changing an open order's or quote's customer to a credit customer MUST set credit terms the same way when the request names no terms. The order's resulting terms go through the existing credit checks (unchanged). A quote's do not: a quote is never refused on credit grounds (FR-019).
+- **FR-012**: A sales order or quote for a credit customer MAY be on cash terms only while the customer's outstanding credit debt is below their credit limit. "Outstanding credit debt" means what the existing limit check already counts (#220). At or over the limit, cash MUST be refused with a message saying the customer must settle their credit first. Credit is refused there already, so such a customer cannot buy until they pay down. The check runs:
+  - on an order's create and update (terms or customer);
+  - when an order is confirmed;
+  - when a quote is converted, the only point at which it applies to a quote (FR-019).
+
+  A cash order adds nothing to the debt, so the comparison is the debt alone, not the debt plus the order.
+- **FR-013**: FR-011 and FR-012 apply to every sales order, whatever its origin: POS counter sales (0), back-office orders (1) and orders with no recorded origin. They also apply to every sales quote, as limited by FR-019.
+- **FR-019**: Creating or updating a sales quote MUST NOT be refused on credit grounds. That covers the walk-in customer, no credit limit, overdue credit, being over the limit, and FR-012. A quote may record credit or cash terms for any customer. A credit customer's quote defaults to credit, and every check applies when the quote is converted to an order.
 - **FR-014**: The existing credit holds MUST behave exactly as before: no credit for the walk-in customer or a customer with no limit, no credit or confirmation for a customer with overdue credit, and no credit beyond the limit.
 
 **PaymentOnDelivery (#248)**
 
 - **FR-015**: The `PaymentOnDelivery` model MUST be removed from the API. Its descriptions MUST be removed from the data dictionary, the schema dump and spec 019's data model.
 - **FR-016**: No migration in this API drops the table. The current system's schema change (mictlanix/mbe#84) owns the drop.
+
+- **FR-018**: The delivery address check reads the order's own `ship_to`, not the delivery orders' addresses. Until mbe-ui sets the order's `ship_to`, a back-office order with intent delivery or mixed is refused at confirmation. This is accepted, and mictlanix/mbe-ui gets an issue for it.
 
 **Documentation**
 
@@ -237,9 +257,9 @@ The API no longer maps a table that the current system has dropped, and the docu
 
 - **SC-001**: A line added for a customer with an override carries the override in 100% of cases where the request did not name a discount, and an explicit discount is never overwritten.
 - **SC-002**: 0 back-office orders reach confirmation without the FR-008 items, and POS orders are unaffected. Tests cover a back-office order with each item missing in turn, and a POS order.
-- **SC-003**: No new order or quote for a credit customer starts on cash terms. Cash is refused for a credit customer except where FR-012 and FR-013 allow it.
+- **SC-003**: No new order or quote for a credit customer starts on cash terms unless the request asks for it. Cash is refused on every order whose credit customer's debt is at or over their limit, and on every conversion of such a quote (FR-013, FR-019). No quote is refused on credit grounds while it is a quote.
 - **SC-004**: Every existing credit-hold test passes unchanged.
-- **SC-005**: The mbe_dev counts in this spec are re-run after implementation, and the spec reports how many open drafts the rules now block: 37 cash orders and 86 cash quotes for credit customers, and 1 back-office order, before any data change.
+- **SC-005**: The mbe_dev counts in this spec are re-run after implementation, and the spec reports how many open drafts the rules now block, before any data change: cash drafts for credit customers at or over their limit (out of 37 cash orders and 86 cash quotes for credit customers), and back-office orders missing an FR-008 item (1 today).
 - **SC-006**: A search of the API code and the four named documents finds no `PaymentOnDelivery` or `payment_on_delivery`, and the full test suite passes.
 
 ## Assumptions
@@ -255,7 +275,7 @@ The API no longer maps a table that the current system has dropped, and the docu
 
 ## Out of Scope
 
-- UI changes, including mbe-ui sending `ship_to` or a promise date.
+- UI changes. **Dependency (FR-018):** mbe-ui must set the order's `ship_to` (it enters addresses only on delivery orders today) before back-office delivery or mixed orders can be confirmed.
 - The quote PDF and email (mictlanix/mbe-roadmap#30).
 - Commissions (mictlanix/mbe-roadmap#32, #33).
 - Concrete dispatch (mictlanix/mbe-roadmap#36).

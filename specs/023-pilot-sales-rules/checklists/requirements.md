@@ -13,7 +13,7 @@
 
 ## Requirement Completeness
 
-- [ ] No [NEEDS CLARIFICATION] markers remain
+- [x] No [NEEDS CLARIFICATION] markers remain
 - [x] Requirements are testable and unambiguous
 - [x] Success criteria are measurable
 - [x] Success criteria are technology-agnostic (no implementation details)
@@ -31,8 +31,5 @@
 
 ## Notes
 
-- Three markers are left for `/speckit.clarify`, as the request asked for the delivery mapping:
-  - FR-008: the delivery mapping;
-  - FR-012: cash for a credit customer who cannot take credit right now;
-  - FR-013: whether the cash rule covers POS counter sales.
+- The three markers (FR-008, FR-012, FR-013) were resolved by `/speckit.clarify` on 2026-10-22.
 - The spec names fields (`fulfillment_intent`, `ship_to`, `promise_date`, `origin`, `payment_terms`) on purpose. The request is stated in those terms, and the rules cannot be pinned without them.
