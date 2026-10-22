@@ -121,7 +121,7 @@
   - promise `2026-10-21 23:59` → `['promise_date']`;
   - everything missing → all three, in the order intent, ship_to, promise_date.
 - [ ] T015 [P] [US3] Add class `TestBackOfficeDelivery` to `tests/integration/test_sales_rules_flow.py` (commit with T016).
-  - **Setup:** use the walk-in customer, or a non-credit customer, to keep credit out of it. Seed one `Address` row for `ship_to`, following an existing integration test that seeds addresses (`grep -rn "Address(" tests/integration`).
+  - **Setup:** use the walk-in customer, or a non-credit customer, to keep credit out of it. Use the address the integration seed already creates, `address_id=1` (`tests/integration/seed.py:79`), as `ship_to`. No new seeding is needed.
   - **Cases:**
     1. `origin: 1` with no intent, add a line, confirm → 409, `detail.missing == ['fulfillment_intent']`.
     2. `origin: 1`, `fulfillment_intent: 1`, no `ship_to` → 409, `['ship_to']`. Then `PUT {ship_to: A}` → confirm 200.

@@ -7,7 +7,7 @@ No migration. No column is added or changed. The only schema-level change is rem
 | Table | Columns read | Rule |
 |---|---|---|
 | `customer_discount` | `customer`, `product`, `discount` (0–1, unique per pair) | Line discount default (FR-001) |
-| `customer` | `customer_id`, `credit_limit`, `status` | Credit customer: `credit_limit > 0` and not the walk-in id (FR-010) |
+| `customer` | `customer_id`, `credit_limit` | Credit customer: `credit_limit > 0` and not the walk-in id (FR-010) |
 | `sales_order` | `origin`, `fulfillment_intent`, `ship_to`, `promise_date`, `payment_terms` | Delivery details (FR-008), cash rule (FR-012) |
 | `sales_order` / `customer_payment` and the related tables | via the existing `_customer_credit_debt` | "Outstanding credit debt" (FR-012, #220) |
 

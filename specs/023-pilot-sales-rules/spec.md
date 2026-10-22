@@ -71,7 +71,7 @@
 | … of which had at least one **cash** (IMMEDIATE) order in those 12 months | **234** |
 | … of which are on credit hold now (overdue, unpaid credit orders) | 154 |
 | Orders by credit customers in the last 12 months: cash / credit | **2,405** / 5,409 (31% cash) |
-| … cash orders whose customer is on credit hold now | 832 |
+| … cash orders whose customer is on credit hold now (these customers are already refused at confirmation whatever the terms, #219, so the cash rule does not change this) | 832 |
 | … cash orders converted from a quote | 919 |
 | Quotes by credit customers in the last 12 months: cash / credit | 1,970 / 982 |
 | Open (draft) orders by credit customers: cash / credit | **37** / 20 (of 290 open orders) |
@@ -141,7 +141,7 @@ When a sales order or quote is opened for a customer with a credit line, it star
 
 1. **Given** a credit customer, **When** a sales order or quote is created without payment terms, **Then** it gets credit terms. For an order, the existing credit checks then apply. A quote is never refused, even for a customer on hold (FR-019).
 2. **Given** a credit customer whose credit debt is at or over their limit, **When** an order's create or update asks for cash terms, **Then** it is refused with a message saying the customer must settle their credit first, and nothing changes. Under the limit, cash is accepted.
-3. **Given** an open cash order or quote, **When** its customer changes to a credit customer and the request does not name terms, **Then** the terms become credit, subject to the existing credit checks.
+3. **Given** an open cash order or quote, **When** its customer changes to a credit customer and the request does not name terms, **Then** the terms become credit. For an order, the existing credit checks then apply. A quote is not checked (FR-019).
 4. **Given** an open cash draft for a credit customer at or over their limit, **When** it is confirmed (order) or converted (quote), **Then** it is refused under the same rule. Of the 37 such orders and 86 such quotes in mbe_dev, only those whose customer is at or over the limit are affected (SC-005).
 5. **Given** a customer without a credit line, or the walk-in customer, **When** an order or quote is created, **Then** it is on cash terms, as today, and credit is still refused.
 6. **Given** any customer, **Then** the existing credit holds (overdue credit, over the limit, no limit, walk-in) behave exactly as before.
@@ -179,7 +179,7 @@ The API no longer maps a table that the current system has dropped, and the docu
 
 **Acceptance Scenarios**:
 
-1. **Given** the codebase, **When** it is searched for the model or the table, **Then** nothing in the application code or the documents named in mictlanix/mbe-api#248 refers to it.
+1. **Given** the codebase, **When** `app/`, the data dictionary and the schema dump are searched for the model or the table, **Then** nothing refers to it. Spec 019's receipt-label row is kept with a note saying it is not the table (FR-015).
 2. **Given** mbe_dev before or after the current system's schema change drops the table, **Then** the API starts and behaves the same.
 
 ---
@@ -189,6 +189,7 @@ The API no longer maps a table that the current system has dropped, and the docu
 - **Override changes later:** a customer's override changes after a line was added. The line keeps the rate it was given; only new lines use the new rate.
 - **Product added twice:** each line is created separately and each gets the override when added.
 - **Walk-in customer:** the walk-in customer can have overrides like any customer. They apply to lines, while the credit rule never applies to it.
+- **Moving onto a held customer:** moving an open cash order onto a credit customer on hold is refused at that update, with the hold message (#207), as creating one is. Before, the move succeeded and the order could not be confirmed (#219). A quote moved the same way is not refused (FR-019).
 - **Credit days of 0:** a customer with a credit limit above 0 but 0 credit days (140 active customers) counts as a credit customer, as it does in this API today. The current system would not count it (see Assumptions).
 - **Both fields in one request:** a request that changes the customer and sets cash terms is judged on the state the order ends in, like the existing credit checks (#219).
 - **Converting a quote:** a quote is never refused on credit grounds while it is a quote. Converting it judges the resulting order's terms with every credit check and FR-012, the same as confirming an order.
@@ -220,7 +221,7 @@ The API no longer maps a table that the current system has dropped, and the docu
 
 **Credit terms (#35)**
 
-- **FR-010**: A credit customer is an active customer with a credit limit above 0 who is not the walk-in customer, the definition this API already uses for the order credit default.
+- **FR-010**: A credit customer is a customer with a credit limit above 0 who is not the walk-in customer, the definition this API already uses for the order credit default. Status is not part of it.
 - **FR-011**: A new sales order and a new sales quote for a credit customer MUST default to credit terms when the request names none. Changing an open order's or quote's customer to a credit customer MUST set credit terms the same way when the request names no terms. The order's resulting terms go through the existing credit checks (unchanged). A quote's do not: a quote is never refused on credit grounds (FR-019).
 - **FR-012**: A sales order or quote for a credit customer MAY be on cash terms only while the customer's outstanding credit debt is below their credit limit. "Outstanding credit debt" means what the existing limit check already counts (#220). At or over the limit, cash MUST be refused with a message saying the customer must settle their credit first. Credit is refused there already, so such a customer cannot buy until they pay down. The check runs:
   - on an order's create and update (terms or customer);
@@ -234,7 +235,7 @@ The API no longer maps a table that the current system has dropped, and the docu
 
 **PaymentOnDelivery (#248)**
 
-- **FR-015**: The `PaymentOnDelivery` model MUST be removed from the API. Its descriptions MUST be removed from the data dictionary, the schema dump and spec 019's data model.
+- **FR-015**: The `PaymentOnDelivery` model MUST be removed from the API, and its descriptions MUST be removed from the data dictionary and the schema dump. Spec 019's data model keeps its `PaymentOnDelivery | Contraentrega` row, with a note. That row is the sale-receipt label for payments collected without a cash session, which the receipt still prints, not the dropped table (research R7). This departs from the literal list in #248.
 - **FR-016**: No migration in this API drops the table. The current system's schema change (mictlanix/mbe#84) owns the drop.
 
 - **FR-018**: The delivery address check reads the order's own `ship_to`, not the delivery orders' addresses. Until mbe-ui sets the order's `ship_to`, a back-office order with intent delivery or mixed is refused at confirmation. This is accepted, and mictlanix/mbe-ui gets an issue for it.
@@ -260,7 +261,7 @@ The API no longer maps a table that the current system has dropped, and the docu
 - **SC-003**: No new order or quote for a credit customer starts on cash terms unless the request asks for it. Cash is refused on every order whose credit customer's debt is at or over their limit, and on every conversion of such a quote (FR-013, FR-019). No quote is refused on credit grounds while it is a quote.
 - **SC-004**: Every existing credit-hold test passes unchanged.
 - **SC-005**: The mbe_dev counts in this spec are re-run after implementation, and the spec reports how many open drafts the rules now block, before any data change: cash drafts for credit customers at or over their limit (out of 37 cash orders and 86 cash quotes for credit customers), and back-office orders missing an FR-008 item (1 today).
-- **SC-006**: A search of the API code and the four named documents finds no `PaymentOnDelivery` or `payment_on_delivery`, and the full test suite passes.
+- **SC-006**: A search of `app/`, `docs/data-dictionary.md` and `docs/mbe_schema.sql` finds no `PaymentOnDelivery` or `payment_on_delivery`, and the full test suite passes. The spec 019 receipt-label row stays, with its note (FR-015).
 
 ## Assumptions
 
