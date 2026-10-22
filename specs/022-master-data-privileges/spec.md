@@ -157,6 +157,7 @@ From the sales-order editor, a seller creates a new address or contact for the c
 - `GET /price-lists/{id}/delete/preview` only exists to support a delete, but it reads: it requires Price lists Read, not Delete, and accepts no host privilege.
 - Vehicle operator license photos: uploading and removing a photo edit the operator, so they require Vehicle operators Update, the way a product image upload requires Products Update. Fetching the photo requires Vehicle operators Read and accepts no host privilege.
 - A host privilege opens only the list and get-by-id routes of a looked-up module, never its sub-resources (customer discounts, supplier agreements, license photos, delete preview).
+- A link-only body with an empty list (`{"addresses": []}`) clears that list, and it is accepted under the same rule as any other link-only body. mbe-ui always resends the full list, so the API cannot tell an append from a replacement.
 - The users and user-profiles routers stay administrator-only, so their employee lookups need nothing new.
 - A token issued before a privilege change keeps its session. Privileges are read on every request, so a revoked privilege takes effect on the next call, as today with products.
 
@@ -184,7 +185,7 @@ From the sales-order editor, a seller creates a new address or contact for the c
 - **FR-006**: `PUT /customers/{id}` MUST require Customers Update, except that a request that changes only the customer's address list and/or contact list MUST also be accepted from a user holding SalesOrders Update or SalesQuotes Update. The request can add or remove links, because mbe-ui resends the full list.
 - **FR-007**: A host privilege MUST NOT open any create, update or delete operation, any sub-resource (FR-003), or any module not listed for it in FR-005.
 - **FR-008**: The responses of the guarded routes MUST NOT change for a user who is allowed. Only the refusals are new.
-- **FR-009**: Every route of the 11 modules MUST be covered by an automated test that shows a user without the privilege is refused and a user with it is allowed. Each FR-005 alternate MUST be covered by a test that shows it allows the lookup and does not allow a write.
+- **FR-009**: Every route of the 11 modules MUST be covered by automated tests that show (a) the route requires exactly the privileges in the contract table, and (b) a non-admin user with no privilege rows is refused. Each kind of rule MUST also be tested end to end with a user who is allowed: own privilege, an alternative read privilege, nested route, and the link exception. Each FR-005 alternative MUST be tested to allow the read and to refuse a write.
 
 ### Key Entities
 
@@ -197,7 +198,7 @@ From the sales-order editor, a seller creates a new address or contact for the c
 
 - **SC-001**: 0 routes among the 11 modules are reachable with a login alone. Every route requires an administrator or a matching privilege.
 - **SC-002**: Re-running the mbe_dev measurement after the change shows 0 active users losing a lookup listed in "Measured in mbe_dev" (today's counts: 1 to 23 per lookup under a strict check).
-- **SC-003**: Every mbe-ui flow listed in "What mbe-ui calls" completes for a user holding only the host screen's privileges. This is checked once on the test deployment with a seller account and a product manager account.
+- **SC-003**: Every mbe-ui flow listed in "What mbe-ui calls" completes for a user holding only the host screen's privileges. This is checked once on the test deployment with a seller account and a product manager account. The check records the mbe-ui commit deployed at https://test.mbe.mictlanix.com.
 - **SC-004**: An administrator's responses on all 11 modules are identical before and after the change.
 
 ## Assumptions

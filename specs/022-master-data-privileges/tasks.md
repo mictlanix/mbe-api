@@ -58,7 +58,7 @@
   3. **Per-route test.** Parametrize over `EXPECTED`. For each route, find the dependency in `route.dependant.dependencies` whose `call` has a `grants` attribute, and assert `call.grants == EXPECTED[key]`. For `None`, assert that no dependency has `grants`. This test fails for the 14 lookup rows until US2. That is expected, and the commit for T005–T015 records it. The PUT customers row passes throughout, because a route left on `get_current_user` carries no `grants` either. US3's behavior tests are what prove that route.
   4. **Behavior helpers and tests.**
      - **Auth:** `_auth(administrator: bool)` overrides `get_current_user`, as in `tests/api/test_print_endpoints.py:46-59`.
-     - **Privileges:** `_privileges(**masks)` overrides `get_db` with a fake session. Its `execute(stmt)` reads the SystemObject values bound in the statement (`stmt.compile().params`) and answers only for those objects:
+     - **Privileges:** `_privileges(**masks)` overrides `get_db` with a fake session. Its `execute(stmt)` reads the SystemObject values bound in the statement (`stmt.compile().params`) and answers only for those objects. An `IN (...)` comes back as one list-valued parameter: flatten list values, keep only the ints that are valid `SystemObject` values, and ignore the user-id string. The fake answers:
        - `.scalar_one_or_none()` → `SimpleNamespace(privileges=mask)`, or None (this path backs `require_privilege`);
        - `.all()` → `[(obj, mask), ...]` (this path backs `has_any_privilege`).
      - **Tests:**
@@ -67,6 +67,12 @@
        - a mask of 0 → 403;
        - an administrator with no rows → not 403 on `GET /api/v1/vehicles` (patch `vehicle_service.list_vehicles` to return `([], 0)`);
        - no token → 401 (do not override `get_current_user`).
+  5. **No-privilege sweep.** Parametrize over `EXPECTED`. As a non-admin user with no privilege rows, call each route and assert 403:
+     - path parameters are `1` (or `'XAXX010101000'` for `{rfc}`);
+     - send `json={}` for POST and PUT;
+     - send no file for the license-photo POST.
+
+     Guards run before the body is validated, so no service patching is needed. `PUT /customers/{customer_id}` is checked in the handler after the body is parsed; `{}` is a valid `CustomerUpdate`, so it also returns 403 there once US3 is done. Until then the sweep fails for PUT customers and, until US2, for the 14 lookup routes.
 - [ ] T005 [P] [US1] Guard every route in `app/api/v1/endpoints/exchange_rates.py` with EXCHANGE_RATES Read/Create/Update/Delete by method.
 - [ ] T006 [P] [US1] Guard every route in `app/api/v1/endpoints/expenses.py` with EXPENSES by method.
 - [ ] T007 [P] [US1] Guard every route in `app/api/v1/endpoints/vehicles.py` with VEHICLE by method.
@@ -93,7 +99,7 @@
 
   Leave `GET /` and `GET /{id}` for US2.
 - [ ] T015 [P] [US1] Guard `POST`, `PUT` and `DELETE` in `app/api/v1/endpoints/taxpayer_recipients.py` with TAXPAYER_RECIPIENTS by method. Leave both GETs for US2.
-- [ ] T016 [US1] Run `uv run pytest tests/api/test_master_data_privileges.py tests/api -q`. The only route-table failures are the 14 lookup rows, and the existing suites are green. Commit T004–T015.
+- [ ] T016 [US1] Run `uv run pytest tests/api/test_master_data_privileges.py tests/api -q`. The only failures are the 14 lookup rows in the route table and the sweep, plus PUT customers in the sweep. The existing suites are green. Commit T004–T015.
 
 **Checkpoint**: writes are closed. Do not deploy until US2 is done.
 
@@ -125,7 +131,7 @@
 - [ ] T022 [P] [US2] In `app/api/v1/endpoints/payment_method_options.py`, use `_LOOKUP` on both GETs, with hosts SALES_ORDERS, POS and CUSTOMER_PAYMENTS.
 - [ ] T023 [P] [US2] In `app/api/v1/endpoints/labels.py`, use `_LOOKUP` on both GETs, with hosts PRODUCTS and PRICING.
 - [ ] T024 [P] [US2] In `app/api/v1/endpoints/suppliers.py`, use `_LOOKUP` on `GET /` and `GET /{supplier_id}`, with hosts PRODUCTS and PRICING. Agreements keep the own-only `_READ`.
-- [ ] T025 [US2] Run `uv run pytest tests/api -q`. The route table is fully green. Run `uv run ruff check app/ tests/`. Commit T017–T024.
+- [ ] T025 [US2] Run `uv run pytest tests/api -q`. The route table is fully green; the sweep fails only for PUT customers. Run `uv run ruff check app/ tests/`. Commit T017–T024.
 
 **Checkpoint**: the pilot's lookups are covered.
 
@@ -145,6 +151,8 @@
   - SALES_ORDERS=2 (Read only), body `{"addresses": [3]}` → 403;
   - CUSTOMERS=4, body `{"name": "x", "price_list": 1}` → 200;
   - no rows → 403;
+  - SALES_ORDERS=7, body `{"addresses": []}` → 200, because an empty list counts as link-only;
+  - SALES_ORDERS=7, body `{}` → 200. This is a no-op and counts as link-only.
   - administrator → 200;
 
   Mirror the response stub on the existing `tests/api/test_customers.py` update test so the response model validates.
@@ -163,6 +171,13 @@
 ## Phase 6: Polish & Cross-Cutting
 
 - [ ] T028 [P] Update `docs/specs/12-users.md` §5 "Authorization". Add that a lookup route also accepts Read on the modules whose screens use it, link to `specs/022-master-data-privileges/contracts/route-privileges.md`, and state the customer link exception. Keep the existing four bullets · `docs/specs/12-users.md`
+- [ ] T028a [P] In `specs/002-master-data-endpoints/contracts/api.md`, add a `**Privileges**:` line under each of the 11 module headings (§2 Price Lists, §3 Customers, §4 Labels, §5 Taxpayer Recipients, §6 Suppliers, §7 Employees, §12 Exchange Rates, §13 Expenses, §14 Payment Method Options, §15 Vehicles, §16 Vehicle Operators). Match the wording at :484: "`CUSTOMERS (2)`, access right matching the operation; `403` without it." Where it applies, add:
+  - the alternative read privileges for the list and get-by-id routes;
+  - the parent object for nested routes;
+  - Update for the license photo;
+  - the customer link exception.
+
+  Each line links to `specs/022-master-data-privileges/contracts/route-privileges.md` rather than repeating the table · `specs/002-master-data-endpoints/contracts/api.md`
 - [ ] T029 [P] Add a `### Changed` entry to `CHANGELOG.md` `[Unreleased]`, in the existing entry style: **The 11 master data routers enforce access privileges** (mictlanix/mbe-roadmap#22, spec 022). Cover:
   - which routers, and the rights by method;
   - nested routes take the parent's object;
@@ -173,7 +188,7 @@
   File: `CHANGELOG.md`
 - [ ] T030 Run the full gate: `uv run ruff check app/ migrations/ tests/` and `uv run pytest -q`. Compare against the T001 baseline: no new failures.
 - [ ] T031 Re-run the SC-002 measurement on mbe_dev, read only, per `quickstart.md`. Run one query per row of the spec's "Users who would lose a lookup" table, using the hosts from the contract. Expected: 0 in every row. Record the results under this task · `specs/022-master-data-privileges/tasks.md`
-- [ ] T032 **Confirm with the user before deploying.** Then deploy the branch to the test instance (`/var/www/mbe-api-test`, systemd `mbe-api-test`, as `mictlanix@xolotl`) and run the manual checks 1–4 in `quickstart.md`. Remove any address created in check 2. Record the outcome in `specs/022-master-data-privileges/quickstart.md` under a "Checks on the test deployment" heading.
+- [ ] T032 **Confirm with the user before deploying.** Then deploy the branch to the test instance (`/var/www/mbe-api-test`, systemd `mbe-api-test`, as `mictlanix@xolotl`) and run the manual checks 1–4 in `quickstart.md`. Remove any address created in check 2. Record the outcome in `specs/022-master-data-privileges/quickstart.md` under a "Checks on the test deployment" heading. Next to the results, record the mbe-ui commit that is deployed at https://test.mbe.mictlanix.com (`git -C /var/www/mbe-ui-test …` or the build's version file).
 
 ---
 
@@ -189,7 +204,7 @@
 - **Phase 2:** T002 can be written while T003 is designed, but they commit together.
 - **US1:** T005–T015 are 11 different router files, all `[P]`. Write T004 first.
 - **US2:** T018–T024 are 7 different router files, all `[P]`. Write T017 first.
-- **Polish:** T028 and T029 are `[P]`.
+- **Polish:** T028, T028a and T029 are `[P]`.
 
 ```text
 # US1, after T004 is written and failing:

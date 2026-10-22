@@ -97,7 +97,7 @@ docs/specs/12-users.md             # §5 Authorization: note the host grants and
 CHANGELOG.md                       # [Unreleased] → Changed
 ```
 
-**Structure Decision**: Single web-service project. Each router declares its guards as module-level constants (`_READ`, `_CREATE`, …), the way `sales_orders.py` and `cash_sessions.py` do. For lookups, `_READ` is a `require_any_privilege(...)` listing the own grant first and then the hosts.
+**Structure Decision**: Single web-service project. Each router declares its guards as module-level constants (`_READ`, `_CREATE`, …), the way `sales_orders.py` and `cash_sessions.py` do. Own-module guards are `_READ`, `_CREATE`, `_UPDATE` and `_DELETE`. The 7 modules whose list and get-by-id routes also accept other screens' privileges add `_LOOKUP = require_any_privilege(...)`, with the module's own Read first.
 
 ## Complexity Tracking
 
