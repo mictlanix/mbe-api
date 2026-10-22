@@ -1440,7 +1440,7 @@ A commission line frozen when its month closed (spec 025). Names and rates are c
 | `price` | decimal(22,2) | NO | Unit price after discount, tax included; negative for a refund |
 | `quantity` | decimal(18,4) | NO | Quantity |
 | `total` | decimal(22,2) | NO | `ROUND(price × quantity, 2)` |
-| `full_commission` | decimal(22,2) | NO | `ROUND(total × rate, 2)` |
+| `full_commission` | decimal(22,2) | NO | `ROUND(price × quantity × rate, 2)`, as the current system computes it |
 | `share` | decimal(9,6) | YES | Scheme 2 sales: the order's cumulative paid share at month end; NULL otherwise |
 | `commission` | decimal(22,2) | NO | What this month pays for the row: the full commission less what earlier months stored (scheme 1), the cumulative share less what earlier months stored (scheme 2), or a negative amount (refund) |
 ---

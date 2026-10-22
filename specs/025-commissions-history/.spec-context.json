@@ -2,8 +2,8 @@
   "workflow": "speckit",
   "specName": "Commissions with Stable History",
   "branch": "025-commissions-history",
-  "currentStep": "tasks",
-  "status": "ready-to-implement",
+  "currentStep": "implement",
+  "status": "implementing",
   "history": [
     {
       "step": "specify",
@@ -46,6 +46,13 @@
       "kind": "complete",
       "by": "extension",
       "at": "2026-10-22T22:39:01.235Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "kind": "start",
+      "by": "extension",
+      "at": "2026-10-22T22:44:04.549Z"
     }
   ]
 }

@@ -58,7 +58,7 @@
 - The scheme 2 instalment, switch and reversal scenarios hold.
 - Months can't close out of order.
 
-- [ ] T005 [P] [US1] Write `tests/unit/test_commission_rules.py` (commit with T009). Build facts by hand as the T009 dataclasses, with month end 2026-04-30. Cases:
+- [X] T005 [P] [US1] Write `tests/unit/test_commission_rules.py` (commit with T009). Build facts by hand as the T009 dataclasses, with month end 2026-04-30. Cases:
   1. **Participation branches:** csp == osp → one CLIENTE VITALICIO key to csp; csp != osp, both agents → CANALIZACIÓN to osp and ATENCIÓN EN CAMPO to csp; csp NULL → no key; a non-agent → no key for them; an unlabelled product → a line at rate 0; a missing rate row → share 0.
   2. **Scheme 1:** a line paid in the month → `full`; the same line when the order was paid in another month → nothing; a refund dated before payment, order paid this month → one negative line, once; a refund dated this month on an order paid last month → a negative line; a refund detail already stored for the key → nothing.
   3. **Scheme 2:**
@@ -93,11 +93,16 @@
   - the scheme 1 late pickup, end to end: stamp an order paid in March, cancel its application before closing March, close March (no line), apply a new payment in May, close April and May → May stores the line;
   - a scheme 2 order fully paid and stored, then reversed → the next close stores the negative share;
   - for every key, Σ sale commission across closed months ≤ `full`, and each refund detail is stored at most once per key (SC-003/SC-006).
-- [ ] T009 [US1] Create `app/services/commission_rules.py` (research R1), with no I/O and no async:
+- [X] T009 [US1] Create `app/services/commission_rules.py` (research R1), with no I/O and no async:
   - **Frozen dataclasses:** `CandidateLine`, `OrderMoney(applied, refunded, order_total)`, `RefundLine`, `StoredLine`, `AgentRate`.
   - **Entry point:** `def month_lines(*, month_start, month_end, candidates, money, refunds, stored, agents: dict[int, CommissionScheme], rates: dict[tuple, Decimal], labels: dict) -> list[ComputedLine]`. It implements the participation keys, the key freeze, scheme 1 and scheme 2 amounts, refund lines, and the cap, as the research R1 table specifies.
   - **Arithmetic:** `Decimal` throughout, with `quantize(Decimal('0.01'), ROUND_HALF_UP)`, matching MariaDB's `ROUND`.
   - **Docstring:** cites spec 025 and research R1. Run T005: green.
+  - **As built:**
+    - **Full commission:** `ROUND(price × quantity × rate)`, as the current system computes it, not `ROUND(total × rate)`.
+    - **Refund eligibility, one rule:** dated before the month's end and not yet stored for the key. Under scheme 1, its sale must also count this month or already be stored.
+    - **Fully refunded order:** under scheme 2 its share is 100%, so the sale and the refunds cancel.
+    - **Zero lines:** an unlabelled product or a missing rate lists once at 0, as in the current system.
 - [ ] T010 [US1] In `app/services/customer_payment_service.py` `_sync_paid_flag`, after setting `order.paid`, add: `if order.paid and (order.balance_zeroed_time is None or order.balance_zeroed_time.year < 1900): order.balance_zeroed_time = local_now()`. Add a comment citing spec 025 FR-008a and the current system's `PaymentsController`. Run T006: green.
 - [ ] T011 [US1] Create `app/services/commission_service.py`: facts and compute.
   - **`_month_bounds(year, month)`:** returns `[start, next)`.
