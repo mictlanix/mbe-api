@@ -1,4 +1,5 @@
 from decimal import Decimal
+from typing import Literal
 from zoneinfo import ZoneInfo
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -92,6 +93,20 @@ class Settings(BaseSettings):
     # like `pod_dir`: outside `images_dir` and never mounted, because a license is personal data.
     # Served only through the authenticated license-photo route.
     license_photos_dir: str = 'license-photos'
+
+    # Outgoing mail (spec 024): the quote email now, the invoice email later. Optional: mail is off,
+    # and routes that send it answer 503, while either `smtp_host` or `mail_from` is empty. Plain
+    # SMTP authentication over TLS; Google Workspace needs an app password rather than OAuth2.
+    smtp_host: str = ''
+    smtp_port: int = 587
+    smtp_security: Literal['starttls', 'ssl', 'none'] = 'starttls'
+    smtp_user: str = ''
+    smtp_password: str = ''
+    # Seconds allowed per connection and per command, so a dead server cannot hold a request open.
+    smtp_timeout: int = 30
+    mail_from: str = ''
+    # Where customer replies go, e.g. a sales inbox; `mail_from` is usually a no-reply address.
+    mail_reply_to: str = ''
 
 
 settings = Settings()

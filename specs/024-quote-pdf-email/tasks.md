@@ -83,7 +83,7 @@
 
 **Independent test**: `SmtpMailer` drives a mocked `smtplib` correctly for each security mode, maps failures to `MailError`, and `get_mailer` returns None when mail is unconfigured. Nothing here mentions quotes.
 
-- [ ] T007 [P] [US3] Write `tests/unit/test_mail.py` (commit with T008–T009). Patch `app.services.mail.smtplib.SMTP` and `.SMTP_SSL` with `MagicMock` classes, and build settings with `Settings(...)` overrides or `SimpleNamespace`. Cases:
+- [X] T007 [P] [US3] Write `tests/unit/test_mail.py` (commit with T008–T009). Patch `app.services.mail.smtplib.SMTP` and `.SMTP_SSL` with `MagicMock` classes, and build settings with `Settings(...)` overrides or `SimpleNamespace`. Cases:
   1. **`starttls`:** `SMTP(host, port, timeout=...)`, then `starttls()`, `login(user, password)`, `send_message(msg)`, `quit()`, in that order.
   2. **`ssl`:** `SMTP_SSL` is used, and no `starttls` is called.
   3. **`none` with no user:** no `starttls`, no `login`.
@@ -94,14 +94,14 @@
      - one attachment carries the given filename, `application/pdf` and the exact bytes.
   5. **Errors:** `smtplib.SMTPRecipientsRefused`, `smtplib.SMTPAuthenticationError` and `OSError('timed out')` each raise `MailError`, whose message carries the cause.
   6. **`get_mailer()`:** None when `smtp_host` is empty, None when `mail_from` is empty, and an `SmtpMailer` when both are set (patch `app.services.mail.settings`).
-- [ ] T008 [P] [US3] Add the settings to `app/core/config.py` `Settings`, in the style of the neighbouring fields:
+- [X] T008 [P] [US3] Add the settings to `app/core/config.py` `Settings`, in the style of the neighbouring fields:
   - `smtp_host: str = ''`, `smtp_port: int = 587`;
   - `smtp_security: Literal['starttls', 'ssl', 'none'] = 'starttls'`;
   - `smtp_user: str = ''`, `smtp_password: str = ''`, `smtp_timeout: int = 30`;
   - `mail_from: str = ''`, `mail_reply_to: str = ''`.
 
   Give them a comment block: mail is optional and disabled while `SMTP_HOST` or `MAIL_FROM` is empty. Add the same keys to `.env.example`, empty or defaulted, with comments: the security modes, that Google Workspace needs an app password, and that `MAIL_REPLY_TO` is optional (spec 024).
-- [ ] T009 [US3] Create `app/services/mail.py` (research R3), with a module docstring saying it is document-agnostic and that the invoice email (#50) reuses it:
+- [X] T009 [US3] Create `app/services/mail.py` (research R3), with a module docstring saying it is document-agnostic and that the invoice email (#50) reuses it:
   - `@dataclass(frozen=True) class Attachment: filename, content_type, data: bytes`;
   - `@dataclass(frozen=True) class Message: to: Sequence[str], subject, body, attachments: Sequence[Attachment] = ()`;
   - `class MailError(Exception)`;
