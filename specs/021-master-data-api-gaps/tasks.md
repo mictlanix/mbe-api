@@ -79,7 +79,7 @@
   - `DELETE /bank-accounts/{id}` returns 409 while the account is linked.
 
   File: `tests/integration/test_supplier_links_flow.py`
-- [ ] T008 [P] [US1] **(commit with T014)** Unit tests for supplier `_get_links` and `_set_links`, modelled on `tests/unit/test_customer_links.py`:
+- [X] T008 [P] [US1] **(commit with T014)** Unit tests for supplier `_get_links` and `_set_links`, modelled on `tests/unit/test_customer_links.py`:
   - An omitted list (`None`) issues no statement for that collection.
   - An empty list (`[]`) deletes that collection's links and inserts nothing.
   - A list with ids deletes, then bulk-inserts `{'supplier': id, 'address' | 'contact' | 'bank_account': x}`.
@@ -94,14 +94,14 @@
 - [X] T010 [P] [US1] Add `BankAccountCreate`, `BankAccountUpdate` and `BankAccountResponse` beside the contact schemas, with `max_length` 250/20/20/18/500 per data-model.md · `app/schemas/core.py`
 - [X] T011 [US1] Create `bank_account_service.py` with `list_bank_accounts` (ILIKE on `bank_name`, `account_number` and `reference`), `get`, `create`, `update` and `delete` (`assert_not_referenced`). Mirror `contact_service.py`, including a module docstring explaining why the resource exists (#13) · `app/services/bank_account_service.py`
 - [X] T012 [US1] Create the `/bank-accounts` router. Gate each route with `require_privilege(SystemObject.BANK_ACCOUNTS, READ|CREATE|UPDATE|DELETE)` the same way `addresses.py` is gated, then register it in `router.py` with tag `bank-accounts`. Files: `app/api/v1/endpoints/bank_accounts.py`, `app/api/v1/router.py`
-- [ ] T013 [US1] Supplier schemas:
+- [X] T013 [US1] Supplier schemas:
   - `SupplierCreate` and `SupplierUpdate` gain `addresses`, `contacts` and `bank_accounts` as `list[int] | None = None`, with the replace-all `#:` comment copied from `CustomerCreate`.
   - Add `SupplierDetailResponse(SupplierResponse)` with the four lists, each defaulting to `[]`.
   - Add `SupplierAgreementCreate` (with a `model_validator` rejecting `end < start`), `SupplierAgreementUpdate` (all optional) and `SupplierAgreementResponse`.
   - Leave `SupplierResponse` unchanged (research R2).
 
   File: `app/schemas/supplier.py`
-- [ ] T014 [US1] Supplier links in `supplier_service`:
+- [X] T014 [US1] Supplier links in `supplier_service`:
   - Add `_get_links`, `_attach_links` and `_set_links`, modelled on `customer_service.py:54-162`, over `supplier_address`, `supplier_contact`, `supplier_bank_account` and `SupplierAgreement`. Agreements are read only, ordered by `start`, then id.
   - `get_supplier_detail` returns the supplier with links attached.
   - `create_supplier` flushes, sets the links, commits and attaches.
@@ -124,8 +124,8 @@
 
   File: `app/api/v1/endpoints/suppliers.py`
 - [ ] T017 [US1] Update the existing supplier tests for the detail response, which now carries the four lists and is mocked through `get_supplier_detail` · `tests/api/test_suppliers_employees.py`
-- [ ] T018 [P] [US1] Add `addresses`, `contacts` and `bank_accounts` (`[int, ...] | null`) to the `SupplierCreate / SupplierUpdate` block, and list the new routes in the suppliers section · `specs/002-master-data-endpoints/contracts/api.md`
-- [ ] T019 [P] [US1] Scope 01 §6: describe the four sub-panels as delivered. Give the link semantics (replace-all id lists), the `/bank-accounts` resource, the agreement routes, the `end >= start` rule, and the fact that links block a supplier's deletion · `docs/specs/01-master-data.md`
+- [X] T018 [P] [US1] Add `addresses`, `contacts` and `bank_accounts` (`[int, ...] | null`) to the `SupplierCreate / SupplierUpdate` block, and list the new routes in the suppliers section · `specs/002-master-data-endpoints/contracts/api.md`
+- [X] T019 [P] [US1] Scope 01 §6: describe the four sub-panels as delivered. Give the link semantics (replace-all id lists), the `/bank-accounts` resource, the agreement routes, the `end >= start` rule, and the fact that links block a supplier's deletion · `docs/specs/01-master-data.md`
 
 **Checkpoint**: T004–T009 pass, and so do the contract-doc blocks for the supplier and bank account components. US1 is shippable alone.
 
