@@ -8,6 +8,7 @@ of rule end to end.
 """
 
 from collections.abc import Generator
+from decimal import Decimal
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -354,3 +355,65 @@ async def test_a_host_privilege_never_opens_a_write_or_a_sub_resource(
         response = await client.request(method, path, **kwargs)
 
     assert response.status_code == status.HTTP_403_FORBIDDEN
+
+
+# ── Customer link exception (FR-006) ──────────────────────────────────────────
+
+
+def _customer() -> SimpleNamespace:
+    return SimpleNamespace(
+        customer_id=1,
+        code='CUST1',
+        name='Acme Corp',
+        zone=None,
+        credit_limit=Decimal('0'),
+        credit_days=0,
+        price_list=SimpleNamespace(
+            price_list_id=1,
+            name='General',
+            high_profit_margin=Decimal('0'),
+            low_profit_margin=Decimal('0'),
+        ),
+        salesperson=None,
+        status=0,
+        comment=None,
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ('administrator', 'masks', 'body', 'expected'),
+    [
+        (False, {'SALES_ORDERS': 7}, {'addresses': [3]}, 200),
+        (False, {'SALES_QUOTES': 4}, {'contacts': [5]}, 200),
+        (False, {'SALES_ORDERS': 7}, {'addresses': [3], 'contacts': [5]}, 200),
+        (False, {'SALES_ORDERS': 7}, {'addresses': [3], 'name': None}, 200),
+        (False, {'SALES_ORDERS': 7}, {'addresses': []}, 200),
+        (False, {'SALES_ORDERS': 7}, {}, 200),
+        (False, {'SALES_ORDERS': 7}, {'addresses': [3], 'name': 'x'}, 403),
+        (False, {'SALES_ORDERS': 7}, {'taxpayers': ['XAXX010101000']}, 403),
+        (False, {'SALES_ORDERS': 2}, {'addresses': [3]}, 403),
+        (False, {'CUSTOMERS': 4}, {'name': 'x', 'price_list': 1}, 200),
+        (False, {'CUSTOMERS': 2}, {'addresses': [3]}, 403),
+        (False, {}, {'addresses': [3]}, 403),
+        (True, {}, {'name': 'x'}, 200),
+    ],
+)
+async def test_customer_update_privileges(
+    administrator: bool, masks: dict[str, int], body: dict, expected: int
+) -> None:
+    _auth(administrator=administrator)
+    _privileges(**masks)
+    update = AsyncMock(return_value=_customer())
+    with (
+        patch(
+            'app.services.customer_service.get_customer',
+            new=AsyncMock(return_value=_customer()),
+        ),
+        patch('app.services.customer_service.update_customer', new=update),
+    ):
+        async with _client() as client:
+            response = await client.put('/api/v1/customers/1', json=body)
+
+    assert response.status_code == expected
+    assert update.await_count == (1 if expected == 200 else 0)

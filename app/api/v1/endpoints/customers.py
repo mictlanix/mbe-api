@@ -3,7 +3,13 @@ from fastapi import status as http_status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
-from app.core.deps import CurrentUser, get_current_user, require_any_privilege, require_privilege
+from app.core.deps import (
+    CurrentUser,
+    get_current_user,
+    has_any_privilege,
+    require_any_privilege,
+    require_privilege,
+)
 from app.db.session import get_db
 from app.enums import AccessRight, EntityStatus, SystemObject
 from app.schemas import ListResponse
@@ -82,9 +88,21 @@ async def get_customer(
 async def update_customer(
     customer_id: int,
     data: CustomerUpdate,
-    _: CurrentUser = Depends(get_current_user),
+    current: CurrentUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> CustomerResponse:
+    # mbe-ui links a new ship-to address or contact from the sales-order editor through this
+    # route, so a body that touches nothing else also accepts a sales Update (spec 022 FR-006).
+    grants = [(SystemObject.CUSTOMERS, AccessRight.UPDATE)]
+    if data.model_dump(exclude_none=True).keys() <= {'addresses', 'contacts'}:
+        grants += [
+            (SystemObject.SALES_ORDERS, AccessRight.UPDATE),
+            (SystemObject.SALES_QUOTES, AccessRight.UPDATE),
+        ]
+    if not current.administrator and not await has_any_privilege(db, current.user_id, grants):
+        raise HTTPException(
+            status_code=http_status.HTTP_403_FORBIDDEN, detail='Insufficient privileges'
+        )
     customer = await customer_service.get_customer(db, customer_id)
     if customer is None:
         raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail='Customer not found')

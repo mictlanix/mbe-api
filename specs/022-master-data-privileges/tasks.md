@@ -144,7 +144,7 @@
 
 **Independent test**: SALES_ORDERS=7 with no CUSTOMERS row. `PUT /customers/1` with `{"addresses": [3]}` is applied, and `{"addresses": [3], "name": "x"}` is 403.
 
-- [ ] T026 [US3] Extend `tests/api/test_master_data_privileges.py` (commit with T027). Patch `customer_service.get_customer` to return a customer stub and `customer_service.update_customer` to return it. Cases:
+- [X] T026 [US3] Extend `tests/api/test_master_data_privileges.py` (commit with T027). Patch `customer_service.get_customer` to return a customer stub and `customer_service.update_customer` to return it. Cases:
   - SALES_ORDERS=7, body `{"addresses": [3]}` → 200, and `update_customer` was awaited;
   - SALES_QUOTES=4, body `{"contacts": [5]}` → 200;
   - SALES_ORDERS=7, body `{"addresses": [3], "name": "x"}` → 403, and `update_customer` was not awaited;
@@ -157,7 +157,7 @@
   - administrator → 200;
 
   Mirror the response stub on the existing `tests/api/test_customers.py` update test so the response model validates.
-- [ ] T027 [US3] In `app/api/v1/endpoints/customers.py` `update_customer`:
+- [X] T027 [US3] In `app/api/v1/endpoints/customers.py` `update_customer`:
   - **Signature:** take `current: CurrentUser = Depends(get_current_user)` and `db`.
   - **Rule:** before the existing lookup and update, compute `link_only = data.model_dump(exclude_none=True).keys() <= {'addresses', 'contacts'}`. Then grants are `((CUSTOMERS, UPDATE), (SALES_ORDERS, UPDATE), (SALES_QUOTES, UPDATE))` if `link_only`, else `((CUSTOMERS, UPDATE),)`.
   - **Check:** if the user is not an administrator and `not await has_any_privilege(db, current.user_id, grants)`, raise `HTTPException(403, 'Insufficient privileges')`. The check comes before the 404 lookup, the same order the guarded routes use.
