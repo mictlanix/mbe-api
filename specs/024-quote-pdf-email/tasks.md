@@ -165,19 +165,20 @@
 
 ## Phase 5: Polish & Cross-Cutting
 
-- [ ] T015 [P] In `docs/constants.md` § SourceType, add rows `10 | Facility | facility (API-only)` and `11 | SalesQuote | sales_quote (API-only, quote emailed — spec 024)` (research R5).
-- [ ] T016 [P] Update `docs/specs/02-sales.md` §2 Sales Quotes, under Actions "Print / PDF" and "Send Email":
+- [X] T015 [P] In `docs/constants.md` § SourceType, add rows `10 | Facility | facility (API-only)` and `11 | SalesQuote | sales_quote (API-only, quote emailed — spec 024)` (research R5).
+- [X] T016 [P] Update `docs/specs/02-sales.md` §2 Sales Quotes, under Actions "Print / PDF" and "Send Email":
   - the route, letter size and any state;
   - the email route: confirmed quotes only, 1–10 addresses, the message, the 502 and 503 behaviour, and the incidence record;
   - the mail settings.
 
   Note that the current system always reported success and kept no record.
-- [ ] T017 [P] Add an `### Added` entry to `CHANGELOG.md` `[Unreleased]`: **Quotation PDF and email** (mictlanix/mbe-roadmap#30, spec 024). Cover:
+- [X] T017 [P] Add an `### Added` entry to `CHANGELOG.md` `[Unreleased]`: **Quotation PDF and email** (mictlanix/mbe-roadmap#30, spec 024). Cover:
   - both routes;
   - the reusable mail service and the new settings;
   - the incidence source 11.
   - An **upgrade note**: mail is off until `SMTP_HOST` and `MAIL_FROM` are set.
-- [ ] T018 Run the full gate: `uv run ruff check app/ migrations/ tests/` and `uv run pytest -q`. No new failures against T001, and no test opens a socket to an SMTP server. Record the counts here.
+- [X] T018 Run the full gate: `uv run ruff check app/ migrations/ tests/` and `uv run pytest -q`. No new failures against T001, and no test opens a socket to an SMTP server. Record the counts here.
+  - **Result**: ruff clean; pytest 3316 passed, 0 failed (baseline 3270, plus 46 new). No test reaches a real server. `test_mail.py` patches `smtplib.SMTP` and `SMTP_SSL`, the API tests override `get_mailer`, and the default settings leave mail off (`get_mailer()` returns None).
 - [ ] T019 **Confirm with the user before deploying, and ask for SMTP credentials and a test mailbox.** Deploy the branch to `/var/www/mbe-api-test`, set the mail settings in its `.env` as the user directs, and run quickstart's manual checks 2–4. Record the results, and whether mail settings were left on test, in `quickstart.md` under "Checks on the test deployment".
 
 ---
