@@ -55,7 +55,7 @@
   - 401 without a token, and 403 for a non-admin user lacking `SystemObject.BANK_ACCOUNTS`.
 
   File: `tests/api/test_bank_accounts.py`
-- [ ] T005 [P] [US1] **(commit with T015)** Unit tests for the agreement service:
+- [X] T005 [P] [US1] **(commit with T015)** Unit tests for the agreement service:
   - Create rejects `end < start` with 422 and accepts `start == end`.
   - Update validates the *merged* values: sending only `end` earlier than the stored `start` returns 422.
   - Get, update and delete return 404 when the agreement's `supplier` differs from the path supplier.
@@ -109,7 +109,7 @@
   - `get_supplier` stays as it is for the list and for existence checks.
 
   File: `app/services/supplier_service.py`
-- [ ] T015 [US1] Create `supplier_agreement_service.py` with:
+- [X] T015 [US1] Create `supplier_agreement_service.py` with:
   - `list_agreements(db, supplier_id)`;
   - `get_agreement(db, supplier_id, agreement_id)`, which returns `None` when the agreement belongs to another supplier;
   - `create_agreement`;
