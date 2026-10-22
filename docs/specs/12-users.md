@@ -39,7 +39,7 @@ Manage system login accounts. Each user is linked to an employee and granted per
 Every `Edit` save increments `user.session_version`. Any JWT or session token carrying an older `session_version` value is considered invalid, forcing immediate re-authentication.
 
 ### Incidence Logging
-All edit and delete operations write an `incidence` record with `source_type = SourceType.UserSettings`.
+Four actions each write one `incidence` row with `source = SourceType.USER_SETTINGS` (8), in the same transaction as the change: edit, delete, profile application and an administrator-issued recovery token. The row is keyed by the affected user's employee id (`instance_id`), and `updater` is the acting administrator's employee id. The reason is `User {user_id} updated | deleted | profile applied | recovery token issued`. The content starts with the user id and, for an edit, lists the changed field names only, never their values.
 
 ---
 

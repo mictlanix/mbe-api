@@ -82,7 +82,7 @@ async def delete_user_profile(
 async def apply_user_profile(
     profile_id: int,
     user_id: str,
-    _: CurrentUser = Depends(require_admin),
+    current: CurrentUser = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ) -> UserResponse:
     """Copy a profile's permissions onto a user, replacing everything they held.
@@ -98,7 +98,7 @@ async def apply_user_profile(
     if user is None:
         raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail='User not found')
 
-    user = await user_service.apply_profile(db, user, profile)
+    user = await user_service.apply_profile(db, user, profile, updater=current.employee_id)
     return await user_service.to_response(db, user)
 
 

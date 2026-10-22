@@ -5,7 +5,7 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security import create_recovery_token, sha1_hash, verify_password
-from app.enums import EntityStatus, SystemObject
+from app.enums import EntityStatus, SourceType, SystemObject
 from app.models.user import AccessPrivilege, User, UserProfile, UserSettings
 from app.schemas.user import (
     UserCreate,
@@ -14,7 +14,7 @@ from app.schemas.user import (
     UserSettingsUpdate,
     UserUpdate,
 )
-from app.services import user_profile_service
+from app.services import incidences, user_profile_service
 from app.services.references import assert_not_referenced
 
 
@@ -177,7 +177,9 @@ async def create_user(
     return user
 
 
-async def apply_profile(db: AsyncSession, user: User, profile: UserProfile) -> User:
+async def apply_profile(
+    db: AsyncSession, user: User, profile: UserProfile, *, updater: int
+) -> User:
     """Copy a profile's permissions onto an existing account (spec 014, FR-010).
 
     One transaction: the rewrite, the recorded origin and the session invalidation commit together,
@@ -192,12 +194,20 @@ async def apply_profile(db: AsyncSession, user: User, profile: UserProfile) -> U
     # correct from any starting value — the schema defaults this to 1 and the model to 0.
     user.session_version += 1
 
+    incidences.record(
+        db,
+        source=SourceType.USER_SETTINGS,
+        instance_id=user.employee_id,
+        updater=updater,
+        reason=f'User {user.user_id} profile applied',
+        context=f'{user.user_id} profile {profile.user_profile_id} applied',
+    )
     await db.commit()
     await db.refresh(user)
     return user
 
 
-async def update_user(db: AsyncSession, user: User, data: UserUpdate) -> User:
+async def update_user(db: AsyncSession, user: User, data: UserUpdate, *, updater: int) -> User:
     if data.email is not None:
         user.email = data.email.lower()
     if data.employee_id is not None:
@@ -229,18 +239,34 @@ async def update_user(db: AsyncSession, user: User, data: UserUpdate) -> User:
     # Increment session_version to immediately invalidate all existing JWTs
     user.session_version += 1
 
+    # Field names only: an email or a privilege payload is not copied into the audit text.
+    incidences.record(
+        db,
+        source=SourceType.USER_SETTINGS,
+        instance_id=user.employee_id,
+        updater=updater,
+        reason=f'User {user.user_id} updated',
+        context=f'{user.user_id} updated; changed: ' + ', '.join(sorted(data.model_fields_set)),
+    )
     await db.commit()
     await db.refresh(user)
-    # TODO: write incidence record with source_type = SourceType.UserSettings
     return user
 
 
-async def delete_user(db: AsyncSession, user: User) -> None:
+async def delete_user(db: AsyncSession, user: User, *, updater: int) -> None:
     await assert_not_referenced(db, user, exempt=frozenset({'user_settings', 'access_privilege'}))
+    user_id, employee_id = user.user_id, user.employee_id
+    incidences.record(
+        db,
+        source=SourceType.USER_SETTINGS,
+        instance_id=employee_id,
+        updater=updater,
+        reason=f'User {user_id} deleted',
+        context=f'{user_id} deleted',
+    )
     # ORM cascade (all, delete-orphan) handles: user_settings → access_privilege → user
     await db.delete(user)
     await db.commit()
-    # TODO: write incidence record with source_type = SourceType.UserSettings
 
 
 async def authenticate_user(db: AsyncSession, username: str, password: str) -> User | None:
@@ -260,10 +286,22 @@ async def change_password(db: AsyncSession, user: User, new_password: str) -> No
     await db.commit()
 
 
-async def initiate_recovery(db: AsyncSession, user: User) -> tuple[str, datetime]:
+async def initiate_recovery(
+    db: AsyncSession, user: User, *, updater: int
+) -> tuple[str, datetime]:
     """Admin-triggered recovery. Returns a signed time-limited recovery token."""
     token, expires_at = create_recovery_token(user.user_id)
-    # Token is self-contained — no temp password stored; user sets new password via /auth/recover
+    # Token is self-contained — no temp password stored; user sets new password via /auth/recover.
+    # The incidence is the only row this writes, so it is committed here.
+    incidences.record(
+        db,
+        source=SourceType.USER_SETTINGS,
+        instance_id=user.employee_id,
+        updater=updater,
+        reason=f'User {user.user_id} recovery token issued',
+        context=f'{user.user_id} recovery token issued',
+    )
+    await db.commit()
     return token, expires_at
 
 

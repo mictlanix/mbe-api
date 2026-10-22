@@ -7,8 +7,16 @@ from app.core.deps import CurrentUser, get_current_user
 from app.db.session import get_db
 from app.enums import EntityStatus
 from app.schemas import ListResponse
-from app.schemas.customer import CustomerCreate, CustomerListItem, CustomerResponse, CustomerUpdate
-from app.services import customer_service
+from app.schemas.customer import (
+    CustomerCreate,
+    CustomerDiscountCreate,
+    CustomerDiscountResponse,
+    CustomerDiscountUpdate,
+    CustomerListItem,
+    CustomerResponse,
+    CustomerUpdate,
+)
+from app.services import customer_discount_service, customer_service
 
 router = APIRouter()
 
@@ -82,3 +90,72 @@ async def delete_customer(
     if customer is None:
         raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail='Customer not found')
     await customer_service.delete_customer(db, customer, settings.default_customer_id)
+
+
+async def _require_customer(db: AsyncSession, customer_id: int) -> None:
+    if await customer_service.get_customer(db, customer_id) is None:
+        raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail='Customer not found')
+
+
+async def _require_discount(db: AsyncSession, customer_id: int, customer_discount_id: int):
+    await _require_customer(db, customer_id)
+    discount = await customer_discount_service.get_discount(db, customer_id, customer_discount_id)
+    if discount is None:
+        raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail='Discount not found')
+    return discount
+
+
+@router.get('/{customer_id}/discounts', response_model=list[CustomerDiscountResponse])
+async def list_discounts(
+    customer_id: int,
+    _: CurrentUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> list[CustomerDiscountResponse]:
+    await _require_customer(db, customer_id)
+    discounts = await customer_discount_service.list_discounts(db, customer_id)
+    return [CustomerDiscountResponse.model_validate(d) for d in discounts]
+
+
+@router.post(
+    '/{customer_id}/discounts',
+    response_model=CustomerDiscountResponse,
+    status_code=http_status.HTTP_201_CREATED,
+)
+async def create_discount(
+    customer_id: int,
+    data: CustomerDiscountCreate,
+    _: CurrentUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> CustomerDiscountResponse:
+    await _require_customer(db, customer_id)
+    discount = await customer_discount_service.create_discount(db, customer_id, data)
+    return CustomerDiscountResponse.model_validate(discount)
+
+
+@router.put(
+    '/{customer_id}/discounts/{customer_discount_id}', response_model=CustomerDiscountResponse
+)
+async def update_discount(
+    customer_id: int,
+    customer_discount_id: int,
+    data: CustomerDiscountUpdate,
+    _: CurrentUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> CustomerDiscountResponse:
+    discount = await _require_discount(db, customer_id, customer_discount_id)
+    discount = await customer_discount_service.update_discount(db, discount, data)
+    return CustomerDiscountResponse.model_validate(discount)
+
+
+@router.delete(
+    '/{customer_id}/discounts/{customer_discount_id}',
+    status_code=http_status.HTTP_204_NO_CONTENT,
+)
+async def delete_discount(
+    customer_id: int,
+    customer_discount_id: int,
+    _: CurrentUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> None:
+    discount = await _require_discount(db, customer_id, customer_discount_id)
+    await customer_discount_service.delete_discount(db, discount)

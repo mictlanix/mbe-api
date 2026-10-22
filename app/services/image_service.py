@@ -84,6 +84,20 @@ async def save_proof_image(content: bytes, pod_dir: str) -> str:
     return await asyncio.to_thread(_save_pod_sync, content, pod_dir)
 
 
+async def delete_image(directory: str, filename: str) -> None:
+    """Remove a stored file; one that is already gone is not an error.
+
+    A name that could point outside `directory` is refused, so a bad value in a column can never
+    become a delete of some other file.
+    """
+    if '/' in filename or '..' in filename:
+        raise ValueError('Invalid image filename')
+    try:
+        await asyncio.to_thread(os.remove, os.path.join(directory, filename))
+    except FileNotFoundError:
+        pass
+
+
 def image_url(filename: str | None) -> str | None:
     """Resolve a stored image filename to a URL a non-same-origin client can render."""
     if filename is None or '/' in filename:

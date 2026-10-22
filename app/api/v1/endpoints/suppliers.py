@@ -4,8 +4,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.deps import CurrentUser, get_current_user
 from app.db.session import get_db
 from app.schemas import ListResponse
-from app.schemas.supplier import SupplierCreate, SupplierResponse, SupplierUpdate
-from app.services import supplier_service
+from app.schemas.supplier import (
+    SupplierAgreementCreate,
+    SupplierAgreementResponse,
+    SupplierAgreementUpdate,
+    SupplierCreate,
+    SupplierDetailResponse,
+    SupplierResponse,
+    SupplierUpdate,
+)
+from app.services import supplier_agreement_service, supplier_service
 
 router = APIRouter()
 
@@ -22,40 +30,40 @@ async def list_suppliers(
     return ListResponse(items=list(items), total=total)
 
 
-@router.post('', response_model=SupplierResponse, status_code=status.HTTP_201_CREATED)
+@router.post('', response_model=SupplierDetailResponse, status_code=status.HTTP_201_CREATED)
 async def create_supplier(
     data: SupplierCreate,
     _: CurrentUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-) -> SupplierResponse:
+) -> SupplierDetailResponse:
     supplier = await supplier_service.create_supplier(db, data)
-    return SupplierResponse.model_validate(supplier)
+    return SupplierDetailResponse.model_validate(supplier)
 
 
-@router.get('/{supplier_id}', response_model=SupplierResponse)
+@router.get('/{supplier_id}', response_model=SupplierDetailResponse)
 async def get_supplier(
     supplier_id: int,
     _: CurrentUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-) -> SupplierResponse:
-    supplier = await supplier_service.get_supplier(db, supplier_id)
+) -> SupplierDetailResponse:
+    supplier = await supplier_service.get_supplier_detail(db, supplier_id)
     if supplier is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Supplier not found')
-    return SupplierResponse.model_validate(supplier)
+    return SupplierDetailResponse.model_validate(supplier)
 
 
-@router.put('/{supplier_id}', response_model=SupplierResponse)
+@router.put('/{supplier_id}', response_model=SupplierDetailResponse)
 async def update_supplier(
     supplier_id: int,
     data: SupplierUpdate,
     _: CurrentUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-) -> SupplierResponse:
+) -> SupplierDetailResponse:
     supplier = await supplier_service.get_supplier(db, supplier_id)
     if supplier is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Supplier not found')
     supplier = await supplier_service.update_supplier(db, supplier, data)
-    return SupplierResponse.model_validate(supplier)
+    return SupplierDetailResponse.model_validate(supplier)
 
 
 @router.delete('/{supplier_id}', status_code=status.HTTP_204_NO_CONTENT)
@@ -68,3 +76,73 @@ async def delete_supplier(
     if supplier is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Supplier not found')
     await supplier_service.delete_supplier(db, supplier)
+
+
+async def _require_supplier(db: AsyncSession, supplier_id: int) -> None:
+    if await supplier_service.get_supplier(db, supplier_id) is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Supplier not found')
+
+
+async def _require_agreement(db: AsyncSession, supplier_id: int, agreement_id: int):
+    await _require_supplier(db, supplier_id)
+    agreement = await supplier_agreement_service.get_agreement(db, supplier_id, agreement_id)
+    if agreement is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Agreement not found')
+    return agreement
+
+
+@router.get('/{supplier_id}/agreements', response_model=list[SupplierAgreementResponse])
+async def list_agreements(
+    supplier_id: int,
+    _: CurrentUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> list[SupplierAgreementResponse]:
+    await _require_supplier(db, supplier_id)
+    agreements = await supplier_agreement_service.list_agreements(db, supplier_id)
+    return [SupplierAgreementResponse.model_validate(a) for a in agreements]
+
+
+@router.post(
+    '/{supplier_id}/agreements',
+    response_model=SupplierAgreementResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_agreement(
+    supplier_id: int,
+    data: SupplierAgreementCreate,
+    _: CurrentUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> SupplierAgreementResponse:
+    await _require_supplier(db, supplier_id)
+    agreement = await supplier_agreement_service.create_agreement(db, supplier_id, data)
+    return SupplierAgreementResponse.model_validate(agreement)
+
+
+@router.put(
+    '/{supplier_id}/agreements/{supplier_agreement_id}',
+    response_model=SupplierAgreementResponse,
+)
+async def update_agreement(
+    supplier_id: int,
+    supplier_agreement_id: int,
+    data: SupplierAgreementUpdate,
+    _: CurrentUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> SupplierAgreementResponse:
+    agreement = await _require_agreement(db, supplier_id, supplier_agreement_id)
+    agreement = await supplier_agreement_service.update_agreement(db, agreement, data)
+    return SupplierAgreementResponse.model_validate(agreement)
+
+
+@router.delete(
+    '/{supplier_id}/agreements/{supplier_agreement_id}',
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def delete_agreement(
+    supplier_id: int,
+    supplier_agreement_id: int,
+    _: CurrentUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> None:
+    agreement = await _require_agreement(db, supplier_id, supplier_agreement_id)
+    await supplier_agreement_service.delete_agreement(db, agreement)

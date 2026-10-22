@@ -149,10 +149,10 @@ async def get_product_missing_price_facets(
 @router.post('', response_model=ProductResponse, status_code=http_status.HTTP_201_CREATED)
 async def create_product(
     data: ProductCreate,
-    _: CurrentUser = Depends(require_privilege(SystemObject.PRODUCTS, AccessRight.CREATE)),
+    current: CurrentUser = Depends(require_privilege(SystemObject.PRODUCTS, AccessRight.CREATE)),
     db: AsyncSession = Depends(get_db),
 ) -> ProductResponse:
-    product = await product_service.create_product(db, data, settings)
+    product = await product_service.create_product(db, data, settings, updater=current.employee_id)
     response = ProductResponse.model_validate(product)
     response.photo = _photo_url(product.photo)
     return response
@@ -185,7 +185,7 @@ async def preview_product_merge(
 async def upload_product_image(
     product_id: int,
     file: UploadFile = File(...),
-    _: CurrentUser = Depends(require_privilege(SystemObject.PRODUCTS, AccessRight.UPDATE)),
+    current: CurrentUser = Depends(require_privilege(SystemObject.PRODUCTS, AccessRight.UPDATE)),
     db: AsyncSession = Depends(get_db),
 ) -> ProductResponse:
     product = await product_service.get_product(db, product_id)
@@ -196,7 +196,9 @@ async def upload_product_image(
         filename = await image_service.process_and_save_image(content, settings.images_dir)
     except ValueError as exc:
         raise HTTPException(status_code=http_status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc))
-    product = await product_service.update_product(db, product, ProductUpdate(photo=filename))
+    product = await product_service.update_product(
+        db, product, ProductUpdate(photo=filename), updater=current.employee_id
+    )
     response = ProductResponse.model_validate(product)
     response.photo = _photo_url(product.photo)
     return response
@@ -220,13 +222,13 @@ async def get_product(
 async def update_product(
     product_id: int,
     data: ProductUpdate,
-    _: CurrentUser = Depends(require_privilege(SystemObject.PRODUCTS, AccessRight.UPDATE)),
+    current: CurrentUser = Depends(require_privilege(SystemObject.PRODUCTS, AccessRight.UPDATE)),
     db: AsyncSession = Depends(get_db),
 ) -> ProductResponse:
     product = await product_service.get_product(db, product_id)
     if product is None:
         raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail='Product not found')
-    product = await product_service.update_product(db, product, data)
+    product = await product_service.update_product(db, product, data, updater=current.employee_id)
     response = ProductResponse.model_validate(product)
     response.photo = _photo_url(product.photo)
     return response
@@ -235,10 +237,10 @@ async def update_product(
 @router.delete('/{product_id}', status_code=http_status.HTTP_204_NO_CONTENT)
 async def delete_product(
     product_id: int,
-    _: CurrentUser = Depends(require_privilege(SystemObject.PRODUCTS, AccessRight.DELETE)),
+    current: CurrentUser = Depends(require_privilege(SystemObject.PRODUCTS, AccessRight.DELETE)),
     db: AsyncSession = Depends(get_db),
 ) -> None:
     product = await product_service.get_product(db, product_id)
     if product is None:
         raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail='Product not found')
-    await product_service.delete_product(db, product)
+    await product_service.delete_product(db, product, updater=current.employee_id)

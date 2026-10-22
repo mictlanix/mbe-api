@@ -269,3 +269,24 @@ async def test_serve_image_accessible_without_auth(_static_dir) -> None:
     async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as c:
         r = await c.get('/images/public.png')
     assert r.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_upload_image_passes_the_acting_employee_as_updater() -> None:
+    _auth()
+    mock_update = AsyncMock(return_value=_product(photo='abc123.png'))
+    with (
+        patch('app.services.product_service.get_product', new=AsyncMock(return_value=_product())),
+        patch(
+            'app.services.image_service.process_and_save_image',
+            new=AsyncMock(return_value='abc123.png'),
+        ),
+        patch('app.services.product_service.update_product', new=mock_update),
+    ):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as c:
+            r = await c.post(
+                '/api/v1/products/1/image',
+                files={'file': ('photo.png', _make_png_bytes(), 'image/png')},
+            )
+    assert r.status_code == 200
+    assert mock_update.call_args.kwargs['updater'] == 7

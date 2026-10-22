@@ -14,7 +14,7 @@ These screens manage the core catalog / configuration data used by all transacti
 Central product/SKU catalog. Every inventory movement, sale, and purchase references a product.
 
 ### List View
-- Search by: **name, code, model, SKU, brand** (not barcode; not supplier)
+- Search by: **name, code, model, SKU, brand, barcode (exact match)** (not supplier). The same search drives the label and missing-price facets
 - Filters: active/deactivated, stockable, salable, purchasable, label
 - Columns: code, name, brand, model, unit of measurement, tax rate, deactivated
 
@@ -68,12 +68,12 @@ When a product is created, the controller automatically:
 5. Sets `Photo = WebConfig.DefaultPhotoFile`
 6. Sets `StockRequired = true`
 7. Creates one `product_price` row for **every existing `price_list`** (price = 0 until edited)
-8. Logs an `Incidence` record (`SourceType.Product`)
+8. Writes one `incidence` row (`SourceType.PRODUCT`, keyed by the product id, updater = the acting employee) in the same transaction as the change: reason `Product {code} created`, content the product name.
 
 ### Delete Behavior
 1. Hard-deletes all `product_price` rows for this product
 2. Hard-deletes the `product` record
-3. Logs an `Incidence` record (`SourceType.Product`)
+3. Writes one `incidence` row in the same transaction, before the delete: reason `Product {code} deleted`, content `{code} {name}`.
 
 ### Merge Feature
 **Route**: `POST /products/merge`  
@@ -87,7 +87,7 @@ Merges a duplicate product into a canonical product:
 Tables remapped during merge include: `sales_order_detail`, `purchase_order_detail`, `inventory_receipt_detail`, `inventory_issue_detail`, `inventory_transfer_detail`, `product_price`, `lot_serial_tracking`, `product_label`, and others.
 
 ### Incidence Logging
-Create, Edit, and Delete all write an `incidence` record with `source_type = SourceType.Product`.
+Create, Edit, and Delete each write one `incidence` row with `source = SourceType.PRODUCT` (9), `instance_id` = the product id and `updater` = the acting employee, committed with the change. Edit's reason is `Product {code} updated` and its content is `Changed: {sorted field names sent}`. Product merge writes none.
 
 ### Business Rules
 - `code` must be unique across all products.
@@ -156,7 +156,14 @@ Buyer entities. All sales orders, payments, and refunds belong to a customer.
 - **Addresses** (`customer_address`): list of shipping/billing addresses.
 - **Contacts** (`customer_contact`): list of contact persons.
 - **Taxpayers** (`customer_taxpayer`): RFC(s) associated for invoicing.
-- **Discounts** (`customer_discount`): product-specific discount overrides.
+- **Discounts** (`customer_discount`): product-specific discount overrides, nested under the
+  customer: `GET` and `POST /customers/{id}/discounts`, `PUT` and `DELETE`
+  `/customers/{id}/discounts/{customer_discount_id}`. The list is ordered by product code and each
+  row carries the product's `product_id`, `code` and `name`. `discount` is a fraction from 0 to 1
+  with up to 8 decimal places. There is one override per product (409 on a repeat), an unknown
+  product returns 422, the product is fixed after create (`PUT` changes only `discount`), and an
+  override of another customer returns 404. Sales orders and quotes do not apply these discounts
+  to prices yet.
 
 ### Business Rules
 - **Cannot delete `WebConfig.DefaultCustomer`**: the system-default customer (used for anonymous POS sales) is protected from deletion. Attempting to delete it returns an error.
@@ -228,10 +235,21 @@ Vendor entities for purchasing goods.
 | Notes | `supplier.comment` | |
 
 ### Sub-Panels
-- **Addresses** (`supplier_address`)
-- **Contacts** (`supplier_contact`)
-- **Bank Accounts** (`supplier_bank_account`)
-- **Agreements** (`supplier_agreement`): date-ranged commercial agreements
+`GET /suppliers/{id}`, `POST` and `PUT` return the four sub-panels; the list does not.
+
+- **Addresses** (`supplier_address`), **Contacts** (`supplier_contact`) and **Bank Accounts**
+  (`supplier_bank_account`): sent on `POST` and `PUT` as id lists (`addresses`, `contacts`,
+  `bank_accounts`). Each list replaces that link set: omitted leaves it alone, `[]` clears it, and
+  an unknown id returns 409 with no link changed. Create the rows themselves via `/addresses`,
+  `/contacts` and `/bank-accounts`.
+- **Bank accounts** are a resource of their own: `/bank-accounts`, gated by `SystemObject`
+  `BankAccounts` (13), searchable by bank name, account number and reference. Deleting one that is
+  linked to a supplier returns 409.
+- **Agreements** (`supplier_agreement`): date-ranged commercial agreements, nested under the
+  supplier: `GET` and `POST /suppliers/{id}/agreements`, `PUT` and `DELETE`
+  `/suppliers/{id}/agreements/{agreement_id}`. `end` must not be before `start` (422, checked on
+  the merged values for an update), and an agreement of another supplier returns 404.
+- Links and agreements block deleting the supplier (409) until they are cleared.
 
 ---
 
@@ -454,6 +472,13 @@ Driver license records for employees who operate fleet vehicles.
 | Expiration Date | `vehicle_operator.expiration_date` | |
 | Issuing Location | `vehicle_operator.issuing_location` | State |
 | Active | `vehicle_operator.active` | |
+| License Photo | `vehicle_operator.license_photo` | Private filename, NULL for none; responses expose only `has_license_photo` |
+
+### License photo
+- `POST /vehicle-operators/{id}/license-photo` (multipart `file`) stores it, `GET` returns it, `DELETE` removes it.
+- Stored under `LICENSE_PHOTOS_DIR`, outside the public `/images` mount, and served only behind authentication because it is personal data.
+- Limit 2 MB; any decodable image is scaled to 1024 px wide and saved as PNG under a random name.
+- The file is removed when the photo is replaced or cleared and when the operator is deleted.
 
 ### Business Rules
 - Alert when license is within 30 days of expiration.

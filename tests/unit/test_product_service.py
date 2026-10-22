@@ -5,13 +5,17 @@ import pytest
 from fastapi import HTTPException
 from sqlalchemy import select
 
+from app.enums import SourceType
 from app.models.product import Product
-from app.schemas.product import ProductMergeRequest
+from app.schemas.product import ProductCreate, ProductMergeRequest, ProductUpdate
 from app.services.product_service import (
     _apply_product_filters,
+    create_product,
+    delete_product,
     get_label_facets,
     merge_products,
     preview_merge,
+    update_product,
 )
 from app.services.references import referencing_columns
 
@@ -372,3 +376,100 @@ def test_the_six_flags_compose() -> None:
 
     for flag in six:
         assert f'product.{flag}' in where, flag
+
+
+# ── Incidences (spec 021, US3) ────────────────────────────────────────────────
+
+_RECORD = 'app.services.product_service.incidences.record'
+
+
+@pytest.mark.asyncio
+async def test_create_product_records_an_incidence_after_the_flush() -> None:
+    db = MagicMock(commit=AsyncMock(), refresh=AsyncMock())
+    order: list[str] = []
+
+    async def _flush() -> None:
+        db.add.call_args.args[0].product_id = 41
+        order.append('flush')
+
+    db.flush = AsyncMock(side_effect=_flush)
+    db.commit.side_effect = lambda: order.append('commit')
+    data = ProductCreate(code='P-9', name='Widget', unit_of_measurement='H87')
+    with (
+        patch('app.services.product_service._check_code_unique', new=AsyncMock()),
+        patch('app.services.product_service._get_labels', new=AsyncMock(return_value=[])),
+        patch('app.services.product_service._attach_product_relations', new=AsyncMock()),
+        patch(_RECORD, side_effect=lambda *a, **k: order.append('record')) as record,
+    ):
+        await create_product(db, data, MagicMock(default_vat=0.16), updater=7)
+    record.assert_called_once_with(
+        db,
+        source=SourceType.PRODUCT,
+        instance_id=41,
+        updater=7,
+        reason='Product P-9 created',
+        context='Widget',
+    )
+    assert order == ['flush', 'record', 'commit']
+
+
+@pytest.mark.asyncio
+async def test_update_product_records_the_sorted_field_names() -> None:
+    db = MagicMock(commit=AsyncMock(), refresh=AsyncMock())
+    product = SimpleNamespace(product_id=5, code='P-5', name='Old')
+    data = ProductUpdate(name='Newer', comment='c')
+    with (
+        patch('app.services.product_service._get_labels', new=AsyncMock(return_value=[])),
+        patch('app.services.product_service._attach_product_relations', new=AsyncMock()),
+        patch(_RECORD) as record,
+    ):
+        await update_product(db, product, data, updater=7)
+    record.assert_called_once_with(
+        db,
+        source=SourceType.PRODUCT,
+        instance_id=5,
+        updater=7,
+        reason='Product P-5 updated',
+        context='Changed: comment, name',
+    )
+
+
+@pytest.mark.asyncio
+async def test_delete_product_records_before_the_delete() -> None:
+    db = MagicMock(delete=AsyncMock(), commit=AsyncMock())
+    product = SimpleNamespace(product_id=5, code='P-5', name='Widget')
+    manager = MagicMock()
+    manager.attach_mock(db.delete, 'delete')
+    with (
+        patch('app.services.product_service.assert_not_referenced', new=AsyncMock()),
+        patch('app.services.product_service.product_price_service.delete_for_product', AsyncMock()),
+        patch(_RECORD) as record,
+    ):
+        manager.attach_mock(record, 'record')
+        await delete_product(db, product, updater=7)
+    record.assert_called_once_with(
+        db,
+        source=SourceType.PRODUCT,
+        instance_id=5,
+        updater=7,
+        reason='Product P-5 deleted',
+        context='P-5 Widget',
+    )
+    assert [c[0] for c in manager.mock_calls] == ['record', 'delete']
+
+
+def test_search_also_matches_the_barcode_exactly_after_stripping() -> None:
+    query = _apply_product_filters(
+        select(Product), **{**_no_filters(), 'search': ' 7501234567890\n'}
+    )
+    compiled = str(query.compile(compile_kwargs={'literal_binds': True}))
+    assert "product.bar_code = '7501234567890'" in compiled
+    # The five ILIKE terms keep the raw term, so no existing match changes
+    assert compiled.count('LIKE') == 5
+    assert "'% 7501234567890\n%'" in compiled
+
+
+def test_a_blank_search_adds_no_barcode_term() -> None:
+    query = _apply_product_filters(select(Product), **{**_no_filters(), 'search': '   '})
+    compiled = str(query.compile(compile_kwargs={'literal_binds': True}))
+    assert 'bar_code' not in compiled.split('FROM product', 1)[1]

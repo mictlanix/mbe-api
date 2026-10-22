@@ -137,6 +137,36 @@ class ContactResponse(BaseModel):
     comment: str | None
 
 
+# ── Bank account ──────────────────────────────────────────────────────────────
+
+
+class BankAccountCreate(BaseModel):
+    bank_name: str = Field(max_length=250)
+    account_number: str = Field(max_length=20)
+    reference: str | None = Field(default=None, max_length=20)
+    routing_number: str | None = Field(default=None, max_length=18)
+    comment: str | None = Field(default=None, max_length=500)
+
+
+class BankAccountUpdate(BaseModel):
+    bank_name: str | None = Field(default=None, max_length=250)
+    account_number: str | None = Field(default=None, max_length=20)
+    reference: str | None = Field(default=None, max_length=20)
+    routing_number: str | None = Field(default=None, max_length=18)
+    comment: str | None = Field(default=None, max_length=500)
+
+
+class BankAccountResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    bank_account_id: int
+    bank_name: str
+    account_number: str
+    reference: str | None
+    routing_number: str | None
+    comment: str | None
+
+
 # ── Label ─────────────────────────────────────────────────────────────────────
 
 
@@ -567,6 +597,7 @@ class VehicleOperatorResponse(BaseModel):
     creator: EmployeeResponse = Field(validation_alias=AliasChoices('creator_detail', 'creator'))
     updater: EmployeeResponse = Field(validation_alias=AliasChoices('updater_detail', 'updater'))
     status: EntityStatus
+    has_license_photo: bool = False
     days_until_expiry: int = 0
 
     @model_validator(mode='after')

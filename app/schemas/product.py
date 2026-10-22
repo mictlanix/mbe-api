@@ -161,6 +161,14 @@ class ProductUpdate(BaseModel):
         return _validate_bar_code(v)
 
 
+class ProductSummary(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    product_id: int
+    code: str
+    name: str
+
+
 class ProductListItem(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

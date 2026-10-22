@@ -11,11 +11,11 @@ user's permissions, `update_user`, stays a *partial* upsert on purpose (FR-026);
 class here pins that difference so it is not mistaken for an oversight.
 """
 
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from app.enums import EntityStatus, SystemObject
+from app.enums import EntityStatus, SourceType, SystemObject
 from app.models.user import AccessPrivilege, User, UserProfile, UserProfilePrivilege
 from app.schemas.user import PrivilegeUpdate, UserUpdate
 from app.services import user_service
@@ -130,29 +130,29 @@ class TestApplyProfile:
 
     @pytest.mark.asyncio
     async def test_records_the_origin(self):
-        db, user = AsyncMock(), _user()
-        await user_service.apply_profile(db, user, _profile(7, masks={0: 2}))
+        db, user = AsyncMock(add=MagicMock()), _user()
+        await user_service.apply_profile(db, user, _profile(7, masks={0: 2}), updater=1)
         assert user.profile_id == 7
 
     @pytest.mark.asyncio
     async def test_replaces_a_previous_origin(self):
-        db, user = AsyncMock(), _user(profile_id=3)
-        await user_service.apply_profile(db, user, _profile(9, masks={0: 2}))
+        db, user = AsyncMock(add=MagicMock()), _user(profile_id=3)
+        await user_service.apply_profile(db, user, _profile(9, masks={0: 2}), updater=1)
         assert user.profile_id == 9
 
     @pytest.mark.asyncio
     async def test_invalidates_existing_sessions(self):
         """FR-015. A relative increment, correct from any starting value (research R7)."""
-        db, user = AsyncMock(), _user()
+        db, user = AsyncMock(add=MagicMock()), _user()
         before = user.session_version
-        await user_service.apply_profile(db, user, _profile(masks={0: 2}))
+        await user_service.apply_profile(db, user, _profile(masks={0: 2}), updater=1)
         assert user.session_version == before + 1
 
     @pytest.mark.asyncio
     async def test_commits_once(self):
         """FR-018 all-or-nothing. Two commits would leave a half-applied account reachable."""
-        db, user = AsyncMock(), _user()
-        await user_service.apply_profile(db, user, _profile(masks={0: 2}))
+        db, user = AsyncMock(add=MagicMock()), _user()
+        await user_service.apply_profile(db, user, _profile(masks={0: 2}), updater=1)
         assert db.commit.await_count == 1
 
 
@@ -161,10 +161,13 @@ class TestUpdateUserStaysAPartialUpsert:
 
     @pytest.mark.asyncio
     async def test_omitted_objects_keep_their_masks(self):
-        db = AsyncMock()
+        db = AsyncMock(add=MagicMock())
         user = _user(privileges=[_priv(0, 15), _priv(7, 15)])
         await user_service.update_user(
-            db, user, UserUpdate(privileges=[PrivilegeUpdate(system_object=0, privileges=2)])
+            db,
+            user,
+            UserUpdate(privileges=[PrivilegeUpdate(system_object=0, privileges=2)]),
+            updater=1,
         )
         by_object = {p.system_object: p.privileges for p in user.privileges}
         assert by_object[0] == 2
@@ -174,9 +177,100 @@ class TestUpdateUserStaysAPartialUpsert:
     @pytest.mark.asyncio
     async def test_does_not_clear_a_recorded_origin(self):
         """FR-022: the origin records where an account was provisioned from, not what it holds."""
-        db = AsyncMock()
+        db = AsyncMock(add=MagicMock())
         user = _user(profile_id=5, privileges=[_priv(0, 15)])
         await user_service.update_user(
-            db, user, UserUpdate(privileges=[PrivilegeUpdate(system_object=0, privileges=2)])
+            db,
+            user,
+            UserUpdate(privileges=[PrivilegeUpdate(system_object=0, privileges=2)]),
+            updater=1,
         )
         assert user.profile_id == 5
+
+
+_RECORD = 'app.services.user_service.incidences.record'
+
+
+def _db() -> MagicMock:
+    return MagicMock(commit=AsyncMock(), refresh=AsyncMock(), delete=AsyncMock())
+
+
+def _tracked(db: MagicMock):
+    """A `record` stand-in and the order in which it and `commit` ran."""
+    order: list[str] = []
+    db.commit.side_effect = lambda: order.append('commit')
+    return order, lambda *a, **k: order.append('record')
+
+
+class TestIncidences:
+    """Spec 021 US3 (FR-014/FR-016): one USER_SETTINGS row per action, staged before the commit."""
+
+    @pytest.mark.asyncio
+    async def test_update_names_the_fields_and_never_the_values(self):
+        db, user = _db(), _user()
+        order, effect = _tracked(db)
+        data = UserUpdate(email='secret@example.com', administrator=True)
+        with patch(_RECORD, side_effect=effect) as record:
+            await user_service.update_user(db, user, data, updater=9)
+        record.assert_called_once_with(
+            db,
+            source=SourceType.USER_SETTINGS,
+            instance_id=1,
+            updater=9,
+            reason='User tester updated',
+            context='tester updated; changed: administrator, email',
+        )
+        assert 'secret@example.com' not in record.call_args.kwargs['context']
+        assert order == ['record', 'commit']
+
+    @pytest.mark.asyncio
+    async def test_delete(self):
+        db, user = _db(), _user()
+        order, effect = _tracked(db)
+        with (
+            patch('app.services.user_service.assert_not_referenced', new=AsyncMock()),
+            patch(_RECORD, side_effect=effect) as record,
+        ):
+            await user_service.delete_user(db, user, updater=9)
+        record.assert_called_once_with(
+            db,
+            source=SourceType.USER_SETTINGS,
+            instance_id=1,
+            updater=9,
+            reason='User tester deleted',
+            context='tester deleted',
+        )
+        assert order == ['record', 'commit']
+
+    @pytest.mark.asyncio
+    async def test_apply_profile(self):
+        db, user = _db(), _user()
+        order, effect = _tracked(db)
+        with patch(_RECORD, side_effect=effect) as record:
+            await user_service.apply_profile(db, user, _profile(7, masks={0: 2}), updater=9)
+        record.assert_called_once_with(
+            db,
+            source=SourceType.USER_SETTINGS,
+            instance_id=1,
+            updater=9,
+            reason='User tester profile applied',
+            context='tester profile 7 applied',
+        )
+        assert order == ['record', 'commit']
+
+    @pytest.mark.asyncio
+    async def test_initiate_recovery_commits_its_incidence(self):
+        db, user = _db(), _user()
+        order, effect = _tracked(db)
+        with patch(_RECORD, side_effect=effect) as record:
+            token, _ = await user_service.initiate_recovery(db, user, updater=9)
+        assert token
+        record.assert_called_once_with(
+            db,
+            source=SourceType.USER_SETTINGS,
+            instance_id=1,
+            updater=9,
+            reason='User tester recovery token issued',
+            context='tester recovery token issued',
+        )
+        assert order == ['record', 'commit']

@@ -10,6 +10,7 @@ import pytest
 from PIL import Image
 
 from app.services.image_service import (
+    delete_image,
     normalise_to_png,
     process_and_save_image,
     save_proof_image,
@@ -79,3 +80,30 @@ class TestStorageStrategies:
         name = await save_proof_image(_png(), str(tmp_path))
 
         assert (tmp_path / name).exists()
+
+
+class TestDeleteImage:
+    @pytest.mark.asyncio
+    async def test_removes_an_existing_file(self, tmp_path) -> None:
+        name = await save_proof_image(_png(), str(tmp_path))
+
+        await delete_image(str(tmp_path), name)
+
+        assert list(tmp_path.iterdir()) == []
+
+    @pytest.mark.asyncio
+    async def test_a_missing_file_is_a_no_op(self, tmp_path) -> None:
+        await delete_image(str(tmp_path), 'gone.png')
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize('filename', ['../escape.png', 'sub/file.png', '..', 'a/../b.png'])
+    async def test_refuses_a_name_that_could_leave_the_directory(self, tmp_path, filename) -> None:
+        outside = tmp_path / 'outside.png'
+        outside.write_bytes(b'keep')
+        inner = tmp_path / 'inner'
+        inner.mkdir()
+
+        with pytest.raises(ValueError):
+            await delete_image(str(inner), filename)
+
+        assert outside.exists()

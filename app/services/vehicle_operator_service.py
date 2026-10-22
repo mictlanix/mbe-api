@@ -119,7 +119,25 @@ async def update_vehicle_operator(
     return vo
 
 
-async def delete_vehicle_operator(db: AsyncSession, vo: VehicleOperator) -> None:
+async def set_license_photo(db: AsyncSession, vo: VehicleOperator, filename: str) -> str | None:
+    """Store the new name and return the previous one, for the caller to remove from disk."""
+    previous = vo.license_photo
+    vo.license_photo = filename
+    await db.commit()
+    return previous
+
+
+async def clear_license_photo(db: AsyncSession, vo: VehicleOperator) -> str | None:
+    previous = vo.license_photo
+    vo.license_photo = None
+    await db.commit()
+    return previous
+
+
+async def delete_vehicle_operator(db: AsyncSession, vo: VehicleOperator) -> str | None:
+    """Delete the operator and return its photo name, for the caller to remove from disk."""
+    photo = vo.license_photo
     await assert_not_referenced(db, vo)
     await db.delete(vo)
     await db.commit()
+    return photo

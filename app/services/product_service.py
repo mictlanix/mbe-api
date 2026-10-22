@@ -7,14 +7,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings
 from app.core.constants import COST_PRICE_LIST_ID
-from app.enums import EntityStatus
+from app.enums import EntityStatus, SourceType
 from app.models.core import Label
 from app.models.product import PriceList, Product, ProductPrice, product_label
 from app.models.sat_catalog import SatProductService, SatUnitOfMeasurement
 from app.models.supplier import Supplier
 from app.schemas.product import ProductCreate, ProductMergeRequest, ProductUpdate
 from app.schemas.sat_catalog import SatUnitOfMeasurementResponse
-from app.services import product_price_service
+from app.services import incidences, product_price_service
 from app.services.references import (
     assert_not_referenced,
     find_blocking_references,
@@ -40,15 +40,17 @@ def _apply_product_filters(
 ) -> Select[Any]:
     if search:
         term = f'%{search}%'
-        query = query.where(
-            or_(
-                Product.code.ilike(term),
-                Product.name.ilike(term),
-                Product.model.ilike(term),
-                Product.sku.ilike(term),
-                Product.brand.ilike(term),
-            )
-        )
+        terms = [
+            Product.code.ilike(term),
+            Product.name.ilike(term),
+            Product.model.ilike(term),
+            Product.sku.ilike(term),
+            Product.brand.ilike(term),
+        ]
+        # Exact, and stripped: a scanner may append a newline, and a partial barcode is noise
+        if search.strip():
+            terms.append(Product.bar_code == search.strip())
+        query = query.where(or_(*terms))
 
     if label:
         labeled_products = (
@@ -393,7 +395,9 @@ async def _check_code_unique(db: AsyncSession, code: str, exclude_id: int | None
         )
 
 
-async def create_product(db: AsyncSession, data: ProductCreate, settings: Settings) -> Product:
+async def create_product(
+    db: AsyncSession, data: ProductCreate, settings: Settings, *, updater: int
+) -> Product:
     await _check_code_unique(db, data.code)
 
     product = Product(
@@ -431,6 +435,14 @@ async def create_product(db: AsyncSession, data: ProductCreate, settings: Settin
     if data.labels is not None:
         await _set_labels(db, product.product_id, data.labels)
 
+    incidences.record(
+        db,
+        source=SourceType.PRODUCT,
+        instance_id=product.product_id,
+        updater=updater,
+        reason=f'Product {product.code} created',
+        context=product.name,
+    )
     await db.commit()
     await db.refresh(product)
     product.__dict__['labels'] = await _get_labels(db, product.product_id)
@@ -438,7 +450,9 @@ async def create_product(db: AsyncSession, data: ProductCreate, settings: Settin
     return product
 
 
-async def update_product(db: AsyncSession, product: Product, data: ProductUpdate) -> Product:
+async def update_product(
+    db: AsyncSession, product: Product, data: ProductUpdate, *, updater: int
+) -> Product:
     if data.code is not None and data.code != product.code:
         await _check_code_unique(db, data.code, exclude_id=product.product_id)
         product.code = data.code
@@ -493,6 +507,14 @@ async def update_product(db: AsyncSession, product: Product, data: ProductUpdate
     if data.labels is not None:
         await _set_labels(db, product.product_id, data.labels)
 
+    incidences.record(
+        db,
+        source=SourceType.PRODUCT,
+        instance_id=product.product_id,
+        updater=updater,
+        reason=f'Product {product.code} updated',
+        context='Changed: ' + ', '.join(sorted(data.model_fields_set)),
+    )
     await db.commit()
     await db.refresh(product)
     product.__dict__['labels'] = await _get_labels(db, product.product_id)
@@ -500,9 +522,17 @@ async def update_product(db: AsyncSession, product: Product, data: ProductUpdate
     return product
 
 
-async def delete_product(db: AsyncSession, product: Product) -> None:
+async def delete_product(db: AsyncSession, product: Product, *, updater: int) -> None:
     await assert_not_referenced(db, product, exempt=frozenset({'product_price'}))
     await product_price_service.delete_for_product(db, product.product_id)
+    incidences.record(
+        db,
+        source=SourceType.PRODUCT,
+        instance_id=product.product_id,
+        updater=updater,
+        reason=f'Product {product.code} deleted',
+        context=f'{product.code} {product.name}',
+    )
     await db.delete(product)
     await db.commit()
 

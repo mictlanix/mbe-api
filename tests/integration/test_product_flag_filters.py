@@ -105,3 +105,66 @@ async def test_the_facets_narrow_with_the_late_flags(client: AsyncClient, db: As
             f'/api/v1/products?perishable=true&missing_price_list={row["price_list"]}'
         )
         assert listed.json()['total'] == row['missing_count'], row['price_list']
+
+
+# ── Barcode search (spec 021, US4) ────────────────────────────────────────────
+
+BARCODE = '7501234567890'
+
+
+async def _barcoded(db: AsyncSession) -> None:
+    """A product whose code and name share nothing with its barcode, labelled so it facets."""
+    from sqlalchemy import insert
+
+    from app.models.core import Label
+    from app.models.product import product_label
+
+    db.add(Label(label_id=1, name='Scanned'))
+    db.add(
+        Product(
+            product_id=9,
+            code='BC9',
+            name='Barcoded',
+            photo='p9.png',
+            unit_of_measurement='H87',
+            tax_rate=Decimal('0.16'),
+            tax_included=False,
+            price_type=0,
+            currency=CurrencyCode.MXN,
+            min_order_qty=1,
+            status=EntityStatus.ACTIVE,
+            stock_verification=False,
+            bar_code=BARCODE,
+            **dict.fromkeys(FLAGS, True),
+        )
+    )
+    await db.flush()
+    await db.execute(insert(product_label).values(product=9, label=1))
+    await db.commit()
+
+
+async def test_search_finds_a_product_by_its_full_barcode_only(
+    client: AsyncClient, db: AsyncSession
+) -> None:
+    await _barcoded(db)
+
+    assert await _ids(client, f'search={BARCODE}') == {9}
+    # A scanner may append a newline; the strip makes it still match exactly
+    assert await _ids(client, f'search={BARCODE}%0A') == {9}
+    # Exact only: a prefix does not match through the barcode
+    assert await _ids(client, 'search=750123') == set()
+
+
+async def test_the_facets_count_a_barcode_match(client: AsyncClient, db: AsyncSession) -> None:
+    await _barcoded(db)
+
+    labels = await client.get(f'/api/v1/products/labels/facets?search={BARCODE}')
+    assert labels.status_code == 200, labels.text
+    assert labels.json() == [{'label_id': 1, 'count': 1}]
+
+    missing = await client.get(f'/api/v1/products/prices/missing-facets?search={BARCODE}')
+    assert missing.status_code == 200, missing.text
+    assert missing.json() and all(row['missing_count'] == 1 for row in missing.json())
+
+    nothing = await client.get('/api/v1/products/labels/facets?search=750123')
+    assert nothing.json() == []

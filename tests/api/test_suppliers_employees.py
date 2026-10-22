@@ -87,18 +87,23 @@ async def test_list_suppliers_returns_200() -> None:
 async def test_get_supplier_returns_200() -> None:
     _auth()
     with patch(
-        'app.services.supplier_service.get_supplier', new=AsyncMock(return_value=_supplier())
+        'app.services.supplier_service.get_supplier_detail',
+        new=AsyncMock(return_value=_supplier()),
     ):
         async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as c:
             r = await c.get('/api/v1/suppliers/1')
     assert r.status_code == 200
     assert r.json()['supplier_id'] == 1
+    for key in ('addresses', 'contacts', 'bank_accounts', 'agreements'):
+        assert r.json()[key] == []
 
 
 @pytest.mark.asyncio
 async def test_get_supplier_returns_404() -> None:
     _auth()
-    with patch('app.services.supplier_service.get_supplier', new=AsyncMock(return_value=None)):
+    with patch(
+        'app.services.supplier_service.get_supplier_detail', new=AsyncMock(return_value=None)
+    ):
         async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as c:
             r = await c.get('/api/v1/suppliers/999')
     assert r.status_code == 404
