@@ -1336,6 +1336,7 @@ Marks an employee as a commission-eligible sales agent.
 | Column | Type | Description |
 |--------|------|-------------|
 | `employee` | int(11) | FK → `employee` (PK) |
+| `scheme` | smallint(6) | `CommissionScheme`: 1 = paid on fully paid orders (the current system's rule), 2 = paid proportionally on partial payments. `NOT NULL DEFAULT 1`; the current system never reads it. Migration 023, spec 025 |
 
 ### `commission_participation`
 Type of participation in a commission split.
@@ -1391,6 +1392,57 @@ Calculated commission record per sold order line.
 | `modification_time` | datetime | NO | Last updated. `NOT NULL DEFAULT '0000-00-00 00:00:00'` — the zero date, not a null, on a row never modified |
 | `confirmed` | tinyint(1) | NO | Confirmed by accounting |
 
+
+### `commission_period`
+A calendar month of commissions (spec 025). A month with no row is open. Months close in sequence and only the latest closed month reopens, so a later month always subtracts exactly what earlier months stored. Migration 023.
+
+| Column | Type | Null | Description |
+|--------|------|------|-------------|
+| `commission_period_id` | int(11) | NO | PK |
+| `year` | smallint(6) | NO | Year; `UNIQUE (year, month)` |
+| `month` | tinyint(4) | NO | 1–12 |
+| `status` | smallint(6) | NO | `CommissionPeriodStatus`: 0 open (after a reopen), 1 closed, 2 paid. A paid month is final |
+| `closed_by` | int(11) | YES | FK → `employee`; the last close |
+| `closed_at` | datetime | YES | When it was last closed |
+| `reopened_by` | int(11) | YES | FK → `employee`; the last reopen |
+| `reopened_at` | datetime | YES | When it was last reopened |
+| `paid_by` | int(11) | YES | FK → `employee` |
+| `paid_at` | datetime | YES | When it was marked paid |
+
+### `commission_period_line`
+A commission line frozen when its month closed (spec 025). Names and rates are copies, and the order, line, product and customer ids are deliberately not foreign keys, so a closed month reads the same whatever later happens to them. These rows are also the ledger that caps a line's commission at its full amount and keeps a refund charged to the agent who was paid. Deleted with its month when the month is reopened. Migration 023.
+
+| Column | Type | Null | Description |
+|--------|------|------|-------------|
+| `commission_period_line_id` | int(11) | NO | PK |
+| `commission_period` | int(11) | NO | FK → `commission_period` |
+| `scheme` | smallint(6) | NO | The agent's `CommissionScheme` when the month closed |
+| `movement` | smallint(6) | NO | `CommissionMovement`: 0 sale, 1 refund |
+| `sales_order` | int(11) | NO | Order id (not a foreign key) |
+| `sales_order_detail` | int(11) | NO | Order line id (not a foreign key) |
+| `customer_refund_detail` | int(11) | YES | Refund line id for a refund; NULL for a sale |
+| `order_date` | datetime | NO | The order's date, or the refund's |
+| `paid_date` | datetime | NO | Scheme 1: the order's `balance_zeroed_time`; scheme 2: the month's last application date; refund: `customer_refund.date` |
+| `customer` | int(11) | NO | Customer id (not a foreign key) |
+| `customer_name` | varchar(250) | NO | Copied |
+| `product` | int(11) | NO | Product id (not a foreign key) |
+| `product_name` | varchar(250) | NO | Copied |
+| `label` | int(11) | YES | `commission` id; NULL for an unlabelled product |
+| `label_name` | varchar(50) | YES | Copied |
+| `label_rate` | decimal(20,6) | NO | Copied; 0 when unlabelled |
+| `salesperson` | int(11) | NO | FK → `employee`; the agent credited |
+| `order_salesperson` | int(11) | NO | The order's salesperson (osp) |
+| `customer_salesperson` | int(11) | NO | The customer's salesperson (csp) when the line was first stored |
+| `participation` | int(11) | NO | `commission_participation` id |
+| `participation_name` | varchar(50) | NO | Copied |
+| `participation_rate` | decimal(20,6) | NO | Copied; 0 when the agent has no rate row |
+| `rate` | decimal(20,8) | NO | `label_rate × participation_rate` |
+| `price` | decimal(22,2) | NO | Unit price after discount, tax included; negative for a refund |
+| `quantity` | decimal(18,4) | NO | Quantity |
+| `total` | decimal(22,2) | NO | `ROUND(price × quantity, 2)` |
+| `full_commission` | decimal(22,2) | NO | `ROUND(total × rate, 2)` |
+| `share` | decimal(9,6) | YES | Scheme 2 sales: the order's cumulative paid share at month end; NULL otherwise |
+| `commission` | decimal(22,2) | NO | What this month pays for the row: the full commission less what earlier months stored (scheme 1), the cumulative share less what earlier months stored (scheme 2), or a negative amount (refund) |
 ---
 
 ## 13. SAT Catalogs

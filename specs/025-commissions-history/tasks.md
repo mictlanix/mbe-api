@@ -16,30 +16,32 @@
 
 ## Phase 1: Setup
 
-- [ ] T001 Record the baseline before any change: run `uv run ruff check app/ migrations/ tests/` and `uv run pytest -q`. Write the counts under this task · `specs/025-commissions-history/tasks.md`
+- [X] T001 Record the baseline before any change: run `uv run ruff check app/ migrations/ tests/` and `uv run pytest -q`. Write the counts under this task · `specs/025-commissions-history/tasks.md`
+  - **Baseline (2026-10-22)**: ruff clean; pytest 3316 passed, 0 failed.
 
 ---
 
 ## Phase 2: Foundational (blocks all stories)
 
-- [ ] T002 Write `migrations/023_commission_periods.sql` and `023_commission_periods_rollback.sql`, with header comments in the style of `022_vehicle_operator_license_photo.sql` (why, idempotency, MariaDB 10.11, effect on the current system). Forward:
+- [X] T002 Write `migrations/023_commission_periods.sql` and `023_commission_periods_rollback.sql`, with header comments in the style of `022_vehicle_operator_license_photo.sql` (why, idempotency, MariaDB 10.11, effect on the current system). Forward:
   1. **Scheme:** `ALTER TABLE commission_agent ADD COLUMN IF NOT EXISTS scheme SMALLINT NOT NULL DEFAULT 1 COMMENT '1 fully paid orders, 2 partial payments (spec 025)'`.
   2. **Periods:** `CREATE TABLE IF NOT EXISTS commission_period`, columns per data-model.md, `UNIQUE KEY (year, month)`, FKs to `employee` for `closed_by`, `reopened_by` and `paid_by`.
   3. **Lines:** `CREATE TABLE IF NOT EXISTS commission_period_line`, columns per data-model.md, FK `commission_period` → `commission_period` and FK `salesperson` → `employee`, `KEY (commission_period, salesperson)`, `KEY (sales_order_detail, salesperson, participation)`.
   4. **Backfill:** `UPDATE sales_order so SET balance_zeroed_time = COALESCE((SELECT MAX(COALESCE(sop.date, cp.date)) FROM sales_order_payment sop JOIN customer_payment cp ON cp.customer_payment_id = sop.customer_payment WHERE sop.sales_order = so.sales_order_id AND sop.cancelled = 0), so.modification_time) WHERE so.paid = 1 AND so.completed = 1 AND so.cancelled = 0 AND so.date >= '2025-10-01' AND (so.balance_zeroed_time IS NULL OR so.balance_zeroed_time < '1900-01-01')`.
 
   The comment states the before count (38) and that the backfill is not reversed by the rollback. Rollback: drop the two tables (lines first) and the column.
-- [ ] T003 In `app/models/commission.py`, add `CommissionAgent.scheme: Mapped[int] = mapped_column(SmallInteger, default=1)`, plus `CommissionPeriod` and `CommissionPeriodLine` with every data-model.md column. In `app/enums.py`, add:
+- [X] T003 In `app/models/commission.py`, add `CommissionAgent.scheme: Mapped[int] = mapped_column(SmallInteger, default=1)`, plus `CommissionPeriod` and `CommissionPeriodLine` with every data-model.md column. In `app/enums.py`, add:
   - `CommissionScheme(IntEnum)`: `FULLY_PAID = 1`, `PARTIAL_PAYMENTS = 2`;
   - `CommissionPeriodStatus`: `OPEN = 0`, `CLOSED = 1`, `PAID = 2`;
   - `CommissionMovement`: `SALE = 0`, `REFUND = 1`;
   - `SourceType.COMMISSION = 12`, with an API-only comment like 10 and 11.
-- [ ] T004 Document the schema change:
+- [X] T004 Document the schema change:
   - `docs/data-dictionary.md`: a `commission_agent.scheme` row, and sections for the two tables;
   - `docs/mbe_schema.sql`: the two `CREATE TABLE`s and the column, matching the migration;
   - `docs/constants.md`: SourceType row 12.
 
   Run `uv run pytest tests/unit/test_model_schema.py tests/unit/test_data_dictionary.py -q` until green. Commit T002–T004.
+  - **As built:** `docs/mbe_schema.sql` was **not** changed. It is the baseline dump, and earlier migrations (021, 022) never edited it; `test_data_dictionary.py` replays `migrations/*.sql` over it, so the new tables reach that test through migration 023.
 
 **Checkpoint**: the schema exists in the code, the docs and SQLite.
 

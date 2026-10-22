@@ -289,6 +289,7 @@ Polymorphic discriminator on the `incidence_log` audit table. Identifies which e
 | 9 | Product | `product` |
 | 10 | Facility | `facility` — API-only; the monolith's enum stops at 9 |
 | 11 | SalesQuote | `sales_quote` — API-only; a quote emailed (spec 024) |
+| 12 | Commission | a commission settings row — API-only; a settings change (spec 025) |
 
 ---
 
