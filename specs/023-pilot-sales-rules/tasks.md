@@ -160,7 +160,7 @@
 
 ## Phase 6: Polish & Cross-Cutting
 
-- [ ] T019 [P] Update `docs/specs/02-sales.md` (research R8):
+- [X] T019 [P] Update `docs/specs/02-sales.md` (research R8):
   - **§2 Sales Quotes**, "Create Defaults" and "Business Rules": credit default, line discount default, never refused on credit grounds.
   - **§4 Sales Orders**, "Create Defaults": credit default on customer change.
   - **§4**, "Line Item Fields": discount default.
@@ -168,7 +168,7 @@
   - **§4**, "Business Rules": the cash rule and its scope.
 
   Cite spec 023.
-- [ ] T020 [P] Add to `CHANGELOG.md` `[Unreleased]`, in the existing entry style:
+- [X] T020 [P] Add to `CHANGELOG.md` `[Unreleased]`, in the existing entry style:
   - **`### Changed`**, the sales rules (mictlanix/mbe-roadmap#149, #35, spec 023):
     - line discount default;
     - quote credit default;
@@ -177,8 +177,8 @@
     - back-office delivery details.
     - **Client notes:** `discount_rate` on line create is now nullable with default null, and mbe-ui must set the order's `ship_to` (FR-018).
   - **`### Removed`:** the `PaymentOnDelivery` model (#248).
-- [ ] T021 Run the full gate: `uv run ruff check app/ migrations/ tests/` and `uv run pytest -q`. No new failures against the T001 baseline. Record the counts here.
-- [ ] T022 Re-run the SC-005 measurement on mbe_dev, read only, following `quickstart.md`: open cash drafts for credit customers at or over their limit, back-office drafts missing an FR-008 item, and `customer_discount` rows. Record the counts in the spec's measurement section · `specs/023-pilot-sales-rules/spec.md`
+- [X] T021 Run the full gate: `uv run ruff check app/ migrations/ tests/` and `uv run pytest -q`. No new failures against the T001 baseline. Record the counts here.
+- [X] T022 Re-run the SC-005 measurement on mbe_dev, read only, following `quickstart.md`: open cash drafts for credit customers at or over their limit, back-office drafts missing an FR-008 item, and `customer_discount` rows. Record the counts in the spec's measurement section · `specs/023-pilot-sales-rules/spec.md`
 - [ ] T023 **Confirm with the user before creating it.** Draft an issue for mictlanix/mbe-ui: "Set the sales order's ship_to before confirming a back-office delivery". Explain FR-018: the API refuses to confirm a back-office order with intent delivery or mixed until the order's own `ship_to` is set, and the UI today sets addresses only on delivery orders after confirming. Link spec 023. Create it with `gh issue create` once approved, and record the URL here.
 - [ ] T024 **Confirm with the user before deploying.** Deploy the branch to the test instance (`/var/www/mbe-api-test`) and run the manual checks in `quickstart.md`. Clean up the seeded discount and the test order. Record the results in `quickstart.md`.
 

@@ -85,6 +85,12 @@
 | 0 POS | 2 | 2 | 2 | 0 |
 | 1 back office | **1** | **1** | 0 | 0 |
 
+**After implementation (re-measured 2026-10-22, SC-005).** The debt was computed by the API's own `_customer_credit_debt`, read only:
+- **Open cash orders for credit customers:** 37, of which **0** have a customer at or over the limit. None is refused at confirmation.
+- **Open cash quotes for credit customers:** 86, of which **1** has a customer at or over the limit, so it is refused at conversion.
+- **Back-office drafts missing an FR-008 item:** **1**.
+- **`customer_discount` rows:** **0**.
+
 Every one of the 5 back-office orders ever created (the 1 open draft and 4 confirmed) has no `ship_to`. In the last 12 months, 5,515 of 35,221 orders have a promise date equal to the order date; every one of the 35,221 has a promise date.
 
 ## Clarifications
