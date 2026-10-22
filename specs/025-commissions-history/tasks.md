@@ -120,13 +120,13 @@
   - **`read_period(db, year, month, *, salesperson=None)`:** stored lines if closed or paid, else `compute`; returns status, audit fields, `final`, lines and totals per (agent, label).
 
   The 409 messages follow the contract exactly. Run T008: green.
-- [ ] T013 [P] [US1] Write `tests/api/test_commission_periods.py` (commit with T014), patching the service. Cover the period routes:
+- [X] T013 [P] [US1] Write `tests/api/test_commission_periods.py` (commit with T014), patching the service. Cover the period routes:
   - `GET /api/v1/commissions/periods/2026/4` → 200;
   - `month=13` → 422;
   - close, reopen and pay → 200, and each 409 message passes through;
   - 401 with no token;
   - 403 without SystemObject 112 Read for GET and Update for the actions (use `_deny_privileges` as in `tests/api/test_print_endpoints.py`).
-- [ ] T014 [US1] Create `app/schemas/commission.py` (period and line response models per the contract; `movement` serialised as `sale`/`refund` and `status` as `open`/`closed`/`paid`) and `app/api/v1/endpoints/commissions.py`:
+- [X] T014 [US1] Create `app/schemas/commission.py` (period and line response models per the contract; `movement` serialised as `sale`/`refund` and `status` as `open`/`closed`/`paid`) and `app/api/v1/endpoints/commissions.py`:
   - **Guards:** `_READ`/`_CREATE`/`_UPDATE`/`_DELETE = require_privilege(SystemObject.COMMISSIONS_BY_SALES_PERSON, …)`.
   - **Routes:** `GET /periods/{year}/{month}`, `POST …/close`, `…/reopen` and `…/pay`.
   - **Registration:** include the router in `app/api/v1/router.py` with `prefix='/commissions', tags=['commissions']`.
