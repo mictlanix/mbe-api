@@ -84,7 +84,7 @@
 - Q: Under scheme 2, how is a partial payment turned into commission? → A: Proportionally. A payment covering 40% of the order total earns 40% of every line's full commission. What a month earns is the share paid by the month's end, times the full commission, minus what closed periods already stored, so rounding never accumulates and the total never passes 100% (FR-016, FR-017).
 - Q: Under scheme 2, which date places a payment's commission in a month? → A: The application date (`sales_order_payment.date`), when the money was applied to this order. An advance received in March and applied in April earns in April (FR-016).
 - Q: Under scheme 2, what happens when a payment whose commission was paid in a closed month is later reversed? → A: It is clawed back. The first open month computed after the reversal carries a negative line for the share no longer collected, which the cumulative formula yields by itself (FR-016). Scheme 1 keeps its rule: no clawback for reversals.
-- Q: Under scheme 2, how is a refund handled? → A: As under scheme 1: a negative line for the refund's full commission, in the month of the refund's date. The payment share and the line's full commission are measured on the original order and are not reduced by refunds. On a partly paid order, this can deduct more than the agent was paid for that line, and that is accepted (FR-016, FR-017).
+- Q: Under scheme 2, how is a refund handled? → A: As under scheme 1: a negative line for the refund's full commission, in the month of the refund's date. The payment share is measured against the order total **net of refunds** dated by the month's end, so the share still reaches 100% when the customer has paid everything they owe. The answer was first recorded with the share measured on the original total. That deducted every refund twice: once as the negative line, and once because the share could never reach 100%. It was revised the same day (FR-016, FR-017).
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -169,7 +169,7 @@ History starts with the first period this system closes; the stale `commissions_
 - **Refund before the order is paid:** it nets against the sale in the period the order is paid, and is never charged twice (the September fix).
 - **An order that becomes unpaid again** (a payment application is reversed) **under scheme 1**: while its period is open, it drops out of the computation, and it comes back when it is paid again, still dated by its first `balance_zeroed_time`. If its period has already closed, the closed lines stand, as with any later change, and no clawback is made. A refund, not a payment reversal, is how money comes back out of a closed period (FR-009).
 - **Closing the current month:** refused until the month has ended.
-- **A refund on a partly paid order under scheme 2:** the refund line is deducted in full, so it can exceed what the agent was paid for that line. This is accepted.
+- **A refund on a partly paid order under scheme 2:** the refund line is deducted in full, so while the order is partly paid the net can sit below what the agent has collected for. This is accepted. Because the share is measured net of refunds, it corrects itself when the order is settled. A month with a refund but no payment can show a positive share movement next to the negative refund line, because the shrinking net total raises the share.
 - **A reversal under scheme 2:** the share is clawed back in the first open month (FR-016).
 - **Two periods for one month:** refused. A line belongs to at most one closed period, the month of its paid date, or of its refund's date.
 - **An order edited after its period closed:** the closed period does not change. If the edit is a refund, see above.
@@ -249,7 +249,19 @@ History starts with the first period this system closes; the stale `commissions_
   - **Applied:** the sum of the order's payment applications that are not cancelled and whose application date (`sales_order_payment.date`) is on or before the month end. An advance counts when it is applied, not when it was received.
   - **Lines:** a month lists only (line, agent, participation) whose earned amount is not zero.
   - **Completed orders only:** an order that is not completed, or is cancelled, earns nothing.
-  - **Refunds:** each refund line is a negative line for its full commission, in the month of `customer_refund.date`, as under scheme 1. The order total used for the share, and the line's full commission, are those of the original order, not reduced by refunds.
+  - **Refunds:** each refund line is a negative line for its full commission, in the month of `customer_refund.date`, as under scheme 1. The line's full commission stays that of the original line. The share is measured against the order total net of refunds:
+
+    `share = min(applied by month end ÷ (order total − refunds dated by month end), 1)`
+
+    Example: an order of $10,000 with one line at 1% (full commission $100) is paid $4,000 in March, has $3,000 returned in April, and is paid $3,000 more in May.
+
+    | Month | Share movement | Refund line | Month total |
+    |---|---|---|---|
+    | March | +$40 (40%) | — | $40 |
+    | April | +$17.14 (57.14%) | −$30 | −$12.86 |
+    | May | +$42.86 (100%) | — | $42.86 |
+
+    The total is $70, the commission on the $7,000 net sale.
   - **Reversals:** a reversed (cancelled) application drops out of "applied". The first open month computed after the reversal therefore earns a negative amount for that share, a clawback, even though the original month is closed and untouched.
 - **FR-017**: Whatever the scheme, and across any scheme change, the positive commission stored for one (line, agent, participation) over all closed periods MUST NOT exceed that line's full commission. No payment, and no part of one, earns commission in two periods, and each refund line is deducted exactly once. When an agent's scheme changes, the next computation counts what closed periods already stored for each line:
   - scheme 1 pays only the remainder when the order is paid;
