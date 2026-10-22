@@ -66,6 +66,7 @@
 - Q: Which quotes can be emailed? → A: Confirmed only. Drafts and cancelled quotes are refused (FR-009).
 - Q: Which privilege does sending require? → A: Read on sales quotes, the same as the PDF (FR-010).
 - Q: How does the API authenticate to the mail server? → A: SMTP user and password over TLS (STARTTLS or SSL). OAuth2 is out of scope (FR-013).
+- Q: Should a quote email carry a Reply-To so that customer replies reach a person? → A: Yes, a single optional Reply-To address from configuration (for example, a sales inbox). When it is unset, no Reply-To is sent (FR-006, FR-013).
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -138,7 +139,7 @@ A developer building the invoice email (mictlanix/mbe-roadmap#50) uses the same 
 - **Long audit text:** an audit entry has a 1,000-character limit for its content. Ten addresses of up to 80 characters each fit, with their separators.
 - **No logo:** a facility without a logo renders without one.
 - **Long quotes:** a quote with many lines paginates on letter pages, like the sales order document.
-- **Sender:** the From address is the configured one. The salesperson's own address is not used, because it is not a verified sender.
+- **Sender:** the From address is the configured one. The salesperson's own address is not used, because it is not a verified sender. Replies go to the configured Reply-To, when set.
 - **Concurrent sends:** two sends of the same quote both go out and both are recorded. There is no locking.
 
 ## Requirements *(mandatory)*
@@ -168,6 +169,7 @@ A developer building the invoice email (mictlanix/mbe-roadmap#50) uses the same 
   - **Body:** plain text: "Le enviamos la cotización {id}.\nAgradecemos su atención y esperamos servirle muy pronto.\nAtte: {salesperson name}."
   - **Attachment:** the FR-001 PDF, named `cotizacion-{id:08d}.pdf`.
   - **From:** the configured sender address.
+  - **Reply-To:** the configured reply-to address, when one is set. Otherwise none is sent.
 - **FR-007**: The send MUST be synchronous: the response says whether the mail server accepted the message. A refusal or a connection failure is reported as an error (502), and nothing is recorded.
 - **FR-008**: Each successful send MUST write one audit entry:
   - **Keyed to:** the quote.
@@ -183,7 +185,7 @@ A developer building the invoice email (mictlanix/mbe-roadmap#50) uses the same 
 **Mail capability**
 
 - **FR-012**: A mail capability MUST send one message (recipients, subject, plain-text body, zero or more attachments with name, content type and bytes). It must not depend on quotes, so that invoices can reuse it.
-- **FR-013**: Its connection settings MUST come from configuration, documented in `.env.example` and absent by default. They cover the server, port, security mode, credentials and From address. Authentication is standard SMTP user and password over TLS (STARTTLS or implicit SSL, set in configuration). This works with Google Workspace through an app password and with most providers. OAuth2 is out of scope.
+- **FR-013**: Its connection settings MUST come from configuration, documented in `.env.example` and absent by default. They cover the server, port, security mode, credentials, the From address and an optional Reply-To address. Authentication is standard SMTP user and password over TLS (STARTTLS or implicit SSL, set in configuration). This works with Google Workspace through an app password and with most providers. OAuth2 is out of scope.
 - **FR-014**: Tests MUST use a mail double that records messages instead of sending them. The real transport is exercised against a local fake SMTP server.
 
 **Documentation**
@@ -195,7 +197,7 @@ A developer building the invoice email (mictlanix/mbe-roadmap#50) uses the same 
 - **Sales quote** (existing): header, lines, totals, state, due date (validity), payment terms, contact, ship-to, salesperson and facility. Nothing new is stored on it.
 - **Audit entry** (`incidence`, existing): one row per successful send. It needs a source value for quotes, which does not exist yet.
 - **Mail message** (not stored): recipients, subject, body and attachments.
-- **Mail settings** (configuration): server, port, security mode, credentials and sender.
+- **Mail settings** (configuration): server, port, security mode, credentials, sender and optional reply-to.
 
 ## Success Criteria *(mandatory)*
 
@@ -223,6 +225,6 @@ A developer building the invoice email (mictlanix/mbe-roadmap#50) uses the same 
 - UI (mictlanix/mbe-roadmap#31).
 - Invoice email (mictlanix/mbe-roadmap#50); only the reusable mail capability is built here.
 - ESC/POS printing (mictlanix/mbe-api#247).
-- CC or BCC lists, custom subject or body, HTML email, reply-to, scheduling and retries.
+- CC or BCC lists, custom subject or body, HTML email, a per-user or per-salesperson reply-to, scheduling and retries.
 - OAuth2 mail authentication.
 - Recording failed send attempts.
