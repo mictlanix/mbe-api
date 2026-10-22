@@ -179,7 +179,8 @@
   - An **upgrade note**: mail is off until `SMTP_HOST` and `MAIL_FROM` are set.
 - [X] T018 Run the full gate: `uv run ruff check app/ migrations/ tests/` and `uv run pytest -q`. No new failures against T001, and no test opens a socket to an SMTP server. Record the counts here.
   - **Result**: ruff clean; pytest 3316 passed, 0 failed (baseline 3270, plus 46 new). No test reaches a real server. `test_mail.py` patches `smtplib.SMTP` and `SMTP_SSL`, the API tests override `get_mailer`, and the default settings leave mail off (`get_mailer()` returns None).
-- [ ] T019 **Confirm with the user before deploying, and ask for SMTP credentials and a test mailbox.** Deploy the branch to `/var/www/mbe-api-test`, set the mail settings in its `.env` as the user directs, and run quickstart's manual checks 2–4. Record the results, and whether mail settings were left on test, in `quickstart.md` under "Checks on the test deployment".
+- [X] T019 **Confirm with the user before deploying, and ask for SMTP credentials and a test mailbox.** Deploy the branch to `/var/www/mbe-api-test`, set the mail settings in its `.env` as the user directs, and run quickstart's manual checks 2–4. Record the results, and whether mail settings were left on test, in `quickstart.md` under "Checks on the test deployment".
+  - **Done (2026-10-22), without email:** the user chose to deploy and skip the real-server email check. The PDF was verified on real data, and the 503 path with no mail settings. SC-005's real send remains open until mail settings exist (see `quickstart.md`).
 
 ---
 

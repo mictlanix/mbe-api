@@ -32,3 +32,18 @@ Deploy only after the user confirms (`/var/www/mbe-api-test`). No migration is n
      ```
 4. **Refusals.** A draft quote gives 409. An invalid address gives 422.
 5. **Clean up.** Leave the mail settings in place only if the user wants them on test.
+
+## Checks on the test deployment: 2026-10-22 (branch `024-quote-pdf-email` at `e102003`)
+
+Deployed to `/var/www/mbe-api-test` (`git checkout`, `uv sync`, `systemctl restart mbe-api-test`). No migration. The checks called the local service on xolotl against `mbe_dev` with a short-lived admin token minted on the box. **Mail was left unconfigured, at the user's choice:** the real-server email check (SC-005) was not run.
+
+1. **Document** ✅: `GET /sales-quotes/30358/document` (a confirmed credit quote with a contact) returned 200 `application/pdf`, `inline; filename="cotizacion-00030358.pdf"`, as one Letter page (612 pt wide). The text reads:
+   - "CASA MAESTRA" with its address;
+   - customer "INMOBILIARIA UKLA" and contact "JUAN MANUEL CONTRERAS 4775648982";
+   - "COTIZACIÓN 30358", Fecha 2026-09-29, Vigencia 2026-10-14, and "Crédito – 15 días";
+   - the concrete line at $2,143.10 × 7 = $15,001.72, the quote's own subtotal;
+   - "Elaborada por".
+2. **Email without mail settings** ✅: `POST /sales-quotes/30358/email` returned 503 `{"detail": "Email is not configured"}`. Nothing was sent or recorded.
+3. **Missing quote** ✅: `GET /sales-quotes/999999999/document` returned 404 `Sales quote not found`.
+
+**Still open (SC-005):** a real send to a test mailbox, checking the PDF attachment, the Reply-To and the `incidence` row (source 11). It needs `SMTP_*` and `MAIL_FROM` in the instance's `.env`.

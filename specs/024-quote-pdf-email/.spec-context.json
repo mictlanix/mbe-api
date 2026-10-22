@@ -3,7 +3,7 @@
   "specName": "Quotation PDF and Email",
   "branch": "024-quote-pdf-email",
   "currentStep": "implement",
-  "status": "implementing",
+  "status": "implemented",
   "history": [
     {
       "step": "specify",
@@ -53,6 +53,13 @@
       "kind": "start",
       "by": "extension",
       "at": "2026-10-22T20:51:22.307Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-10-22T21:14:26.909Z"
     }
   ]
 }
