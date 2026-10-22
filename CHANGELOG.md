@@ -38,6 +38,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **The `PaymentOnDelivery` model** (#248). The current system dropped `payment_on_delivery` in mictlanix/mbe#84, and nothing in this API read or wrote it. The model, its data-dictionary section and its schema-dump block are gone. The receipt's "Contraentrega" label, for payments collected without a cash session, is unaffected.
 
 ### Added
+- **Quotation PDF and email** (mictlanix/mbe-roadmap#30, spec 024).
+  - **Document:** `GET /sales-quotes/{id}/document` renders the cotización as a letter-size PDF (`cotizacion-{id:08d}.pdf`) for a quote in any state, through spec 019's pipeline. It now prints the payment terms, which the current system's quote left off. Requires sales quotes Read.
+  - **Email:** `POST /sales-quotes/{id}/email` sends a confirmed quote's PDF to 1–10 addresses, synchronously. The response says whether it was sent:
+    - 409 for a draft or cancelled quote;
+    - 422 for a bad address list;
+    - 502 when the server refuses;
+    - 503 when mail is not configured.
+
+    Each successful send records an `incidence` with the new source **11 (SalesQuote)**: who, when and to whom. The current system sent in the background, always reported success and kept no record.
+  - **Mail service:** `app/services/mail.py` sends any message over SMTP, using the standard library in a worker thread, and the invoice email will reuse it.
+  - **Upgrade note:** mail is off until `SMTP_HOST` and `MAIL_FROM` are set. The other settings are `SMTP_PORT`, `SMTP_SECURITY` (`starttls`, `ssl`, `none`), `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_TIMEOUT` and `MAIL_REPLY_TO`; see `.env.example`. Google Workspace needs an app password.
 - **Bank accounts, supplier sub-panels and agreements** (mictlanix/mbe-roadmap#13, spec 021).
   - **Bank accounts:** `/bank-accounts` manages bank account records with list, create, read, update and delete, behind the bank accounts privilege. A linked account cannot be deleted (409).
   - **Supplier links:** `SupplierCreate` and `SupplierUpdate` take `addresses`, `contacts` and `bank_accounts` as id lists, replace-all as customers do. Omitting a list leaves those links alone, and `[]` clears them. An unknown id returns 409 and changes nothing.

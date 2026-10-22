@@ -1,6 +1,7 @@
+import re
 from decimal import Decimal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.enums import CurrencyCode, PaymentTerms
 from app.schemas import CUSTOMER_DISPLAY_NAME_DESCRIPTION, LocalDateTime
@@ -115,3 +116,33 @@ class SalesQuoteSummary(BaseModel):
     status: DocumentStatus
     has_expired: bool
     total: Decimal
+
+
+# One `@`, a dot in the domain, and no whitespace anywhere, which also rules out a CR or LF that
+# could smuggle a header. Deliverability is the mail server's call, not this check's (spec 024).
+_EMAIL = re.compile(r'^[^@\s]+@[^@\s]+\.[^@\s]+$')
+
+
+class QuoteEmailRequest(BaseModel):
+    to: list[str] = Field(min_length=1, max_length=10)
+
+    @field_validator('to')
+    @classmethod
+    def _valid_and_distinct(cls, value: list[str]) -> list[str]:
+        """Trimmed, checked, and deduplicated case-insensitively, keeping the first spelling."""
+        seen: set[str] = set()
+        addresses = []
+        for raw in value:
+            address = raw.strip()
+            if len(address) > 254 or not _EMAIL.match(address):
+                raise ValueError(f'Not a valid email address: {raw!r}')
+            if address.lower() not in seen:
+                seen.add(address.lower())
+                addresses.append(address)
+        return addresses
+
+
+class QuoteEmailResponse(BaseModel):
+    recipients: list[str]
+    sent_at: LocalDateTime
+

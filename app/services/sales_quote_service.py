@@ -14,10 +14,12 @@ from fastapi import HTTPException, status
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app import rendering
 from app.core.clock import local_now
 from app.core.config import settings
 from app.core.deps import CurrentUser
-from app.enums import CurrencyCode, OrderOrigin, PaymentTerms
+from app.enums import CurrencyCode, OrderOrigin, PaymentTerms, SourceType
+from app.models.core import Employee, Facility
 from app.models.customer import Customer
 from app.models.product import Product
 from app.models.sales import SalesOrder, SalesOrderDetail, SalesQuote, SalesQuoteDetail
@@ -28,7 +30,15 @@ from app.schemas.sales_quote import (
     SalesQuoteLineUpdate,
     SalesQuoteUpdate,
 )
-from app.services import customer_discount_service, documents, sales_order_service, totals
+from app.services import (
+    customer_discount_service,
+    documents,
+    incidences,
+    mail,
+    print_contexts,
+    sales_order_service,
+    totals,
+)
 
 # ── Decision rules (pure) ─────────────────────────────────────────────────────
 
@@ -468,6 +478,88 @@ async def cancel_quote(db: AsyncSession, quote: SalesQuote, *, current: CurrentU
     await db.commit()
     await db.refresh(quote)
     return await attach_derived(db, quote)
+
+
+# ── Email (spec 024) ──────────────────────────────────────────────────────────
+
+# `incidence.content` is varchar(1000).
+_CONTENT_LIMIT = 1000
+
+
+def quote_email_message(
+    *, quote_id: int, facility_name: str, salesperson: str, to: Sequence[str], pdf: bytes
+) -> mail.Message:
+    """The current system's subject and body (`SalesQuoteEmail*FormatString`), with the PDF."""
+    return mail.Message(
+        to=list(to),
+        subject=f'{facility_name} Cotización {quote_id}',
+        body=(
+            f'Le enviamos la cotización {quote_id}.\n'
+            'Agradecemos su atención y esperamos servirle muy pronto.\n'
+            f'Atte: {salesperson}.'
+        ),
+        attachments=[mail.Attachment(f'cotizacion-{quote_id:08d}.pdf', 'application/pdf', pdf)],
+    )
+
+
+def _recipients_context(addresses: Sequence[str]) -> str:
+    line = 'To: ' + ', '.join(addresses)
+    if len(line) <= _CONTENT_LIMIT:
+        return line
+    return line[: _CONTENT_LIMIT - 1] + '…'
+
+
+async def email_quote(
+    db: AsyncSession,
+    quote: SalesQuote,
+    to: Sequence[str],
+    *,
+    mailer: mail.Mailer,
+    current: CurrentUser,
+) -> datetime:
+    """Send a confirmed quote's PDF and record the send; returns when it was sent (spec 024).
+
+    The record is written only after the server accepted the message, so every recorded send
+    happened. The opposite order would leave entries for sends that failed. A commit that fails
+    after a send loses the record of one email that did go out, the rarer and more honest error.
+    """
+    if not quote.completed or quote.cancelled:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail='Only a confirmed quote can be emailed'
+        )
+
+    await attach_derived(db, quote)
+    template, context = await print_contexts.sales_quote_context(db, quote)
+    pdf = await rendering.render_pdf(template, context)
+    facility = await db.get(Facility, quote.facility)
+    salesperson = await db.get(Employee, quote.salesperson)
+    message = quote_email_message(
+        quote_id=quote.sales_quote_id,
+        facility_name=facility.name,
+        salesperson=f'{salesperson.first_name} {salesperson.last_name}'.strip(),
+        to=to,
+        pdf=pdf,
+    )
+
+    try:
+        await mailer.send(message)
+    except mail.MailError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f'The email could not be sent: {exc}',
+        ) from exc
+
+    sent_at = local_now()
+    incidences.record(
+        db,
+        source=SourceType.SALES_QUOTE,
+        instance_id=quote.sales_quote_id,
+        updater=current.employee_id,
+        reason='Quote emailed',
+        context=_recipients_context(to),
+    )
+    await db.commit()
+    return sent_at
 
 
 async def duplicate_quote(

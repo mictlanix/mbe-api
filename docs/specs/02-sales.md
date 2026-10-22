@@ -84,8 +84,19 @@ Customer quotations (presales). A quote can be converted to a sales order.
 - **Cancel**: sets `IsCancelled = true`
 - **Duplicate**: creates a new editable copy with today's date; prices re-fetched from price list
 - **Convert to Order** (`CreateFromSalesQuote`): creates `sales_order` from this quote (quote must be completed and not expired)
-- **Print / PDF**: generates printable quote document
-- **Send Email**: sends PDF attachment to a specified email address
+- **Print / PDF**: generates printable quote document. **API (spec 024):** `GET /sales-quotes/{id}/document` returns a letter-size PDF inline (`cotizacion-{id:08d}.pdf`) for a quote in any state. It shows:
+  - the facility header and logo;
+  - the customer and contact;
+  - the date, the validity (due date) and the payment terms (`Contado`, or `Crédito – {credit_days} días`);
+  - the lines at their net unit price;
+  - the quote's own totals with the amount in words;
+  - "Elaborada por" with the salesperson.
+- **Send Email**: sends PDF attachment to a specified email address. **API (spec 024):** `POST /sales-quotes/{id}/email` with `{"to": [...]}`.
+  - **Who and when:** it requires sales quotes Read, and sends only a confirmed quote (409 otherwise).
+  - **Addresses:** 1–10, validated and deduplicated (422 otherwise).
+  - **Message:** subject `{facility} Cotización {id}`, the current system's body text, the PDF attached, From `MAIL_FROM` and Reply-To `MAIL_REPLY_TO` when set.
+  - **Synchronous:** a server refusal is a 502 and nothing is recorded, and unconfigured mail is a 503. Each successful send writes one `incidence` (source 11, SalesQuote) naming the employee, the time and every recipient.
+  - **Unlike the current system,** which sent in the background, always reported success and kept no record.
 
 ### Business Rules
 - Expired quotes (`HasExpired`: date > DueDate) cannot be converted to orders.

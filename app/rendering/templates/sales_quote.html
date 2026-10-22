@@ -1,0 +1,88 @@
+{#- Sales quote document (cotización), ported from legacy Views/Quotations/Print.cshtml (spec 024).
+Context: print_contexts.sales_quote_context.
+
+Laid out like sales_order.html. Legacy had no payment terms on this document; they are printed here. -#}
+{% extends "_print_layout.html" %}
+{% block main %}
+<div>
+	<div style="float: left; width: 49.5%;">
+		<h2 class="uppercase">Cliente</h2>
+		<p><span class="mylabel">Nombre</span></p>
+		<p>{{ customer }}</p>
+		{% if contact %}
+		<p><span class="mylabel">Contacto</span></p>
+		<p>{{ contact }}{% if contact_phone %}<br>{{ contact_phone }}{% endif %}</p>
+		{% endif %}
+		{% if ship_to %}
+		<p><span class="mylabel">Datos de Entrega</span></p>
+		<p>{% for line in ship_to %}{{ line }}{% if not loop.last %}<br>{% endif %}{% endfor %}</p>
+		{% endif %}
+		{% if comment %}
+		<p><span class="mylabel">Comentario</span></p>
+		<p>{{ comment }}</p>
+		{% endif %}
+	</div>
+	<div style="float: right; width: 49.5%; text-align: right;">
+		<h2 class="text-right uppercase">Cotización {{ quote_id }}</h2>
+		<p><span class="mylabel">Fecha</span></p>
+		<p>{{ date }}</p>
+		<p><span class="mylabel">Vigencia</span></p>
+		<p>{{ due_date }}</p>
+		<p><span class="mylabel">Condiciones de Pago</span></p>
+		<p>{{ terms }}</p>
+	</div>
+	<div style="clear: both;"></div>
+</div>
+
+<div style="margin-top: 5mm; min-height: 2.2mm; border-top: #333 solid 1px; border-bottom: #333 solid 3px;"></div>
+
+<table style="border-spacing: 0 4px; border-collapse: separate;">
+	<thead>
+		<tr>
+			<th class="text-center" style="width: 25%;">Código</th>
+			<th class="text-center" style="width: 50%;">Descripción</th>
+			<th class="text-center" style="width: 8.33%;">Precio</th>
+			<th class="text-center" style="width: 8.33%;">Cantidad</th>
+			<th class="text-center" style="width: 8.33%;">Importe</th>
+		</tr>
+	</thead>
+	<tbody>
+		{% for line in lines %}
+		<tr class="alt">
+			<td class="text-center">{{ line.code }}</td>
+			<td class="text-center">{{ line.name }}{% if line.comment %}<br>{{ line.comment }}{% endif %}</td>
+			<td class="nowrap text-right">{{ line.price }}</td>
+			<td class="nowrap text-right">{{ line.quantity }}</td>
+			<td class="nowrap text-right">{{ line.amount }}</td>
+		</tr>
+		{% endfor %}
+	</tbody>
+</table>
+
+<div style="min-height: 2.2mm; border-top: #333 solid 3px; border-bottom: #333 solid 1px;"></div>
+
+<table>
+	<tfoot>
+		<tr>
+			<td rowspan="3" class="text-center" style="width: 83.33%; vertical-align: middle;">
+				<p class="amount-words">{{ amount_in_words }}</p>
+			</td>
+			<td class="nowrap text-right">Subtotal</td>
+			<td class="nowrap text-right">{{ subtotal }}</td>
+		</tr>
+		<tr>
+			<td class="nowrap text-right">IVA</td>
+			<td class="nowrap text-right">{{ taxes }}</td>
+		</tr>
+		<tr>
+			<td class="nowrap text-right">Total</td>
+			<td class="nowrap text-right">{{ total }}</td>
+		</tr>
+	</tfoot>
+</table>
+
+<div style="margin-top: 15mm; text-align: center;">
+	<p><span class="mylabel">Elaborada por</span></p>
+	<p>{{ salesperson }}</p>
+</div>
+{% endblock %}
