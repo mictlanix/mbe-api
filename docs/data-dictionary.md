@@ -784,17 +784,6 @@ Credit note issued when a refund results in credit balance.
 | `cash_session` | int(11) | YES | FK → `cash_session` |
 | `date` | datetime | YES | Date |
 
-### `payment_on_delivery`
-Payment collected at delivery (COD).
-
-| Column | Type | Null | Description |
-|--------|------|------|-------------|
-| `payment_on_delivery_id` | int(11) | NO | PK |
-| `customer_payment` | int(11) | NO | FK → `customer_payment` |
-| `cash_session` | int(11) | YES | FK → `cash_session` |
-| `paid` | tinyint(1) | NO | Collected flag |
-| `date` | datetime | NO | Collection date |
-
 ---
 
 ## 7. Inventory

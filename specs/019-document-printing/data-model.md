@@ -137,6 +137,8 @@ Each is a plain dict passed to a Jinja template. Values are pre-formatted string
 
 "Por Cobrar : " is hard-coded in legacy (`Payments/Print.cshtml:189`) and stays as it is.
 
+`PaymentOnDelivery` above is the label the sale receipt prints over payments collected on delivery, meaning `customer_payment` rows with no `cash_session` (`sale_receipt.html`). It is not the `payment_on_delivery` table, which mictlanix/mbe#84 dropped and which this API no longer maps (spec 023).
+
 ## Spanish names for enums (legacy `[Display]` attributes)
 
 | Enum | Values |

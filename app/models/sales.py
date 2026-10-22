@@ -223,17 +223,3 @@ class CreditNote(Base):
         Integer, ForeignKey('cash_session.cash_session_id')
     )
     date: Mapped[datetime | None] = mapped_column(DateTime)
-
-
-class PaymentOnDelivery(Base):
-    __tablename__ = 'payment_on_delivery'
-
-    payment_on_delivery_id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    customer_payment: Mapped[int] = mapped_column(
-        Integer, ForeignKey('customer_payment.customer_payment_id')
-    )
-    cash_session: Mapped[int | None] = mapped_column(
-        Integer, ForeignKey('cash_session.cash_session_id')
-    )
-    paid: Mapped[bool] = mapped_column(Boolean)
-    date: Mapped[datetime] = mapped_column(DateTime)
