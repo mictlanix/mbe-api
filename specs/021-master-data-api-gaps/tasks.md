@@ -252,8 +252,8 @@
 
 ### Tests (write first, must fail)
 
-- [ ] T038 [US4] **(commit with T040)** Unit test: `_apply_product_filters` with `search=' 7501234567890\n'` compiles to SQL containing an equality on `product.bar_code` with the stripped value, and the five ILIKE terms are unchanged · `tests/unit/test_product_service.py`
-- [ ] T039 [P] [US4] **(commit with T040)** Integration tests, added to the existing catalog fixture:
+- [X] T038 [US4] **(commit with T040)** Unit test: `_apply_product_filters` with `search=' 7501234567890\n'` compiles to SQL containing an equality on `product.bar_code` with the stripped value, and the five ILIKE terms are unchanged · `tests/unit/test_product_service.py`
+- [X] T039 [P] [US4] **(commit with T040)** Integration tests, added to the existing catalog fixture:
   - A product with `bar_code='7501234567890'`, whose code and name do not contain those digits, is returned for the full barcode and not for `750123`.
   - `/products/labels/facets` and `/products/prices/missing-facets` count it for the full barcode.
 
@@ -261,8 +261,8 @@
 
 ### Implementation
 
-- [ ] T040 [US4] Add `Product.bar_code == search.strip()` to the `or_()` in `_apply_product_filters`, applied only when `search.strip()` is non-empty. Leave `_find_salable` in `sales_order_service.py` untouched (FR-020) · `app/services/product_service.py`
-- [ ] T041 [P] [US4] Scope 01 §1: change "Search by: **name, code, model, SKU, brand** (not barcode; not supplier)" to include **barcode (exact match)**, keep "not supplier", and note that the same search drives the label and missing-price facets · `docs/specs/01-master-data.md`
+- [X] T040 [US4] Add `Product.bar_code == search.strip()` to the `or_()` in `_apply_product_filters`, applied only when `search.strip()` is non-empty. Leave `_find_salable` in `sales_order_service.py` untouched (FR-020) · `app/services/product_service.py`
+- [X] T041 [P] [US4] Scope 01 §1: change "Search by: **name, code, model, SKU, brand** (not barcode; not supplier)" to include **barcode (exact match)**, keep "not supplier", and note that the same search drives the label and missing-price facets · `docs/specs/01-master-data.md`
 
 **Checkpoint**: T038–T039 pass, and `tests/integration/test_product_flag_filters.py` is fully green.
 

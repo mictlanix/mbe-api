@@ -456,3 +456,20 @@ async def test_delete_product_records_before_the_delete() -> None:
         context='P-5 Widget',
     )
     assert [c[0] for c in manager.mock_calls] == ['record', 'delete']
+
+
+def test_search_also_matches_the_barcode_exactly_after_stripping() -> None:
+    query = _apply_product_filters(
+        select(Product), **{**_no_filters(), 'search': ' 7501234567890\n'}
+    )
+    compiled = str(query.compile(compile_kwargs={'literal_binds': True}))
+    assert "product.bar_code = '7501234567890'" in compiled
+    # The five ILIKE terms keep the raw term, so no existing match changes
+    assert compiled.count('LIKE') == 5
+    assert "'% 7501234567890\n%'" in compiled
+
+
+def test_a_blank_search_adds_no_barcode_term() -> None:
+    query = _apply_product_filters(select(Product), **{**_no_filters(), 'search': '   '})
+    compiled = str(query.compile(compile_kwargs={'literal_binds': True}))
+    assert 'bar_code' not in compiled.split('FROM product', 1)[1]

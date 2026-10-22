@@ -40,15 +40,17 @@ def _apply_product_filters(
 ) -> Select[Any]:
     if search:
         term = f'%{search}%'
-        query = query.where(
-            or_(
-                Product.code.ilike(term),
-                Product.name.ilike(term),
-                Product.model.ilike(term),
-                Product.sku.ilike(term),
-                Product.brand.ilike(term),
-            )
-        )
+        terms = [
+            Product.code.ilike(term),
+            Product.name.ilike(term),
+            Product.model.ilike(term),
+            Product.sku.ilike(term),
+            Product.brand.ilike(term),
+        ]
+        # Exact, and stripped: a scanner may append a newline, and a partial barcode is noise
+        if search.strip():
+            terms.append(Product.bar_code == search.strip())
+        query = query.where(or_(*terms))
 
     if label:
         labeled_products = (

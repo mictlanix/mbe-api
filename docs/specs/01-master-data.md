@@ -14,7 +14,7 @@ These screens manage the core catalog / configuration data used by all transacti
 Central product/SKU catalog. Every inventory movement, sale, and purchase references a product.
 
 ### List View
-- Search by: **name, code, model, SKU, brand** (not barcode; not supplier)
+- Search by: **name, code, model, SKU, brand, barcode (exact match)** (not supplier). The same search drives the label and missing-price facets
 - Filters: active/deactivated, stockable, salable, purchasable, label
 - Columns: code, name, brand, model, unit of measurement, tax rate, deactivated
 
