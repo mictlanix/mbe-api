@@ -83,7 +83,7 @@
     - candidates (a)–(d) are each picked up, including a reversal found only through (d);
     - an order with `balance_zeroed_time` in March is excluded from April under scheme 1;
     - `salesperson=` filters.
-- [ ] T008 [P] [US1] Write `tests/integration/test_commission_periods.py` (commit with T012). Drive the service with a patched `local_now`, so months can "end":
+- [X] T008 [P] [US1] Write `tests/integration/test_commission_periods.py` (commit with T012). Drive the service with a patched `local_now`, so months can "end":
   - closing April before April ends → 409;
   - the first close (March) succeeds and stores lines;
   - closing May while April is open → 409 `The previous period is not closed`;
@@ -113,7 +113,7 @@
   - **As built:**
     - **Query style:** the facts are **SQLAlchemy Core** queries over the mapped columns, not `text()`. On SQLite, raw SQL returns datetimes as strings and money as floats; Core types them on both databases.
     - **Test order:** the service was written before `test_commission_compute.py`, so those 8 tests never ran red. The rules module (T005/T009) did go test-first.
-- [ ] T012 [US1] Add to `commission_service.py`:
+- [X] T012 [US1] Add to `commission_service.py`:
   - **`close(db, year, month, *, current)`:** month ended, previous month closed unless this is the first close, not already closed; compute all agents; insert `CommissionPeriodLine` rows; upsert the period with `status=1` and `closed_by`/`closed_at`. One transaction. On MariaDB, `with_for_update()` on the period rows involved.
   - **`reopen(...)`:** latest closed only, not paid; delete the lines; `status=0` and `reopened_by`/`reopened_at`.
   - **`pay(...)`:** closed only; `status=2` and `paid_by`/`paid_at`.

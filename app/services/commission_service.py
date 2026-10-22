@@ -6,12 +6,17 @@ SQLAlchemy Core queries over the mapped columns, not raw SQL, so they type the s
 on the SQLite the integration tests run on.
 """
 
+from collections.abc import Sequence
+from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
 
-from sqlalchemy import and_, case, exists, false, func, or_, select
+from fastapi import HTTPException, status
+from sqlalchemy import and_, case, delete, exists, false, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.clock import local_now
+from app.core.deps import CurrentUser
 from app.enums import CommissionMovement, CommissionPeriodStatus, CommissionScheme
 from app.models.commission import (
     Commission,
@@ -229,9 +234,7 @@ async def _candidates(
     return lines
 
 
-async def _refunds(
-    db: AsyncSession, details: list[int], nxt: datetime
-) -> list[rules.RefundLine]:
+async def _refunds(db: AsyncSession, details: list[int], nxt: datetime) -> list[rules.RefundLine]:
     if not details:
         return []
     rows = (
@@ -396,3 +399,198 @@ async def compute(
     if salesperson is not None:
         lines = [line for line in lines if line.salesperson == salesperson]
     return lines
+
+
+# ── Periods ───────────────────────────────────────────────────────────────────
+
+_STATUS_NAMES = {
+    CommissionPeriodStatus.OPEN: 'open',
+    CommissionPeriodStatus.CLOSED: 'closed',
+    CommissionPeriodStatus.PAID: 'paid',
+}
+
+
+@dataclass(frozen=True)
+class Total:
+    salesperson: int
+    label: int | None
+    label_name: str | None
+    lines: int
+    commission: Decimal
+
+
+@dataclass(frozen=True)
+class PeriodView:
+    year: int
+    month: int
+    status: str
+    final: bool
+    closed_by: int | None
+    closed_at: datetime | None
+    reopened_by: int | None
+    reopened_at: datetime | None
+    paid_by: int | None
+    paid_at: datetime | None
+    #: Stored `CommissionPeriodLine` rows, or computed `commission_rules.ComputedLine`s; both carry
+    #: the same attributes.
+    lines: Sequence[object]
+    totals: list[Total]
+
+
+def _conflict(detail: str) -> HTTPException:
+    return HTTPException(status_code=status.HTTP_409_CONFLICT, detail=detail)
+
+
+def _totals(lines: Sequence[object]) -> list[Total]:
+    grouped: dict[tuple, list] = {}
+    for line in lines:
+        grouped.setdefault((line.salesperson, line.label, line.label_name), []).append(line)
+    return [
+        Total(
+            salesperson=salesperson,
+            label=label,
+            label_name=label_name,
+            lines=len(rows),
+            commission=sum((_money(r.commission) for r in rows), Decimal(0)),
+        )
+        for (salesperson, label, label_name), rows in sorted(
+            grouped.items(), key=lambda item: (item[0][0], item[0][1] is None, item[0][1] or 0)
+        )
+    ]
+
+
+async def _period(db: AsyncSession, year: int, month: int, *, lock: bool = False):  # noqa: ANN202
+    query = select(CommissionPeriod).where(
+        CommissionPeriod.year == year, CommissionPeriod.month == month
+    )
+    if lock:
+        query = query.with_for_update()
+    return (await db.execute(query)).scalar_one_or_none()
+
+
+async def _latest_closed(db: AsyncSession, *, lock: bool = False):  # noqa: ANN202
+    query = (
+        select(CommissionPeriod)
+        .where(CommissionPeriod.status.in_(_CLOSED))
+        .order_by(CommissionPeriod.year.desc(), CommissionPeriod.month.desc())
+        .limit(1)
+    )
+    if lock:
+        query = query.with_for_update()
+    return (await db.execute(query)).scalar_one_or_none()
+
+
+def _previous(year: int, month: int) -> tuple[int, int]:
+    return (year - 1, 12) if month == 1 else (year, month - 1)
+
+
+async def close(
+    db: AsyncSession, year: int, month: int, *, current: CurrentUser
+) -> CommissionPeriod:
+    """Freeze a month's lines (FR-007). Months close in sequence (FR-010a)."""
+    _, nxt = month_bounds(year, month)
+    if local_now() < nxt:
+        raise _conflict('Period has not ended')
+    period = await _period(db, year, month, lock=True)
+    if period is not None and period.status == CommissionPeriodStatus.PAID:
+        raise _conflict('Period is already paid')
+    if period is not None and period.status == CommissionPeriodStatus.CLOSED:
+        raise _conflict('Period is already closed')
+    latest = await _latest_closed(db, lock=True)
+    if latest is not None and (latest.year, latest.month) != _previous(year, month):
+        if (latest.year, latest.month) > (year, month):
+            raise _conflict('A later period is closed')
+        raise _conflict('The previous period is not closed')
+
+    lines = await compute(db, year, month)
+    now = local_now()
+    if period is None:
+        period = CommissionPeriod(year=year, month=month)
+        db.add(period)
+    period.status = int(CommissionPeriodStatus.CLOSED)
+    period.closed_by = current.employee_id
+    period.closed_at = now
+    await db.flush()
+    db.add_all(
+        CommissionPeriodLine(commission_period=period.commission_period_id, **vars(line))
+        for line in lines
+    )
+    await db.commit()
+    await db.refresh(period)
+    return period
+
+
+async def reopen(
+    db: AsyncSession, year: int, month: int, *, current: CurrentUser
+) -> CommissionPeriod:
+    """Discard a closed, unpaid month's lines; only the latest closed month (FR-010, FR-010a)."""
+    period = await _period(db, year, month, lock=True)
+    if period is not None and period.status == CommissionPeriodStatus.PAID:
+        raise _conflict('A paid period cannot be reopened')
+    if period is None or period.status != CommissionPeriodStatus.CLOSED:
+        raise _conflict('Period is not closed')
+    latest = await _latest_closed(db, lock=True)
+    if latest is not None and (latest.year, latest.month) != (year, month):
+        raise _conflict('A later period is closed')
+
+    await db.execute(
+        delete(CommissionPeriodLine).where(
+            CommissionPeriodLine.commission_period == period.commission_period_id
+        )
+    )
+    period.status = int(CommissionPeriodStatus.OPEN)
+    period.reopened_by = current.employee_id
+    period.reopened_at = local_now()
+    await db.commit()
+    await db.refresh(period)
+    return period
+
+
+async def pay(db: AsyncSession, year: int, month: int, *, current: CurrentUser) -> CommissionPeriod:
+    """Mark a closed month paid; a paid month is final (FR-011)."""
+    period = await _period(db, year, month, lock=True)
+    if period is not None and period.status == CommissionPeriodStatus.PAID:
+        raise _conflict('Period is already paid')
+    if period is None or period.status != CommissionPeriodStatus.CLOSED:
+        raise _conflict('Close the period first')
+    period.status = int(CommissionPeriodStatus.PAID)
+    period.paid_by = current.employee_id
+    period.paid_at = local_now()
+    await db.commit()
+    await db.refresh(period)
+    return period
+
+
+async def read_period(
+    db: AsyncSession, year: int, month: int, *, salesperson: int | None = None
+) -> PeriodView:
+    """A month as the report reads it: stored once closed, computed live while open (FR-012)."""
+    period = await _period(db, year, month)
+    state = CommissionPeriodStatus(period.status) if period else CommissionPeriodStatus.OPEN
+    if state == CommissionPeriodStatus.OPEN:
+        lines: Sequence[object] = await compute(db, year, month, salesperson=salesperson)
+    else:
+        query = select(CommissionPeriodLine).where(
+            CommissionPeriodLine.commission_period == period.commission_period_id
+        )
+        if salesperson is not None:
+            query = query.where(CommissionPeriodLine.salesperson == salesperson)
+        lines = (await db.execute(query)).scalars().all()
+    lines = sorted(
+        lines,
+        key=lambda x: (x.salesperson, x.paid_date, x.sales_order, x.sales_order_detail, x.movement),
+    )
+    return PeriodView(
+        year=year,
+        month=month,
+        status=_STATUS_NAMES[state],
+        final=state != CommissionPeriodStatus.OPEN,
+        closed_by=period.closed_by if period else None,
+        closed_at=period.closed_at if period else None,
+        reopened_by=period.reopened_by if period else None,
+        reopened_at=period.reopened_at if period else None,
+        paid_by=period.paid_by if period else None,
+        paid_at=period.paid_at if period else None,
+        lines=lines,
+        totals=_totals(lines),
+    )
