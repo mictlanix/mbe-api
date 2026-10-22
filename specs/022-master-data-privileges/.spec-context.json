@@ -3,7 +3,7 @@
   "specName": "Master Data Access Privileges",
   "branch": "022-master-data-privileges",
   "currentStep": "implement",
-  "status": "implementing",
+  "status": "implemented",
   "history": [
     {
       "step": "specify",
