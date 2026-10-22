@@ -9,7 +9,7 @@ The spec's Findings and both clarification sessions record the current system an
 **Stage 1, the facts (SQL, `text()`).** Three queries over the month `[first 00:00, next month 00:00)` in business time:
 
 1. **Candidate order lines.** These are the lines of completed, non-cancelled orders where the order's or the customer's salesperson is an agent, and at least one of these holds:
-   - (a) **scheme 1 sales:** the order is paid now and either its `balance_zeroed_time` falls in the month, or it falls in an earlier month on or after the chain start (the first closed month, R3) **and the line has no stored sale line yet**. The second arm picks up an order whose payment was reversed before its own month closed and that was paid again later: its stamp stays in the closed month, and without this arm it would never earn (analysis C2);
+   - (a) **scheme 1 sales:** the order is paid now and either its `balance_zeroed_time` falls in the month, or it falls in an earlier month on or after the chain start (the first closed month, R3) **and the line has no stored sale line yet**. The second arm picks up an order whose payment was reversed before its own month closed and that was paid again later: its stamp stays in the closed month, and without this arm it would never earn (analysis C2). Before any month is closed, the second arm is empty: only the month's own stamps count;
    - (b) an application to the order is dated in the month: **scheme 2 sales**;
    - (c) a refund of one of its lines is dated in the month, or dated on or before the month end for an order selected by (a) in this month;
    - (d) the line has **any** stored scheme 2 sale line. A fully stored line must stay a candidate, because a later reversal has to claw it back (analysis C1). The rules drop the zero amounts. This set grows with every scheme 2 line ever stored; at mbe_dev's volume, about 2.5% of agent orders paid across months, it stays in the thousands. If it ever matters, bound it with an `order_fully_settled` flag on the stored line, which is not needed now.
@@ -61,7 +61,7 @@ Only non-zero amounts become lines. The agent's **current** scheme decides the c
 - Porting the legacy statement whole and adding scheme 2 beside it: two code paths for one set of rules.
 - Computing in Python from ORM objects: N+1 queries over thousands of orders.
 
-**Bounds**: (d) grows only with partly earned scheme 2 lines. A line whose stored sum reaches its full commission leaves the candidate set, unless a refund or a reversal brings it back through (b) or (c).
+**Bounds**: (d) holds every line with a stored scheme 2 sale line, fully stored ones included, because only (d) can see a reversal, which has no date. The rules drop zero amounts. Growth and the optional bound are noted under (d) above.
 
 **Reversals**: a cancelled application leaves `applied` (FR-016). The order stays a candidate through (d), so the next computation yields a negative sale amount.
 
