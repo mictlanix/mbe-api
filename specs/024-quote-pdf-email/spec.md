@@ -136,7 +136,7 @@ A developer building the invoice email (mictlanix/mbe-roadmap#50) uses the same 
 - **No contact email:** a quote whose contact has no email (or that has no contact) can still be sent. The user supplies the address.
 - **Repeated addresses:** they are sent once each (deduplicated, case-insensitively).
 - **Many recipients:** a single request may name up to 10 addresses. More is refused, which guards against a pasted list.
-- **Long audit text:** an audit entry has a 1,000-character limit for its content. Ten addresses of up to 80 characters each fit, with their separators.
+- **Long audit text:** an audit entry has a 1,000-character limit for its content. Ten addresses fit in the common case; contact emails are at most 80 characters. A recipient list longer than 1,000 characters is truncated with an ellipsis in the audit entry, and the response always carries the full list.
 - **No logo:** a facility without a logo renders without one.
 - **Long quotes:** a quote with many lines paginates on letter pages, like the sales order document.
 - **Sender:** the From address is the configured one. The salesperson's own address is not used, because it is not a verified sender. Replies go to the configured Reply-To, when set.

@@ -49,7 +49,7 @@
   - **Ship-to:** the lines built the same way as on the order.
   - **Lines:** unit price = `totals.line_amounts(quantity=1, price=price+price_adjustment, discount_rate=line.discount_rate, tax_rate, tax_included)[0]`; amount = `line.subtotal`.
   - **Totals:** `subtotal`, `taxes`, `total` and `amount_in_words` from the quote's derived fields.
-  - **Terms:** `terms_name(payment_terms)`, plus `credit_days` when NET_D.
+  - **Terms:** `terms_name(payment_terms)`, which gives "Contado" or "Crédito". When NET_D, append ` – {customer.credit_days} días`, the exact contract wording.
   - **Validity:** `date_short(due_date)`.
   - **Footer:** the salesperson's name.
 
@@ -124,7 +124,8 @@
   - **`sales_quote_service.quote_email_message(quote_id, facility_name, salesperson, pdf)`:** the subject, the body text exactly as FR-006 (with `\n` line breaks), and one attachment `cotizacion-{id:08d}.pdf`, `application/pdf`, holding the bytes.
   - **`_recipients_context(addresses)`:** `To: a, b`, and a long list is truncated to 1,000 characters ending in `…`.
 - [ ] T011 [P] [US2] Extend `tests/api/test_quote_document_email.py` with an email part (commit with T012–T014).
-  - **Recording double:** `class RecordingMailer: sent = []; async def send(self, m): self.sent.append(m)`, installed with `app.dependency_overrides[mail.get_mailer] = lambda: recorder`. Also patch `sales_quote_service.email_quote`'s dependencies, or use the real service with patched `get_quote`, `attach_derived`, `sales_quote_context`, `render_pdf`, `db.get` (facility and employee) and `incidences.record`, whichever matches the file's style.
+  - **Recording double:** `class RecordingMailer: sent = []; async def send(self, m): self.sent.append(m)`, installed with `app.dependency_overrides[mail.get_mailer] = lambda: recorder`.
+  - **Service:** run the real `sales_quote_service.email_quote`. Patch `sales_quote_service.get_quote`, `sales_quote_service.attach_derived`, `print_contexts.sales_quote_context`, `rendering.render_pdf` and `incidences.record`. Override `get_db` with a fake session whose `get(model, id)` returns a facility stub (`name`) or an employee stub (`first_name`, `last_name`) by model, and whose `commit` is an `AsyncMock`.
   - **Cases:**
     1. Confirmed quote, `{"to": ["a@x.mx", "b@y.mx"]}` → 200 with `recipients` and `sent_at`. One message, To holding both addresses, the PDF attached. `incidences.record` called once with `source=SourceType.SALES_QUOTE`, `instance_id=7` and `reason='Quote emailed'`.
     2. Draft quote → 409 `Only a confirmed quote can be emailed`; nothing sent or recorded.
@@ -134,6 +135,7 @@
     6. `get_mailer` overridden to return None → 503 `Email is not configured`.
     7. Unknown quote → 404.
     8. No privilege → 403.
+    9. No token → 401.
 - [ ] T012 [US2] In `app/enums.py`, add `SALES_QUOTE = 11` to `SourceType`, after `FACILITY = 10`, with a short comment saying it is API-only, like `FACILITY`, and records a quote email (spec 024). In `app/schemas/sales_quote.py`, add:
   - **`QuoteEmailRequest`:** `to: list[str] = Field(min_length=1, max_length=10)`, with a `field_validator` that trims, checks the regex `^[^@\s]+@[^@\s]+\.[^@\s]+$` and a length of at most 254, and deduplicates case-insensitively keeping first spellings (research R6).
   - **`QuoteEmailResponse`:** `recipients: list[str]`, `sent_at: LocalDateTime` (the type the other schemas use).

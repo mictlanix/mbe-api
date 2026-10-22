@@ -102,4 +102,5 @@ tests/
 | Addition | Why needed | Simpler alternative rejected because |
 |---|---|---|
 | New service module `app/services/mail.py` (constitution V asks for justification) | No mail capability exists, and the invoice email (#50) must reuse it | Inlining SMTP in the quote service would make the invoice email copy it or import quote code |
+| New schemas `QuoteEmailRequest`, `QuoteEmailResponse` | The email route needs a validated request body (1–10 addresses, format, deduplication) and a typed response for the generated client | No existing schema carries recipients. A bare `list[str]` body would leave the validation in the route and the response untyped |
 | New `SourceType` value 11 | `incidence` has no key for a quote, and the request asks for sends to be recorded the way other audit events are | A dedicated mail-log table would need a migration and a second audit mechanism |
