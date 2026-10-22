@@ -41,3 +41,15 @@ Deploy only after the user confirms (`/var/www/mbe-api-test`). No migration is n
    - Remove the discount row afterwards.
 2. **Credit default on a quote.** Create a quote for a credit customer with no terms: `payment_terms: 1`. Create one for a customer on hold: it is not refused.
 3. **Delivery details.** Create an order with `origin: 1`, intent delivery and no `ship_to`, and add a line. Confirming returns 409 with `missing: ["ship_to"]`. Cancel it afterwards.
+
+## Checks on the test deployment: 2026-10-22 (branch `023-pilot-sales-rules` at `f75c0fb`)
+
+Deployed to `/var/www/mbe-api-test` (`git checkout`, `uv sync`, `systemctl restart mbe-api-test`). No migration. The checks called the local service on xolotl against `mbe_dev` with a short-lived admin token, minted on the box (facility 51, point of sale 18). Customer 10 has a credit line of 400,000 and no credit debt; customer 2 is on credit hold; product 4 is priced on list 1. All checks returned the expected result.
+
+1. **Discount** ✅: `POST /customers/10/discounts` `{"product": 4, "discount": "0.1"}` returned 201. A new order for customer 10 defaulted to NET_D, and product 4 added without a discount got `discount_rate 0.10000000`.
+2. **Quote credit default** ✅: a quote for customer 10 and one for customer 2 (on hold) both returned 201 with `payment_terms 1`. Neither was refused (FR-019).
+3. **Back-office delivery** ✅: an order with `origin 1`, intent delivery, no `ship_to` and one line was refused at confirm with 409 `{"message": "Order is missing delivery details", "missing": ["ship_to"]}`.
+
+**Clean-up**: the discount was deleted (204). Orders 344050 and 344051 and quotes 30362 and 30363 were cancelled; they stay in `mbe_dev` as cancelled drafts with no folio, since the API cancels rather than deletes.
+
+**mbe-ui follow-up**: mictlanix/mbe-ui#202 (FR-018).
