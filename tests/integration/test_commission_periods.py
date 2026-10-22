@@ -20,6 +20,7 @@ from app.models.customer import Customer
 from app.models.sales import SalesOrder, SalesOrderPayment
 from app.services import commission_service as svc
 from tests.integration.commission_seed import (
+    AGENT_A,
     AGENT_B,
     CUSTOMER,
     order,
@@ -198,3 +199,54 @@ async def test_no_key_is_paid_past_its_full_commission(db: AsyncSession, seeded:
     rows = (await db.execute(select(CommissionPeriodLine))).scalars().all()
     assert sum(r.commission for r in rows) == D('100.00')
     assert all(sum(r.commission for r in rows if r.salesperson == k) <= D('100.00') for k in {1})
+
+
+async def test_the_period_list_has_only_months_with_a_row(db: AsyncSession, seeded: None) -> None:
+    await setup_commissions(db)
+    await order(db, paid=True, zeroed=datetime(2026, 3, 9))
+    await order(db, paid=True, zeroed=datetime(2026, 4, 9))
+    with _today(datetime(2026, 6, 2)):
+        await svc.close(db, 2026, 3, current=USER)
+        await svc.pay(db, 2026, 3, current=USER)
+        await svc.close(db, 2026, 4, current=USER)
+        await svc.reopen(db, 2026, 4, current=USER)
+
+    periods = await svc.list_periods(db)
+
+    assert [(p.year, p.month, p.status, total) for p, total in periods] == [
+        (2026, 4, 0, D('0')),
+        (2026, 3, 2, D('100.00')),
+    ]
+    assert periods[1][0].closed_at is not None and periods[1][0].paid_at is not None
+
+
+async def test_the_salesperson_filter_narrows_lines_and_totals(
+    db: AsyncSession, seeded: None
+) -> None:
+    await setup_commissions(db)
+    await order(db, salesperson=AGENT_B, paid=True, zeroed=datetime(2026, 4, 9))
+    with _today(datetime(2026, 5, 2)):
+        await svc.close(db, 2026, 4, current=USER)
+
+    whole = await svc.read_period(db, 2026, 4)
+    narrowed = await svc.read_period(db, 2026, 4, salesperson=AGENT_B)
+
+    assert {x.salesperson for x in whole.lines} == {AGENT_A, AGENT_B}
+    assert {x.salesperson for x in narrowed.lines} == {AGENT_B}
+    assert [t.salesperson for t in narrowed.totals] == [AGENT_B]
+    for view in (whole, narrowed):
+        for t in view.totals:
+            mine = [x for x in view.lines if (x.salesperson, x.label) == (t.salesperson, t.label)]
+            assert t.lines == len(mine)
+            assert t.commission == sum(x.commission for x in mine)
+
+
+async def test_an_open_month_is_computed_live(db: AsyncSession, seeded: None) -> None:
+    await setup_commissions(db)
+    await order(db, paid=True, zeroed=datetime(2026, 4, 9))
+
+    view = await svc.read_period(db, 2026, 4)
+
+    assert view.status == 'open' and not view.final
+    assert [x.commission for x in view.lines] == [D('100.00')]
+    assert await db.scalar(select(func.count()).select_from(CommissionPeriodLine)) == 0

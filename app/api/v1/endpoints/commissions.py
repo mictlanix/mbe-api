@@ -25,6 +25,7 @@ from app.schemas.commission import (
     CommissionParticipationResponse,
     CommissionPeriodDetail,
     CommissionPeriodResponse,
+    CommissionPeriodSummary,
     CommissionProductLabelResponse,
     CommissionProductLabelSet,
 )
@@ -39,6 +40,20 @@ _DELETE = require_privilege(SystemObject.COMMISSIONS_BY_SALES_PERSON, AccessRigh
 
 _YEAR = Path(ge=2000, le=2100)
 _MONTH = Path(ge=1, le=12)
+
+
+@router.get('/periods', response_model=list[CommissionPeriodSummary])
+async def list_commission_periods(
+    _: CurrentUser = Depends(_READ), db: AsyncSession = Depends(get_db)
+) -> list[CommissionPeriodSummary]:
+    """Months that have been closed at least once, newest first, with their stored total."""
+    rows = await commission_service.list_periods(db)
+    return [
+        CommissionPeriodSummary(
+            **CommissionPeriodResponse.model_validate(period).model_dump(), total=total
+        )
+        for period, total in rows
+    ]
 
 
 @router.get('/periods/{year}/{month}', response_model=CommissionPeriodDetail)

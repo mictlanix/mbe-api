@@ -175,13 +175,13 @@
 
 **Independent test**: `GET /commissions/periods` lists closed and paid months with totals. `GET /periods/{y}/{m}?salesperson=17` returns only agent 17's lines, with per-label totals equal to the sum of their lines. An open month comes back with `final: false`.
 
-- [ ] T018 [P] [US3] Extend `tests/integration/test_commission_periods.py` and `tests/api/test_commission_periods.py` (commit with T019):
+- [X] T018 [P] [US3] Extend `tests/integration/test_commission_periods.py` and `tests/api/test_commission_periods.py` (commit with T019):
   - `GET /periods` lists only months that have a row, with the status, `closed_at`, `paid_at` and the total;
   - the salesperson filter narrows both `lines` and `totals`;
   - each total equals the sum of its lines' commission;
   - an open month returns `final: false` and a live computation;
   - a reopened month returns `final: false`.
-- [ ] T019 [US3] Implement `list_periods` in `commission_service.py` and `GET /periods` in `commissions.py`, and make sure `read_period`'s `salesperson` filter and totals match T018. Run: green. Commit T018–T019.
+- [X] T019 [US3] Implement `list_periods` in `commission_service.py` and `GET /periods` in `commissions.py`, and make sure `read_period`'s `salesperson` filter and totals match T018. Run: green. Commit T018–T019.
 
 ---
 
@@ -200,7 +200,7 @@
   - **`### Added`:** commissions (mictlanix/mbe-roadmap#32, #33, spec 025) — the settings API, schemes, periods and stable history.
   - **`### Changed`:** `balance_zeroed_time` is stamped when payments settle an order.
   - **Upgrade note:** migration 023; every agent starts on scheme 1; the first closed month starts the chain.
-- [ ] T023 Run the full gate: `uv run ruff check app/ migrations/ tests/` and `uv run pytest -q`. No new failures against T001. Record the counts here.
+- [X] T023 Run the full gate: `uv run ruff check app/ migrations/ tests/` and `uv run pytest -q`. No new failures against T001. **Result:** ruff clean; 3727 passed, 0 failed (baseline 3316).
 - [ ] T024 **Confirm with the user before applying DDL to mbe_dev.** Then run `uv run python -m app.db.migrate` and the quickstart's migration checks (the scheme column, 2 tables, backfill 38 → 0, `commissions_history` still 1,650). Record the results here.
 - [ ] T025 Run the SC-002 parity check per `quickstart.md`, read only, on mbe_dev for September 2026, with every agent on scheme 1 and no closed periods. Explain every difference by its order. Record it in `quickstart.md`.
 - [ ] T026 **Confirm with the user before deploying.** Deploy the branch to `/var/www/mbe-api-test` and run read-only smoke checks (`GET /commissions/labels`, `/agents`, `/periods/2026/9`). Do **not** close or pay a period on the shared mbe_dev without the user's explicit go-ahead: a close starts the chain (FR-010a). Record the results in `quickstart.md`.

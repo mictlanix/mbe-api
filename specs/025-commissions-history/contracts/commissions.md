@@ -25,7 +25,7 @@ All routes are under `/api/v1/commissions`, authenticated, and gated by `COMMISS
 
 | Method | Path | Notes |
 |---|---|---|
-| GET | `/periods` | months that have a row: `[{year, month, status, closed_at, paid_at, total}]` |
+| GET | `/periods` | months that have a row, newest first: `[{year, month, status, closed_at, paid_at, total}]` (plus the other audit fields); `total` is the sum of the stored lines, 0 for a reopened month |
 | GET | `/periods/{year}/{month}?salesperson=` | an open month is computed live |
 | POST | `/periods/{year}/{month}/close` | 409 `Period has not ended`; 409 `The previous period is not closed` (after the first close); 409 already closed or paid |
 | POST | `/periods/{year}/{month}/reopen` | 409 unless it is the latest closed month and not paid |

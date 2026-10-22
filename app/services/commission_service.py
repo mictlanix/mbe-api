@@ -579,6 +579,21 @@ async def pay(db: AsyncSession, year: int, month: int, *, current: CurrentUser) 
     return period
 
 
+async def list_periods(db: AsyncSession) -> list[tuple[CommissionPeriod, Decimal]]:
+    """Months that have a row, newest first, each with the sum of its stored lines."""
+    total = (
+        select(func.coalesce(func.sum(CommissionPeriodLine.commission), 0))
+        .where(CommissionPeriodLine.commission_period == CommissionPeriod.commission_period_id)
+        .scalar_subquery()
+    )
+    rows = await db.execute(
+        select(CommissionPeriod, total).order_by(
+            CommissionPeriod.year.desc(), CommissionPeriod.month.desc()
+        )
+    )
+    return [(period, _money(amount)) for period, amount in rows.all()]
+
+
 async def read_period(
     db: AsyncSession, year: int, month: int, *, salesperson: int | None = None
 ) -> PeriodView:

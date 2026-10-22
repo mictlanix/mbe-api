@@ -201,3 +201,39 @@ async def test_without_the_commissions_privilege_it_is_403(method: str, path: st
         response = await getattr(client, method)(f'{BASE}{path}')
 
     assert response.status_code == status.HTTP_403_FORBIDDEN
+
+
+@pytest.mark.asyncio
+async def test_the_period_list() -> None:
+    _auth()
+    period = SimpleNamespace(
+        year=2026,
+        month=9,
+        status=2,
+        closed_by=7,
+        closed_at=datetime(2026, 10, 2),
+        reopened_by=None,
+        reopened_at=None,
+        paid_by=7,
+        paid_at=datetime(2026, 10, 5),
+    )
+    with patch.object(
+        commission_service, 'list_periods', AsyncMock(return_value=[(period, Decimal('150.02'))])
+    ):
+        async with _client() as client:
+            response = await client.get(BASE)
+
+    assert response.status_code == status.HTTP_200_OK, response.text
+    [row] = response.json()
+    assert (row['year'], row['month'], row['status'], row['total']) == (2026, 9, 'paid', '150.02')
+    assert row['paid_at'] is not None
+
+
+@pytest.mark.asyncio
+async def test_the_period_list_needs_the_commissions_privilege() -> None:
+    _auth(administrator=False)
+    _deny_privileges()
+    async with _client() as client:
+        response = await client.get(BASE)
+
+    assert response.status_code == status.HTTP_403_FORBIDDEN
