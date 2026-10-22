@@ -5,6 +5,10 @@ cash while they are under their limit. Once their credit debt reaches the limit,
 as well as credit: buying in cash is not a way around a debt they have stopped paying (FR-012).
 Quotes commit nothing, so they are never refused on credit grounds; every check waits for the
 conversion (FR-019).
+
+**Delivery details.** An order raised on the back-office sales orders screen (origin 1) is
+confirmed only with a fulfilment intent, an address when it is delivered, and a promise date that
+has not passed (FR-008). The POS and orders that recorded no origin are confirmed as before.
 """
 
 from datetime import datetime, timedelta
@@ -249,3 +253,101 @@ class TestCreditTerms:
             )
 
             assert not _settle_first(confirmed), confirmed.text
+
+
+ADDRESS = 1  # seeded by tests/integration/seed.py
+
+
+async def _back_office(client: AsyncClient, **body: object) -> int:
+    """A cash draft for the walk-in customer, so no credit rule can be what refuses it."""
+    order = await _create_order(client, customer=1, payment_terms=0, **body)
+    await _add_line(client, f'/api/v1/sales-orders/{order["sales_order_id"]}/lines')
+    return order['sales_order_id']
+
+
+def _missing(response) -> list[str]:  # noqa: ANN001 — httpx.Response
+    assert response.status_code == 409, response.text
+    detail = response.json()['detail']
+    assert detail['message'] == 'Order is missing delivery details', detail
+    return detail['missing']
+
+
+class TestBackOfficeDelivery:
+    async def test_an_order_without_an_intent_is_refused(
+        self, client: AsyncClient, seeded: None
+    ) -> None:
+        order = await _back_office(client, origin=1)
+
+        confirmed = await client.post(f'/api/v1/sales-orders/{order}/confirm')
+
+        assert _missing(confirmed) == ['fulfillment_intent']
+
+    async def test_a_delivery_needs_its_address_and_then_confirms(
+        self, client: AsyncClient, seeded: None
+    ) -> None:
+        order = await _back_office(client, origin=1, fulfillment_intent=1)
+
+        refused = await client.post(f'/api/v1/sales-orders/{order}/confirm')
+        addressed = await client.put(f'/api/v1/sales-orders/{order}', json={'ship_to': ADDRESS})
+        confirmed = await client.post(f'/api/v1/sales-orders/{order}/confirm')
+
+        assert _missing(refused) == ['ship_to']
+        assert addressed.status_code == 200, addressed.text
+        assert confirmed.status_code == 200, confirmed.text
+
+    async def test_a_pickup_confirms_without_an_address(
+        self, client: AsyncClient, seeded: None
+    ) -> None:
+        order = await _back_office(client, origin=1, fulfillment_intent=0)
+
+        confirmed = await client.post(f'/api/v1/sales-orders/{order}/confirm')
+
+        assert confirmed.status_code == 200, confirmed.text
+
+    async def test_a_promise_date_already_past_is_refused(
+        self, client: AsyncClient, seeded: None
+    ) -> None:
+        yesterday = (local_now() - timedelta(days=1)).replace(microsecond=0).isoformat()
+        order = await _back_office(
+            client, origin=1, fulfillment_intent=1, ship_to=ADDRESS, promise_date=yesterday
+        )
+
+        confirmed = await client.post(f'/api/v1/sales-orders/{order}/confirm')
+
+        assert _missing(confirmed) == ['promise_date']
+
+    async def test_a_refusal_writes_nothing(self, client: AsyncClient, seeded: None) -> None:
+        order = await _back_office(client, origin=1)
+
+        await client.post(f'/api/v1/sales-orders/{order}/confirm')
+        after = await client.get(f'/api/v1/sales-orders/{order}')
+
+        assert after.json()['serial'] is None
+        assert after.json()['status'] == 'draft'
+
+    async def test_the_pos_and_unrecorded_origins_are_untouched(
+        self, client: AsyncClient, seeded: None
+    ) -> None:
+        for body in ({'origin': 0}, {}):
+            order = await _back_office(client, **body)
+
+            confirmed = await client.post(f'/api/v1/sales-orders/{order}/confirm')
+
+            assert confirmed.status_code == 200, confirmed.text
+
+    async def test_a_converted_quote_needs_an_intent(
+        self, client: AsyncClient, seeded: None
+    ) -> None:
+        """Conversion raises a back-office order and records no intent: the quote has none."""
+        created = await client.post('/api/v1/sales-quotes', json={'customer': 1})
+        quote = created.json()['sales_quote_id']
+        await _add_line(client, f'/api/v1/sales-quotes/{quote}/lines')
+        await client.post(f'/api/v1/sales-quotes/{quote}/confirm')
+        converted = await client.post(f'/api/v1/sales-quotes/{quote}/convert')
+        assert converted.status_code in (200, 201), converted.text
+
+        confirmed = await client.post(
+            f'/api/v1/sales-orders/{converted.json()["sales_order_id"]}/confirm'
+        )
+
+        assert 'fulfillment_intent' in _missing(confirmed)

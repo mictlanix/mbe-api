@@ -117,7 +117,7 @@
 - it confirms once complete, and pickup confirms without an address;
 - POS and null-origin orders are unaffected.
 
-- [ ] T014 [P] [US3] Add unit tests for `missing_delivery_details(order, *, today)` to `tests/unit/test_sales_order_service.py` (commit with T016). Build `SimpleNamespace(fulfillment_intent=..., ship_to=..., promise_date=...)` stubs with `today = date(2026, 10, 22)`:
+- [X] T014 [P] [US3] Add unit tests for `missing_delivery_details(order, *, today)` to `tests/unit/test_sales_order_service.py` (commit with T016). Build `SimpleNamespace(fulfillment_intent=..., ship_to=..., promise_date=...)` stubs with `today = date(2026, 10, 22)`:
   - intent `None` → contains `'fulfillment_intent'`;
   - DELIVERY with `ship_to None` → `['ship_to']`;
   - MIXED with `ship_to None` → `['ship_to']`;
@@ -125,7 +125,8 @@
   - DELIVERY with `ship_to=5`, promise `2026-10-22 08:00` → `[]` (today passes);
   - promise `2026-10-21 23:59` → `['promise_date']`;
   - everything missing → all three, in the order intent, ship_to, promise_date.
-- [ ] T015 [P] [US3] Add class `TestBackOfficeDelivery` to `tests/integration/test_sales_rules_flow.py` (commit with T016).
+  - **As built:** with no intent, `ship_to` is not reported. Whether an address is needed depends on the intent, which is unknown, so the refusal names the intent and, if stale, the date: `['fulfillment_intent', 'promise_date']`.
+- [X] T015 [P] [US3] Add class `TestBackOfficeDelivery` to `tests/integration/test_sales_rules_flow.py` (commit with T016).
   - **Setup:** use the walk-in customer, or a non-credit customer, to keep credit out of it. Use the address the integration seed already creates, `address_id=1` (`tests/integration/seed.py:79`), as `ship_to`. No new seeding is needed.
   - **Cases:**
     1. `origin: 1` with no intent, add a line, confirm → 409, `detail.missing == ['fulfillment_intent']`.
@@ -136,7 +137,7 @@
     6. No origin → confirm 200.
     7. **Converted quote:** a converted quote's order (origin 1, intent null) → 409 with `fulfillment_intent`.
     8. **Nothing written on refusal:** after a 409, the order still has `serial is None` and `completed is False`.
-- [ ] T016 [US3] In `app/services/sales_order_service.py`:
+- [X] T016 [US3] In `app/services/sales_order_service.py`:
   - **Helper:** add the pure `def missing_delivery_details(order, *, today: date) -> list[str]` (research R6), with a docstring citing spec 023 FR-008 and the mbe-ui dependency (FR-018).
   - **Call site:** in `confirm_order`, right after `_assert_not_on_credit_hold`, add: `if order.origin == OrderOrigin.BACK_OFFICE: missing = missing_delivery_details(order, today=local_now().date())`. If anything is missing, raise `HTTPException(409, detail={'message': 'Order is missing delivery details', 'missing': missing})`.
 

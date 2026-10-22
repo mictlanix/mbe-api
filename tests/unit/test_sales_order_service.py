@@ -7,7 +7,7 @@ refund must never both be available for the same order — SC-010.
 """
 
 import inspect
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -1090,3 +1090,48 @@ class TestWhoIsACreditCustomer:
         customer = SimpleNamespace(customer_id=customer_id, credit_limit=credit_limit)
 
         assert sales_order_service.is_credit_customer(customer) is expected
+
+
+class TestWhatABackOfficeOrderNeedsToBeConfirmed:
+    """Delivery details on a back-office order, named one by one (spec 023 FR-008)."""
+
+    TODAY = date(2026, 10, 22)
+
+    @staticmethod
+    def _order(
+        intent: FulfillmentType | None = FulfillmentType.DELIVERY,
+        ship_to: int | None = 5,
+        promise: datetime = datetime(2026, 10, 22, 8, 0),
+    ) -> SimpleNamespace:
+        return SimpleNamespace(
+            fulfillment_intent=None if intent is None else int(intent),
+            ship_to=ship_to,
+            promise_date=promise,
+        )
+
+    def _missing(self, order: SimpleNamespace) -> list[str]:
+        return sales_order_service.missing_delivery_details(order, today=self.TODAY)
+
+    def test_a_complete_delivery_needs_nothing(self) -> None:
+        """A promise date of today passes: only a date already behind us is missing."""
+        assert self._missing(self._order()) == []
+
+    def test_no_intent_is_missing(self) -> None:
+        assert self._missing(self._order(intent=None)) == ['fulfillment_intent']
+
+    @pytest.mark.parametrize('intent', [FulfillmentType.DELIVERY, FulfillmentType.MIXED])
+    def test_a_delivery_without_an_address_is_missing_it(self, intent: FulfillmentType) -> None:
+        assert self._missing(self._order(intent=intent, ship_to=None)) == ['ship_to']
+
+    def test_a_pickup_needs_no_address(self) -> None:
+        assert self._missing(self._order(intent=FulfillmentType.PICKUP, ship_to=None)) == []
+
+    def test_a_date_already_past_is_missing(self) -> None:
+        late = self._order(promise=datetime(2026, 10, 21, 23, 59))
+
+        assert self._missing(late) == ['promise_date']
+
+    def test_everything_missing_is_named_in_order(self) -> None:
+        empty = self._order(intent=None, ship_to=None, promise=datetime(2026, 10, 1))
+
+        assert self._missing(empty) == ['fulfillment_intent', 'promise_date']

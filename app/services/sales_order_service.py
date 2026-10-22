@@ -11,7 +11,7 @@ tests need to exercise directly, and keeping them free of I/O is what makes that
 """
 
 from collections.abc import Iterable, Sequence
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 
 from fastapi import HTTPException, status
@@ -22,7 +22,7 @@ from app.core.clock import local_now
 from app.core.config import settings
 from app.core.constants import COST_PRICE_LIST_ID
 from app.core.deps import CurrentUser
-from app.enums import CurrencyCode, OrderOrigin, PaymentTerms
+from app.enums import CurrencyCode, FulfillmentType, OrderOrigin, PaymentTerms
 from app.models.core import ExchangeRate, Facility, Warehouse
 from app.models.customer import Customer
 from app.models.product import Product, ProductPrice
@@ -119,6 +119,28 @@ def stock_shortfalls(
             )
 
     return problems
+
+
+def missing_delivery_details(order: object, *, today: date) -> list[str]:
+    """What a back-office order still lacks before it can be confirmed (spec 023 FR-008).
+
+    - The fulfilment intent, always.
+    - The address, when the intent is delivery or mixed. An unknown intent asks for the intent, not
+      for an address the order may never need.
+    - A promise date that has not passed. The 7-day default counts until it goes stale.
+
+    The address is the order's own `ship_to`. mbe-ui enters addresses only on delivery orders,
+    after confirming, so until it sets this one a back-office delivery cannot be confirmed
+    (FR-018).
+    """
+    missing = []
+    if order.fulfillment_intent is None:
+        missing.append('fulfillment_intent')
+    elif order.fulfillment_intent != FulfillmentType.PICKUP and order.ship_to is None:
+        missing.append('ship_to')
+    if order.promise_date.date() < today:
+        missing.append('promise_date')
+    return missing
 
 
 def assert_can_cancel(order: object, *, live_applications: Sequence[object]) -> None:
@@ -1206,6 +1228,13 @@ async def confirm_order(
     # customer who fell behind after capture, an order moved onto a customer in arrears, and a
     # quote converted on credit terms all reached a committed sale unchallenged.
     await _assert_not_on_credit_hold(db, order.customer)
+    if order.origin == OrderOrigin.BACK_OFFICE:
+        missing = missing_delivery_details(order, today=local_now().date())
+        if missing:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail={'message': 'Order is missing delivery details', 'missing': missing},
+            )
     employee = current.employee_id
 
     lines = list(
