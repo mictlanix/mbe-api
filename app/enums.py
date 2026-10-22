@@ -168,6 +168,8 @@ class SourceType(IntEnum):
     USER_SETTINGS = 8
     PRODUCT = 9
     FACILITY = 10
+    # API-only, like FACILITY: the monolith's enum stops at 9. Records a quote email (spec 024).
+    SALES_QUOTE = 11
 
 
 class AccessRight(IntFlag):

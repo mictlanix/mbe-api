@@ -121,11 +121,11 @@
 
 **Independent test**: with a recording mailer, a confirmed quote sent to two addresses delivers one message with the PDF attached and writes one incidence. A failing mailer writes none. Unconfigured mail gives 503.
 
-- [ ] T010 [P] [US2] Write `tests/unit/test_quote_email.py` (commit with T012–T014).
+- [X] T010 [P] [US2] Write `tests/unit/test_quote_email.py` (commit with T012–T014).
   - **`QuoteEmailRequest`:** 0 addresses → ValidationError; 11 → error; `'no-at-sign'`, `'a@b'` (no dot) and `'a b@c.mx'` → error; `'a@b.mx\r\nBcc: x@y.mx'` → error (header injection); 255 characters → error; `[' Ana@X.mx ', 'ana@x.mx', 'b@y.mx']` → `['Ana@X.mx', 'b@y.mx']`.
   - **`sales_quote_service.quote_email_message(quote_id, facility_name, salesperson, pdf)`:** the subject, the body text exactly as FR-006 (with `\n` line breaks), and one attachment `cotizacion-{id:08d}.pdf`, `application/pdf`, holding the bytes.
   - **`_recipients_context(addresses)`:** `To: a, b`, and a long list is truncated to 1,000 characters ending in `…`.
-- [ ] T011 [P] [US2] Extend `tests/api/test_quote_document_email.py` with an email part (commit with T012–T014).
+- [X] T011 [P] [US2] Extend `tests/api/test_quote_document_email.py` with an email part (commit with T012–T014).
   - **Recording double:** `class RecordingMailer: sent = []; async def send(self, m): self.sent.append(m)`, installed with `app.dependency_overrides[mail.get_mailer] = lambda: recorder`.
   - **Service:** run the real `sales_quote_service.email_quote`. Patch `sales_quote_service.get_quote`, `sales_quote_service.attach_derived`, `print_contexts.sales_quote_context`, `rendering.render_pdf` and `incidences.record`. Override `get_db` with a fake session whose `get(model, id)` returns a facility stub (`name`) or an employee stub (`first_name`, `last_name`) by model, and whose `commit` is an `AsyncMock`.
   - **Cases:**
@@ -138,10 +138,10 @@
     7. Unknown quote → 404.
     8. No privilege → 403.
     9. No token → 401.
-- [ ] T012 [US2] In `app/enums.py`, add `SALES_QUOTE = 11` to `SourceType`, after `FACILITY = 10`, with a short comment saying it is API-only, like `FACILITY`, and records a quote email (spec 024). In `app/schemas/sales_quote.py`, add:
+- [X] T012 [US2] In `app/enums.py`, add `SALES_QUOTE = 11` to `SourceType`, after `FACILITY = 10`, with a short comment saying it is API-only, like `FACILITY`, and records a quote email (spec 024). In `app/schemas/sales_quote.py`, add:
   - **`QuoteEmailRequest`:** `to: list[str] = Field(min_length=1, max_length=10)`, with a `field_validator` that trims, checks the regex `^[^@\s]+@[^@\s]+\.[^@\s]+$` and a length of at most 254, and deduplicates case-insensitively keeping first spellings (research R6).
   - **`QuoteEmailResponse`:** `recipients: list[str]`, `sent_at: LocalDateTime` (the type the other schemas use).
-- [ ] T013 [US2] In `app/services/sales_quote_service.py`, add:
+- [X] T013 [US2] In `app/services/sales_quote_service.py`, add:
   - **Helpers:** `quote_email_message(...) -> mail.Message` and `_recipients_context(addresses) -> str`, which truncates to 1,000 characters with `…`.
   - **`async def email_quote(db, quote, to, *, mailer, current) -> tuple[list[str], datetime]`:**
     1. Refuse anything other than `completed and not cancelled` with 409 `Only a confirmed quote can be emailed`.
@@ -152,11 +152,12 @@
     6. Return the recipients and `local_now()`.
 
   Its docstring names the ordering: record only after the server accepted the message (research R5).
-- [ ] T014 [US2] Add `POST /{sales_quote_id}/email` to `app/api/v1/endpoints/sales_quotes.py`:
+- [X] T014 [US2] Add `POST /{sales_quote_id}/email` to `app/api/v1/endpoints/sales_quotes.py`:
   - **Signature:** `response_model=QuoteEmailResponse`, with `data: QuoteEmailRequest`, `current: CurrentUser = Depends(_READ)` and `mailer: Mailer | None = Depends(mail.get_mailer)`;
   - **Body:** 503 `Email is not configured` when `mailer is None`; then `_quote_or_404`; then `email_quote(...)`; return the response.
 
   Run `uv run pytest tests/api/test_quote_document_email.py tests/unit/test_quote_email.py tests/unit/test_mail.py -q`: green. Commit T010–T014.
+  - **As built:** `email_quote` returns only `sent_at`; the route already holds the validated recipients for the response. `SmtpMailer` also ignores a failing `quit()` once `send_message` has returned, so a delivered email is never reported as failed (tested in `test_mail.py`).
 
 **Checkpoint**: quotes can be emailed and every send is recorded.
 

@@ -8,6 +8,8 @@ from app.enums import AccessRight, SystemObject
 from app.schemas import ListResponse
 from app.schemas.sales_order import SalesOrderResponse
 from app.schemas.sales_quote import (
+    QuoteEmailRequest,
+    QuoteEmailResponse,
     SalesQuoteCreate,
     SalesQuoteLineCreate,
     SalesQuoteLineUpdate,
@@ -15,7 +17,7 @@ from app.schemas.sales_quote import (
     SalesQuoteSummary,
     SalesQuoteUpdate,
 )
-from app.services import print_contexts, sales_quote_service
+from app.services import mail, print_contexts, sales_quote_service
 
 router = APIRouter()
 
@@ -94,6 +96,26 @@ async def print_sales_quote_document(
     template, context = await print_contexts.sales_quote_context(db, quote)
     pdf = await rendering.render_pdf(template, context)
     return rendering.pdf_response(pdf, f'cotizacion-{quote.sales_quote_id:08d}.pdf')
+
+
+@router.post('/{sales_quote_id}/email', response_model=QuoteEmailResponse)
+async def email_sales_quote(
+    sales_quote_id: int,
+    data: QuoteEmailRequest,
+    current: CurrentUser = Depends(_READ),
+    mailer: mail.Mailer | None = Depends(mail.get_mailer),
+    db: AsyncSession = Depends(get_db),
+) -> QuoteEmailResponse:
+    """Send a confirmed quote's PDF to 1–10 addresses, and record the send (spec 024)."""
+    if mailer is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail='Email is not configured'
+        )
+    quote = await _quote_or_404(db, sales_quote_id)
+    sent_at = await sales_quote_service.email_quote(
+        db, quote, data.to, mailer=mailer, current=current
+    )
+    return QuoteEmailResponse(recipients=data.to, sent_at=sent_at)
 
 
 @router.put('/{sales_quote_id}', response_model=SalesQuoteResponse)
