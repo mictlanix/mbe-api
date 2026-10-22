@@ -414,6 +414,9 @@ SupplierCreate / SupplierUpdate:
   credit_limit: Decimal
   credit_days: int
   comment: str | null
+  addresses: [int, ...] | null
+  contacts: [int, ...] | null
+  bank_accounts: [int, ...] | null
 
 SupplierResponse:
   supplier_id: int
@@ -424,6 +427,13 @@ SupplierResponse:
   credit_days: int
   comment: str | null
 ```
+
+`GET /{supplier_id}`, `POST` and `PUT` return `SupplierDetailResponse` (the same fields plus the
+four sub-panels), and the list keeps `SupplierResponse`. `addresses`, `contacts` and `bank_accounts`
+are replace-all id lists: `null` or omitted leaves that link set alone, `[]` clears it, and an
+unknown id returns 409. New routes: `/{supplier_id}/agreements` (GET, POST) and
+`/{supplier_id}/agreements/{supplier_agreement_id}` (PUT, DELETE), and the `/bank-accounts`
+resource. See [021 contract](../../021-master-data-api-gaps/contracts/master-data-gaps.md).
 
 ---
 

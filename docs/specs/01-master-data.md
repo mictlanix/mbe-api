@@ -228,10 +228,21 @@ Vendor entities for purchasing goods.
 | Notes | `supplier.comment` | |
 
 ### Sub-Panels
-- **Addresses** (`supplier_address`)
-- **Contacts** (`supplier_contact`)
-- **Bank Accounts** (`supplier_bank_account`)
-- **Agreements** (`supplier_agreement`): date-ranged commercial agreements
+`GET /suppliers/{id}`, `POST` and `PUT` return the four sub-panels; the list does not.
+
+- **Addresses** (`supplier_address`), **Contacts** (`supplier_contact`) and **Bank Accounts**
+  (`supplier_bank_account`): sent on `POST` and `PUT` as id lists (`addresses`, `contacts`,
+  `bank_accounts`). Each list replaces that link set: omitted leaves it alone, `[]` clears it, and
+  an unknown id returns 409 with no link changed. Create the rows themselves via `/addresses`,
+  `/contacts` and `/bank-accounts`.
+- **Bank accounts** are a resource of their own: `/bank-accounts`, gated by `SystemObject`
+  `BankAccounts` (13), searchable by bank name, account number and reference. Deleting one that is
+  linked to a supplier returns 409.
+- **Agreements** (`supplier_agreement`): date-ranged commercial agreements, nested under the
+  supplier: `GET` and `POST /suppliers/{id}/agreements`, `PUT` and `DELETE`
+  `/suppliers/{id}/agreements/{agreement_id}`. `end` must not be before `start` (422, checked on
+  the merged values for an update), and an agreement of another supplier returns 404.
+- Links and agreements block deleting the supplier (409) until they are cleared.
 
 ---
 

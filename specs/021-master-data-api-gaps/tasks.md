@@ -62,7 +62,7 @@
   - The list is ordered by `start`, then id.
 
   File: `tests/unit/test_supplier_agreement_service.py`
-- [ ] T006 [P] [US1] **(commit with T016)** API tests for the supplier sub-panels:
+- [X] T006 [P] [US1] **(commit with T016)** API tests for the supplier sub-panels:
   - **Detail**: `GET /suppliers/{id}` includes `addresses`, `contacts`, `bank_accounts` and `agreements`.
   - **List**: `GET /suppliers` items have none of those keys.
   - **Responses**: POST and PUT return the detail shape.
@@ -71,7 +71,7 @@
   - **Auth**: 401 without a token on each new route.
 
   File: `tests/api/test_supplier_sub_panels.py`
-- [ ] T007 [P] [US1] **(commit with T016)** Integration tests on the SQLite schema:
+- [X] T007 [P] [US1] **(commit with T016)** Integration tests on the SQLite schema:
   - Create a supplier with address, contact and bank account ids and read back the detail.
   - Replace the contacts with `[]` and confirm the address links are untouched.
   - An unknown address id returns 409, and the supplier's existing links are unchanged.
@@ -117,13 +117,13 @@
   - `delete_agreement`.
 
   File: `app/services/supplier_agreement_service.py`
-- [ ] T016 [US1] Supplier routes:
+- [X] T016 [US1] Supplier routes:
   - GET `/{id}`, POST and PUT return `SupplierDetailResponse` through `get_supplier_detail`.
   - Add `GET` and `POST /{supplier_id}/agreements`, and `PUT` and `DELETE /{supplier_id}/agreements/{supplier_agreement_id}`. Each returns 404 for an unknown supplier and for an agreement belonging to another supplier.
   - Access stays `get_current_user` (FR-031).
 
   File: `app/api/v1/endpoints/suppliers.py`
-- [ ] T017 [US1] Update the existing supplier tests for the detail response, which now carries the four lists and is mocked through `get_supplier_detail` · `tests/api/test_suppliers_employees.py`
+- [X] T017 [US1] Update the existing supplier tests for the detail response, which now carries the four lists and is mocked through `get_supplier_detail` · `tests/api/test_suppliers_employees.py`
 - [X] T018 [P] [US1] Add `addresses`, `contacts` and `bank_accounts` (`[int, ...] | null`) to the `SupplierCreate / SupplierUpdate` block, and list the new routes in the suppliers section · `specs/002-master-data-endpoints/contracts/api.md`
 - [X] T019 [P] [US1] Scope 01 §6: describe the four sub-panels as delivered. Give the link semantics (replace-all id lists), the `/bank-accounts` resource, the agreement routes, the `end >= start` rule, and the fact that links block a supplier's deletion · `docs/specs/01-master-data.md`
 
