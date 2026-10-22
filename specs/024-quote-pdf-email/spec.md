@@ -186,7 +186,7 @@ A developer building the invoice email (mictlanix/mbe-roadmap#50) uses the same 
 
 - **FR-012**: A mail capability MUST send one message (recipients, subject, plain-text body, zero or more attachments with name, content type and bytes). It must not depend on quotes, so that invoices can reuse it.
 - **FR-013**: Its connection settings MUST come from configuration, documented in `.env.example` and absent by default. They cover the server, port, security mode, credentials, the From address and an optional Reply-To address. Authentication is standard SMTP user and password over TLS (STARTTLS or implicit SSL, set in configuration). This works with Google Workspace through an app password and with most providers. OAuth2 is out of scope.
-- **FR-014**: Tests MUST use a mail double that records messages instead of sending them. The real transport is exercised against a local fake SMTP server.
+- **FR-014**: Tests MUST use a mail double that records messages instead of sending them. The real transport is tested with the SMTP client replaced, so no new test dependency is needed (research R8), and is exercised against a real server once, on the test deployment (SC-005).
 
 **Documentation**
 
