@@ -21,17 +21,19 @@
 
 ## Phase 1: Setup
 
-- [ ] T001 [P] Write migration 022 and its rollback.
+- [X] T001 [P] Write migration 022 and its rollback.
   - **Forward**: `ALTER TABLE vehicle_operator ADD COLUMN IF NOT EXISTS license_photo VARCHAR(255) NULL COMMENT '...'`.
   - **Rollback**: `DROP COLUMN IF EXISTS`. It must warn that the stored files become orphaned and give the `SELECT vehicle_operator_id, license_photo … WHERE license_photo IS NOT NULL` to run first.
   - Write the header comments in the style of `021_user_must_change_password.sql`: why, default, idempotency, MariaDB 10.11 (research R9).
 
   Files: `migrations/022_vehicle_operator_license_photo.sql`, `migrations/022_vehicle_operator_license_photo_rollback.sql`
-- [ ] T002 [P] Add `license_photos_dir: str = 'license-photos'` beside `pod_dir`. Add a comment saying it is private, outside `images_dir`, and never mounted (research R8) · `app/core/config.py`
+- [X] T002 [P] Add `license_photos_dir: str = 'license-photos'` beside `pod_dir`. Add a comment saying it is private, outside `images_dir`, and never mounted (research R8) · `app/core/config.py`
 
 ## Phase 2: Foundational
 
-- [ ] T003 Run `uv run ruff check app/ migrations/ tests/` and `uv run pytest -q` on the branch before any code change. Record which tests fail before the work starts, so that later failures can be attributed. Expected: everything passes except `tests/unit/test_contract_docs.py` for the new contract's components, as research R10 predicts. List any other failure in this task before continuing · `specs/021-master-data-api-gaps/tasks.md`
+- [X] T003 Run `uv run ruff check app/ migrations/ tests/` and `uv run pytest -q` on the branch before any code change. Record which tests fail before the work starts, so that later failures can be attributed. Expected: everything passes except `tests/unit/test_contract_docs.py` for the new contract's components, as research R10 predicts. List any other failure in this task before continuing · `specs/021-master-data-api-gaps/tasks.md`
+  - **Baseline (2026-10-21)**: ruff clean; pytest 2861 passed, 11 failed. All 11 failures are `test_a_documented_component_exists` for this feature's not-yet-built components: `SupplierDetailResponse`, `SupplierAgreementCreate/Update/Response`, `BankAccountCreate/Update/Response`, `CustomerDiscountCreate/Update/Response`, `ProductSummary`. There were no other failures.
+  - T046 (data dictionary) was done here alongside T001. The migration adds the column, and `test_data_dictionary.py` would otherwise fail from this commit on.
 
 **Checkpoint**: the baseline is known. The user stories can start.
 
@@ -300,7 +302,7 @@
   - Add a read-only `has_license_photo` property returning `self.license_photo is not None`, so `from_attributes` picks it up without the filename leaving the server.
 
   File: `app/models/core.py`
-- [ ] T046 [P] [US5] Document `vehicle_operator.license_photo`: a private filename under `LICENSE_PHOTOS_DIR`, NULL meaning no photo, migration 022, #20 · `docs/data-dictionary.md`
+- [X] T046 [P] [US5] Document `vehicle_operator.license_photo`: a private filename under `LICENSE_PHOTOS_DIR`, NULL meaning no photo, migration 022, #20 · `docs/data-dictionary.md`
 - [ ] T047 [P] [US5] Add `delete_image(directory, filename)`. It refuses a name containing `/` or `..`, and removes the file through `asyncio.to_thread` while ignoring `FileNotFoundError`. Reuse `save_proof_image` unchanged for writing (research R8) · `app/services/image_service.py`
 - [ ] T048 [US5] Service:
   - `set_license_photo` and `clear_license_photo` each return the previous filename.

@@ -88,6 +88,10 @@ class Settings(BaseSettings):
     # Directory holding proof-of-delivery captures. Deliberately NOT under `images_dir`, which is
     # served by an unauthenticated static mount; a signature is personal data (FR-044a).
     pod_dir: str = 'pod'
+    # Directory holding vehicle operators' driver license photos (mictlanix/mbe-roadmap#20). Private
+    # like `pod_dir`: outside `images_dir` and never mounted, because a license is personal data.
+    # Served only through the authenticated license-photo route.
+    license_photos_dir: str = 'license-photos'
 
 
 settings = Settings()

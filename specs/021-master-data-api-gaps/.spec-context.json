@@ -2,8 +2,8 @@
   "workflow": "speckit",
   "specName": "Master Data API Gaps",
   "branch": "021-master-data-api-gaps",
-  "currentStep": "tasks",
-  "status": "ready-to-implement",
+  "currentStep": "implement",
+  "status": "implementing",
   "history": [
     {
       "step": "specify",
@@ -46,6 +46,13 @@
       "kind": "complete",
       "by": "extension",
       "at": "2026-10-22T02:37:58.168Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "kind": "start",
+      "by": "extension",
+      "at": "2026-10-22T03:03:27.607Z"
     }
   ],
   "telemetryInstanceId": "a1a61a71-583e-49a9-9e1f-60e7ee68c108"

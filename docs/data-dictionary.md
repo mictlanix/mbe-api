@@ -340,6 +340,7 @@ Driver license record for an employee.
 | `creator` | int(11) | NO | FK → `employee` |
 | `updater` | int(11) | NO | FK → `employee` |
 | `status` | smallint(6) | NO | `EntityStatus` — `0` active, `1` inactive, `2` archived |
+| `license_photo` | varchar(255) | YES | Filename of the driver license photo under the private `LICENSE_PHOTOS_DIR`; `NULL` = no photo. Never returned by the API (`has_license_photo` instead). Migration 022, mictlanix/mbe-roadmap#20 |
 
 ---
 
