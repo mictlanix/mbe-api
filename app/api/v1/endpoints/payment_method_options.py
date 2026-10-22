@@ -2,9 +2,9 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi import status as http_status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.deps import CurrentUser, get_current_user
+from app.core.deps import CurrentUser, get_current_user, require_privilege
 from app.db.session import get_db
-from app.enums import EntityStatus
+from app.enums import AccessRight, EntityStatus, SystemObject
 from app.schemas import ListResponse
 from app.schemas.core import (
     PaymentMethodOptionCreate,
@@ -14,6 +14,10 @@ from app.schemas.core import (
 from app.services import payment_method_option_service
 
 router = APIRouter()
+
+_CREATE = require_privilege(SystemObject.PAYMENT_METHOD_OPTIONS, AccessRight.CREATE)
+_UPDATE = require_privilege(SystemObject.PAYMENT_METHOD_OPTIONS, AccessRight.UPDATE)
+_DELETE = require_privilege(SystemObject.PAYMENT_METHOD_OPTIONS, AccessRight.DELETE)
 
 
 @router.get('', response_model=ListResponse[PaymentMethodOptionResponse])
@@ -36,7 +40,7 @@ async def list_payment_method_options(
 )
 async def create_payment_method_option(
     data: PaymentMethodOptionCreate,
-    _: CurrentUser = Depends(get_current_user),
+    _: CurrentUser = Depends(_CREATE),
     db: AsyncSession = Depends(get_db),
 ) -> PaymentMethodOptionResponse:
     pmo = await payment_method_option_service.create_payment_method_option(db, data)
@@ -63,7 +67,7 @@ async def get_payment_method_option(
 async def update_payment_method_option(
     payment_method_option_id: int,
     data: PaymentMethodOptionUpdate,
-    _: CurrentUser = Depends(get_current_user),
+    _: CurrentUser = Depends(_UPDATE),
     db: AsyncSession = Depends(get_db),
 ) -> PaymentMethodOptionResponse:
     pmo = await payment_method_option_service.get_payment_method_option(
@@ -80,7 +84,7 @@ async def update_payment_method_option(
 @router.delete('/{payment_method_option_id}', status_code=http_status.HTTP_204_NO_CONTENT)
 async def delete_payment_method_option(
     payment_method_option_id: int,
-    _: CurrentUser = Depends(get_current_user),
+    _: CurrentUser = Depends(_DELETE),
     db: AsyncSession = Depends(get_db),
 ) -> None:
     pmo = await payment_method_option_service.get_payment_method_option(

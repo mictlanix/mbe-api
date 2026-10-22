@@ -1,8 +1,9 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.deps import CurrentUser, get_current_user
+from app.core.deps import CurrentUser, get_current_user, require_privilege
 from app.db.session import get_db
+from app.enums import AccessRight, SystemObject
 from app.schemas import ListResponse
 from app.schemas.supplier import (
     SupplierAgreementCreate,
@@ -16,6 +17,11 @@ from app.schemas.supplier import (
 from app.services import supplier_agreement_service, supplier_service
 
 router = APIRouter()
+
+_READ = require_privilege(SystemObject.SUPPLIERS, AccessRight.READ)
+_CREATE = require_privilege(SystemObject.SUPPLIERS, AccessRight.CREATE)
+_UPDATE = require_privilege(SystemObject.SUPPLIERS, AccessRight.UPDATE)
+_DELETE = require_privilege(SystemObject.SUPPLIERS, AccessRight.DELETE)
 
 
 @router.get('', response_model=ListResponse[SupplierResponse])
@@ -33,7 +39,7 @@ async def list_suppliers(
 @router.post('', response_model=SupplierDetailResponse, status_code=status.HTTP_201_CREATED)
 async def create_supplier(
     data: SupplierCreate,
-    _: CurrentUser = Depends(get_current_user),
+    _: CurrentUser = Depends(_CREATE),
     db: AsyncSession = Depends(get_db),
 ) -> SupplierDetailResponse:
     supplier = await supplier_service.create_supplier(db, data)
@@ -56,7 +62,7 @@ async def get_supplier(
 async def update_supplier(
     supplier_id: int,
     data: SupplierUpdate,
-    _: CurrentUser = Depends(get_current_user),
+    _: CurrentUser = Depends(_UPDATE),
     db: AsyncSession = Depends(get_db),
 ) -> SupplierDetailResponse:
     supplier = await supplier_service.get_supplier(db, supplier_id)
@@ -69,7 +75,7 @@ async def update_supplier(
 @router.delete('/{supplier_id}', status_code=status.HTTP_204_NO_CONTENT)
 async def delete_supplier(
     supplier_id: int,
-    _: CurrentUser = Depends(get_current_user),
+    _: CurrentUser = Depends(_DELETE),
     db: AsyncSession = Depends(get_db),
 ) -> None:
     supplier = await supplier_service.get_supplier(db, supplier_id)
@@ -94,7 +100,7 @@ async def _require_agreement(db: AsyncSession, supplier_id: int, agreement_id: i
 @router.get('/{supplier_id}/agreements', response_model=list[SupplierAgreementResponse])
 async def list_agreements(
     supplier_id: int,
-    _: CurrentUser = Depends(get_current_user),
+    _: CurrentUser = Depends(_READ),
     db: AsyncSession = Depends(get_db),
 ) -> list[SupplierAgreementResponse]:
     await _require_supplier(db, supplier_id)
@@ -110,7 +116,7 @@ async def list_agreements(
 async def create_agreement(
     supplier_id: int,
     data: SupplierAgreementCreate,
-    _: CurrentUser = Depends(get_current_user),
+    _: CurrentUser = Depends(_UPDATE),
     db: AsyncSession = Depends(get_db),
 ) -> SupplierAgreementResponse:
     await _require_supplier(db, supplier_id)
@@ -126,7 +132,7 @@ async def update_agreement(
     supplier_id: int,
     supplier_agreement_id: int,
     data: SupplierAgreementUpdate,
-    _: CurrentUser = Depends(get_current_user),
+    _: CurrentUser = Depends(_UPDATE),
     db: AsyncSession = Depends(get_db),
 ) -> SupplierAgreementResponse:
     agreement = await _require_agreement(db, supplier_id, supplier_agreement_id)
@@ -141,7 +147,7 @@ async def update_agreement(
 async def delete_agreement(
     supplier_id: int,
     supplier_agreement_id: int,
-    _: CurrentUser = Depends(get_current_user),
+    _: CurrentUser = Depends(_UPDATE),
     db: AsyncSession = Depends(get_db),
 ) -> None:
     agreement = await _require_agreement(db, supplier_id, supplier_agreement_id)

@@ -1,8 +1,9 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.deps import CurrentUser, get_current_user
+from app.core.deps import CurrentUser, get_current_user, require_privilege
 from app.db.session import get_db
+from app.enums import AccessRight, SystemObject
 from app.schemas import ListResponse
 from app.schemas.customer import (
     TaxpayerRecipientCreate,
@@ -12,6 +13,10 @@ from app.schemas.customer import (
 from app.services import taxpayer_recipient_service
 
 router = APIRouter()
+
+_CREATE = require_privilege(SystemObject.TAXPAYER_RECIPIENTS, AccessRight.CREATE)
+_UPDATE = require_privilege(SystemObject.TAXPAYER_RECIPIENTS, AccessRight.UPDATE)
+_DELETE = require_privilege(SystemObject.TAXPAYER_RECIPIENTS, AccessRight.DELETE)
 
 
 @router.get('', response_model=ListResponse[TaxpayerRecipientResponse])
@@ -31,7 +36,7 @@ async def list_taxpayer_recipients(
 @router.post('', response_model=TaxpayerRecipientResponse, status_code=status.HTTP_201_CREATED)
 async def create_taxpayer_recipient(
     data: TaxpayerRecipientCreate,
-    _: CurrentUser = Depends(get_current_user),
+    _: CurrentUser = Depends(_CREATE),
     db: AsyncSession = Depends(get_db),
 ) -> TaxpayerRecipientResponse:
     tr = await taxpayer_recipient_service.create_taxpayer_recipient(db, data)
@@ -56,7 +61,7 @@ async def get_taxpayer_recipient(
 async def update_taxpayer_recipient(
     rfc: str,
     data: TaxpayerRecipientUpdate,
-    _: CurrentUser = Depends(get_current_user),
+    _: CurrentUser = Depends(_UPDATE),
     db: AsyncSession = Depends(get_db),
 ) -> TaxpayerRecipientResponse:
     tr = await taxpayer_recipient_service.get_taxpayer_recipient(db, rfc)
@@ -71,7 +76,7 @@ async def update_taxpayer_recipient(
 @router.delete('/{rfc}', status_code=status.HTTP_204_NO_CONTENT)
 async def delete_taxpayer_recipient(
     rfc: str,
-    _: CurrentUser = Depends(get_current_user),
+    _: CurrentUser = Depends(_DELETE),
     db: AsyncSession = Depends(get_db),
 ) -> None:
     tr = await taxpayer_recipient_service.get_taxpayer_recipient(db, rfc)

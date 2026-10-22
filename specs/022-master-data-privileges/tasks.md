@@ -53,7 +53,7 @@
 
 **Independent test**: the route-table test passes for every row of the contract whose "Hosts" column is "—". A non-admin user with no rows gets 403 from `POST /labels` and `GET /vehicles`, and an administrator gets through.
 
-- [ ] T004 [US1] Write `tests/api/test_master_data_privileges.py` (commit with T005–T015):
+- [X] T004 [US1] Write `tests/api/test_master_data_privileges.py` (commit with T005–T015):
   1. **Expected table.** Define `EXPECTED: dict[tuple[str, str], tuple[tuple[SystemObject, AccessRight], ...] | None]`, keyed by `(method, path)` with the full `/api/v1/...` path. It holds all 68 rows of `contracts/route-privileges.md`. The tuple lists the own grant first, then the hosts with `AccessRight.READ`. `PUT /api/v1/customers/{customer_id}` maps to `None`, meaning it is resolved in the handler and covered by US3.
   2. **Route-table test.** Collect every `APIRoute` in `app.routes` whose path starts with one of the 11 prefixes (`/api/v1/customers`, `/employees`, `/exchange-rates`, `/expenses`, `/labels`, `/payment-method-options`, `/price-lists`, `/suppliers`, `/taxpayer-recipients`, `/vehicle-operators`, `/vehicles`; match the prefix plus `/` or end of path, so `/vehicles` does not match `/vehicle-operators`). Assert that the set of `(method, path)` equals `EXPECTED.keys()`.
   3. **Per-route test.** Parametrize over `EXPECTED`. For each route, find the dependency in `route.dependant.dependencies` whose `call` has a `grants` attribute, and assert `call.grants == EXPECTED[key]`. For `None`, assert that no dependency has `grants`. This test fails for the 14 lookup rows until US2. That is expected, and the commit for T005–T015 records it. The PUT customers row passes throughout, because a route left on `get_current_user` carries no `grants` either. US3's behavior tests are what prove that route.
@@ -74,33 +74,33 @@
      - send no file for the license-photo POST.
 
      Guards run before the body is validated, so no service patching is needed. `PUT /customers/{customer_id}` is checked in the handler after the body is parsed; `{}` is a valid `CustomerUpdate`, so it also returns 403 there once US3 is done. Until then the sweep fails for PUT customers and, until US2, for the 14 lookup routes.
-- [ ] T005 [P] [US1] Guard every route in `app/api/v1/endpoints/exchange_rates.py` with EXCHANGE_RATES Read/Create/Update/Delete by method.
-- [ ] T006 [P] [US1] Guard every route in `app/api/v1/endpoints/expenses.py` with EXPENSES by method.
-- [ ] T007 [P] [US1] Guard every route in `app/api/v1/endpoints/vehicles.py` with VEHICLE by method.
-- [ ] T008 [P] [US1] Guard every route in `app/api/v1/endpoints/vehicle_operators.py` with VEHICLE_OPERATORS by method. The license photo is the exception: `POST` and `DELETE /{id}/license-photo` take Update, and `GET` takes Read (research R3).
-- [ ] T009 [P] [US1] Guard the write routes in `app/api/v1/endpoints/customers.py`:
+- [X] T005 [P] [US1] Guard every route in `app/api/v1/endpoints/exchange_rates.py` with EXCHANGE_RATES Read/Create/Update/Delete by method.
+- [X] T006 [P] [US1] Guard every route in `app/api/v1/endpoints/expenses.py` with EXPENSES by method.
+- [X] T007 [P] [US1] Guard every route in `app/api/v1/endpoints/vehicles.py` with VEHICLE by method.
+- [X] T008 [P] [US1] Guard every route in `app/api/v1/endpoints/vehicle_operators.py` with VEHICLE_OPERATORS by method. The license photo is the exception: `POST` and `DELETE /{id}/license-photo` take Update, and `GET` takes Read (research R3).
+- [X] T009 [P] [US1] Guard the write routes in `app/api/v1/endpoints/customers.py`:
   - `POST /` → CUSTOMERS Create;
   - `DELETE /{id}` → CUSTOMERS Delete;
   - `GET /{id}/discounts` → CUSTOMERS Read, own only;
   - `POST`, `PUT` and `DELETE` on discounts → CUSTOMERS Update.
 
   Leave `GET /`, `GET /{id}` (US2) and `PUT /{id}` (US3) on `get_current_user` for now. Name the own-only read `_READ` here; US2 adds `_LOOKUP`.
-- [ ] T010 [P] [US1] Guard the write routes in `app/api/v1/endpoints/suppliers.py`:
+- [X] T010 [P] [US1] Guard the write routes in `app/api/v1/endpoints/suppliers.py`:
   - `POST` / `PUT` / `DELETE` → SUPPLIERS by method;
   - `GET /{id}/agreements` → SUPPLIERS Read, own only;
   - `POST`, `PUT` and `DELETE` on agreements → SUPPLIERS Update.
 
   Leave `GET /` and `GET /{id}` for US2.
-- [ ] T011 [P] [US1] Guard `POST`, `PUT` and `DELETE` in `app/api/v1/endpoints/employees.py` with EMPLOYEES by method. Leave both GETs for US2.
-- [ ] T012 [P] [US1] Guard `POST`, `PUT` and `DELETE` in `app/api/v1/endpoints/labels.py` with LABELS by method. Leave both GETs for US2.
-- [ ] T013 [P] [US1] Guard `POST`, `PUT` and `DELETE` in `app/api/v1/endpoints/payment_method_options.py` with PAYMENT_METHOD_OPTIONS by method. Leave both GETs for US2.
-- [ ] T014 [P] [US1] Guard the routes in `app/api/v1/endpoints/price_lists.py`:
+- [X] T011 [P] [US1] Guard `POST`, `PUT` and `DELETE` in `app/api/v1/endpoints/employees.py` with EMPLOYEES by method. Leave both GETs for US2.
+- [X] T012 [P] [US1] Guard `POST`, `PUT` and `DELETE` in `app/api/v1/endpoints/labels.py` with LABELS by method. Leave both GETs for US2.
+- [X] T013 [P] [US1] Guard `POST`, `PUT` and `DELETE` in `app/api/v1/endpoints/payment_method_options.py` with PAYMENT_METHOD_OPTIONS by method. Leave both GETs for US2.
+- [X] T014 [P] [US1] Guard the routes in `app/api/v1/endpoints/price_lists.py`:
   - `POST` / `PUT` / `DELETE` → PRICE_LISTS by method;
   - `GET /{id}/delete/preview` → PRICE_LISTS Read, own only (research R3).
 
   Leave `GET /` and `GET /{id}` for US2.
-- [ ] T015 [P] [US1] Guard `POST`, `PUT` and `DELETE` in `app/api/v1/endpoints/taxpayer_recipients.py` with TAXPAYER_RECIPIENTS by method. Leave both GETs for US2.
-- [ ] T016 [US1] Run `uv run pytest tests/api/test_master_data_privileges.py tests/api -q`. The only failures are the 14 lookup rows in the route table and the sweep, plus PUT customers in the sweep. The existing suites are green. Commit T004–T015.
+- [X] T015 [P] [US1] Guard `POST`, `PUT` and `DELETE` in `app/api/v1/endpoints/taxpayer_recipients.py` with TAXPAYER_RECIPIENTS by method. Leave both GETs for US2.
+- [X] T016 [US1] Run `uv run pytest tests/api/test_master_data_privileges.py tests/api -q`. The only failures are the 14 lookup rows in the route table and the sweep, plus PUT customers in the sweep. The existing suites are green. Commit T004–T015.
 
 **Checkpoint**: writes are closed. Do not deploy until US2 is done.
 
