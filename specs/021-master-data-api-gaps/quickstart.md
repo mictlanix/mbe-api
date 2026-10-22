@@ -65,6 +65,26 @@ Run each check with an authenticated token against `test.api.mbe.mictlanix.com`,
    - `DELETE` returns 204, a following `GET` returns 404, and the directory no longer has the file.
    - Nothing is reachable under `/images/`.
 
+## Results: 2026-10-22, test deployment (branch `021-master-data-api-gaps` at `1079252`)
+
+These checks ran on xolotl against `mbe_dev` with a 30-minute admin token, minted on the box from the instance's own `.env`.
+
+- **Migration**: the runner applied `021_user_must_change_password` and `022_vehicle_operator_license_photo`.
+  - 021's column already existed but had never been recorded as applied. Its `IF NOT EXISTS` made it a no-op apart from recording it.
+  - The new column is `license_photo varchar(255)`, nullable, and NULL on all 14 operators.
+- **1. SC-001 ✅**:
+  - Supplier 15 shows 4 contacts (4 expected), 1 address, 0 bank accounts and 1 agreement.
+  - List items carry no sub-panel keys.
+  - Across all 265 suppliers the detail totals are 119 addresses, 154 contacts, 2 bank accounts and 18 agreements, exactly what the database holds.
+- **2. SC-002 ✅**: POST returned 201, the duplicate 409, PUT 200 and DELETE 204. `customer_discount` is back to 0 rows.
+- **3. SC-003 ✅**: product 6524 was re-saved with its existing comment and returned 200. The new incidence row is `source 9, instance 6524, updater 1` (the acting admin's employee), with `comment = "Product ESTALBRON1545 updated"` and `content = "Changed: comment"`.
+- **4. SC-004 ✅**: the full barcode returns product 22052. Its first 6 digits do not, because neither code `12100` nor the name contains them.
+- **5. SC-005 ✅**:
+  - Upload returned `has_license_photo: true` and no filename in the response.
+  - GET with the token returned 200 `image/png`, scaled from 1600 px to 1024 px wide. Without the token it returned 401, and the same file under public `/images/` returned 404.
+  - Replacing the photo removed the first file and kept the new one.
+  - DELETE returned 204, a GET afterwards returned 404, and the directory is empty again.
+
 ## Operations note
 
 Create `LICENSE_PHOTOS_DIR` (default `license-photos`, relative to the working directory) on the server and include it in backups. It must not be served by nginx, and it must be outside `IMAGES_DIR`.
