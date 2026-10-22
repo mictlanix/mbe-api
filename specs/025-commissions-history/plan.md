@@ -1,16 +1,18 @@
 # Implementation Plan: Commissions with Stable History
 
-**Branch**: `025-commissions-history` | **Date**: 2026-10-22 | **Spec**: [spec.md](spec.md)
+**Branch**: `025-commissions-history` | **Date**: 2026-10-22 (re-planned after the scheme clarifications) | **Spec**: [spec.md](spec.md)
 
 **Input**: Feature specification from `specs/025-commissions-history/spec.md`
 
 ## Summary
 
-- **Scope document:** `docs/specs/02-sales.md` gains **§10 Commissions**, covering the current system and the new rules (#32).
-- **Settings API:** CRUD over the five shared settings tables already mapped in `app/models/commission.py` (#33).
-- **Computation:** a port of the current system's post-#58 commission query, dated by the stable `balance_zeroed_time` and refund `date`.
-- **Periods:** calendar-month periods that **close** (freezing every computed line into the new `commission_period_line`), **reopen** while unpaid, and are **paid**. Reading a closed or paid month never recomputes.
-- **Payments:** the payment path now stamps `balance_zeroed_time`, and migration 023 backfills recent paid orders.
+- **Scope document:** `docs/specs/02-sales.md` gains **§10 Commissions** (#32).
+- **Settings:** CRUD over the five shared settings tables (#33). Agents gain a **scheme**: 1 for fully paid orders, the current system's rule; 2 for proportional commission on partial payments.
+- **Computation:** two stages.
+  - **SQL facts:** candidate lines, applied and refunded amounts per order, refund lines, stored lines.
+  - **Pure rules:** the participation branches; scheme 1 (full commission in the paid month); scheme 2 (the cumulative share net of refunds, minus what was stored); refunds as negative lines charged to the agent who was paid; a cap that never pays a share twice.
+- **Periods:** calendar months that **close in sequence**, freezing every line into `commission_period_line`. The latest closed month can be **reopened**, and a closed month can be **paid**. Closed months never change.
+- **Payments:** the payment path stamps `balance_zeroed_time`, and migration 023 backfills recent paid orders and adds the scheme column.
 
 The routes are specified in [contracts/commissions.md](contracts/commissions.md).
 
@@ -20,22 +22,28 @@ The routes are specified in [contracts/commissions.md](contracts/commissions.md)
 
 **Primary Dependencies**: FastAPI, SQLAlchemy 2.0 async, Pydantic v2 (no new dependency)
 
-**Storage**: MariaDB `mbe_dev`. **Migration 023** adds `commission_period` and `commission_period_line`, and backfills `sales_order.balance_zeroed_time` for 38 recent rows. Settings tables shared with the current system. `commissions_history` untouched.
+**Storage**: MariaDB `mbe_dev`. **Migration 023**:
+- `commission_agent.scheme` (default 1);
+- tables `commission_period` and `commission_period_line`;
+- the `balance_zeroed_time` backfill (38 rows).
 
-**Testing**: pytest + pytest-asyncio + httpx; integration tests on the SQLite template schema, which must gain the two new tables through the models.
+Settings tables shared with the current system. `commissions_history` untouched.
+
+**Testing**: pytest + pytest-asyncio + httpx. Unit tests for the pure rules, including a randomized invariant test; integration tests on the SQLite schema.
 
 **Target Platform**: Linux server (xolotl test instance)
 
 **Project Type**: web service (REST API under `/api/v1`)
 
-**Performance Goals**: computing a month is one SQL statement over about 3,000 paid orders. Closing inserts about 1,000–2,000 lines in one transaction. Reading a closed month is a single indexed query.
+**Performance Goals**: a month is 3 fact queries plus 1 stored-line query, then in-memory rules over about 3,000 orders. A close inserts 1,000–2,000 rows in one transaction. A closed month is read with a single indexed query.
 
 **Constraints**:
-- Parity with the current system's report (SC-002), apart from the two documented date changes.
+- Scheme 1 parity with the current system's report (SC-002), apart from the two date changes.
 - Closed months never change (SC-001).
-- No change to the current system's tables beyond the `balance_zeroed_time` stamp and backfill.
+- No share paid twice (SC-006).
+- The current system's tables change only by the defaulted `scheme` column and the `balance_zeroed_time` stamp and backfill.
 
-**Scale/Scope**: 1 migration, 2 new models, 1 new service, 1 new router with about 20 routes, 1 change in `customer_payment_service`, 1 enum value, docs
+**Scale/Scope**: 1 migration, 2 new models plus 1 column, 2 new service modules (`commission_rules`, which is pure, and `commission_service`), 1 router with about 22 routes, 1 change in `customer_payment_service`, 1 enum value, docs
 
 ## Constitution Check
 
@@ -43,17 +51,17 @@ The routes are specified in [contracts/commissions.md](contracts/commissions.md)
 
 | Principle | Check | Status |
 |---|---|---|
-| I. Simplicity First | One service, `commission_service`, and one router. The computation is one ported SQL statement rather than re-derived rules. Periods are a status row plus frozen lines. No configurability. | PASS |
-| II. Think Before Coding | The clarifications are recorded. Research records the corrections found while planning: a NULL customer salesperson earns nothing; the stamp began in 2025, hence the bounded backfill; refunds are dated by `date`. | PASS |
-| III. Surgical Changes | Existing code changes only in `_sync_paid_flag` (the stamp) and `SourceType`. Everything else is new files, docs and the migration. | PASS |
-| IV. Goal-Driven Execution | Tests per quickstart.md, the parity check SC-002 against mbe_dev, and the migration row counts. | PASS |
-| V. Reuse Over Rebuild | Reuses the settings models, `require_privilege`, `incidences.record`, the IntegrityError → 409 handler, `local_now`, and the legacy query's logic. New tables, models, schemas and service are justified under Complexity Tracking. | PASS |
-| VI. Async-First | All DB work through `AsyncSession`, and `text()` for the computation. | PASS |
-| VII. Security by Default | Every route is gated by SystemObject 112. This is stricter than the current system's login-only report (5 of 33 non-admin users hold Read). | PASS |
+| I. Simplicity First | Stored lines are both the history and the ledger the cap reads; there is no second ledger. The rules live in one pure function. No configurability beyond the per-agent scheme the user asked for. | PASS |
+| II. Think Before Coding | The clarifications are recorded, and planning corrections are written back into the spec: NULL csp earns nothing; the bounded backfill; refund dates; the sequential closing (FR-010a) found while designing scheme 2; the first close as the chain's start. | PASS |
+| III. Surgical Changes | Existing code changes only in `_sync_paid_flag` and `SourceType`. Everything else is new, plus the migration and docs. | PASS |
+| IV. Goal-Driven Execution | The quickstart test matrix, the SC-002 parity check on mbe_dev, the SC-006 invariant test and the migration counts. | PASS |
+| V. Reuse Over Rebuild | Reuses the settings models, `require_privilege`, `incidences.record`, the IntegrityError → 409 handler and `local_now`. Scheme 1 reproduces the legacy query's rules. New additions are justified below. | PASS |
+| VI. Async-First | All DB access is async. The rules are pure and synchronous over loaded data, with no I/O. | PASS |
+| VII. Security by Default | SystemObject 112 on every route. This is stricter than the current system's login-only report (5 of 33 non-admin users hold Read). | PASS |
 | VIII. Ruff Compliance | Gate. | PASS |
-| Testing | Endpoint tests for each route (happy path, 404, 401, 403, 409, 422). Integration tests for computation and period stability. A unit test for the stamp. Tests are written first. | PASS |
-| Changelog | Added (commissions API) and Changed (`balance_zeroed_time` stamped on payment), with an upgrade note on migration 023. | PASS |
-| Migrations | A numbered migration plus rollback; `docs/data-dictionary.md` and `docs/mbe_schema.sql` updated in the same change. Confirm with the user before applying it to mbe_dev. | PASS |
+| Testing | Unit tests for every branch of the rules, plus an invariant test. Integration tests for the facts and periods. Route tests (200/401/403/404/409/422). A stamp test. Tests are written first. | PASS |
+| Changelog | Added (commissions API, schemes) and Changed (`balance_zeroed_time` stamped on payment), with an upgrade note for migration 023 and the first close. | PASS |
+| Migrations | Numbered, with a rollback. The data dictionary and schema dump are updated in the same change. Confirm with the user before applying to mbe_dev. | PASS |
 
 Re-check after Phase 1 design: unchanged, all PASS.
 
@@ -76,38 +84,41 @@ specs/025-commissions-history/
 
 ```text
 migrations/
-├── 023_commission_periods.sql            # tables + balance_zeroed_time backfill
+├── 023_commission_periods.sql            # scheme column, 2 tables, backfill
 └── 023_commission_periods_rollback.sql
 app/
-├── models/commission.py                  # + CommissionPeriod, CommissionPeriodLine
-├── enums.py                              # + SourceType.COMMISSION = 12, CommissionPeriodStatus
-├── schemas/commission.py                 # new: settings and period schemas
+├── models/commission.py                  # + CommissionAgent.scheme, CommissionPeriod, CommissionPeriodLine
+├── enums.py                              # + SourceType.COMMISSION = 12, CommissionScheme, CommissionPeriodStatus, CommissionMovement
+├── schemas/commission.py                 # new
 ├── services/
-│   ├── commission_service.py             # new: settings CRUD, compute, close/reopen/pay, read
+│   ├── commission_rules.py               # new, pure: participation keys, scheme 1/2 amounts, refunds, cap
+│   ├── commission_service.py             # new: settings CRUD, facts (SQL), compute, close/reopen/pay, read
 │   └── customer_payment_service.py       # _sync_paid_flag stamps balance_zeroed_time
 └── api/v1/
     ├── endpoints/commissions.py          # new router
     └── router.py                         # include /commissions
 
 tests/
-├── api/test_commission_settings.py
-├── api/test_commission_periods.py
+├── unit/test_commission_rules.py
+├── unit/test_customer_payment_service.py   # stamp cases
 ├── integration/test_commission_compute.py
 ├── integration/test_commission_periods.py
-└── unit/test_customer_payment_service.py  # stamp cases
+├── api/test_commission_settings.py
+└── api/test_commission_periods.py
 
 docs/specs/02-sales.md (§10), docs/specs/11-reports.md (§37 note), docs/data-dictionary.md,
 docs/mbe_schema.sql, docs/constants.md, specs/011-sales-cycle-endpoints/spec.md (FR-065a note), CHANGELOG.md
 ```
 
-**Structure Decision**: single web-service project. One service module owns all of commissions. The computation SQL lives in it as a module constant, with a comment citing the legacy source lines and the three deliberate differences.
+**Structure Decision**: single web-service project. The rules are split from the service, so the money logic, with its schemes, cap, refunds and key freeze, is a pure, exhaustively testable function. The service owns I/O and transactions.
 
 ## Complexity Tracking
 
 | Addition | Why needed | Simpler alternative rejected because |
 |---|---|---|
-| Tables `commission_period`, `commission_period_line` (and models) | Stable history means frozen copies of each paid line (FR-007), and nothing in the schema holds them | `commissions_history` is stale and ruled out; computing live is the instability this feature removes |
-| New service `commission_service` and router | No commissions API exists | Spreading it across the sales services would mix unrelated concerns |
-| New schemas `app/schemas/commission.py` | Typed requests and responses for about 20 routes | No existing schema covers commissions |
-| `SourceType.COMMISSION = 12` | SC-004 asks that settings changes record who made them, and `incidence` is the project's audit log | A per-table `updated_by` column would alter the shared legacy tables |
-| Migration 023 backfill of `balance_zeroed_time` | Recent paid orders without the stamp would earn nothing (FR-008a) | Not backfilling silently drops 38 recent orders from commissions |
+| Tables `commission_period`, `commission_period_line` (+ models) | Stable history means frozen copies of each line (FR-007), and the cap and key freeze must read what was paid (FR-017, FR-009a) | `commissions_history` is stale and ruled out; computing live is the instability this feature removes |
+| Column `commission_agent.scheme` | The scheme is chosen per agent (clarification) | A separate table adds a join for one value; the defaulted column is invisible to the current system |
+| `commission_rules.py` separate from `commission_service.py` | The cross-row rules (schemes, cap, refunds, freeze) need direct, exhaustive tests without a database | Inlining them in the service makes every rules test an integration test |
+| New schemas `app/schemas/commission.py` | Typed bodies for about 22 routes | No existing schema covers commissions |
+| `SourceType.COMMISSION = 12` | SC-004 asks that settings changes record who made them | Per-table audit columns would alter more shared tables |
+| Migration 023 backfill | 38 recent paid orders would otherwise earn nothing (FR-008a) | Not backfilling silently drops them |

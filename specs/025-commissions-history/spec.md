@@ -224,6 +224,7 @@ History starts with the first period this system closes; the stale `commissions_
 - **FR-009**: A refund is dated by `customer_refund.date`, set when it is completed. Its month never differs from the current system's `modification_time` in the last year (1,695 refunds). A refund dated after the period holding its order closed MUST be deducted in the period containing the refund, never in the closed one.
 - **FR-009a**: A refund of a line that already has stored lines in a closed period MUST be charged to the agents, participations and rates of those stored lines, not to the current settings. The refund's commission = refund amount × the stored rate, for each stored (agent, participation) of that line. This holds in both schemes. A refund of a line with no stored line (its sale has not yet been closed into any period) uses the current settings, like its sale.
 - **FR-010**: A period is created on demand for a given year and month, and computing a month that has no period yet treats it as open. A closed, unpaid period MAY be reopened by a user with Update on commissions. Its stored lines are discarded, it returns to open, and who reopened it and when is recorded. A paid period MUST NOT be reopened.
+- **FR-010a**: Months MUST close in sequence. A month can close only if the previous month is closed, except for the very first close. Only the latest closed month can be reopened. This keeps "what earlier periods stored" exact for the scheme 2 cumulative formula and the FR-017 cap (research R3).
 - **FR-011**: Paying a period MUST mark it paid and record who and when. A paid period is final: it cannot be reopened, recomputed or changed.
 
 **Reading history**
@@ -298,6 +299,7 @@ History starts with the first period this system closes; the stale `commissions_
 ## Assumptions
 
 - **Deployment database:** mbe_dev, a copy of live data through 2026-10-21. Its `commission_salesperson` already includes the ATENCIÓN EN CAMPO rows that `mbe-26.10.sql` adds.
+- **The first close:** the first month this system closes starts the chain (FR-010a). Months before it stay open and are computed live. A scheme 2 agent's first closed month includes the share earned on payments before it.
 - **Rules:** the computation follows the current system after mbe PR #58, the rules agents are paid by today. The pre-September rules are not reproduced.
 - **Attribution:** the customer's salesperson is read when a period is computed. Closing freezes it, so a reassignment affects only periods that are still open, which is the stability rule #32 asks for.
 - **Card commissions:** `payment_method_option.commission` and `customer_payment.commission` are card-processing surcharges, unrelated to this feature.

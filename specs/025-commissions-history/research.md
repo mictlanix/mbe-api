@@ -1,115 +1,144 @@
 # Research: Commissions with Stable History
 
-The spec's Findings and Clarifications record the current system and the decided rules. This file records the design.
+The spec's Findings and both clarification sessions record the current system and the decided rules: two schemes, the net-of-refunds share, and refunds charged to the agent who was paid. This file records the design.
 
-## R1. The computation: a port of the current system's query, with stable dates
+## R1. Computing a month: SQL gathers facts, Python applies the rules
 
-**Decision**: `commission_service.compute(db, year, month, *, salesperson=None)` runs one SQL statement through `text()`. It ports `ReportsController.GetCommissionDetailsSQLQuery` as it stands after mbe PR #58 (`ReportsController.cs:665-786`), with exactly three changes:
+**Decision**: `commission_service.compute(db, year, month, *, salesperson=None) -> list[Line]` works in two stages.
 
-1. **Order date:** an order belongs to a month by `sales_order.balance_zeroed_time`, not `modification_time` (FR-008). `balance_zeroed_time = '0001-01-01'` counts as unset.
-2. **Refund date:** a refund belongs to a month by `customer_refund.date`, not `modification_time` (FR-009).
-3. **`payable`:** the legacy column and its `paid` flags are dropped. Every line the query returns is payable, because the query already restricts itself to paid orders.
+**Stage 1, the facts (SQL, `text()`).** Three queries over the month `[first 00:00, next month 00:00)` in business time:
 
-Everything else is kept as written:
-- the CTEs `details_orders`, `details_refunds` (both branches: refunds of this month's orders dated up to the month end; refunds dated this month on orders paid before it) and `details`;
-- the three participation branches with their `csp = osp` / `csp != osp` tests and their LEFT JOINs to `commission_product` → `commission` → `commission_salesperson`;
-- the price formula `ROUND(price*(1-discount)*(1+IF(tax_included,0,tax_rate)),2)`;
-- `total = ROUND(price*quantity,2)` and `commission = ROUND(price*quantity*rate,2)`;
-- the agent filter (`IN (SELECT employee FROM commission_agent)` or `= :salesperson`).
+1. **Candidate order lines.** These are the lines of completed, non-cancelled orders where the order's or the customer's salesperson is an agent, and at least one of these holds:
+   - (a) the order's `balance_zeroed_time` falls in the month: **scheme 1 sales**;
+   - (b) an application to the order is dated in the month: **scheme 2 sales**;
+   - (c) a refund of one of its lines is dated in the month, or dated on or before the month end for an order whose (a) holds;
+   - (d) the line has stored scheme 2 sale lines whose stored sum is below the line's full commission, which catches reversals and remainders.
+
+   Each candidate row carries:
+   - `osp` and `csp`;
+   - the unit price `ROUND(price*(1-discount_rate)*(1+CASE WHEN tax_included THEN 0 ELSE tax_rate END),2)`;
+   - quantity, product, customer and names;
+   - the order's `balance_zeroed_time` (`'0001-01-01'` counts as unset);
+   - the current label and rate (`commission_product` → `commission`).
+2. **Per-order money as of the month end:**
+   - `applied` = Σ `sales_order_payment.amount` over applications that are not cancelled, dated `COALESCE(sop.date, cp.date) < next`;
+   - `refunded` = Σ of the refund line totals, completed and not cancelled, `customer_refund.date < next`;
+   - `order_total` = Σ of the line totals (`ROUND(unit price × quantity, 2)`).
+3. **Refund lines of the candidates:**
+   - `customer_refund_detail_id`, the line, the quantity;
+   - the unit price `ROUND(-1*price*(1-discount)*(1+…),2)`;
+   - the refund's `date`.
+
+Agent rates (`commission_salesperson`) and agent schemes (`commission_agent.scheme`) are read once, as small dicts. The stored lines for the candidate lines come from `commission_period_line`, closed periods only.
+
+**Stage 2, the rules (pure Python, `commission_rules.py`).** For each candidate line, the participation branches decide the (agent, participation) keys:
+- CLIENTE VITALICIO if `csp == osp`;
+- otherwise CANALIZACIÓN to osp and ATENCIÓN EN CAMPO to csp;
+- an agent filter applies, and **a NULL csp yields no key**, for parity.
+
+**Key freeze (FR-009a and stability):** if the line already has stored lines, its keys, participations and **rates** are those stored, whatever the current salesperson or settings say. Only a line with no stored line uses the current settings.
+
+For each key:
+
+| | Sale amount this month | Refund lines this month |
+|---|---|---|
+| Agent on **scheme 1** | if (a): `full − stored_sales(key)`; 0 otherwise | each refund detail that falls in this month by the legacy rule (dated ≤ month end and the order paid this month, or dated in the month and the order paid earlier), **not already stored for this key**, as `ROUND(refund total × rate, 2)` negative |
+| Agent on **scheme 2** | `ROUND(full × min(applied ÷ (order_total − refunded), 1), 2) − stored_sales(key)` | each refund detail dated in the month, not already stored for this key, as a negative line |
+
+Where:
+- `full = ROUND(line total × rate, 2)`;
+- `rate = label rate × participation share`;
+- `stored_sales(key)` = Σ commission of the stored sale lines for that key.
+
+Only non-zero amounts become lines. The agent's **current** scheme decides the column, and the stored amounts make a switch pay only the remainder (FR-017).
 
 **Rationale**:
-- SC-002 asks for parity with the report agents are paid from today. Porting the statement keeps its edge behaviour, which the spec documents: a NULL customer salesperson earns nothing, and an unlabelled product lists at 0.
-- One statement is one round trip for a month: about 3,000 paid orders a month in mbe_dev.
-- The two date changes are the only rule changes the spec makes.
-
-**Alternatives considered**: re-expressing the rules in Python over ORM queries. That is more code, and divergence from the legacy SQL is likely, which SC-002 is meant to catch.
-
-**Parameters**: the month bounds are `[first day 00:00, first of next month 00:00)` in business local time; the legacy `BETWEEN … end` becomes `< next`. MariaDB-specific syntax (`IF`, `IFNULL`) is kept. The integration tests run on SQLite, which has `IFNULL` but not `IF`, so the port uses `CASE WHEN` for the one `IF` it needs, which is portable.
-
-## R2. Periods and stored lines (new tables)
-
-**Decision**: migration `023_commission_periods.sql` creates two tables. The full columns are in data-model.md.
-
-- **`commission_period`:** one row per closed (or reopened) month.
-  - Columns: `year`, `month`, `status` (0 open, 1 closed, 2 paid), and who/when for close, reopen and pay.
-  - `UNIQUE(year, month)`.
-  - A month with no row is open. Reopening sets `status = 0` and deletes the stored lines, but keeps the row and its audit columns.
-- **`commission_period_line`:** the frozen lines, one row per (period, source line, agent, participation).
-  - It holds every FR-005 value, with names and rates copied, not referenced.
-  - The only FKs are `commission_period` and the employee. Order, line, product and customer ids are kept for traceability, but not as FKs, so editing master data never touches history.
-
-**Rationale**:
-- FR-007 says closed periods must not change when customers, settings or orders change, so every value is copied, not joined.
-- Keeping the period row through a reopen preserves who closed it and who reopened it (FR-010).
+- The two schemes, the cap and the key freeze are cross-row rules that read stored history. One SQL statement can't express them readably, but a pure function over facts can be unit-tested exhaustively (constitution, Testing).
+- Stage 1 keeps the round trips per month fixed: 3 queries plus the stored lines.
+- **Scheme 1 parity (SC-002):** with no stored lines and every agent on scheme 1, stage 2 reduces exactly to the current system's query with the two documented date changes. A test asserts the reduction on a seeded month.
 
 **Alternatives considered**:
-- Reusing `commissions_history`: ruled out by the clarification (stale table).
-- One JSON blob per period: the report needs to filter and sum by agent and label, which rows do and a blob doesn't.
+- Porting the legacy statement whole and adding scheme 2 beside it: two code paths for one set of rules.
+- Computing in Python from ORM objects: N+1 queries over thousands of orders.
 
-## R3. Closing, reopening, paying
+**Bounds**: (d) grows only with partly earned scheme 2 lines. A line whose stored sum reaches its full commission leaves the candidate set, unless a refund or a reversal brings it back through (b) or (c).
 
-**Decision**: each is a service function that runs in one transaction.
+**Reversals**: a cancelled application leaves `applied` (FR-016). The order stays a candidate through (d), so the next computation yields a negative sale amount.
 
-- **Close:**
-  - **Refusals:** a month that hasn't ended in business time (409 `Period has not ended`), or one already closed or paid (409).
-  - **Effect:** runs `compute` for all agents, inserts the lines, and upserts the period row with `status = 1`, `closed_by` and `closed_at`.
-- **Reopen:** only from status 1; paid gives 409. Sets `status = 0` and `reopened_by`/`reopened_at`, and deletes the lines.
-- **Pay:** only from status 1; open gives 409 `Close the period first`, paid gives 409. Sets `status = 2` and `paid_by`/`paid_at`.
+**Rounding**: per line, as in the current system. The scheme 2 cumulative form recomputes `ROUND(full × share)` each month and subtracts what was stored, so the sum of the months equals `ROUND(full × final share)` exactly.
 
-All three require `COMMISSIONS_BY_SALES_PERSON` Update (FR-014).
+## R2. Storage (migration 023)
 
-**Concurrency**: `UNIQUE(year, month)` plus a status check inside the transaction (`SELECT … FOR UPDATE` on the period row) stops two closes, or a close and a reopen, from interleaving. SQLite tests skip the row lock and still test the state rules.
+**Decision**:
+- **Scheme column:** `commission_agent.scheme SMALLINT NOT NULL DEFAULT 1`. The current system maps only `employee`, and agents are created directly in the database, so a defaulted column is invisible to it. Every existing agent starts on scheme 1, the current system's rule.
+- **`commission_period`:** year and month, status 0 open / 1 closed / 2 paid, and who/when for close, reopen and pay. `UNIQUE(year, month)`.
+- **`commission_period_line`:** the frozen lines (data-model.md). Each carries its `scheme`, its `movement` (0 sale, 1 refund), `customer_refund_detail` (refunds), `share` (scheme 2 sales: the cumulative share at month end) and `full_commission`, along with every FR-005 value copied.
+  - Index `(sales_order_detail, salesperson, participation)` for the per-key sums.
+  - Index `(commission_period, salesperson)` for reads.
+- **Backfill:** `sales_order.balance_zeroed_time` for paid orders since 2025-10-01 that have no stamp (38 rows), from their last application's date (R6).
+
+**Rationale**: stored lines are both the history (FR-007) and the ledger the cap reads (FR-017). A separate ledger would be the same data twice.
+
+## R3. Close, reopen, pay: months close in sequence
+
+**Decision**: each runs in one transaction. Periods form a contiguous chain:
+
+- **Close month M:**
+  - **Refusals:**
+    - the month hasn't ended (409 `Period has not ended`);
+    - it is closed or paid (409);
+    - **the previous month is not closed while some period has already been closed** (409 `The previous period is not closed`). The first close ever starts the chain.
+  - **Effect:** `compute(all agents)`, insert the lines, upsert the row with `status = 1`.
+- **Reopen M:** only from status 1, and only the **latest** closed month (409 `A later period is closed`). It deletes the lines and sets `status = 0`, `reopened_by` and `reopened_at`.
+- **Pay M:** only from status 1, and sets `status = 2`. Paying needn't follow the order: an earlier closed month can be paid after a later one.
+
+**Why sequential**: the scheme 2 cumulative formula subtracts what *earlier* months stored. If April closed before March, April would store 100% of an order paid 40% in March and 60% in April. Then March would compute 40% − 100% and store −60%, leaving the agent $40 for an order that earned $100. Closing in order makes every month's "already stored" mean exactly "the months before". Reopening only the latest closed month keeps the same guarantee in reverse.
+
+**Where the chain starts**: months before the first close can never be closed afterwards, so they stay open and are computed live. Under scheme 1 they keep only the current system's report. Under scheme 2, the first closed month pays the cumulative share earned up to its end, including payments from before the chain, because nothing was stored earlier. Nothing is paid twice, and nothing earlier is lost. The first month to close should be chosen deliberately; the spec's Assumptions note it.
+
+**Locking**: `SELECT … FOR UPDATE` on the latest period row and on M's row, plus `UNIQUE(year, month)`, so two closes cannot interleave.
 
 ## R4. Reading history
 
-**Decision**: `GET /commissions/periods/{year}/{month}` with an optional `salesperson` returns:
-- `status`;
+**Decision**: `GET /commissions/periods/{year}/{month}?salesperson=` returns:
+- `status` and `final`;
 - the audit fields;
-- `final` (true once closed);
-- `lines` (FR-005);
-- `totals` per (agent, label): line count and commission sum.
+- `lines` (FR-005 plus `scheme`, `movement`, `share`, `full_commission`, `customer_refund_detail`);
+- `totals` per (agent, label).
 
-A closed or paid month reads its stored lines. An open month runs `compute`. `GET /commissions/periods` lists the months that have a row, with their status and totals per agent.
-
-**Rationale**: one shape for open and closed months, so the report doesn't care which it reads, and `final` tells it whether the numbers can still move (FR-012).
+Closed and paid months read stored lines; an open month runs `compute`. `GET /commissions/periods` lists the months that have a row.
 
 ## R5. Settings routes over the shared tables
 
-**Decision**: CRUD routes under `/commissions/...` for the five existing tables, which are already mapped in `app/models/commission.py` (FR-002, FR-013):
-
-| Resource | Routes | Rules |
-|---|---|---|
-| Labels (`commission`) | list, create, update, delete | rate in [0, 1]; name required (≤50) |
-| Participation types (`commission_participation`) | list, create, update, delete | name required (≤50) |
-| Agents (`commission_agent`) | list, add (`employee`), remove | the employee exists; adding twice is a 409 |
-| Agent rates (`commission_salesperson`) | list (filter by agent or label), create, update, delete | the agent is in `commission_agent`; share in [0, 1]; unique (agent, label, participation) → 409 |
-| Product labels (`commission_product`) | list (filter by label or product), set (PUT `/commissions/product-labels/{product}` `{"commission": id}` creates or **changes** it), remove | one per product (unique) |
-
-- **Deletes:** a delete refused by a foreign key (a label in use, an agent with rates, a participation in use) gives 409 with a message naming what references it. The existing `IntegrityError` → 409 handling covers this (`tests/api/test_constraint_errors.py`).
-- **Audit:** each settings change writes an `incidence` with a new `SourceType.COMMISSION = 12`. It is API-only, as are 10 and 11. `instance_id` is the changed row's id (the employee id for agents, the product id for product labels), and the content names the table and the change. This satisfies SC-004's "records who made it" with the project's existing mechanism.
-- **Missing column:** `commission.comment` is `NOT NULL DEFAULT '0'` in the schema but nullable in the model. Creates send `comment or '0'` to match the database.
+As before, CRUD for labels, participations, agents, agent rates and product labels, with these changes:
+- **Agents** carry `scheme` (1 or 2): `POST /agents {employee, scheme=1}` and `PUT /agents/{employee} {scheme}`. A scheme change takes effect at the next computation; closed months keep what they stored.
+- **Audit:** each change writes an `incidence` with `SourceType.COMMISSION = 12` (API-only).
+- **Deletes:** a delete refused by a foreign key gives 409.
+- **`commission.comment`:** `NOT NULL DEFAULT '0'`, so creates send `comment or '0'`.
 
 ## R6. Stamping `balance_zeroed_time` (FR-008a)
 
-**Decision**:
-- **Stamping:** in `customer_payment_service._sync_paid_flag`, after computing `paid`, set `order.balance_zeroed_time = local_now()` when the order is now paid and the column is NULL or the `0001-01-01` sentinel. It is never cleared.
-- **Backfill:** migration 023 sets, for `paid = 1 AND completed = 1 AND cancelled = 0 AND (balance_zeroed_time IS NULL OR balance_zeroed_time < '1900-01-01') AND date >= '2025-10-01'`, `balance_zeroed_time = ` the latest `customer_payment.date` among that order's applications that are not cancelled, falling back to `modification_time`. There are 38 rows in mbe_dev.
-- **Docs:** spec 011's FR-065a gets a note that its reading of the column was corrected by spec 025.
-
-**Rationale**: this matches `PaymentsController.cs:1458/1526/1600/1948`, so orders paid in either system follow one rule. The backfill window covers the year of data a manager might reasonably compute.
+`customer_payment_service._sync_paid_flag` sets `balance_zeroed_time = local_now()` when the order becomes paid and the column is NULL or the `0001-01-01` sentinel, and never clears it. Migration 023 backfills paid orders dated from 2025-10-01 that have no stamp, from the latest non-cancelled application's date (falling back to `modification_time`). Spec 011's FR-065a gets a note.
 
 ## R7. Access
 
-**Decision**: `SystemObject.COMMISSIONS_BY_SALES_PERSON` (112):
-- **Read:** every GET.
-- **Create:** creating settings rows.
-- **Update:** editing settings, setting a product label, close, reopen and pay.
-- **Delete:** deleting settings rows.
+SystemObject 112, CommissionsBySalesPerson:
+- **Read:** GET.
+- **Create:** settings rows.
+- **Update:** settings edits, product labels, scheme changes, close, reopen and pay.
+- **Delete:** settings deletes.
 
-Administrators bypass, as everywhere. Measured in mbe_dev: of 33 active non-admin users, 5 hold Read on 112 (2 Read only, 3 full) and 27 hold nothing. The current system's report checks no privilege, so this API is stricter by design (FR-014).
+Measured in mbe_dev: 5 of 33 active non-admin users hold Read on 112 (3 with full rights). The current system's report checks only the login.
 
 ## R8. Documentation
 
-- **`docs/specs/02-sales.md` §10 Commissions (FR-001):** the current system (settings, computation with the three branches and the refund rules, no periods, report, ticket and CSV, access, `commissions_history`'s status) and the new rules (calendar-month periods, close, reopen and pay, stable stored lines, the paid-date and refund-date basis, settings routes).
-- **Data docs:** the new tables go into `docs/data-dictionary.md` and `docs/mbe_schema.sql`, which `test_data_dictionary.py` and `test_model_schema.py` enforce. `docs/constants.md` gains SourceType 12.
-- **Report spec:** `docs/specs/11-reports.md` §37 gets a note that it reads `/commissions/periods/{year}/{month}`.
+- **`docs/specs/02-sales.md` §10 Commissions:**
+  - the current system (settings, computation, refunds and the September fix, no periods, report, ticket and CSV, access, `commissions_history`);
+  - the new rules (monthly periods; close, reopen and pay; stable stored lines; the two schemes per agent with the scheme 2 formula and worked example; refunds charged to the agent who was paid; the paid-date and refund-date basis).
+- **Data docs:**
+  - `docs/data-dictionary.md`: the two tables, plus `commission_agent.scheme`;
+  - `docs/mbe_schema.sql`;
+  - `docs/constants.md`: SourceType 12.
+- **Other specs:**
+  - `docs/specs/11-reports.md` §37: a note pointing at the period read;
+  - spec 011, FR-065a: a note.
