@@ -178,7 +178,9 @@
     - **Client notes:** `discount_rate` on line create is now nullable with default null, and mbe-ui must set the order's `ship_to` (FR-018).
   - **`### Removed`:** the `PaymentOnDelivery` model (#248).
 - [X] T021 Run the full gate: `uv run ruff check app/ migrations/ tests/` and `uv run pytest -q`. No new failures against the T001 baseline. Record the counts here.
+  - **Result**: ruff clean; pytest 3270 passed, 0 failed. That is the baseline 3240, plus 37 new tests, minus 7 schema and dictionary parametrizations that went with the `payment_on_delivery` table.
 - [X] T022 Re-run the SC-005 measurement on mbe_dev, read only, following `quickstart.md`: open cash drafts for credit customers at or over their limit, back-office drafts missing an FR-008 item, and `customer_discount` rows. Record the counts in the spec's measurement section · `specs/023-pilot-sales-rules/spec.md`
+  - **Result**: cash drafts at or over the limit: 0 of 37 orders and 1 of 86 quotes. Back-office drafts missing an item: 1. Discount rows: 0.
 - [ ] T023 **Confirm with the user before creating it.** Draft an issue for mictlanix/mbe-ui: "Set the sales order's ship_to before confirming a back-office delivery". Explain FR-018: the API refuses to confirm a back-office order with intent delivery or mixed until the order's own `ship_to` is set, and the UI today sets addresses only on delivery orders after confirming. Link spec 023. Create it with `gh issue create` once approved, and record the URL here.
 - [ ] T024 **Confirm with the user before deploying.** Deploy the branch to the test instance (`/var/www/mbe-api-test`) and run the manual checks in `quickstart.md`. Clean up the seeded discount and the test order. Record the results in `quickstart.md`.
 
