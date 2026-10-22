@@ -152,7 +152,7 @@ History starts with the first period this system closes; the stale `commissions_
 - **No label:** a product with no label still lists, at 0%, as the current system does, so that someone can label it.
 - **Missing rate row:** an agent with no rate row for a label and participation earns 0 on that line.
 - **No agent involved:** an order whose customer's salesperson and order's salesperson are both non-agents earns no commission and does not list.
-- **Customer without a salesperson:** treated as a non-agent.
+- **Customer without a salesperson:** the order earns no commission at all, not even for an agent who wrote it. The current system's query compares the two salespeople, and a missing one matches no branch. This is kept for parity (SC-002).
 - **Refund of an order paid in a closed period:** it lands in the period that contains the refund, as a negative line.
 - **Refund before the order is paid:** it nets against the sale in the period the order is paid, and is never charged twice (the September fix).
 - **An order that becomes unpaid again** (a payment application is reversed): while its period is open, it drops out of the computation, and it comes back when it is paid again, still dated by its first `balance_zeroed_time`. If its period has already closed, the closed lines stand, as with any later change, and no clawback is made. A refund, not a payment reversal, is how money comes back out of a closed period (FR-009).
@@ -181,7 +181,7 @@ History starts with the first period this system closes; the stale `commissions_
   - agent rates (agent, label, participation, share 0–1, unique per triple).
 
   Each supports list, create, update and delete, with validation and clear refusals.
-- **FR-003**: Changing or deleting a setting MUST NOT alter any closed period. Deleting a setting that open data still needs is allowed, and the next computation simply no longer finds it.
+- **FR-003**: Changing or deleting a setting MUST NOT alter any closed period, which holds its own copies of names and rates. Deleting a setting that other settings still reference is refused (409), as for other master data; for example, a label still assigned to products or used in an agent rate.
 
 **Computation**
 
@@ -205,8 +205,8 @@ History starts with the first period this system closes; the stale `commissions_
 - **FR-006**: A period MUST be one calendar month: from the 1st at 00:00 to the last day at 23:59:59, business time. It has a state (**open → closed → paid**, with **closed → open** allowed by reopening, FR-010), who closed, reopened and paid it, and when. There is at most one period per month.
 - **FR-007**: A period MUST NOT be closed before its month has ended in business time (refused with 409). Closing a period MUST store its computed lines, per FR-005, as they are at that moment: agent, participation, rates, amounts, and customer, product and label names. From then on, reading it MUST return the stored lines, whatever later happens to customers, settings or orders.
 - **FR-008**: The paid date that places an order in a period MUST be the order's `balance_zeroed_time`: the moment its balance reached zero. Later edits do not move it, unlike the current system's `modification_time`, which put 19 orders in the last year in a different month.
-- **FR-008a**: When applications make an order paid, this API MUST set `balance_zeroed_time` to that moment if it is not already set, as the current system does in every payment path (`PaymentsController.cs:1458`, `:1526`, `:1600`, `:1948`). Once set, it stays. This corrects spec 011 FR-065a's reading of the column as a supervisor-only act; the refund path still never writes it. The orders this API marked paid before this feature have no stamp (6 in mbe_dev), so the migration backfills them from their last applied payment's date.
-- **FR-009**: A refund dated after the period holding its order closed MUST be deducted in the period containing the refund, never in the closed one.
+- **FR-008a**: When applications make an order paid, this API MUST set `balance_zeroed_time` to that moment if it is not already set, as the current system does in every payment path (`PaymentsController.cs:1458`, `:1526`, `:1600`, `:1948`). Once set, it stays. This corrects spec 011 FR-065a's reading of the column as a supervisor-only act; the refund path still never writes it. The current system only began stamping it in 2025: 51% of that year's paid orders, 99.9% of 2026's, none before. The migration backfills paid orders dated from 2025-10-01 that have no stamp, or have the `0001-01-01` sentinel, from their last applied payment's date. There are 38 in mbe_dev, 6 of them paid through this API. Older months are not backfilled, and a paid order with no stamp earns no commission.
+- **FR-009**: A refund is dated by `customer_refund.date`, set when it is completed. Its month never differs from the current system's `modification_time` in the last year (1,695 refunds). A refund dated after the period holding its order closed MUST be deducted in the period containing the refund, never in the closed one.
 - **FR-010**: A period is created on demand for a given year and month, and computing a month that has no period yet treats it as open. A closed, unpaid period MAY be reopened by a user with Update on commissions. Its stored lines are discarded, it returns to open, and who reopened it and when is recorded. A paid period MUST NOT be reopened.
 - **FR-011**: Paying a period MUST mark it paid and record who and when. A paid period is final: it cannot be reopened, recomputed or changed.
 
