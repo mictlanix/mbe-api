@@ -3,7 +3,7 @@
   "specName": "Master Data Access Privileges",
   "branch": "022-master-data-privileges",
   "currentStep": "implement",
-  "status": "implemented",
+  "status": "completed",
   "history": [
     {
       "step": "specify",
@@ -60,6 +60,39 @@
       "kind": "complete",
       "by": "extension",
       "at": "2026-10-22T17:52:53.047Z"
+    }
+  ],
+  "currentTask": null,
+  "concerns": [
+    {
+      "note": "finished, unverified",
+      "step": "implement"
+    }
+  ],
+  "verified": [
+    {
+      "what": "SC-002 mbe_dev re-measurement",
+      "result": "0 users lose any of the 15 measured lookups (strict-check counts were 1-23)"
+    },
+    {
+      "what": "SC-003 test deployment checks at 03f5051",
+      "result": "20/20 expected statuses for a seller, a link-only user and a product manager; test address removed"
+    },
+    {
+      "what": "pytest full suite on merged main",
+      "command": "uv run pytest -q",
+      "source": "derived",
+      "exitCode": 0,
+      "durationSeconds": 48.9,
+      "result": "........................................................................ [ 97%] · ........................................................................ [100%] · 3240 passed in 46.00s"
+    },
+    {
+      "what": "ruff check",
+      "command": "uv run ruff check app/ migrations/ tests/",
+      "source": "derived",
+      "exitCode": 0,
+      "durationSeconds": 0.4,
+      "result": "All checks passed!"
     }
   ]
 }
