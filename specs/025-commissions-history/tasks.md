@@ -71,7 +71,7 @@
   5. **Switches:** scheme 2 → 1 with 40 stored, order paid in April → April pays 60; scheme 1 → 2 after the full commission was stored → 0.
   6. **Key freeze:** a line with stored keys uses the stored agent, participation and rate even when csp and the rates changed; a refund of such a line is charged at the stored rate to the stored agent (FR-009a).
   7. **Invariant (SC-006):** a seeded `random.Random(25)` generates 200 histories, each one line over 6 months with random instalments, refunds, reversals and scheme switches, feeding each month's output back as stored lines. Assert the sale-commission sum per key ≤ `full` after every month, and that no refund detail is stored twice per key.
-- [ ] T006 [P] [US1] Add stamp cases to `tests/unit/test_customer_payment_service.py` (commit with T010), patching `applied_amount` and `_order_total`:
+- [X] T006 [P] [US1] Add stamp cases to `tests/unit/test_customer_payment_service.py` (commit with T010), patching `applied_amount` and `_order_total`:
   - becoming paid with `balance_zeroed_time` None sets it;
   - with the `datetime(1, 1, 1)` sentinel, sets it;
   - already set, it is unchanged;
@@ -103,7 +103,7 @@
     - **Refund eligibility, one rule:** dated before the month's end and not yet stored for the key. Under scheme 1, its sale must also count this month or already be stored.
     - **Fully refunded order:** under scheme 2 its share is 100%, so the sale and the refunds cancel.
     - **Zero lines:** an unlabelled product or a missing rate lists once at 0, as in the current system.
-- [ ] T010 [US1] In `app/services/customer_payment_service.py` `_sync_paid_flag`, after setting `order.paid`, add: `if order.paid and (order.balance_zeroed_time is None or order.balance_zeroed_time.year < 1900): order.balance_zeroed_time = local_now()`. Add a comment citing spec 025 FR-008a and the current system's `PaymentsController`. Run T006: green.
+- [X] T010 [US1] In `app/services/customer_payment_service.py` `_sync_paid_flag`, after setting `order.paid`, add: `if order.paid and (order.balance_zeroed_time is None or order.balance_zeroed_time.year < 1900): order.balance_zeroed_time = local_now()`. Add a comment citing spec 025 FR-008a and the current system's `PaymentsController`. Run T006: green.
 - [ ] T011 [US1] Create `app/services/commission_service.py`: facts and compute.
   - **`_month_bounds(year, month)`:** returns `[start, next)`.
   - **`_facts(...)`:** the three `text()` queries of research R1 (candidates (a)–(d), per-order money, refund lines), the stored lines of closed periods for the candidate lines, agents with their schemes, rates and labels.
