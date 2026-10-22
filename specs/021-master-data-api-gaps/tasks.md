@@ -327,13 +327,13 @@
 
 ## Phase 8: Polish & cross-cutting
 
-- [ ] T052 Add to the CHANGELOG under `[Unreleased]`:
+- [X] T052 Add to the CHANGELOG under `[Unreleased]`:
   - **Added**: `/bank-accounts`, the supplier sub-panels and agreements, customer discounts (stored, not yet applied), product barcode search, and the operator license photo.
   - **Changed**: `GET`, `POST` and `PUT /suppliers/{id}` return `SupplierDetailResponse`; product and user changes write incidences.
   - **Operations notes**: apply migration 022, and create `LICENSE_PHOTOS_DIR` outside `IMAGES_DIR`, not served by nginx, and included in backups.
 
   File: `CHANGELOG.md`
-- [ ] T053 Run the full gate: `uv run ruff check app/ migrations/ tests/` returns zero violations and `uv run pytest -q` is green, including all contract-doc, model-schema, data-dictionary and list-query-count tests. Compare the results against the baseline recorded in T003 · repository root
+- [X] T053 Run the full gate: `uv run ruff check app/ migrations/ tests/` returns zero violations and `uv run pytest -q` is green, including all contract-doc, model-schema, data-dictionary and list-query-count tests. Compare the results against the baseline recorded in T003 · repository root
 - [ ] T054 **Ask the user before running.** Apply `migrations/022_vehicle_operator_license_photo.sql` to mbe_dev, then verify with `SHOW COLUMNS FROM vehicle_operator LIKE 'license_photo'` (quickstart.md, Migration) · mbe_dev
 - [ ] T055 **Ask the user before deploying.** On the test deployment (`test.api.mbe.mictlanix.com`), create `LICENSE_PHOTOS_DIR`, deploy the branch, and run quickstart.md's manual checks 1–5 (SC-001–SC-005). Record the results under each check · `specs/021-master-data-api-gaps/quickstart.md`
 

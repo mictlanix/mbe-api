@@ -13,8 +13,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **Vehicle operator timestamps are local like everything else.** `vehicle_operator_service` alone stamped UTC wall-clock time, so its `modification_time` ran six hours ahead of every other module's. Existing rows are not backfilled: at most 2 rows in mbe_dev are affected, and each is corrected on its next update.
 - **A datetime sent with an offset is converted, not truncated.** The MySQL driver drops `tzinfo` without converting, so `2026-09-27T18:00:00Z` used to be stored as 18:00. It is now stored as 12:00, the same moment in Mexico City. A value without an offset is taken as local, unchanged. This applies to request bodies and to the `date_from`/`date_to` filters.
 - **Client note: the midnight-UTC workaround now means the previous evening.** mbe-ui sends date-only values as `…T00:00:00.000Z` to satisfy its serializer, and those were stored as midnight only because the offset was dropped. They now convert to 18:00 on the previous day. The client has to send the naive local midnight instead, so ship its side of mictlanix/mbe-ui#176 together with this change.
+- **`GET`, `POST` and `PUT /suppliers/{id}` return `SupplierDetailResponse`** (mictlanix/mbe-roadmap#13, spec 021). It is the supplier plus `addresses`, `contacts`, `bank_accounts` and `agreements`. `GET /suppliers` and the `ProductResponse.supplier` embed keep `SupplierResponse`, unchanged. Because links can now be written, deleting a supplier that has links or agreements returns 409, the same as customers.
+- **Product and user changes write incidences** (mictlanix/mbe-roadmap#17).
+  - **Products:** create, edit and delete each write one `Product` incidence that names the product code and the fields changed. This includes the image upload, which is an edit.
+  - **Users:** edit, delete, applying a profile, and an administrator issuing a recovery token each write one `UserSettings` incidence, keyed by the affected user's employee id. The incidence names the user id and the fields changed, never their values.
+  - The incidence commits in the same transaction as the change, so a failed change leaves none. This resolves the two TODOs in `user_service`.
+  - `POST /users/{id}/recover-password` now writes to the database; the incidence is its only row. Product merge writes no incidence.
 
 ### Added
+- **Bank accounts, supplier sub-panels and agreements** (mictlanix/mbe-roadmap#13, spec 021).
+  - **Bank accounts:** `/bank-accounts` manages bank account records with list, create, read, update and delete, behind the bank accounts privilege. A linked account cannot be deleted (409).
+  - **Supplier links:** `SupplierCreate` and `SupplierUpdate` take `addresses`, `contacts` and `bank_accounts` as id lists, replace-all as customers do. Omitting a list leaves those links alone, and `[]` clears them. An unknown id returns 409 and changes nothing.
+  - **Agreements:** `/suppliers/{id}/agreements` lists, adds, edits and removes them. An end date before the start date returns 422.
+  - These cover 119 address links, 154 contact links, 2 bank account links and 18 agreements already in the database that no client could see.
+- **Customer discounts** (mictlanix/mbe-roadmap#15). `/customers/{id}/discounts` lists, adds, edits and removes a customer's per-product discount overrides. The rate is a fraction between 0 and 1. Each product can have only one override per customer (409), and an unknown product returns 422. **They are stored, not applied:** no sales order or quote reads them yet.
+- **The product list search matches a barcode exactly** (mictlanix/mbe-roadmap#18). The same goes for the label and missing-price facets. A partial barcode still matches only through code, name, model, SKU or brand. The POS product lookup is unchanged.
+- **Vehicle operator license photo** (mictlanix/mbe-roadmap#20). `POST`, `GET` and `DELETE /vehicle-operators/{id}/license-photo` upload, replace, fetch and remove a photo of the driver's license. Uploads are checked like product images (any decodable image, 2 MB maximum) and stored as PNG up to 1024 px wide. Responses carry `has_license_photo`.
+  - **Privacy:** a license is personal data, so the photo is kept in a private directory and returned only to authenticated users, never through the public `/images` mount. Replacing or deleting the photo, or deleting the operator, deletes the old file.
+- **Operations notes for spec 021:**
+  - Apply `migrations/022_vehicle_operator_license_photo.sql`, which adds a nullable column.
+  - Create `LICENSE_PHOTOS_DIR` (default `license-photos`). It must be outside `IMAGES_DIR` and not served by nginx, and it should be included in backups.
 - **Fiscal documents can be read, downloaded and printed** (#230, spec 020). The API stored every stamped CFDI but exposed none of them. Four read-only routes, all behind the fiscal documents read privilege:
   - `GET /fiscal-documents`: newest first, paginated. `search` takes a series and folio (`GR4776`), a folio, a UUID, or part of the recipient's RFC or name. It filters by `issuer`, `type`, `status` (`draft`, `issued`, `cancelled`) and `date_from`/`date_to`. `total` is read from each row's XML, including the lowercase `total` of CFD 2.0/2.2 and CFDI 3.2.
   - `GET /fiscal-documents/{id}`: the document with its lines.
