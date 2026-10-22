@@ -3,7 +3,7 @@
   "specName": "Pilot Sales Rules",
   "branch": "023-pilot-sales-rules",
   "currentStep": "implement",
-  "status": "implemented",
+  "status": "completed",
   "history": [
     {
       "step": "specify",
@@ -61,5 +61,32 @@
       "by": "extension",
       "at": "2026-10-22T20:11:58.762Z"
     }
-  ]
+  ],
+  "verified": [
+    {
+      "what": "SC-005 mbe_dev re-measurement",
+      "result": "cash drafts refused at/over limit: 0 of 37 orders, 1 of 86 quotes; back-office drafts missing an FR-008 item: 1; customer_discount rows: 0"
+    },
+    {
+      "what": "Test deployment checks at f75c0fb",
+      "result": "discount 0.1 on a new line; quotes NET_D for credit and held customers, not refused; back-office delivery without ship_to refused 409 missing [ship_to]; discount deleted, test orders/quotes cancelled"
+    },
+    {
+      "what": "pytest full suite on merged main",
+      "command": "uv run pytest -q",
+      "source": "derived",
+      "exitCode": 0,
+      "durationSeconds": 49.3,
+      "result": "........................................................................ [ 99%] · ..............................                                           [100%] · 3270 passed in 46.44s"
+    },
+    {
+      "what": "ruff check",
+      "command": "uv run ruff check app/ migrations/ tests/",
+      "source": "derived",
+      "exitCode": 0,
+      "durationSeconds": 0.4,
+      "result": "All checks passed!"
+    }
+  ],
+  "currentTask": null
 }
