@@ -77,6 +77,15 @@
 - Q: Does "from scratch" also cover the commission settings? → A: No. This API maintains the existing shared settings tables (`commission`, `commission_product`, `commission_agent`, `commission_participation`, `commission_salesperson`), which the current system's live report also reads, so both agree during the pilot. Only periods and stored lines are new (FR-002, FR-013).
 - Q: When may a month's period be closed? → A: Only after the month has ended in business time. Closing October is refused before November 1st (FR-007).
 
+### Session 2026-10-22 (commission schemes)
+
+- Input: the module must support two schemes. **Scheme 1** considers only fully paid orders. **Scheme 2** pays commission on partial payments, under strict control so that no commission is paid twice across periods.
+- Q: How is the scheme chosen? → A: Per agent. Each agent has a scheme. A line credited to two agents, under CANALIZACIÓN and ATENCIÓN EN CAMPO, follows each agent's own scheme for that agent's share, because each (line, agent, participation) is computed separately (FR-015).
+- Q: Under scheme 2, how is a partial payment turned into commission? → A: Proportionally. A payment covering 40% of the order total earns 40% of every line's full commission. What a month earns is the share paid by the month's end, times the full commission, minus what closed periods already stored, so rounding never accumulates and the total never passes 100% (FR-016, FR-017).
+- Q: Under scheme 2, which date places a payment's commission in a month? → A: The application date (`sales_order_payment.date`), when the money was applied to this order. An advance received in March and applied in April earns in April (FR-016).
+- Q: Under scheme 2, what happens when a payment whose commission was paid in a closed month is later reversed? → A: It is clawed back. The first open month computed after the reversal carries a negative line for the share no longer collected, which the cumulative formula yields by itself (FR-016). Scheme 1 keeps its rule: no clawback for reversals.
+- Q: Under scheme 2, how is a refund handled? → A: As under scheme 1: a negative line for the refund's full commission, in the month of the refund's date. The payment share and the line's full commission are measured on the original order and are not reduced by refunds. On a partly paid order, this can deduct more than the agent was paid for that line, and that is accepted (FR-016, FR-017).
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - A manager pays a period whose amounts never change afterwards (Priority: P1)
@@ -97,6 +106,9 @@ At the end of a period, a manager computes each agent's commissions, reviews the
 3. **Given** a closed period, **When** a customer is reassigned, a rate or label changes, or an order is edited, **Then** reading the closed period returns exactly what was stored.
 4. **Given** a closed period, **When** it is marked paid, **Then** it records who paid it and when. A paid period is never recomputed or changed.
 5. **Given** a closed period, **When** a later refund hits one of its orders, **Then** the deduction goes to the period that contains the refund, never back into the closed one.
+6. **Given** an agent on scheme 2 and an order paid 40% in March and 60% in April, **When** March and April are closed, **Then** March stores 40% and April 60% of each of the agent's lines, and the two sum to the full commission.
+7. **Given** that order, **When** the agent switches to scheme 1 before April closes, **Then** April stores only the remaining 60%, never the full commission again.
+8. **Given** an agent on scheme 2, **When** an application already commissioned in a closed month is reversed, **Then** the next open month carries the negative share.
 
 ---
 
@@ -155,8 +167,10 @@ History starts with the first period this system closes; the stale `commissions_
 - **Customer without a salesperson:** the order earns no commission at all, not even for an agent who wrote it. The current system's query compares the two salespeople, and a missing one matches no branch. This is kept for parity (SC-002).
 - **Refund of an order paid in a closed period:** it lands in the period that contains the refund, as a negative line.
 - **Refund before the order is paid:** it nets against the sale in the period the order is paid, and is never charged twice (the September fix).
-- **An order that becomes unpaid again** (a payment application is reversed): while its period is open, it drops out of the computation, and it comes back when it is paid again, still dated by its first `balance_zeroed_time`. If its period has already closed, the closed lines stand, as with any later change, and no clawback is made. A refund, not a payment reversal, is how money comes back out of a closed period (FR-009).
+- **An order that becomes unpaid again** (a payment application is reversed) **under scheme 1**: while its period is open, it drops out of the computation, and it comes back when it is paid again, still dated by its first `balance_zeroed_time`. If its period has already closed, the closed lines stand, as with any later change, and no clawback is made. A refund, not a payment reversal, is how money comes back out of a closed period (FR-009).
 - **Closing the current month:** refused until the month has ended.
+- **A refund on a partly paid order under scheme 2:** the refund line is deducted in full, so it can exceed what the agent was paid for that line. This is accepted.
+- **A reversal under scheme 2:** the share is clawed back in the first open month (FR-016).
 - **Two periods for one month:** refused. A line belongs to at most one closed period, the month of its paid date, or of its refund's date.
 - **An order edited after its period closed:** the closed period does not change. If the edit is a refund, see above.
 - **Rounding:** commissions are rounded to cents per line, and totals are the sum of the rounded lines.
@@ -220,6 +234,27 @@ History starts with the first period this system closes; the stale `commissions_
   Open periods are computed live and flagged as not final. Closed and paid periods are served from their stored lines.
 - **FR-013**: `commissions_history` is a stale table: no system reads or writes it. This feature MUST NOT read, migrate or change it. Commission history starts with the first period this system closes. The settings tables (`commission`, `commission_product`, `commission_agent`, `commission_participation`, `commission_salesperson`) remain the shared live configuration that both this API and the current system's report read during the pilot.
 
+**Commission schemes**
+
+- **FR-015**: Each agent MUST have a commission scheme, maintained with the agent settings (FR-002):
+  - **Scheme 1, fully paid** (the current system's rule, and the default): a line earns its whole commission in the month its order is paid (FR-004, FR-008).
+  - **Scheme 2, partial payments:** a line earns commission as payments are applied to its order, in the month of each payment (FR-016).
+
+  The scheme applies per (line, agent, participation), so two agents on one line may follow different schemes. Each stored line records the scheme it was computed under.
+- **FR-016**: Under scheme 2, a (line, agent, participation) earns in a month:
+
+  `ROUND(full commission × min(applied by month end ÷ order total, 1), 2) − commission already stored for it in closed periods`
+
+  - **Full commission:** the FR-004 amount for the whole line.
+  - **Applied:** the sum of the order's payment applications that are not cancelled and whose application date (`sales_order_payment.date`) is on or before the month end. An advance counts when it is applied, not when it was received.
+  - **Lines:** a month lists only (line, agent, participation) whose earned amount is not zero.
+  - **Completed orders only:** an order that is not completed, or is cancelled, earns nothing.
+  - **Refunds:** each refund line is a negative line for its full commission, in the month of `customer_refund.date`, as under scheme 1. The order total used for the share, and the line's full commission, are those of the original order, not reduced by refunds.
+  - **Reversals:** a reversed (cancelled) application drops out of "applied". The first open month computed after the reversal therefore earns a negative amount for that share, a clawback, even though the original month is closed and untouched.
+- **FR-017**: Whatever the scheme, and across any scheme change, the positive commission stored for one (line, agent, participation) over all closed periods MUST NOT exceed that line's full commission. No payment, and no part of one, earns commission in two periods, and each refund line is deducted exactly once. When an agent's scheme changes, the next computation counts what closed periods already stored for each line:
+  - scheme 1 pays only the remainder when the order is paid;
+  - scheme 2 continues from the stored amount.
+
 **Access**
 
 - **FR-014**: Every commission route MUST require SystemObject 112, CommissionsBySalesPerson: Read to view settings, computations and history; Create, Update or Delete to change settings and to close or pay a period. Administrators bypass the check, as everywhere.
@@ -228,7 +263,7 @@ History starts with the first period this system closes; the stale `commissions_
 
 - **Commission label** (`commission`): name and rate.
 - **Product label** (`commission_product`): product → label, at most one.
-- **Agent** (`commission_agent`): an employee who can earn commissions.
+- **Agent** (`commission_agent`): an employee who can earn commissions, with their commission scheme (FR-015).
 - **Participation type** (`commission_participation`): why an agent earns on a line.
 - **Agent rate** (`commission_salesperson`): an agent's share for a label and a participation.
 - **Commission period** (new): a calendar month (year, month), its state, who closed and paid it, and when.
@@ -243,6 +278,7 @@ History starts with the first period this system closes; the stale `commissions_
 - **SC-002**: For an open period, the computed totals per agent and label equal what the current system's report (post-PR #58) produces for the same range and data, checked against mbe_dev for at least one full month.
 - **SC-003**: No order line or refund line appears in two closed periods, so a deduction is never charged twice.
 - **SC-004**: Every settings change, close and payment is permitted only to users with the commissions privilege, and records who made it.
+- **SC-006**: For any order and agent, under scheme 1, scheme 2 or a switch between them, the positive commission stored across all closed periods never exceeds the line's full commission. This is checked by tests that pay in instalments, reverse, refund and switch schemes across months.
 - **SC-005**: `commissions_history` is untouched: the same 1,650 rows before and after deployment.
 
 ## Assumptions
