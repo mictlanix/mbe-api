@@ -47,7 +47,7 @@
 
 ### Tests (write first, must fail)
 
-- [ ] T004 [P] [US1] **(commit with T012)** API tests for `/bank-accounts`, mocking the service the way `tests/api/test_contacts.py` does:
+- [X] T004 [P] [US1] **(commit with T012)** API tests for `/bank-accounts`, mocking the service the way `tests/api/test_contacts.py` does:
   - list with `search`, `skip` and `limit`;
   - create returns 201, and a create without `bank_name` or `account_number` returns 422;
   - get and update, each returning 404 for an unknown id;
@@ -87,13 +87,13 @@
   - Agreements are read ordered by `start`, then id.
 
   File: `tests/unit/test_supplier_links.py`
-- [ ] T009 [P] [US1] **(commit with T011)** Unit test: `list_bank_accounts` with `search` filters with ILIKE on `bank_name`, `account_number` and `reference`; without `search` it applies no filter; `skip` and `limit` are applied · `tests/unit/test_bank_account_service.py`
+- [X] T009 [P] [US1] **(commit with T011)** Unit test: `list_bank_accounts` with `search` filters with ILIKE on `bank_name`, `account_number` and `reference`; without `search` it applies no filter; `skip` and `limit` are applied · `tests/unit/test_bank_account_service.py`
 
 ### Implementation
 
-- [ ] T010 [P] [US1] Add `BankAccountCreate`, `BankAccountUpdate` and `BankAccountResponse` beside the contact schemas, with `max_length` 250/20/20/18/500 per data-model.md · `app/schemas/core.py`
-- [ ] T011 [US1] Create `bank_account_service.py` with `list_bank_accounts` (ILIKE on `bank_name`, `account_number` and `reference`), `get`, `create`, `update` and `delete` (`assert_not_referenced`). Mirror `contact_service.py`, including a module docstring explaining why the resource exists (#13) · `app/services/bank_account_service.py`
-- [ ] T012 [US1] Create the `/bank-accounts` router. Gate each route with `require_privilege(SystemObject.BANK_ACCOUNTS, READ|CREATE|UPDATE|DELETE)` the same way `addresses.py` is gated, then register it in `router.py` with tag `bank-accounts`. Files: `app/api/v1/endpoints/bank_accounts.py`, `app/api/v1/router.py`
+- [X] T010 [P] [US1] Add `BankAccountCreate`, `BankAccountUpdate` and `BankAccountResponse` beside the contact schemas, with `max_length` 250/20/20/18/500 per data-model.md · `app/schemas/core.py`
+- [X] T011 [US1] Create `bank_account_service.py` with `list_bank_accounts` (ILIKE on `bank_name`, `account_number` and `reference`), `get`, `create`, `update` and `delete` (`assert_not_referenced`). Mirror `contact_service.py`, including a module docstring explaining why the resource exists (#13) · `app/services/bank_account_service.py`
+- [X] T012 [US1] Create the `/bank-accounts` router. Gate each route with `require_privilege(SystemObject.BANK_ACCOUNTS, READ|CREATE|UPDATE|DELETE)` the same way `addresses.py` is gated, then register it in `router.py` with tag `bank-accounts`. Files: `app/api/v1/endpoints/bank_accounts.py`, `app/api/v1/router.py`
 - [ ] T013 [US1] Supplier schemas:
   - `SupplierCreate` and `SupplierUpdate` gain `addresses`, `contacts` and `bank_accounts` as `list[int] | None = None`, with the replace-all `#:` comment copied from `CustomerCreate`.
   - Add `SupplierDetailResponse(SupplierResponse)` with the four lists, each defaulting to `[]`.
