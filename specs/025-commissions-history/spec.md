@@ -168,11 +168,14 @@ History starts with the first period this system closes; the stale `commissions_
 - **Customer without a salesperson:** the order earns no commission at all, not even for an agent who wrote it. The current system's query compares the two salespeople, and a missing one matches no branch. This is kept for parity (SC-002).
 - **Refund of an order paid in a closed period:** it lands in the period that contains the refund, as a negative line, charged to the agent who was paid at the stored rate (FR-009a). A reassignment or rate change in between does not move it to another agent.
 - **Refund before the order is paid:** it nets against the sale in the period the order is paid, and is never charged twice (the September fix).
-- **An order that becomes unpaid again** (a payment application is reversed) **under scheme 1**: while its period is open, it drops out of the computation, and it comes back when it is paid again, still dated by its first `balance_zeroed_time`. If its period has already closed, the closed lines stand, as with any later change, and no clawback is made. A refund, not a payment reversal, is how money comes back out of a closed period (FR-009).
+- **An order that becomes unpaid again** (a payment application is reversed) **under scheme 1**:
+  - **Reversed while its month is still open:** it drops out of the computation. Its `balance_zeroed_time` stays, so when it is paid again, the first open month picks it up, because its line has no stored sale yet (FR-004).
+  - **Reversed after its month closed:** the closed lines stand, and no clawback is made. A refund, not a payment reversal, is how money comes back out of a closed period under scheme 1 (FR-009).
 - **Closing the current month:** refused until the month has ended.
 - **A refund on a partly paid order under scheme 2:** the refund line is deducted in full, so while the order is partly paid the net can sit below what the agent has collected for. This is accepted. Because the share is measured net of refunds, it corrects itself when the order is settled. A month with a refund but no payment can show a positive share movement next to the negative refund line, because the shrinking net total raises the share.
 - **A reversal under scheme 2:** the share is clawed back in the first open month (FR-016).
-- **Two periods for one month:** refused. A line belongs to at most one closed period, the month of its paid date, or of its refund's date.
+- **Two periods for one month:** refused.
+- **How many months a line appears in:** under scheme 1, a sale line appears in one closed month. Under scheme 2, it appears in each month its paid share grows. A refund line is deducted once per agent and participation, in its month.
 - **An order edited after its period closed:** the closed period does not change. If the edit is a refund, see above.
 - **Rounding:** commissions are rounded to cents per line, and totals are the sum of the rounded lines.
 
@@ -201,7 +204,7 @@ History starts with the first period this system closes; the stale `commissions_
 **Computation**
 
 - **FR-004**: Computing a period MUST apply the current system's rules as fixed in September 2026 (Findings), for one agent or all:
-  - **Lines:** every line of a completed, non-cancelled, paid order whose paid date (FR-008) falls in the period.
+  - **Lines (scheme 1):** every line of a completed, non-cancelled order that is paid now, whose paid date (FR-008) falls in the period. A line whose paid date falls in an earlier closed month, on or after the first closed month, with no stored sale line yet (its payment was reversed before that month closed) is also included. Under scheme 2, the lines and amounts follow FR-016 instead.
   - **Line amount:** after discount, tax included.
   - **Participation:** CLIENTE VITALICIO when the order's and the customer's salesperson coincide. Otherwise CANALIZACIÓN to the order's salesperson and ATENCIÓN EN CAMPO to the customer's.
   - **Rate and commission:** rate = label rate × participation share; commission = line amount × rate, rounded to cents.
@@ -213,7 +216,8 @@ History starts with the first period this system closes; the stale `commissions_
   - label and its name;
   - the agent and the participation (name and share);
   - the label rate, the effective rate, the line amount and the commission;
-  - the movement: sale or refund.
+  - the movement: sale or refund;
+  - the scheme it was computed under, the line's full commission, the share paid (scheme 2 sales) and, for a refund, the refund line.
 
 **Periods and stable history**
 
@@ -282,7 +286,7 @@ History starts with the first period this system closes; the stale `commissions_
 - **Participation type** (`commission_participation`): why an agent earns on a line.
 - **Agent rate** (`commission_salesperson`): an agent's share for a label and a participation.
 - **Commission period** (new): a calendar month (year, month), its state, who closed and paid it, and when.
-- **Commission line** (stored on close): one row per (order line or refund line, agent, participation), with every FR-005 value frozen.
+- **Commission line** (stored on close): one row per (period, order line or refund line, agent, participation, movement), with every FR-005 value frozen. Under scheme 2, a sale row repeats in each month its paid share grows.
 - **`commissions_history`** (existing, stale): not used.
 
 ## Success Criteria *(mandatory)*
@@ -290,8 +294,8 @@ History starts with the first period this system closes; the stale `commissions_
 ### Measurable Outcomes
 
 - **SC-001**: After a period is closed, reassigning any of its customers, changing any rate or label, and editing any of its orders change none of its lines or totals: 0 differences between two reads.
-- **SC-002**: For an open period, the computed totals per agent and label equal what the current system's report (post-PR #58) produces for the same range and data, checked against mbe_dev for at least one full month.
-- **SC-003**: No order line or refund line appears in two closed periods, so a deduction is never charged twice.
+- **SC-002**: With every agent on scheme 1 and no closed periods, the computed totals per agent and label for a month equal what the current system's report (post-PR #58) produces for the same range and data. The only differences allowed are those from the two documented date changes (FR-008, FR-009). This is checked against mbe_dev for at least one full month.
+- **SC-003**: No refund line is deducted twice for the same agent and participation. No line's sale commission across all closed periods exceeds its full commission (FR-017). Under scheme 1 a line earns in one month; under scheme 2 it earns in each month its paid share grows.
 - **SC-004**: Every settings change, close and payment is permitted only to users with the commissions privilege, and records who made it.
 - **SC-006**: For any order and agent, under scheme 1, scheme 2 or a switch between them, the positive commission stored across all closed periods never exceeds the line's full commission. This is checked by tests that pay in instalments, reverse, refund and switch schemes across months.
 - **SC-005**: `commissions_history` is untouched: the same 1,650 rows before and after deployment.

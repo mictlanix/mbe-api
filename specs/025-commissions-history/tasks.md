@@ -62,10 +62,13 @@
   3. **Scheme 2:**
      - the 40%/60% instalments over March and April, with March's stored line fed back in → March 40, April 60, sum = `full`;
      - the spec's net-of-refunds example (order $10,000, one line at 1%; $4,000 March, $3,000 refund April, $3,000 May) → +40; then +17.14 and −30; then +42.86; total 70;
-     - reversal: March stored 40, then the application is cancelled → April −40.
-  4. **Switches:** scheme 2 → 1 with 40 stored, order paid in April → April pays 60; scheme 1 → 2 after the full commission was stored → 0.
-  5. **Key freeze:** a line with stored keys uses the stored agent, participation and rate even when csp and the rates changed; a refund of such a line is charged at the stored rate to the stored agent (FR-009a).
-  6. **Invariant (SC-006):** a seeded `random.Random(25)` generates 200 histories, each one line over 6 months with random instalments, refunds, reversals and scheme switches, feeding each month's output back as stored lines. Assert the sale-commission sum per key ≤ `full` after every month, and that no refund detail is stored twice per key.
+     - reversal: March stored 40, then the application is cancelled → April −40;
+     - **reversal after full payment** (analysis C1): March stored 100 (fully paid), then an application is cancelled, leaving 60% → April −40. The line is still a candidate through (d) although its stored sum equals `full`;
+     - `paid_date` on a scheme 2 sale line is the last application date in the month.
+  4. **Scheme 1 late pickup** (analysis C2): an order stamped in March, reversed before March closes (not stored), paid again in May → May pays `full`. Once May has stored it, June pays nothing.
+  5. **Switches:** scheme 2 → 1 with 40 stored, order paid in April → April pays 60; scheme 1 → 2 after the full commission was stored → 0.
+  6. **Key freeze:** a line with stored keys uses the stored agent, participation and rate even when csp and the rates changed; a refund of such a line is charged at the stored rate to the stored agent (FR-009a).
+  7. **Invariant (SC-006):** a seeded `random.Random(25)` generates 200 histories, each one line over 6 months with random instalments, refunds, reversals and scheme switches, feeding each month's output back as stored lines. Assert the sale-commission sum per key ≤ `full` after every month, and that no refund detail is stored twice per key.
 - [ ] T006 [P] [US1] Add stamp cases to `tests/unit/test_customer_payment_service.py` (commit with T010), patching `applied_amount` and `_order_total`:
   - becoming paid with `balance_zeroed_time` None sets it;
   - with the `datetime(1, 1, 1)` sentinel, sets it;
@@ -85,7 +88,9 @@
   - close April, then reassign a customer, change a label rate, relabel a product and edit an order comment; reading April returns identical lines and totals (SC-001);
   - reopen March while April is closed → 409; reopen April → lines deleted, `status` open, `reopened_by` set; close April again;
   - pay April, then reopen or close it → 409;
-  - an order line never appears in two closed months as a sale for the same key beyond `full` (SC-003/SC-006).
+  - the scheme 1 late pickup, end to end: stamp an order paid in March, cancel its application before closing March, close March (no line), apply a new payment in May, close April and May → May stores the line;
+  - a scheme 2 order fully paid and stored, then reversed → the next close stores the negative share;
+  - for every key, Σ sale commission across closed months ≤ `full`, and each refund detail is stored at most once per key (SC-003/SC-006).
 - [ ] T009 [US1] Create `app/services/commission_rules.py` (research R1), with no I/O and no async:
   - **Frozen dataclasses:** `CandidateLine`, `OrderMoney(applied, refunded, order_total)`, `RefundLine`, `StoredLine`, `AgentRate`.
   - **Entry point:** `def month_lines(*, month_start, month_end, candidates, money, refunds, stored, agents: dict[int, CommissionScheme], rates: dict[tuple, Decimal], labels: dict) -> list[ComputedLine]`. It implements the participation keys, the key freeze, scheme 1 and scheme 2 amounts, refund lines, and the cap, as the research R1 table specifies.

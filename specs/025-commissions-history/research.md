@@ -9,10 +9,10 @@ The spec's Findings and both clarification sessions record the current system an
 **Stage 1, the facts (SQL, `text()`).** Three queries over the month `[first 00:00, next month 00:00)` in business time:
 
 1. **Candidate order lines.** These are the lines of completed, non-cancelled orders where the order's or the customer's salesperson is an agent, and at least one of these holds:
-   - (a) the order's `balance_zeroed_time` falls in the month: **scheme 1 sales**;
+   - (a) **scheme 1 sales:** the order is paid now and either its `balance_zeroed_time` falls in the month, or it falls in an earlier month on or after the chain start (the first closed month, R3) **and the line has no stored sale line yet**. The second arm picks up an order whose payment was reversed before its own month closed and that was paid again later: its stamp stays in the closed month, and without this arm it would never earn (analysis C2);
    - (b) an application to the order is dated in the month: **scheme 2 sales**;
-   - (c) a refund of one of its lines is dated in the month, or dated on or before the month end for an order whose (a) holds;
-   - (d) the line has stored scheme 2 sale lines whose stored sum is below the line's full commission, which catches reversals and remainders.
+   - (c) a refund of one of its lines is dated in the month, or dated on or before the month end for an order selected by (a) in this month;
+   - (d) the line has **any** stored scheme 2 sale line. A fully stored line must stay a candidate, because a later reversal has to claw it back (analysis C1). The rules drop the zero amounts. This set grows with every scheme 2 line ever stored; at mbe_dev's volume, about 2.5% of agent orders paid across months, it stays in the thousands. If it ever matters, bound it with an `order_fully_settled` flag on the stored line, which is not needed now.
 
    Each candidate row carries:
    - `osp` and `csp`;
