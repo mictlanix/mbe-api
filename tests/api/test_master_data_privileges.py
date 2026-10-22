@@ -269,3 +269,88 @@ async def test_no_token_is_401() -> None:
         response = await client.get('/api/v1/vehicles')
 
     assert response.status_code == status.HTTP_401_UNAUTHORIZED
+
+
+# ── Host privileges (FR-005, FR-007) ──────────────────────────────────────────
+
+_LISTS = {
+    '/api/v1/customers': 'app.services.customer_service.list_customers',
+    '/api/v1/employees': 'app.services.employee_service.list_employees',
+    '/api/v1/labels': 'app.services.label_service.list_labels',
+    '/api/v1/payment-method-options': (
+        'app.services.payment_method_option_service.list_payment_method_options'
+    ),
+    '/api/v1/price-lists': 'app.services.price_list_service.list_price_lists',
+    '/api/v1/suppliers': 'app.services.supplier_service.list_suppliers',
+    '/api/v1/taxpayer-recipients': (
+        'app.services.taxpayer_recipient_service.list_taxpayer_recipients'
+    ),
+    '/api/v1/vehicles': 'app.services.vehicle_service.list_vehicles',
+}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ('masks', 'path', 'expected'),
+    [
+        ({'SALES_ORDERS': 2}, '/api/v1/customers', 200),
+        ({'SALES_ORDERS': 2}, '/api/v1/employees', 200),
+        ({'SALES_ORDERS': 2}, '/api/v1/taxpayer-recipients', 200),
+        ({'SALES_ORDERS': 2}, '/api/v1/payment-method-options', 200),
+        ({'SALES_QUOTES': 2}, '/api/v1/customers', 200),
+        ({'SALES_QUOTES': 2}, '/api/v1/employees', 200),
+        ({'POS': 2}, '/api/v1/customers', 200),
+        ({'POS': 2}, '/api/v1/employees', 200),
+        ({'POS': 2}, '/api/v1/payment-method-options', 200),
+        ({'POS': 2}, '/api/v1/taxpayer-recipients', 403),
+        ({'POS': 2}, '/api/v1/suppliers', 403),
+        ({'CUSTOMER_PAYMENTS': 2}, '/api/v1/payment-method-options', 200),
+        ({'PRODUCTS': 2}, '/api/v1/labels', 200),
+        ({'PRODUCTS': 2}, '/api/v1/suppliers', 200),
+        ({'PRODUCTS': 2}, '/api/v1/price-lists', 403),
+        ({'PRICING': 2}, '/api/v1/labels', 200),
+        ({'PRICING': 2}, '/api/v1/suppliers', 200),
+        ({'PRICING': 2}, '/api/v1/price-lists', 200),
+        ({'CUSTOMERS': 2}, '/api/v1/employees', 200),
+        ({'CUSTOMERS': 2}, '/api/v1/price-lists', 200),
+        ({'CUSTOMERS': 2}, '/api/v1/taxpayer-recipients', 200),
+        ({'VEHICLE_OPERATORS': 2}, '/api/v1/employees', 200),
+        ({'VEHICLE_OPERATORS': 2}, '/api/v1/vehicles', 403),
+        ({'SALES_ORDERS': 13}, '/api/v1/customers', 403),
+    ],
+    ids=lambda v: v if isinstance(v, str) else None,
+)
+async def test_a_host_privilege_opens_only_its_lookups(
+    masks: dict[str, int], path: str, expected: int
+) -> None:
+    _auth()
+    _privileges(**masks)
+    with patch(_LISTS[path], new=AsyncMock(return_value=([], 0))):
+        async with _client() as client:
+            response = await client.get(path)
+
+    assert response.status_code == expected
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ('masks', 'method', 'path'),
+    [
+        ({'POS': 15}, 'POST', '/api/v1/payment-method-options'),
+        ({'PRODUCTS': 15}, 'DELETE', '/api/v1/labels/1'),
+        ({'SALES_ORDERS': 15}, 'PUT', '/api/v1/employees/1'),
+        ({'SALES_ORDERS': 15}, 'GET', '/api/v1/customers/1/discounts'),
+        ({'PRICING': 15}, 'GET', '/api/v1/price-lists/1/delete/preview'),
+        ({'PRODUCTS': 15}, 'GET', '/api/v1/suppliers/1/agreements'),
+    ],
+)
+async def test_a_host_privilege_never_opens_a_write_or_a_sub_resource(
+    masks: dict[str, int], method: str, path: str
+) -> None:
+    _auth()
+    _privileges(**masks)
+    kwargs = {'json': {}} if method in ('POST', 'PUT') else {}
+    async with _client() as client:
+        response = await client.request(method, path, **kwargs)
+
+    assert response.status_code == status.HTTP_403_FORBIDDEN

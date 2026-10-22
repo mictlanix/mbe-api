@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.deps import CurrentUser, get_current_user, require_privilege
+from app.core.deps import CurrentUser, require_any_privilege, require_privilege
 from app.db.session import get_db
 from app.enums import AccessRight, SystemObject
 from app.schemas import ListResponse
@@ -22,6 +22,12 @@ _READ = require_privilege(SystemObject.SUPPLIERS, AccessRight.READ)
 _CREATE = require_privilege(SystemObject.SUPPLIERS, AccessRight.CREATE)
 _UPDATE = require_privilege(SystemObject.SUPPLIERS, AccessRight.UPDATE)
 _DELETE = require_privilege(SystemObject.SUPPLIERS, AccessRight.DELETE)
+# Also read from other modules' screens (spec 022 FR-005).
+_LOOKUP = require_any_privilege(
+    (SystemObject.SUPPLIERS, AccessRight.READ),
+    (SystemObject.PRODUCTS, AccessRight.READ),
+    (SystemObject.PRICING, AccessRight.READ),
+)
 
 
 @router.get('', response_model=ListResponse[SupplierResponse])
@@ -29,7 +35,7 @@ async def list_suppliers(
     search: str | None = Query(None),
     skip: int = Query(0, ge=0),
     limit: int = Query(20, ge=1, le=100),
-    _: CurrentUser = Depends(get_current_user),
+    _: CurrentUser = Depends(_LOOKUP),
     db: AsyncSession = Depends(get_db),
 ) -> ListResponse[SupplierResponse]:
     items, total = await supplier_service.list_suppliers(db, search=search, skip=skip, limit=limit)
@@ -49,7 +55,7 @@ async def create_supplier(
 @router.get('/{supplier_id}', response_model=SupplierDetailResponse)
 async def get_supplier(
     supplier_id: int,
-    _: CurrentUser = Depends(get_current_user),
+    _: CurrentUser = Depends(_LOOKUP),
     db: AsyncSession = Depends(get_db),
 ) -> SupplierDetailResponse:
     supplier = await supplier_service.get_supplier_detail(db, supplier_id)

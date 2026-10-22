@@ -115,7 +115,7 @@
 - `DELETE /payment-method-options/1` is 403;
 - `GET /suppliers` is 403, because POS and SalesOrders don't host suppliers.
 
-- [ ] T017 [US2] Extend `tests/api/test_master_data_privileges.py` with behavior tests (commit with T018–T024). Patch each service's list function to return `([], 0)`, and assert the status is 200:
+- [X] T017 [US2] Extend `tests/api/test_master_data_privileges.py` with behavior tests (commit with T018–T024). Patch each service's list function to return `([], 0)`, and assert the status is 200:
   - SALES_ORDERS=2 only → `GET /customers`, `GET /employees`, `GET /taxpayer-recipients`, `GET /payment-method-options` all 200;
   - POS=2 only → `GET /customers`, `GET /employees`, `GET /payment-method-options` 200, `GET /taxpayer-recipients` 403;
   - CUSTOMER_PAYMENTS=2 only → `GET /payment-method-options` 200;
@@ -125,14 +125,14 @@
   - VEHICLE_OPERATORS=2 only → `GET /employees` 200, `GET /vehicles` 403;
   - a host never opens a write (FR-007): POS=15 → `POST /payment-method-options` 403; PRODUCTS=15 → `DELETE /labels/1` 403;
   - a host never opens a sub-resource: SALES_ORDERS=15 → `GET /customers/1/discounts` 403; PRICING=15 → `GET /price-lists/1/delete/preview` 403.
-- [ ] T018 [P] [US2] In `app/api/v1/endpoints/customers.py`, add `_LOOKUP = require_any_privilege((CUSTOMERS, READ), (SALES_ORDERS, READ), (SALES_QUOTES, READ), (POS, READ))` and use it on `GET /` and `GET /{customer_id}`.
-- [ ] T019 [P] [US2] In `app/api/v1/endpoints/employees.py`, use `_LOOKUP` on both GETs, with hosts SALES_ORDERS, SALES_QUOTES, POS, CUSTOMERS and VEHICLE_OPERATORS.
-- [ ] T020 [P] [US2] In `app/api/v1/endpoints/taxpayer_recipients.py`, use `_LOOKUP` on `GET /` and `GET /{rfc}`, with hosts SALES_ORDERS and CUSTOMERS.
-- [ ] T021 [P] [US2] In `app/api/v1/endpoints/price_lists.py`, use `_LOOKUP` on `GET /` and `GET /{price_list_id}`, with hosts CUSTOMERS and PRICING. The delete preview keeps the own-only `_READ`.
-- [ ] T022 [P] [US2] In `app/api/v1/endpoints/payment_method_options.py`, use `_LOOKUP` on both GETs, with hosts SALES_ORDERS, POS and CUSTOMER_PAYMENTS.
-- [ ] T023 [P] [US2] In `app/api/v1/endpoints/labels.py`, use `_LOOKUP` on both GETs, with hosts PRODUCTS and PRICING.
-- [ ] T024 [P] [US2] In `app/api/v1/endpoints/suppliers.py`, use `_LOOKUP` on `GET /` and `GET /{supplier_id}`, with hosts PRODUCTS and PRICING. Agreements keep the own-only `_READ`.
-- [ ] T025 [US2] Run `uv run pytest tests/api -q`. The route table is fully green; the sweep fails only for PUT customers. Run `uv run ruff check app/ tests/`. Commit T017–T024.
+- [X] T018 [P] [US2] In `app/api/v1/endpoints/customers.py`, add `_LOOKUP = require_any_privilege((CUSTOMERS, READ), (SALES_ORDERS, READ), (SALES_QUOTES, READ), (POS, READ))` and use it on `GET /` and `GET /{customer_id}`.
+- [X] T019 [P] [US2] In `app/api/v1/endpoints/employees.py`, use `_LOOKUP` on both GETs, with hosts SALES_ORDERS, SALES_QUOTES, POS, CUSTOMERS and VEHICLE_OPERATORS.
+- [X] T020 [P] [US2] In `app/api/v1/endpoints/taxpayer_recipients.py`, use `_LOOKUP` on `GET /` and `GET /{rfc}`, with hosts SALES_ORDERS and CUSTOMERS.
+- [X] T021 [P] [US2] In `app/api/v1/endpoints/price_lists.py`, use `_LOOKUP` on `GET /` and `GET /{price_list_id}`, with hosts CUSTOMERS and PRICING. The delete preview keeps the own-only `_READ`.
+- [X] T022 [P] [US2] In `app/api/v1/endpoints/payment_method_options.py`, use `_LOOKUP` on both GETs, with hosts SALES_ORDERS, POS and CUSTOMER_PAYMENTS.
+- [X] T023 [P] [US2] In `app/api/v1/endpoints/labels.py`, use `_LOOKUP` on both GETs, with hosts PRODUCTS and PRICING.
+- [X] T024 [P] [US2] In `app/api/v1/endpoints/suppliers.py`, use `_LOOKUP` on `GET /` and `GET /{supplier_id}`, with hosts PRODUCTS and PRICING. Agreements keep the own-only `_READ`.
+- [X] T025 [US2] Run `uv run pytest tests/api -q`. The route table is fully green; the sweep fails only for PUT customers. Run `uv run ruff check app/ tests/`. Commit T017–T024.
 
 **Checkpoint**: the pilot's lookups are covered.
 

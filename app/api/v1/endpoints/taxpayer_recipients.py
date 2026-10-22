@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.deps import CurrentUser, get_current_user, require_privilege
+from app.core.deps import CurrentUser, require_any_privilege, require_privilege
 from app.db.session import get_db
 from app.enums import AccessRight, SystemObject
 from app.schemas import ListResponse
@@ -17,6 +17,12 @@ router = APIRouter()
 _CREATE = require_privilege(SystemObject.TAXPAYER_RECIPIENTS, AccessRight.CREATE)
 _UPDATE = require_privilege(SystemObject.TAXPAYER_RECIPIENTS, AccessRight.UPDATE)
 _DELETE = require_privilege(SystemObject.TAXPAYER_RECIPIENTS, AccessRight.DELETE)
+# Also read from other modules' screens (spec 022 FR-005).
+_LOOKUP = require_any_privilege(
+    (SystemObject.TAXPAYER_RECIPIENTS, AccessRight.READ),
+    (SystemObject.SALES_ORDERS, AccessRight.READ),
+    (SystemObject.CUSTOMERS, AccessRight.READ),
+)
 
 
 @router.get('', response_model=ListResponse[TaxpayerRecipientResponse])
@@ -24,7 +30,7 @@ async def list_taxpayer_recipients(
     search: str | None = Query(None),
     skip: int = Query(0, ge=0),
     limit: int = Query(20, ge=1, le=100),
-    _: CurrentUser = Depends(get_current_user),
+    _: CurrentUser = Depends(_LOOKUP),
     db: AsyncSession = Depends(get_db),
 ) -> ListResponse[TaxpayerRecipientResponse]:
     items, total = await taxpayer_recipient_service.list_taxpayer_recipients(
@@ -46,7 +52,7 @@ async def create_taxpayer_recipient(
 @router.get('/{rfc}', response_model=TaxpayerRecipientResponse)
 async def get_taxpayer_recipient(
     rfc: str,
-    _: CurrentUser = Depends(get_current_user),
+    _: CurrentUser = Depends(_LOOKUP),
     db: AsyncSession = Depends(get_db),
 ) -> TaxpayerRecipientResponse:
     tr = await taxpayer_recipient_service.get_taxpayer_recipient(db, rfc)

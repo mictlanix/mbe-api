@@ -3,7 +3,7 @@ from fastapi import status as http_status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
-from app.core.deps import CurrentUser, get_current_user, require_privilege
+from app.core.deps import CurrentUser, get_current_user, require_any_privilege, require_privilege
 from app.db.session import get_db
 from app.enums import AccessRight, EntityStatus, SystemObject
 from app.schemas import ListResponse
@@ -24,6 +24,13 @@ _READ = require_privilege(SystemObject.CUSTOMERS, AccessRight.READ)
 _CREATE = require_privilege(SystemObject.CUSTOMERS, AccessRight.CREATE)
 _UPDATE = require_privilege(SystemObject.CUSTOMERS, AccessRight.UPDATE)
 _DELETE = require_privilege(SystemObject.CUSTOMERS, AccessRight.DELETE)
+# Also read from other modules' screens (spec 022 FR-005).
+_LOOKUP = require_any_privilege(
+    (SystemObject.CUSTOMERS, AccessRight.READ),
+    (SystemObject.SALES_ORDERS, AccessRight.READ),
+    (SystemObject.SALES_QUOTES, AccessRight.READ),
+    (SystemObject.POS, AccessRight.READ),
+)
 
 
 @router.get('', response_model=ListResponse[CustomerListItem])
@@ -34,7 +41,7 @@ async def list_customers(
     salesperson: int | None = Query(None),
     skip: int = Query(0, ge=0),
     limit: int = Query(20, ge=1, le=100),
-    _: CurrentUser = Depends(get_current_user),
+    _: CurrentUser = Depends(_LOOKUP),
     db: AsyncSession = Depends(get_db),
 ) -> ListResponse[CustomerListItem]:
     items, total = await customer_service.list_customers(
@@ -62,7 +69,7 @@ async def create_customer(
 @router.get('/{customer_id}', response_model=CustomerResponse)
 async def get_customer(
     customer_id: int,
-    _: CurrentUser = Depends(get_current_user),
+    _: CurrentUser = Depends(_LOOKUP),
     db: AsyncSession = Depends(get_db),
 ) -> CustomerResponse:
     customer = await customer_service.get_customer(db, customer_id)
