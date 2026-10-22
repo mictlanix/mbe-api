@@ -76,7 +76,7 @@
   - with the `datetime(1, 1, 1)` sentinel, sets it;
   - already set, it is unchanged;
   - becoming unpaid leaves it.
-- [ ] T007 [P] [US1] Write `tests/integration/test_commission_compute.py` (commit with T011).
+- [X] T007 [P] [US1] Write `tests/integration/test_commission_compute.py` (commit with T011).
   - **Seed:** agents, rates and labels; customers with salespeople; completed orders with lines; `customer_payment` and `sales_order_payment` rows with dates; completed refunds. Follow `tests/integration/seed.py` `seed_sales_order` and the refund seeding in `tests/integration/test_refunded_balance.py`.
   - **Asserts:**
     - `commission_service.compute(db, 2026, 4)` returns the expected lines for a scheme 1 agent and a scheme 2 agent;
@@ -104,12 +104,15 @@
     - **Fully refunded order:** under scheme 2 its share is 100%, so the sale and the refunds cancel.
     - **Zero lines:** an unlabelled product or a missing rate lists once at 0, as in the current system.
 - [X] T010 [US1] In `app/services/customer_payment_service.py` `_sync_paid_flag`, after setting `order.paid`, add: `if order.paid and (order.balance_zeroed_time is None or order.balance_zeroed_time.year < 1900): order.balance_zeroed_time = local_now()`. Add a comment citing spec 025 FR-008a and the current system's `PaymentsController`. Run T006: green.
-- [ ] T011 [US1] Create `app/services/commission_service.py`: facts and compute.
+- [X] T011 [US1] Create `app/services/commission_service.py`: facts and compute.
   - **`_month_bounds(year, month)`:** returns `[start, next)`.
   - **`_facts(...)`:** the three `text()` queries of research R1 (candidates (a)–(d), per-order money, refund lines), the stored lines of closed periods for the candidate lines, agents with their schemes, rates and labels.
   - **`compute(db, year, month, *, salesperson=None)`:** calls `commission_rules.month_lines`.
 
   Run T007: green.
+  - **As built:**
+    - **Query style:** the facts are **SQLAlchemy Core** queries over the mapped columns, not `text()`. On SQLite, raw SQL returns datetimes as strings and money as floats; Core types them on both databases.
+    - **Test order:** the service was written before `test_commission_compute.py`, so those 8 tests never ran red. The rules module (T005/T009) did go test-first.
 - [ ] T012 [US1] Add to `commission_service.py`:
   - **`close(db, year, month, *, current)`:** month ended, previous month closed unless this is the first close, not already closed; compute all agents; insert `CommissionPeriodLine` rows; upsert the period with `status=1` and `closed_by`/`closed_at`. One transaction. On MariaDB, `with_for_update()` on the period rows involved.
   - **`reopen(...)`:** latest closed only, not paid; delete the lines; `status=0` and `reopened_by`/`reopened_at`.
