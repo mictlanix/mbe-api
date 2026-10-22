@@ -3,7 +3,7 @@
   "specName": "Quotation PDF and Email",
   "branch": "024-quote-pdf-email",
   "currentStep": "implement",
-  "status": "implemented",
+  "status": "completed",
   "history": [
     {
       "step": "specify",
@@ -61,5 +61,34 @@
       "by": "extension",
       "at": "2026-10-22T21:14:26.909Z"
     }
-  ]
+  ],
+  "verified": [
+    {
+      "what": "Test deployment checks at e102003",
+      "result": "quote 30358 PDF 200 letter, header/customer/contact/terms Crédito – 15 días/line amount = quote subtotal; email 503 with mail unconfigured; unknown quote 404"
+    },
+    {
+      "what": "pytest full suite on merged main",
+      "command": "uv run pytest -q",
+      "source": "derived",
+      "exitCode": 0,
+      "durationSeconds": 51.2,
+      "result": "........................................................................ [ 99%] · ....                                                                     [100%] · 3316 passed in 48.24s"
+    },
+    {
+      "what": "ruff check",
+      "command": "uv run ruff check app/ migrations/ tests/",
+      "source": "derived",
+      "exitCode": 0,
+      "durationSeconds": 0.4,
+      "result": "All checks passed!"
+    }
+  ],
+  "concerns": [
+    {
+      "note": "SC-005 not verified: no real send to a test mailbox; mail is unconfigured on the test instance by the user's choice. Run quickstart step 3 once SMTP_* and MAIL_FROM are set.",
+      "step": "implement"
+    }
+  ],
+  "currentTask": null
 }
