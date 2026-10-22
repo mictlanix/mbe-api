@@ -276,15 +276,15 @@
 
 ### Tests (write first, must fail)
 
-- [ ] T042 [P] [US5] **(commit with T047)** Unit tests for `delete_image(directory, filename)`: it removes an existing file, a missing file is a no-op that does not raise, and a `filename` containing `/` or `..` is refused with `ValueError`. The last case keeps the helper from ever removing anything outside `directory` · `tests/unit/test_image_service.py`
-- [ ] T043 [P] [US5] **(commit with T048)** Unit tests for the vehicle operator service:
+- [X] T042 [P] [US5] **(commit with T047)** Unit tests for `delete_image(directory, filename)`: it removes an existing file, a missing file is a no-op that does not raise, and a `filename` containing `/` or `..` is refused with `ValueError`. The last case keeps the helper from ever removing anything outside `directory` · `tests/unit/test_image_service.py`
+- [X] T043 [P] [US5] **(commit with T048)** Unit tests for the vehicle operator service:
   - `set_license_photo(db, vo, filename)` stores the name, commits, and returns the previous name, or `None` when there was none.
   - `clear_license_photo(db, vo)` sets NULL, commits, and returns the previous name.
   - `delete_vehicle_operator` returns the operator's photo name for the caller to remove.
   - `VehicleOperator.has_license_photo` is `True` only when `license_photo` is set.
 
   File: `tests/unit/test_vehicle_operator_service.py`
-- [ ] T044 [P] [US5] **(commit with T049)** API tests, using `tmp_path` as `settings.license_photos_dir`:
+- [X] T044 [P] [US5] **(commit with T049)** API tests, using `tmp_path` as `settings.license_photos_dir`:
   - POST with a PNG returns 200 with `has_license_photo: true`; 404 for an unknown operator; 422 for non-image bytes and for more than 2 MB, with the existing photo kept and no file added.
   - A second POST removes the first file from disk.
   - GET returns `image/png` bytes; 401 without a token; 404 when there is no photo; 404 when the column is set but the file is missing.
@@ -297,20 +297,20 @@
 
 ### Implementation
 
-- [ ] T045 [P] [US5] Model:
+- [X] T045 [P] [US5] Model:
   - Add `license_photo: Mapped[str | None] = mapped_column(String(255))` to `VehicleOperator`.
   - Add a read-only `has_license_photo` property returning `self.license_photo is not None`, so `from_attributes` picks it up without the filename leaving the server.
 
   File: `app/models/core.py`
 - [X] T046 [P] [US5] Document `vehicle_operator.license_photo`: a private filename under `LICENSE_PHOTOS_DIR`, NULL meaning no photo, migration 022, #20 · `docs/data-dictionary.md`
-- [ ] T047 [P] [US5] Add `delete_image(directory, filename)`. It refuses a name containing `/` or `..`, and removes the file through `asyncio.to_thread` while ignoring `FileNotFoundError`. Reuse `save_proof_image` unchanged for writing (research R8) · `app/services/image_service.py`
-- [ ] T048 [US5] Service:
+- [X] T047 [P] [US5] Add `delete_image(directory, filename)`. It refuses a name containing `/` or `..`, and removes the file through `asyncio.to_thread` while ignoring `FileNotFoundError`. Reuse `save_proof_image` unchanged for writing (research R8) · `app/services/image_service.py`
+- [X] T048 [US5] Service:
   - `set_license_photo` and `clear_license_photo` each return the previous filename.
   - `delete_vehicle_operator` returns `vo.license_photo`, captured before the delete.
   - Add `has_license_photo: bool` to `VehicleOperatorResponse`.
 
   Files: `app/services/vehicle_operator_service.py`, `app/schemas/core.py`
-- [ ] T049 [US5] Routes:
+- [X] T049 [US5] Routes:
   - `POST /{vehicle_operator_id}/license-photo` (multipart `file`) calls `image_service.save_proof_image(content, settings.license_photos_dir)` and maps `ValueError` to 422. It then calls `set_license_photo`, and then `delete_image` on the previous name.
   - `GET` returns `FileResponse(..., media_type='image/png')`, with a 404 when there is no photo or the file is missing. Its docstring explains why the route is authenticated, mirroring `delivery_orders.py:345`.
   - `DELETE` calls `clear_license_photo` and then `delete_image`.
@@ -318,8 +318,8 @@
   - Access stays `get_current_user`.
 
   File: `app/api/v1/endpoints/vehicle_operators.py`
-- [ ] T050 [P] [US5] Add `has_license_photo: bool` to the `VehicleOperatorResponse` block and list the three license-photo routes · `specs/002-master-data-endpoints/contracts/api.md`
-- [ ] T051 [P] [US5] Scope 01 §16: add the license photo to the field table and describe its routes, private storage, the 2 MB limit, the 1024 px PNG, and file removal on replace, clear and operator delete. The expired-license check stays advisory and unchanged · `docs/specs/01-master-data.md`
+- [X] T050 [P] [US5] Add `has_license_photo: bool` to the `VehicleOperatorResponse` block and list the three license-photo routes · `specs/002-master-data-endpoints/contracts/api.md`
+- [X] T051 [P] [US5] Scope 01 §16: add the license photo to the field table and describe its routes, private storage, the 2 MB limit, the 1024 px PNG, and file removal on replace, clear and operator delete. The expired-license check stays advisory and unchanged · `docs/specs/01-master-data.md`
 
 **Checkpoint**: T042–T044 pass. `tests/unit/test_contract_docs.py`, `test_model_schema.py` and `test_data_dictionary.py` are all green.
 

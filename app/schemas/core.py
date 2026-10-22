@@ -597,6 +597,7 @@ class VehicleOperatorResponse(BaseModel):
     creator: EmployeeResponse = Field(validation_alias=AliasChoices('creator_detail', 'creator'))
     updater: EmployeeResponse = Field(validation_alias=AliasChoices('updater_detail', 'updater'))
     status: EntityStatus
+    has_license_photo: bool = False
     days_until_expiry: int = 0
 
     @model_validator(mode='after')

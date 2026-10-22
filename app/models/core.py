@@ -253,3 +253,9 @@ class VehicleOperator(Base):
     status: Mapped[EntityStatus] = mapped_column(
         Integer, default=EntityStatus.ACTIVE, server_default='0'
     )
+    license_photo: Mapped[str | None] = mapped_column(String(255))
+
+    @property
+    def has_license_photo(self) -> bool:
+        # Exposed instead of the filename, which only means something to the server.
+        return self.license_photo is not None

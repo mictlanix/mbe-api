@@ -740,12 +740,21 @@ VehicleOperatorResponse:
   expiration_date: date
   issuing_location: str
   status: EntityStatus
+  has_license_photo: bool   # the filename is never exposed
   days_until_expiry: int   # computed: negative = expired
   creation_time: datetime
   modification_time: datetime
   creator: EmployeeResponse   # expanded per FR-039
   updater: EmployeeResponse   # expanded per FR-039
 ```
+
+License photo (private, `get_current_user`; stored under `LICENSE_PHOTOS_DIR`, not `/images`):
+
+| Method | Path | Notes |
+|--------|------|-------|
+| POST | `/{vehicle_operator_id}/license-photo` | multipart `file`; 200 `VehicleOperatorResponse`; 404; 422 not an image or over 2 MB |
+| GET | `/{vehicle_operator_id}/license-photo` | `image/png`; 404 when there is no photo or the file is missing |
+| DELETE | `/{vehicle_operator_id}/license-photo` | 204; 404 when there is no photo |
 
 ---
 

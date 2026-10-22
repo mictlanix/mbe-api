@@ -472,6 +472,13 @@ Driver license records for employees who operate fleet vehicles.
 | Expiration Date | `vehicle_operator.expiration_date` | |
 | Issuing Location | `vehicle_operator.issuing_location` | State |
 | Active | `vehicle_operator.active` | |
+| License Photo | `vehicle_operator.license_photo` | Private filename, NULL for none; responses expose only `has_license_photo` |
+
+### License photo
+- `POST /vehicle-operators/{id}/license-photo` (multipart `file`) stores it, `GET` returns it, `DELETE` removes it.
+- Stored under `LICENSE_PHOTOS_DIR`, outside the public `/images` mount, and served only behind authentication because it is personal data.
+- Limit 2 MB; any decodable image is scaled to 1024 px wide and saved as PNG under a random name.
+- The file is removed when the photo is replaced or cleared and when the operator is deleted.
 
 ### Business Rules
 - Alert when license is within 30 days of expiration.

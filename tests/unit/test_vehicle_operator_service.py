@@ -10,6 +10,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from app.models.core import VehicleOperator
 from app.services import vehicle_operator_service
 
 _NOW = datetime(2026, 9, 27, 12, 0)
@@ -63,3 +64,52 @@ async def test_an_update_is_stamped_with_business_time() -> None:
     await vehicle_operator_service.update_vehicle_operator(_db(), vo, unchanged, updater_id=7)
 
     assert vo.modification_time == _NOW
+
+
+@pytest.mark.asyncio
+async def test_setting_a_license_photo_returns_the_previous_name() -> None:
+    db = _db()
+    vo = SimpleNamespace(license_photo='old.png')
+
+    previous = await vehicle_operator_service.set_license_photo(db, vo, 'new.png')
+
+    assert previous == 'old.png'
+    assert vo.license_photo == 'new.png'
+    db.commit.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_setting_a_first_license_photo_has_no_previous_name() -> None:
+    vo = SimpleNamespace(license_photo=None)
+
+    assert await vehicle_operator_service.set_license_photo(_db(), vo, 'new.png') is None
+
+
+@pytest.mark.asyncio
+async def test_clearing_a_license_photo_returns_the_previous_name() -> None:
+    db = _db()
+    vo = SimpleNamespace(license_photo='old.png')
+
+    previous = await vehicle_operator_service.clear_license_photo(db, vo)
+
+    assert previous == 'old.png'
+    assert vo.license_photo is None
+    db.commit.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_deleting_an_operator_returns_its_photo_name() -> None:
+    db = _db()
+    db.delete = AsyncMock()
+    vo = SimpleNamespace(license_photo='old.png')
+
+    with patch.object(vehicle_operator_service, 'assert_not_referenced', AsyncMock()):
+        removed = await vehicle_operator_service.delete_vehicle_operator(db, vo)
+
+    assert removed == 'old.png'
+    db.commit.assert_awaited_once()
+
+
+def test_has_license_photo_is_true_only_when_a_photo_is_set() -> None:
+    assert VehicleOperator(license_photo='a.png').has_license_photo is True
+    assert VehicleOperator(license_photo=None).has_license_photo is False
