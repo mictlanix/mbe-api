@@ -42,7 +42,14 @@ from app.schemas.sales_order import (
     SalesOrderUpdate,
 )
 from app.schemas.sat_catalog import SatUnitOfMeasurementResponse
-from app.services import documents, image_service, stock_ledger, totals, warehouse_service
+from app.services import (
+    customer_discount_service,
+    documents,
+    image_service,
+    stock_ledger,
+    totals,
+    warehouse_service,
+)
 
 # ── Decision rules (pure) ─────────────────────────────────────────────────────
 
@@ -1060,6 +1067,12 @@ async def add_line(
 
     price = data.price if data.price is not None else (listed.price if listed else Decimal(0))
     cost = cost_row.price if cost_row else Decimal(0)
+    # Read only when the request names no rate: an explicit 0 is a decision, not an absence.
+    discount = data.discount_rate
+    if discount is None:
+        discount = await customer_discount_service.rate_for(
+            db, customer.customer_id, product.product_id
+        ) or Decimal(0)
 
     line = SalesOrderDetail(
         sales_order=order.sales_order_id,
@@ -1067,7 +1080,7 @@ async def add_line(
         quantity=quantity,
         cost=cost,
         price=price,
-        discount_rate=data.discount_rate,
+        discount_rate=discount,
         tax_rate=data.tax_rate if data.tax_rate is not None else product.tax_rate,
         product_code=product.code,
         product_name=product.name,

@@ -4,11 +4,13 @@
 scoped to the customer in the path: an override belonging to another customer is reported as
 absent, never touched. The product is fixed once the override exists.
 
-Nothing applies these discounts to prices yet — sales orders, quotes and the price grid do not
-read this table. This module only maintains the data.
+A line added to a sales order or quote without a discount starts at the customer's rate for its
+product (`rate_for`, spec 023). That is the only read: the price grid does not use these rates,
+and a line's rate is its own once it exists.
 """
 
 from collections.abc import Sequence
+from decimal import Decimal
 
 from fastapi import HTTPException, status
 from sqlalchemy import select
@@ -28,6 +30,18 @@ async def _attach_product(db: AsyncSession, discount: CustomerDiscount) -> Custo
     product = await db.get(Product, discount.product)
     discount.__dict__['product_detail'] = _summary(product) if product is not None else None
     return discount
+
+
+async def rate_for(db: AsyncSession, customer_id: int, product_id: int) -> Decimal | None:
+    """The customer's override for the product, if any; the pair is unique (spec 021)."""
+    return (
+        await db.execute(
+            select(CustomerDiscount.discount).where(
+                CustomerDiscount.customer == customer_id,
+                CustomerDiscount.product == product_id,
+            )
+        )
+    ).scalar_one_or_none()
 
 
 async def list_discounts(db: AsyncSession, customer_id: int) -> Sequence[CustomerDiscount]:

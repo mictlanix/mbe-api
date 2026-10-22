@@ -28,7 +28,7 @@ from app.schemas.sales_quote import (
     SalesQuoteLineUpdate,
     SalesQuoteUpdate,
 )
-from app.services import documents, sales_order_service, totals
+from app.services import customer_discount_service, documents, sales_order_service, totals
 
 # ── Decision rules (pure) ─────────────────────────────────────────────────────
 
@@ -352,6 +352,12 @@ async def add_line(
     customer = await _customer_or_404(db, quote.customer)
     quantity = data.quantity if data.quantity is not None else Decimal(product.min_order_qty)
     sales_order_service.assert_quantity_allowed(quantity, min_order_qty=product.min_order_qty)
+    # As on an order line: the override only fills a rate the request did not name (spec 023).
+    discount = data.discount_rate
+    if discount is None:
+        discount = await customer_discount_service.rate_for(
+            db, customer.customer_id, product.product_id
+        ) or Decimal(0)
 
     db.add(
         SalesQuoteDetail(
@@ -362,7 +368,7 @@ async def add_line(
             if data.price is not None
             else await _listed_price(db, product, customer),
             price_adjustment=data.price_adjustment,
-            discount_rate=data.discount_rate,
+            discount_rate=discount,
             tax_rate=product.tax_rate,
             product_code=product.code,
             product_name=product.name,

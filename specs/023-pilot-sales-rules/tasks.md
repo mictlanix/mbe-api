@@ -18,7 +18,8 @@
 
 ## Phase 1: Setup
 
-- [ ] T001 Record the baseline before any change: run `uv run ruff check app/ migrations/ tests/` and `uv run pytest -q`. Write the pass/fail counts under this task · `specs/023-pilot-sales-rules/tasks.md`
+- [X] T001 Record the baseline before any change: run `uv run ruff check app/ migrations/ tests/` and `uv run pytest -q`. Write the pass/fail counts under this task · `specs/023-pilot-sales-rules/tasks.md`
+  - **Baseline (2026-10-22)**: ruff clean; pytest 3240 passed, 0 failed.
 
 ---
 
@@ -32,7 +33,7 @@
 - another customer gets 0;
 - a converted quote keeps its edited discount.
 
-- [ ] T002 [US1] Write `tests/integration/test_customer_discount_lines.py` (commit with T003–T006). Seed customer C (no credit line) and create the override with `POST /api/v1/customers/{C}/discounts` `{"product": 1, "discount": "0.1"}`. Cases:
+- [X] T002 [US1] Write `tests/integration/test_customer_discount_lines.py` (commit with T003–T006). Seed customer C (no credit line) and create the override with `POST /api/v1/customers/{C}/discounts` `{"product": 1, "discount": "0.1"}`. Cases:
   1. **Order line, override applies:** create an order for C with `payment_terms: 0`, add product 1 without `discount_rate`: the line's `discount_rate` is `0.1`.
   2. **Explicit 0 is kept:** the same with `discount_rate: "0"`: `0`.
   3. **Explicit value is kept:** with `discount_rate: "0.05"`: `0.05`.
@@ -44,10 +45,10 @@
   9. **Duplicate copies:** duplicating a quote with `POST /sales-quotes/{id}/duplicate` gives the copy the same line discounts.
 
   Cases 5, 6, 8 and 9 pin existing behaviour and may pass before T003–T006. Cases 1 and 7 must fail first.
-- [ ] T003 [P] [US1] In `app/schemas/sales_order.py` (`SalesOrderLineCreate`) and `app/schemas/sales_quote.py` (`SalesQuoteLineCreate`), change `discount_rate: Decimal = Field(default=Decimal(0), ge=0, le=1)` to `discount_rate: Decimal | None = Field(default=None, ge=0, le=1)`. Add a one-line comment: `None` means the customer's override for the product, else 0 (spec 023 FR-001). See research R1.
-- [ ] T004 [P] [US1] Add `async def rate_for(db, customer_id: int, product_id: int) -> Decimal | None` to `app/services/customer_discount_service.py`: `select(CustomerDiscount.discount).where(customer == ..., product == ...)` → `scalar_one_or_none()`. The pair is unique (spec 021).
-- [ ] T005 [US1] In `app/services/sales_order_service.py` `add_line`, set `discount_rate=data.discount_rate if data.discount_rate is not None else (await customer_discount_service.rate_for(db, customer.customer_id, product.product_id) or Decimal(0))`. `customer` is already loaded there. Import `customer_discount_service`. Do not touch `update_line` or `_reprice_lines` (FR-003).
-- [ ] T006 [US1] Apply the same change to `app/services/sales_quote_service.py` `add_line`, which also has `customer` loaded. Then run `uv run pytest tests/integration/test_customer_discount_lines.py tests/api/test_sales_orders.py tests/api/test_sales_quotes.py tests/unit -q`: green. If an existing test built a line create and asserted `discount_rate == 0` without sending it, it must still pass: with no override row, the result is 0. Commit T002–T006.
+- [X] T003 [P] [US1] In `app/schemas/sales_order.py` (`SalesOrderLineCreate`) and `app/schemas/sales_quote.py` (`SalesQuoteLineCreate`), change `discount_rate: Decimal = Field(default=Decimal(0), ge=0, le=1)` to `discount_rate: Decimal | None = Field(default=None, ge=0, le=1)`. Add a one-line comment: `None` means the customer's override for the product, else 0 (spec 023 FR-001). See research R1.
+- [X] T004 [P] [US1] Add `async def rate_for(db, customer_id: int, product_id: int) -> Decimal | None` to `app/services/customer_discount_service.py`: `select(CustomerDiscount.discount).where(customer == ..., product == ...)` → `scalar_one_or_none()`. The pair is unique (spec 021).
+- [X] T005 [US1] In `app/services/sales_order_service.py` `add_line`, set `discount_rate=data.discount_rate if data.discount_rate is not None else (await customer_discount_service.rate_for(db, customer.customer_id, product.product_id) or Decimal(0))`. `customer` is already loaded there. Import `customer_discount_service`. Do not touch `update_line` or `_reprice_lines` (FR-003).
+- [X] T006 [US1] Apply the same change to `app/services/sales_quote_service.py` `add_line`, which also has `customer` loaded. Then run `uv run pytest tests/integration/test_customer_discount_lines.py tests/api/test_sales_orders.py tests/api/test_sales_quotes.py tests/unit -q`: green. If an existing test built a line create and asserted `discount_rate == 0` without sending it, it must still pass: with no override row, the result is 0. Commit T002–T006.
 
 **Checkpoint**: discounts apply.
 
