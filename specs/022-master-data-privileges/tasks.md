@@ -171,15 +171,15 @@
 
 ## Phase 6: Polish & Cross-Cutting
 
-- [ ] T028 [P] Update `docs/specs/12-users.md` §5 "Authorization". Add that a lookup route also accepts Read on the modules whose screens use it, link to `specs/022-master-data-privileges/contracts/route-privileges.md`, and state the customer link exception. Keep the existing four bullets · `docs/specs/12-users.md`
-- [ ] T028a [P] In `specs/002-master-data-endpoints/contracts/api.md`, add a `**Privileges**:` line under each of the 11 module headings (§2 Price Lists, §3 Customers, §4 Labels, §5 Taxpayer Recipients, §6 Suppliers, §7 Employees, §12 Exchange Rates, §13 Expenses, §14 Payment Method Options, §15 Vehicles, §16 Vehicle Operators). Match the wording at :484: "`CUSTOMERS (2)`, access right matching the operation; `403` without it." Where it applies, add:
+- [X] T028 [P] Update `docs/specs/12-users.md` §5 "Authorization". Add that a lookup route also accepts Read on the modules whose screens use it, link to `specs/022-master-data-privileges/contracts/route-privileges.md`, and state the customer link exception. Keep the existing four bullets · `docs/specs/12-users.md`
+- [X] T028a [P] In `specs/002-master-data-endpoints/contracts/api.md`, add a `**Privileges**:` line under each of the 11 module headings (§2 Price Lists, §3 Customers, §4 Labels, §5 Taxpayer Recipients, §6 Suppliers, §7 Employees, §12 Exchange Rates, §13 Expenses, §14 Payment Method Options, §15 Vehicles, §16 Vehicle Operators). Match the wording at :484: "`CUSTOMERS (2)`, access right matching the operation; `403` without it." Where it applies, add:
   - the alternative read privileges for the list and get-by-id routes;
   - the parent object for nested routes;
   - Update for the license photo;
   - the customer link exception.
 
   Each line links to `specs/022-master-data-privileges/contracts/route-privileges.md` rather than repeating the table · `specs/002-master-data-endpoints/contracts/api.md`
-- [ ] T029 [P] Add a `### Changed` entry to `CHANGELOG.md` `[Unreleased]`, in the existing entry style: **The 11 master data routers enforce access privileges** (mictlanix/mbe-roadmap#22, spec 022). Cover:
+- [X] T029 [P] Add a `### Changed` entry to `CHANGELOG.md` `[Unreleased]`, in the existing entry style: **The 11 master data routers enforce access privileges** (mictlanix/mbe-roadmap#22, spec 022). Cover:
   - which routers, and the rights by method;
   - nested routes take the parent's object;
   - the lookup hosts, with one sentence of why (the pilot's POS, checkout, product form and pricing grid) and a link to the contract;
@@ -187,8 +187,23 @@
   - an **upgrade note**: non-admin users without a matching row now get 403 where they used to get data. Counts are in the spec.
 
   File: `CHANGELOG.md`
-- [ ] T030 Run the full gate: `uv run ruff check app/ migrations/ tests/` and `uv run pytest -q`. Compare against the T001 baseline: no new failures.
-- [ ] T031 Re-run the SC-002 measurement on mbe_dev, read only, per `quickstart.md`. Run one query per row of the spec's "Users who would lose a lookup" table, using the hosts from the contract. Expected: 0 in every row. Record the results under this task · `specs/022-master-data-privileges/tasks.md`
+- [X] T030 Run the full gate: `uv run ruff check app/ migrations/ tests/` and `uv run pytest -q`. Compare against the T001 baseline: no new failures.
+  - **Result**: ruff clean; pytest 3240 passed (baseline 3048; +192 new), 0 failed.
+- [X] T031 Re-run the SC-002 measurement on mbe_dev, read only, per `quickstart.md`. Run one query per row of the spec's "Users who would lose a lookup" table, using the hosts from the contract. Expected: 0 in every row. Record the results under this task · `specs/022-master-data-privileges/tasks.md`
+  - **Result (2026-10-22, mbe_dev)**: 0 in every row. The rows checked were:
+    - customer lookup from sales screens;
+    - salesperson picker (SO Read);
+    - cashier filter (POS Read);
+    - invoice recipient (SO Read);
+    - checkout (POS Read; CustomerPayments Create);
+    - new-customer price list and recipient (Customers Create);
+    - product form labels and suppliers (Products Read);
+    - pricing grid price lists and labels (Pricing Read);
+    - customer form salesperson (Customers Read);
+    - vehicle operator driver (Vehicle operators Read);
+    - customer link (SO Update with Addresses or Contacts Create).
+
+    The strict-check counts were 1 to 23.
 - [ ] T032 **Confirm with the user before deploying.** Then deploy the branch to the test instance (`/var/www/mbe-api-test`, systemd `mbe-api-test`, as `mictlanix@xolotl`) and run the manual checks 1–4 in `quickstart.md`. Remove any address created in check 2. Record the outcome in `specs/022-master-data-privileges/quickstart.md` under a "Checks on the test deployment" heading. Next to the results, record the mbe-ui commit that is deployed at https://test.mbe.mictlanix.com (`git -C /var/www/mbe-ui-test …` or the build's version file).
 
 ---
