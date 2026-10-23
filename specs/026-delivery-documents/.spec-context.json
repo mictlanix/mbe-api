@@ -1,0 +1,23 @@
+{
+  "workflow": "speckit",
+  "specName": "Delivery Documents",
+  "branch": "026-delivery-documents",
+  "currentStep": "specify",
+  "status": "specified",
+  "history": [
+    {
+      "step": "specify",
+      "substep": null,
+      "kind": "start",
+      "by": "extension",
+      "at": "2026-10-23T03:04:45.000Z"
+    },
+    {
+      "step": "specify",
+      "substep": null,
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-10-23T04:03:15.441Z"
+    }
+  ]
+}
