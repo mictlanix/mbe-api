@@ -3,7 +3,7 @@
   "specName": "Commissions with Stable History",
   "branch": "025-commissions-history",
   "currentStep": "implement",
-  "status": "implemented",
+  "status": "completed",
   "history": [
     {
       "step": "specify",
@@ -270,5 +270,35 @@
       "at": "2026-10-23T01:52:30.376Z"
     }
   ],
-  "currentTask": "T026"
+  "currentTask": null,
+  "verified": [
+    {
+      "what": "migration 023 on mbe_dev",
+      "result": "applied 2026-10-22; 6 agents scheme 1; tables empty; 39 orders backfilled, 0 left; commissions_history 1,650"
+    },
+    {
+      "what": "SC-002 parity, September 2026",
+      "result": "every non-zero legacy line matches; +1,475.70 from 4 FR-008 orders (offset in August); 15 $0 refund rows not emitted"
+    },
+    {
+      "what": "test deployment f789a96",
+      "result": "read routes 200, 401 without token; Sept open 795 lines 129,536.82; nothing closed"
+    },
+    {
+      "what": "pytest on merged main",
+      "command": "uv run pytest -q",
+      "source": "derived",
+      "exitCode": 0,
+      "durationSeconds": 55.7,
+      "result": "........................................................................ [ 98%] · .......................................................                  [100%] · 3727 passed in 52.50s"
+    },
+    {
+      "what": "ruff on merged main",
+      "command": "uv run ruff check app/ migrations/ tests/",
+      "source": "derived",
+      "exitCode": 0,
+      "durationSeconds": 0.4,
+      "result": "All checks passed!"
+    }
+  ]
 }
