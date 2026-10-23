@@ -38,6 +38,33 @@ Read only, on mbe_dev, with every agent on scheme 1 and no closed periods. For S
 
 Expected: equal, except for orders whose `modification_time` and `balance_zeroed_time` months differ (about 2 a month) and the refunds that follow them. List every difference and its order, and record the comparison here.
 
+### Result: September 2026, run 2026-10-22
+
+**Parity holds, with no unexplained difference.** The check ran read only on mbe_dev, after migration 023, with all 6 agents on scheme 1 and no period rows.
+
+| | Total | Rows |
+|---|---:|---:|
+| Current system: `GetCommissionDetailsSQLQuery`, all agents, 2026-09-01 to 2026-09-30 23:59:59 | 128,061.12 | 802 |
+| New MBE: `compute(2026, 9)` | 129,536.82 | 795 |
+
+Every legacy line with a non-zero commission matches a new line on order, line, agent, participation, movement, total and commission. Cent rounding made no difference this month. Agent 76 has a 0 rate everywhere, so its rows are $0 on both sides.
+
+**Money: +1,475.70, from 4 orders (FR-008).** None of the 4 has a payment application. Each was completed in August, so `modification_time` falls in August. Each was settled in September by a full refund, which stamps `balance_zeroed_time` (`CustomerRefundsController.cs:343-348`) but leaves `modification_time` alone.
+
+| Order | Agent | `modification_time` | `balance_zeroed_time` | Current system, Sept | New MBE, Sept |
+|---|---|---|---|---:|---:|
+| 340435 | 33 | 2026-08-26 | 2026-09-05 | −65.00 | 0 (+65.00 −65.00) |
+| 340557 | 17 | 2026-08-27 | 2026-09-03 | −434.00 | 0 (+434.00 −434.00) |
+| 340816 | 54 | 2026-08-29 | 2026-09-02 | −793.10 | 0 (+793.10 −793.10) |
+| 340974 | 77 | 2026-08-31 | 2026-09-01 | −183.60 | 0 (+183.60 −183.60) |
+
+- **Current system:** counts these sales in August and claws them back in September through the PR #58 branch.
+- **New MBE:** places the sale and its refund in the same month, so August is lower by the same 1,475.70. The two months agree in total.
+- **Why the new MBE's version is right:** an August report printed before the refund would not have shown these sales, because the orders were still unpaid. The September clawback would then charge commission that was never paid.
+- **Completeness:** a probe for every agent order whose two dates fall in different months, with one of them in September, returned exactly these 4.
+
+**Rows: 15 legacy refund rows at 0.00 that the new MBE does not emit.** They belong to agent 76, one unlabelled product and one 0-rate label. Research R1 says only non-zero amounts become lines; zero lines are listed only for sales.
+
 ## Access
 
 Measured at plan time: 5 of 33 active non-admin users hold Read on SystemObject 112 (3 with full rights). Re-check before deploying.
