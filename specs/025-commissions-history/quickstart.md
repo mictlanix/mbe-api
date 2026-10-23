@@ -68,3 +68,20 @@ Every legacy line with a non-zero commission matches a new line on order, line, 
 ## Access
 
 Measured at plan time: 5 of 33 active non-admin users hold Read on SystemObject 112 (3 with full rights). Re-check before deploying.
+
+## Deployed to test, 2026-10-22
+
+`/var/www/mbe-api-test` is on the branch (f789a96), with no migrations pending and the service active. The checks are read only, made as an administrator at https://test.api.mbe.mictlanix.com:
+
+| GET `/api/v1/commissions/…` | Status | Result |
+|---|---|---|
+| `labels` | 200 | 13 labels |
+| `participations` | 200 | 3 |
+| `agents` | 200 | 6, all scheme 1 |
+| `agent-rates` | 200 | 129, as measured |
+| `product-labels?limit=2` | 200 | total 1,123 |
+| `periods` | 200 | empty: no month has been closed |
+| `periods/2026/9` | 200, 3.2 s | open, `final: false`, 795 lines, 129,536.82, the same as the parity run |
+| `periods` without a token | 401 | |
+
+No period was closed or paid. Access was rechecked: 5 of the 33 active non-admin users hold Read on 112, 3 of them with full rights. This is unchanged since plan time.
