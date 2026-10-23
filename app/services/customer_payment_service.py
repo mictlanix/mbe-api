@@ -395,6 +395,12 @@ async def _sync_paid_flag(db: AsyncSession, order: SalesOrder) -> None:
     applied = await sales_order_service.applied_amount(db, order.sales_order_id)
     computed = await _order_total(db, order)
     order.paid = covers_total(applied, computed)
+    # The moment the balance reached zero dates the order's commission month (spec 025 FR-008a),
+    # as the current system's `PaymentsController` stamps it in every payment path. Never cleared:
+    # a reversal does not move the month an order was first settled in. `0001-01-01` is a legacy
+    # sentinel for "unset".
+    if order.paid and (order.balance_zeroed_time is None or order.balance_zeroed_time.year < 1900):
+        order.balance_zeroed_time = local_now()
 
 
 async def _order_total(db: AsyncSession, order: SalesOrder) -> Decimal:

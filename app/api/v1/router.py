@@ -6,6 +6,7 @@ from app.api.v1.endpoints import (
     bank_accounts,
     cash_drawers,
     cash_sessions,
+    commissions,
     contacts,
     credit_notes,
     customer_payments,
@@ -102,3 +103,4 @@ api_router.include_router(
 api_router.include_router(
     delivery_itineraries.router, prefix='/delivery-itineraries', tags=['delivery-itineraries']
 )
+api_router.include_router(commissions.router, prefix='/commissions', tags=['commissions'])

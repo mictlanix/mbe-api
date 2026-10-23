@@ -4,9 +4,10 @@
 application restores an order's balance *exactly*, so the set/clear logic is symmetric here.
 """
 
+from datetime import datetime
 from decimal import Decimal
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from fastapi import HTTPException
@@ -176,3 +177,51 @@ class TestListOrderApplications:
 
         assert len(rows) == 25
         assert db.execute.await_count == 1
+
+
+class TestTheBalanceZeroedStamp:
+    """Payments stamp `balance_zeroed_time` when they settle an order, as the current system does
+    in every payment path; it dates the order's commission month (spec 025 FR-008a)."""
+
+    NOW = datetime(2026, 10, 22, 12, 0)
+
+    async def _sync(self, *, applied: str, stamp: object) -> SimpleNamespace:
+        from app.services import customer_payment_service
+
+        order = SimpleNamespace(sales_order_id=1, paid=False, balance_zeroed_time=stamp)
+        db = SimpleNamespace(refresh=AsyncMock())
+        with (
+            patch.object(
+                customer_payment_service.sales_order_service,
+                'applied_amount',
+                AsyncMock(return_value=Decimal(applied)),
+            ),
+            patch.object(
+                customer_payment_service, '_order_total', AsyncMock(return_value=Decimal('100'))
+            ),
+            patch.object(customer_payment_service, 'local_now', return_value=self.NOW),
+        ):
+            await customer_payment_service._sync_paid_flag(db, order)
+        return order
+
+    @pytest.mark.parametrize(
+        'stamp', [None, datetime(1, 1, 1)], ids=['none', 'sentinel']
+    )
+    async def test_settling_an_order_stamps_it(self, stamp: object) -> None:
+        order = await self._sync(applied='100', stamp=stamp)
+
+        assert order.paid is True
+        assert order.balance_zeroed_time == self.NOW
+
+    async def test_an_existing_stamp_is_kept(self) -> None:
+        earlier = datetime(2026, 9, 1)
+
+        order = await self._sync(applied='100', stamp=earlier)
+
+        assert order.balance_zeroed_time == earlier
+
+    async def test_an_unpaid_order_is_not_stamped(self) -> None:
+        order = await self._sync(applied='40', stamp=None)
+
+        assert order.paid is False
+        assert order.balance_zeroed_time is None

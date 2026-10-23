@@ -170,6 +170,30 @@ class SourceType(IntEnum):
     FACILITY = 10
     # API-only, like FACILITY: the monolith's enum stops at 9. Records a quote email (spec 024).
     SALES_QUOTE = 11
+    # API-only, like 10 and 11: a commission settings change (spec 025).
+    COMMISSION = 12
+
+
+class CommissionScheme(IntEnum):
+    """`commission_agent.scheme` (spec 025)."""
+
+    FULLY_PAID = 1
+    PARTIAL_PAYMENTS = 2
+
+
+class CommissionPeriodStatus(IntEnum):
+    """`commission_period.status`: a month with no row is open too (spec 025)."""
+
+    OPEN = 0
+    CLOSED = 1
+    PAID = 2
+
+
+class CommissionMovement(IntEnum):
+    """`commission_period_line.movement` (spec 025)."""
+
+    SALE = 0
+    REFUND = 1
 
 
 class AccessRight(IntFlag):

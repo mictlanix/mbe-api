@@ -7,6 +7,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Changed
+- **Payments stamp `balance_zeroed_time` when they settle an order** (spec 025). The current system stamps it in every payment path, and it dates an order's commission month. This API never did. It is set once and never cleared, and the refund path still never writes it. Migration 023 backfills the 38 paid orders since 2025-10-01 that lacked it.
 - **Pilot sales rules** (mictlanix/mbe-roadmap#149, mictlanix/mbe-roadmap#35, spec 023).
   - **Customer discounts on lines:** a sales order or quote line added without a `discount_rate` starts at the customer's override for the product, or 0. An explicit rate, 0 included, is kept. The override is read only when the line is added, never on edits, a customer change, conversion or duplication, as in the current system.
   - **Credit default:** quotes now default to credit for a credit customer (credit limit above 0, not the walk-in customer), as orders already did. Moving an open cash order or quote onto a credit customer, without naming terms, puts it on credit. An order then takes the existing credit checks, so moving one onto a customer on hold is refused at that update. A quote is never refused on credit grounds; conversion checks everything.
@@ -38,6 +39,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **The `PaymentOnDelivery` model** (#248). The current system dropped `payment_on_delivery` in mictlanix/mbe#84, and nothing in this API read or wrote it. The model, its data-dictionary section and its schema-dump block are gone. The receipt's "Contraentrega" label, for payments collected without a cash session, is unaffected.
 
 ### Added
+- **Commissions with stable history** (mictlanix/mbe-roadmap#32, mictlanix/mbe-roadmap#33, spec 025).
+  - **Settings:** `/commissions/labels`, `/participations`, `/agents`, `/agent-rates` and `/product-labels` maintain the shared commission tables. The current system had no screen for them. A product's label can now be changed, and each change writes an `incidence` with the new source **12 (Commission)**.
+  - **Periods:** `/commissions/periods/{year}/{month}` computes a month and `…/close` freezes it. A closed month's lines keep their agent, rates and names copied, so reassigning a customer or changing a rate never changes a closed month, which it does in the current system's live report. Months close in sequence, only the latest closed month can be reopened, and `…/pay` makes a month final.
+  - **Two schemes per agent:**
+    - **1:** the full commission in the month the order is paid (the current system's rule, and the default);
+    - **2:** proportional to what has been paid, net of refunds, as of each month's end, with reversals clawed back.
+
+    In both schemes a refund is charged once, to the agent who was paid, and no line ever earns more than its full commission.
+  - **Who earns:** as in the current system after mbe PR #58: CLIENTE VITALICIO when the order's and the customer's salesperson coincide, otherwise CANALIZACIÓN and ATENCIÓN EN CAMPO.
+  - **Access:** every route requires SystemObject 112 (CommissionsBySalesPerson). The current system's report asks only for a login.
+  - **Upgrade note:** apply migration 023, which adds `commission_agent.scheme` (every agent starts on scheme 1), the `commission_period` and `commission_period_line` tables, and the `balance_zeroed_time` backfill. The first month you close starts the chain: earlier months can no longer be closed.
 - **Quotation PDF and email** (mictlanix/mbe-roadmap#30, spec 024).
   - **Document:** `GET /sales-quotes/{id}/document` renders the cotización as a letter-size PDF (`cotizacion-{id:08d}.pdf`) for a quote in any state, through spec 019's pipeline. It now prints the payment terms, which the current system's quote left off. Requires sales quotes Read.
   - **Email:** `POST /sales-quotes/{id}/email` sends a confirmed quote's PDF to 1–10 addresses, synchronously. The response says whether it was sent:

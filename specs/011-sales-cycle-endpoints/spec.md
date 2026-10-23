@@ -682,6 +682,7 @@ order.
   payout MUST be attributed to the open session so it appears in that session's close.
 - **FR-065a**: `balance_zeroed_time` MUST NOT be written by the refund path. It records a supervisor
   manually zeroing a remaining balance, which is a separate act on an unpaid order.
+  - **Corrected by spec 025:** the column records when payments brought the balance to zero, which the current system stamps in every payment path, not only a supervisor's act. Payments now stamp it (`customer_payment_service._sync_paid_flag`), because it dates an order's commission month. The refund path still never writes it.
 - **FR-066**: Users MUST be able to cancel a refund that is not completed.
 
 #### Credit notes, verification and corrections

@@ -599,6 +599,8 @@ Calculated commissions per salesperson from `commissions_history`, showing earne
 ### Key Table
 - `commissions_history`
 
+> **Correction (spec 025).** The current system's report does not read `commissions_history`, which is a stale snapshot that nothing reads or writes. It recomputes from live sales on every run, and it has no confirmed or paid workflow. In the new MBE this report reads `GET /api/v1/commissions/periods/{year}/{month}?salesperson=`: the stored lines once a month is closed, the live computation while it is open, with totals per agent and label. The rules are in `docs/specs/02-sales.md` §10.
+
 ---
 
 ## 38. Download CSV Files
