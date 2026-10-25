@@ -319,6 +319,22 @@ A clerk changes the recipient, series, CFDI usage, payment terms and form, issue
 
 The first run matched 48 of 55. The other 7 differed only in number formatting: `75.0` against `75.000000`, and `1250` against `1250.00`. The builder now keeps C#'s decimal scale (research R5), and `tests/unit/test_cfdi_invoice.py` pins both cases with the invoices that showed them (ACH6216 and GR4776).
 
+### SC-003: concurrent confirms on MariaDB (2026-10-25)
+
+Run on the test instance (branch at 9537942) against mbe_dev, through the API, in the throwaway series ZZ027 of DRA2110148A1:
+- **Run 1:** 20 drafts confirmed concurrently. All returned 200 with serials 1–20: no duplicates, no gaps.
+- **Run 2:** 5 valid drafts and 1 empty draft, confirmed concurrently. The 5 got 21–25. The empty one was refused with 422 "The invoice has no lines" and stayed a draft with no serial, so a failed confirm consumed no number.
+
+### SC-004: the clerk's flow on the test instance (2026-10-25)
+
+In the same series, as customer 11115 / FOVS821123TS0 from store 51:
+1. An invoice was created and orders 340453 and 339363 added: 7 lines at their remaining quantities. One quantity was changed, and a 07 relation was added to stamped invoice A5229.
+2. Confirm sealed it as ZZ027-26, total 39,475.00. The stored XML validates against SAT's CFDI 4.0 schema, its seal verifies with the issuer's certificate, and it carries `TipoRelacion` 07.
+3. Reopen returned it to draft with serial 26. The issue date was changed, and confirm resealed it with serial 26 and the new date.
+4. A snapshot of the non-fiscal tables was identical before and after: counts and latest modification times of sales orders and their lines, refunds, products, prices, customers, recipients, certificates, delivery orders and payments.
+
+**Cleanup**, approved: the 27 documents, 32 lines, 1 relation, 26 XML rows and the ZZ027 batch were deleted in one counted transaction. A recount found none left.
+
 ## Out of Scope
 
 - Stamping with a PAC (#46), cancellation (#51), the payment complement (#53), credit notes and advance payments applied (#55), email and QR (#50), and the UI.

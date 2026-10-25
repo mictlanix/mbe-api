@@ -300,9 +300,9 @@ description: "Task list for CFDI invoices up to a sealed document"
   - **Changed:** fiscal document `status` gains `sealed`.
 - [X] T028 Run `uv run ruff check app/ migrations/ tests/` and `uv run pytest -q`. Everything must be green. Fix anything this feature broke, including `tests/integration/test_no_endpoint_returns_500.py` for the new routes.
 - [X] T029 Write the SC-002 parity script in the scratchpad, following quickstart §3, and run it read-only on xolotl. Selecting the samples and the stored values needs the branch deployed (T030) or the code copied to `/tmp`. Record the samples, the result and any differences in the spec's verification notes, in `specs/027-cfdi-invoices-sealing/spec.md` under a "Verification" section.
-- [ ] T030 **Ask the user first.** Deploy the branch to the xolotl test instance (quickstart §2): as `mictlanix@`, check out `027-cfdi-invoices-sealing`, run `uv sync`, then, as root, `systemctl restart mbe-api-test`.
-- [ ] T031 **Ask the user first; it writes to mbe_dev.** Run SC-003 (quickstart §4): 20 concurrent confirms in a throwaway series `ZZ027`, plus the failure run. Then do the cleanup, listing each step and getting approval before it runs. Record the outcome in spec.md "Verification".
-- [ ] T032 **Ask the user first.** Run SC-004 (quickstart §5) on the test instance, with the before and after snapshots. Record the outcome in spec.md "Verification", and remove `/tmp/mbeq.py` and any scratch scripts from xolotl.
+- [X] T030 **Ask the user first.** Deploy the branch to the xolotl test instance (quickstart §2): as `mictlanix@`, check out `027-cfdi-invoices-sealing`, run `uv sync`, then, as root, `systemctl restart mbe-api-test`.
+- [X] T031 **Ask the user first; it writes to mbe_dev.** Run SC-003 (quickstart §4): 20 concurrent confirms in a throwaway series `ZZ027`, plus the failure run. Then do the cleanup, listing each step and getting approval before it runs. Record the outcome in spec.md "Verification".
+- [X] T032 **Ask the user first.** Run SC-004 (quickstart §5) on the test instance, with the before and after snapshots. Record the outcome in spec.md "Verification", and remove `/tmp/mbeq.py` and any scratch scripts from xolotl.
 
 ---
 
