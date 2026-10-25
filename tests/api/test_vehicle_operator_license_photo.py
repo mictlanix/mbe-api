@@ -270,3 +270,16 @@ async def test_deleting_the_operator_removes_the_photo_file(dirs) -> None:
 
     assert r.status_code == 204
     assert _files(dirs.photos) == []
+
+
+@pytest.mark.parametrize(
+    'path',
+    [
+        '/api/v1/vehicle-operators/{vehicle_operator_id}/license-photo',
+        '/api/v1/delivery-orders/{delivery_order_id}/proof/image',
+    ],
+)
+def test_image_routes_declare_a_png_body(path: str) -> None:
+    # Undeclared, these advertised `application/json` and the generated client lost the bytes (#257)
+    content = app.openapi()['paths'][path]['get']['responses']['200']['content']
+    assert content == {'image/png': {'schema': {'type': 'string', 'format': 'binary'}}}
