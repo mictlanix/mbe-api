@@ -2,8 +2,8 @@
   "workflow": "speckit",
   "specName": "CFDI Invoices up to a Sealed Document",
   "branch": "027-cfdi-invoices-sealing",
-  "currentStep": "plan",
-  "status": "planned",
+  "currentStep": "tasks",
+  "status": "ready-to-implement",
   "history": [
     {
       "step": "specify",
@@ -32,6 +32,20 @@
       "kind": "complete",
       "by": "extension",
       "at": "2026-10-25T20:08:40.784Z"
+    },
+    {
+      "step": "tasks",
+      "substep": null,
+      "kind": "start",
+      "by": "extension",
+      "at": "2026-10-25T20:09:22.758Z"
+    },
+    {
+      "step": "tasks",
+      "substep": null,
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-10-25T20:11:08.981Z"
     }
   ]
 }
