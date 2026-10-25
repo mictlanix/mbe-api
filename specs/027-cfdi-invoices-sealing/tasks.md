@@ -127,6 +127,7 @@ description: "Task list for CFDI invoices up to a sealed document"
 - [ ] T011 [P] [US1] Add `tests/integration/test_invoice_flow.py` on the SQLite schema, using `seed_baseline`, `seed_sales_order` and `seed_fiscal_document`, plus a seeded issuer, Invoice batch, recipient link and an active certificate from `_make_csd`.
   - **Create (R7):**
     - the defaults apply;
+    - a customer with a credit limit but 0 credit days defaults to IMMEDIATE (PUE); one with both defaults to NET_D (PPD);
     - XAXX010101000 takes the facility's `location` as postal code;
     - a recipient not linked to the customer gives 422;
     - no Invoice batch gives 422.
@@ -148,7 +149,7 @@ description: "Task list for CFDI invoices up to a sealed document"
     - a second confirm of a sealed invoice gives 409;
     - a confirm that fails after the serial step leaves no serial and no XML.
   - Edits to a sealed document give 409.
-- [ ] T012 [P] [US1] Add `tests/api/test_invoices.py`, with the services patched as in `tests/api/test_fiscal_documents.py`. Cover these US1 routes from the contract: `POST /fiscal-documents`, `POST /{id}/sales-orders`, `PUT` and `DELETE /{id}/lines/{line_id}`, and `POST /{id}/confirm`.
+- [ ] T012 [P] [US1] Extend `tests/api/test_fiscal_documents.py` (spec 020's routes): `GET /fiscal-documents?status=sealed` returns 200 and passes `sealed` to the service; the detail returns `customer`, `facility`, `relations` (type as `"07"`, legacy `'0'` as null) and each line's `product` and `order_detail`. Then add `tests/api/test_invoices.py`, with the services patched as in `tests/api/test_fiscal_documents.py`. Cover these US1 routes from the contract: `POST /fiscal-documents`, `POST /{id}/sales-orders`, `PUT` and `DELETE /{id}/lines/{line_id}`, and `POST /{id}/confirm`.
   - Each route: the happy path with status code and body shape; 401 without a token; 403 without privilege 23 at the right level (Create for POST, Update for the rest); 404 for a missing document.
   - Service errors map to 409 and 422 with the contract's detail texts.
 
@@ -161,7 +162,7 @@ description: "Task list for CFDI invoices up to a sealed document"
     - the issuer defaults to `facility.taxpayer`;
     - the regime name comes from the SAT tax regime;
     - the customer and recipient link go through the `customer_taxpayer` table;
-    - payment terms come from `customer.credit_limit > 0`.
+    - payment terms are NET_D only when `customer.credit_days > 0` and `customer.credit_limit > 0`, as the current system's `HasCredit` (`Model/Customer.cs:79`).
   - **`order_line_remaining(db, detail_ids, exclude_document)`** runs two queries, invoice events and refund events (R6). Invoice events are completed or sealed, not cancelled, and not the current document; sealed means an `EXISTS` on the XML row.
   - **`add_sales_order(db, current, document, sales_order_id)`** applies R8.
   - **`update_line(...)`** and **`remove_line(...)`** apply FR-011, with the remaining check for order lines.
@@ -216,7 +217,7 @@ description: "Task list for CFDI invoices up to a sealed document"
 
 **Independent Test:** create a series, use it on an invoice, then try to rename it (409), change its template (200) and delete it (409).
 
-- [ ] T019 [P] [US3] Add `tests/api/test_taxpayer_batches.py`. It runs against the integration client and SQLite schema, as `tests/integration` does; if the API test style requires patching, split it into service tests in `tests/integration/test_taxpayer_batches.py`.
+- [ ] T019 [P] [US3] Write the batch tests in two files. `tests/api/test_taxpayer_batches.py` patches `taxpayer_batch_service`, as `tests/api/test_fiscal_documents.py` does: each route's success case, 401, 403 for privilege 24 at the right level, 404, and the 409 and 422 mapping (constitution: endpoint tests live in `tests/api/`). `tests/integration/test_taxpayer_batches.py` covers the service rules on the SQLite schema:
   - **List:** batches ordered by series, with `in_use`.
   - **Create:**
     - 201;
@@ -228,7 +229,7 @@ description: "Task list for CFDI invoices up to a sealed document"
     - a series or type change while in use gives 409;
     - any change is allowed when not in use.
   - **Delete:** in use gives 409; otherwise 204.
-  - **Errors:** an unknown issuer or batch gives 404; no token gives 401; missing privilege 24 at the right level gives 403.
+  - **Not found:** an unknown issuer, or a batch of another issuer, is reported as not found.
   - **Template round trip:** a legacy single-quoted template reads back parsed, and a saved template is valid JSON that `cfdi.batch_settings` reads.
 - [ ] T020 [US3] Implement `app/services/taxpayer_batch_service.py`: `list_batches`, `get_batch`, `create_batch`, `update_batch`, `delete_batch` and `in_use(db, issuer, batch)`. The template is serialized to and from the legacy JSON keys `Name`, `Logo`, `HeaderHeight`, `FooterHeight` and `ExtraInfo`. Parsing reuses the tolerant parsing in `cfdi.batch_settings`.
 - [ ] T021 [US3] Add the four `/{rfc}/batches` routes to `app/api/v1/endpoints/taxpayer_issuers.py`, gated on `SystemObject.TAXPAYERS` with READ, CREATE, UPDATE and DELETE. A duplicate series maps to 409 via the existing integrity-error handling or an explicit check. Make T019 pass.

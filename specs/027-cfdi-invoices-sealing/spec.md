@@ -231,6 +231,7 @@ A clerk changes the recipient, series, CFDI usage, payment terms and form, issue
 - **FR-008**: The header fields MUST be editable on a draft: recipient, batch (of the same issuer and type Invoice), CFDI usage, payment terms, payment form, issue date, issuing store, reference and comment.
   - PPD MUST force payment form 99.
   - Changing the issuing store MUST keep the current system's separate permission.
+  - Once an invoice has a serial (it was sealed and reopened), its batch MUST NOT change (409), because the serial belongs to that series.
 - **FR-009**: The issue date MUST be no more than 72 hours before now and not in the future, both when it is set and at confirm.
 - **FR-010**: A draft MUST accept relations to stamped documents of the same issuer and recipient, and allow removing them. As in the current system:
   - type 04 (substitution) relates a cancelled invoice;

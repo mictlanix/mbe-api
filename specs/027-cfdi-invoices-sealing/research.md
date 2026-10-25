@@ -214,7 +214,7 @@ FR-010 is corrected to say this.
 | `taxpayer_postal_code` | the recipient's postal code, or `facility.location` for XAXX010101000 | |
 | `type` | 0 (Invoice) | |
 | `currency`, `exchange_rate` | MXN, 1 | |
-| `payment_terms` | NET_D when `customer.credit_limit > 0`, else IMMEDIATE | `HasCredit` |
+| `payment_terms` | NET_D when `customer.credit_days > 0` and `customer.credit_limit > 0`, else IMMEDIATE | `HasCredit` (`Model/Customer.cs:79`) |
 | `payment_method` | 99 | |
 | `usage` | G01 | |
 | `completed`, `cancelled` | false | |
