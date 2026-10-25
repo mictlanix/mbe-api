@@ -12,7 +12,7 @@ from app.models.supplier import (
     supplier_contact,
 )
 from app.schemas.supplier import SupplierCreate, SupplierUpdate
-from app.services.references import assert_not_referenced
+from app.services.references import assert_not_referenced, assert_unique
 
 
 async def _get_links(
@@ -169,6 +169,7 @@ async def get_supplier_detail(db: AsyncSession, supplier_id: int) -> Supplier | 
 
 
 async def create_supplier(db: AsyncSession, data: SupplierCreate) -> Supplier:
+    await assert_unique(db, Supplier, Supplier.code, data.code, label='Supplier code')
     supplier = Supplier(
         code=data.code,
         name=data.name,
@@ -194,6 +195,14 @@ async def create_supplier(db: AsyncSession, data: SupplierCreate) -> Supplier:
 
 async def update_supplier(db: AsyncSession, supplier: Supplier, data: SupplierUpdate) -> Supplier:
     if data.code is not None:
+        await assert_unique(
+            db,
+            Supplier,
+            Supplier.code,
+            data.code,
+            exclude_pk=supplier.supplier_id,
+            label='Supplier code',
+        )
         supplier.code = data.code
     if data.name is not None:
         supplier.name = data.name
