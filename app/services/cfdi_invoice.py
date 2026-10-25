@@ -76,6 +76,8 @@ class InvoiceData:
     lines: Sequence[InvoiceLineData]
     relation_type: str | None = None
     relation_uuids: Sequence[str] = ()
+    #: `I` for an invoice; `E` for a credit note, built the same way (spec 028, research R4).
+    voucher_type: str = 'I'
 
 
 @dataclass(frozen=True)
@@ -169,7 +171,7 @@ def build(data: InvoiceData, *, certificate_number: str, certificate: str) -> et
         'Descuento': _money(discount) if discount > 0 else None,
         'Moneda': 'MXN',
         'Total': _money(sum((a.total for _, a in concepts), Decimal(0))),
-        'TipoDeComprobante': 'I',
+        'TipoDeComprobante': data.voucher_type,
         'Exportacion': '01',
         'MetodoPago': 'PUE' if data.payment_terms == PaymentTerms.IMMEDIATE else 'PPD',
         'LugarExpedicion': data.issued_location,
@@ -291,6 +293,27 @@ def serialize(root: etree._Element) -> str:
     return '<?xml version="1.0" encoding="utf-8"?>' + etree.tostring(root, encoding='unicode')
 
 
+def seal_root(
+    root: etree._Element,
+    *,
+    certificate_number: str,
+    certificate_data: bytes,
+    key_data: bytes,
+    key_password: bytes,
+) -> str:
+    """Seal any built CFDI 4.0, invoice or payment receipt, and return it as text.
+
+    Sets `NoCertificado` and `Certificado`, signs the original string and sets `Sello`. Raises
+    ValueError when the key does not open.
+    """
+    key = _load_key(key_data, key_password)
+    root.set('NoCertificado', certificate_number)
+    root.set('Certificado', base64.b64encode(certificate_data).decode('ascii'))
+    signature = key.sign(original_string(root).encode('utf-8'), padding.PKCS1v15(), hashes.SHA256())
+    root.set('Sello', base64.b64encode(signature).decode('ascii'))
+    return serialize(root)
+
+
 def seal(
     data: InvoiceData,
     *,
@@ -300,15 +323,14 @@ def seal(
     key_password: bytes,
 ) -> str:
     """The sealed CFDI 4.0 XML as text. Raises ValueError when the key does not open."""
-    key = _load_key(key_data, key_password)
-    root = build(
-        data,
+    root = build(data, certificate_number=certificate_number, certificate='')
+    return seal_root(
+        root,
         certificate_number=certificate_number,
-        certificate=base64.b64encode(certificate_data).decode('ascii'),
+        certificate_data=certificate_data,
+        key_data=key_data,
+        key_password=key_password,
     )
-    signature = key.sign(original_string(root).encode('utf-8'), padding.PKCS1v15(), hashes.SHA256())
-    root.set('Sello', base64.b64encode(signature).decode('ascii'))
-    return serialize(root)
 
 
 async def seal_async(
@@ -322,6 +344,24 @@ async def seal_async(
     return await asyncio.to_thread(
         seal,
         data,
+        certificate_number=certificate_number,
+        certificate_data=certificate_data,
+        key_data=key_data,
+        key_password=key_password,
+    )
+
+
+async def seal_root_async(
+    root: etree._Element,
+    *,
+    certificate_number: str,
+    certificate_data: bytes,
+    key_data: bytes,
+    key_password: bytes,
+) -> str:
+    return await asyncio.to_thread(
+        seal_root,
+        root,
         certificate_number=certificate_number,
         certificate_data=certificate_data,
         key_data=key_data,

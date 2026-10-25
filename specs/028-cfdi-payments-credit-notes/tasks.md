@@ -32,22 +32,22 @@ No commit carries a Co-Authored-By line. Delegated test-writing goes to agents w
 
 ## Phase 2: Foundational (blocks every story)
 
-- [ ] T004 Extend `tests/unit/test_cfdi_invoice.py` first, so it fails:
+- [X] T004 Extend `tests/unit/test_cfdi_invoice.py` first, so it fails:
   - **Credit note XML:** an `InvoiceData` with `voucher_type='E'`, `relation_type='01'` and one UUID builds `TipoDeComprobante="E"`, `MetodoPago="PUE"` and `CfdiRelacionados TipoRelacion="01"`. It passes `assert_valid_cfdi40` and its seal verifies.
   - **Shared sealing:** `cfdi_invoice.seal_root(root, certificate_number=…, certificate_data=…, key_data=…, key_password=…)` seals any built root, and `seal(...)` gives the same result as before.
-- [ ] T005 In `app/services/cfdi_invoice.py`:
+- [X] T005 In `app/services/cfdi_invoice.py`:
   - add `voucher_type: str = 'I'` to `InvoiceData` and write it to `TipoDeComprobante`;
   - split `seal` into `seal_root(root, …) -> str`, which sets `NoCertificado`/`Certificado`, computes the original string and signs, with `seal(data, …)` as `build` + `seal_root`;
   - add `seal_root_async`.
 
   Make T004 pass with the existing tests unchanged.
-- [ ] T006 Add the request and response schemas to `app/schemas/fiscal.py`, per the contract:
+- [X] T006 Add the request and response schemas to `app/schemas/fiscal.py`, per the contract:
   - **requests:** `PaymentReceiptCreate`, `CreditNoteCreate {invoice}`, `PaidInvoiceAdd {invoice, amount?}`, `PaidInvoiceUpdate {amount}`, `InvoiceLineCopy {line, quantity?}`, `FiscalEmailRequest {to}` (reuse `QuoteEmailRequest`'s validator by subclassing or sharing it), `FiscalEmailResponse`;
   - **`InvoiceUpdate`:** gains `payment_date: date | None` (≤ today), `payment_amount` (> 0), `payment_reference` (≤ 50) and `ordering_bank` (≤ 25);
   - **`FiscalDocumentResponse`:** gains `payment_date`, `payment_amount`, `payment_reference`, `customer_payment` and `paid_invoices: list[PaidInvoiceResponse] = []`.
 
   Write the static-rule tests first in `tests/unit/test_fiscal_schemas.py`, one rejected value per rule.
-- [ ] T007 Add type dispatch to `app/services/invoice_service.py`. First write tests in `tests/integration/test_invoice_flow.py`:
+- [X] T007 Add type dispatch to `app/services/invoice_service.py`. First write tests in `tests/integration/test_invoice_flow.py`:
   - `_require_type(document, *types)` gives 409 "Not available for this document type";
   - spec 027's invoice-only operations (`add_sales_order`, `add_relation`) refuse types 100 and 200;
   - `update_header` refuses invoice-only fields on a receipt and receipt fields on an invoice (422);

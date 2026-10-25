@@ -377,3 +377,48 @@ def test_rounding_never_adds_decimal_places() -> None:
     [summary] = _attrs(root, 'cfdi:Impuestos/cfdi:Traslados/cfdi:Traslado')
     assert (summary['Base'], summary['Importe']) == ('1250', '200.00')
     assert root.find('cfdi:Impuestos', _NS).get('TotalImpuestosTrasladados') == '200.00'
+
+
+# ── Credit notes and shared sealing (spec 028) ────────────────────────────────
+
+
+def test_a_credit_note_is_an_egreso_related_with_type_01() -> None:
+    certificate_data, key_data = _make_csd()
+    data = replace(
+        _fixture_data(),
+        voucher_type='E',
+        relation_type='01',
+        relation_uuids=('1F0E7E4A-9F5B-4E59-9A4B-2B7C3A1D2E01',),
+        lines=(_line(quantity=Decimal('1.0000')),),
+    )
+
+    xml = cfdi.seal(
+        data,
+        certificate_number=_CERTIFICATE_NUMBER,
+        certificate_data=certificate_data,
+        key_data=key_data,
+        key_password=_PASSWORD,
+    )
+
+    assert_valid_cfdi40(xml)
+    root = etree.fromstring(xml.encode('utf-8'))
+    assert (root.get('TipoDeComprobante'), root.get('MetodoPago')) == ('E', 'PUE')
+    assert root.find('cfdi:CfdiRelacionados', _NS).get('TipoRelacion') == '01'
+
+
+def test_seal_root_seals_any_built_document() -> None:
+    certificate_data, key_data = _make_csd()
+    keys = {
+        'certificate_number': _CERTIFICATE_NUMBER,
+        'certificate_data': certificate_data,
+        'key_data': key_data,
+        'key_password': _PASSWORD,
+    }
+    root = cfdi.build(_fixture_data(), certificate_number='', certificate='')
+
+    xml = cfdi.seal_root(root, **keys)
+
+    assert xml == cfdi.seal(_fixture_data(), **keys)
+    sealed = etree.fromstring(xml.encode('utf-8'))
+    assert sealed.get('NoCertificado') == _CERTIFICATE_NUMBER
+    assert base64.b64decode(sealed.get('Certificado')) == certificate_data

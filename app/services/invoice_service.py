@@ -120,21 +120,72 @@ def _require_draft(document: FiscalDocument) -> None:
         raise _error(status.HTTP_409_CONFLICT, 'Fiscal document is not a draft')
 
 
+def _require_type(document: FiscalDocument, *types: FiscalDocumentType) -> None:
+    if document.type not in types:
+        raise _error(status.HTTP_409_CONFLICT, 'Not available for this document type')
+
+
+#: Header fields each document type takes (spec 028, research R7). A receipt keeps its ordering
+#: bank in `reference`, as legacy does, so it does not take `reference` itself.
+_HEADER_FIELDS = {
+    FiscalDocumentType.INVOICE: {
+        'recipient',
+        'batch',
+        'usage',
+        'payment_terms',
+        'payment_method',
+        'issued',
+        'facility',
+        'reference',
+        'comment',
+    },
+    FiscalDocumentType.CREDIT_NOTE: {'payment_method', 'usage', 'issued', 'reference', 'comment'},
+    FiscalDocumentType.PAYMENT_RECEIPT: {
+        'payment_date',
+        'payment_amount',
+        'payment_method',
+        'payment_reference',
+        'ordering_bank',
+        'issued',
+        'comment',
+    },
+}
+
+_SERIES_NAMES = {
+    FiscalDocumentType.INVOICE: 'invoice',
+    FiscalDocumentType.CREDIT_NOTE: 'credit note',
+    FiscalDocumentType.PAYMENT_RECEIPT: 'payment receipt',
+}
+
+
 def _touch(document: FiscalDocument, current: CurrentUser) -> None:
     document.updater = current.employee_id
     document.modification_time = local_now()
 
 
-async def _invoice_batches(db: AsyncSession, issuer: str) -> list[TaxpayerBatch]:
+async def _batches_of(
+    db: AsyncSession, issuer: str, type_: FiscalDocumentType
+) -> list[TaxpayerBatch]:
     query = (
         select(TaxpayerBatch)
-        .where(
-            TaxpayerBatch.taxpayer == issuer,
-            TaxpayerBatch.type == FiscalDocumentType.INVOICE,
-        )
+        .where(TaxpayerBatch.taxpayer == issuer, TaxpayerBatch.type == type_)
         .order_by(TaxpayerBatch.taxpayer_batch_id)
     )
     return list((await db.execute(query)).scalars())
+
+
+async def _invoice_batches(db: AsyncSession, issuer: str) -> list[TaxpayerBatch]:
+    return await _batches_of(db, issuer, FiscalDocumentType.INVOICE)
+
+
+async def default_batch_for(
+    db: AsyncSession, issuer: str, facility: Facility, type_: FiscalDocumentType
+) -> str:
+    """The store's default series when it is one of the issuer's of this type, else the first."""
+    batch = default_batch(facility.default_batch, await _batches_of(db, issuer, type_))
+    if batch is None:
+        raise _unprocessable(f'The issuer has no {_SERIES_NAMES[type_]} series')
+    return batch
 
 
 async def _linked_recipient(db: AsyncSession, customer: int, rfc: str) -> TaxpayerRecipient:
@@ -310,6 +361,7 @@ async def add_sales_order(
     db: AsyncSession, current: CurrentUser, document: FiscalDocument, sales_order_id: int
 ) -> None:
     _require_draft(document)
+    _require_type(document, FiscalDocumentType.INVOICE)
     order = await db.get(SalesOrder, sales_order_id)
     if order is None:
         raise _error(status.HTTP_404_NOT_FOUND, 'Sales order not found')
@@ -629,9 +681,19 @@ async def confirm(db: AsyncSession, current: CurrentUser, document: FiscalDocume
 async def update_header(
     db: AsyncSession, current: CurrentUser, document: FiscalDocument, data: InvoiceUpdate
 ) -> None:
-    """Only the fields sent change. The route checks the store privilege (103) for `facility`."""
+    """Only the fields sent change. The route checks the store privilege (103) for `facility`.
+
+    Each document type takes its own fields (`_HEADER_FIELDS`); a receipt's payment form must be
+    the actual one, never 99.
+    """
     _require_draft(document)
     sent = data.model_fields_set
+    foreign = sorted(sent - _HEADER_FIELDS[FiscalDocumentType(document.type)])
+    if foreign:
+        raise _unprocessable(f'Not a field of this document type: {", ".join(foreign)}')
+    receipt = document.type == FiscalDocumentType.PAYMENT_RECEIPT
+    if receipt and data.payment_method == PaymentMethod.TO_BE_DEFINED:
+        raise _unprocessable('A payment receipt needs the actual payment form')
 
     if 'facility' in sent:
         facility = await db.get(Facility, data.facility) if data.facility is not None else None
@@ -665,7 +727,7 @@ async def update_header(
         document.payment_terms = data.payment_terms
     if 'payment_method' in sent and data.payment_method is not None:
         document.payment_method = data.payment_method
-    if document.payment_terms == PaymentTerms.NET_D:
+    if document.type == FiscalDocumentType.INVOICE and document.payment_terms == PaymentTerms.NET_D:
         # PPD: the form of payment is not known yet (SAT's rule, and legacy's).
         document.payment_method = PaymentMethod.TO_BE_DEFINED
     if 'issued' in sent:
@@ -678,6 +740,14 @@ async def update_header(
         document.reference = data.reference
     if 'comment' in sent:
         document.comment = data.comment
+    if 'payment_date' in sent:
+        document.payment_date = data.payment_date
+    if 'payment_amount' in sent:
+        document.payment_amount = data.payment_amount
+    if 'payment_reference' in sent:
+        document.payment_reference = data.payment_reference
+    if 'ordering_bank' in sent:
+        document.reference = data.ordering_bank
     _touch(document, current)
     await db.commit()
 
@@ -701,6 +771,7 @@ async def add_relation(
     db: AsyncSession, current: CurrentUser, document: FiscalDocument, data: InvoiceRelationAdd
 ) -> None:
     _require_draft(document)
+    _require_type(document, FiscalDocumentType.INVOICE)
     target = await db.get(FiscalDocument, data.relation)
     if target is None:
         raise _error(status.HTTP_404_NOT_FOUND, 'Related document not found')

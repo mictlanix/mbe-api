@@ -7,7 +7,7 @@ All routes are under `/api/v1` and require a bearer token: 401 without one, 403 
 | Method | Route | Privilege | Notes |
 |---|---|---|---|
 | POST | `/fiscal-documents/payment-receipts` | Create (23) | 201. Body `PaymentReceiptCreate`. With `customer_payment`, it copies the payment and proposes relations (R7) |
-| PUT | `/fiscal-documents/{id}` | Update (23) | spec 027's header route. On a receipt it accepts `payment_date`, `payment_amount`, `payment_method`, `payment_reference`, `ordering_bank`, `issued`, `reference`, `comment` |
+| PUT | `/fiscal-documents/{id}` | Update (23) | spec 027's header route. On a receipt it accepts `payment_date`, `payment_amount`, `payment_method`, `payment_reference`, `ordering_bank` (stored in `reference`, so `reference` itself is refused), `issued`, `comment` |
 | POST | `/fiscal-documents/{id}/paid-invoices` | Update (23) | Body `{invoice: int, amount?: Decimal}`. The amount defaults to `min(balance, unassigned)` |
 | PUT | `/fiscal-documents/{id}/paid-invoices/{relation_id}` | Update (23) | Body `{amount: Decimal}` |
 | DELETE | `/fiscal-documents/{id}/paid-invoices/{relation_id}` | Update (23) | |

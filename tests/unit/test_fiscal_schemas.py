@@ -6,10 +6,16 @@ import pytest
 from pydantic import ValidationError
 
 from app.schemas.fiscal import (
+    CreditNoteCreate,
     FiscalDocumentRelationResponse,
+    FiscalEmailRequest,
+    InvoiceLineCopy,
     InvoiceLineUpdate,
     InvoiceRelationAdd,
     InvoiceUpdate,
+    PaidInvoiceAdd,
+    PaidInvoiceUpdate,
+    PaymentReceiptCreate,
     TaxpayerBatchCreate,
     relation_code,
 )
@@ -108,3 +114,53 @@ def test_stored_relation_types_read_as_sat_codes(stored: str | None, code: str |
         }
     )
     assert response.type == code
+
+
+# ── Payment receipts, credit notes and email (spec 028) ───────────────────────
+
+
+@pytest.mark.parametrize(
+    'body',
+    [
+        {'payment_amount': '0'},
+        {'payment_amount': '-5'},
+        {'payment_amount': '1.001'},
+        {'payment_reference': 'x' * 51},
+        {'ordering_bank': 'x' * 26},
+        {'payment_date': '2999-01-01'},
+    ],
+)
+def test_receipt_header_rejects(body: dict) -> None:
+    with pytest.raises(ValidationError):
+        InvoiceUpdate.model_validate(body)
+
+
+def test_receipt_header_keeps_only_the_fields_sent() -> None:
+    update = InvoiceUpdate.model_validate({'payment_date': '2026-10-01', 'payment_amount': '10.5'})
+    assert update.model_fields_set == {'payment_date', 'payment_amount'}
+
+
+@pytest.mark.parametrize(
+    ('schema', 'body'),
+    [
+        (PaidInvoiceAdd, {'invoice': 1, 'amount': '0'}),
+        (PaidInvoiceAdd, {'amount': '5'}),
+        (PaidInvoiceUpdate, {'amount': '-1'}),
+        (PaidInvoiceUpdate, {}),
+        (InvoiceLineCopy, {'line': 1, 'quantity': '0'}),
+        (CreditNoteCreate, {}),
+        (PaymentReceiptCreate, {'customer': 1}),
+        (FiscalEmailRequest, {'to': []}),
+        (FiscalEmailRequest, {'to': ['not-an-address']}),
+        (FiscalEmailRequest, {'to': [f'a{i}@x.mx' for i in range(11)]}),
+    ],
+)
+def test_receipt_credit_note_and_email_bodies_reject(schema: type, body: dict) -> None:
+    with pytest.raises(ValidationError):
+        schema.model_validate(body)
+
+
+def test_optional_amounts_and_quantities_default_to_none() -> None:
+    assert PaidInvoiceAdd.model_validate({'invoice': 7}).amount is None
+    assert InvoiceLineCopy.model_validate({'line': 3}).quantity is None
+    assert FiscalEmailRequest.model_validate({'to': [' A@x.mx', 'a@X.mx']}).to == ['A@x.mx']
