@@ -82,8 +82,8 @@ Both validate against SAT's CFDI 4.0 and Pagos 2.0 schemas, and both seals verif
   - **Pago:** `FechaPago` at `T00:00:00`; `NumOperacion` and `NomBancoOrdExt` only when set.
   - **Fixture parity:** rebuilding `tests/fixtures/cfdi/payment.xml` from its values gives the same original string, apart from the corrections listed in R3, if the fixture shows any. Read the fixture first.
   - **Seal:** a sealed receipt validates (CFDI 4.0 and Pagos 2.0), and its seal verifies.
-- [ ] T009 [P] [US1] Add pure balance tests to `tests/unit/test_invoice_service.py` (R2): `installment(earlier_count)`, `previous_balance(total, receipts, credit_notes)`, and the default amount `min(balance, unassigned)`.
-- [ ] T010 [P] [US1] Write `tests/integration/test_receipt_flow.py`. Seed a stamped PPD invoice with an XML whose `Total` and `Impuestos` are known, a type-200 batch, an active CSD, and `SatCfdiUsage` CP01. Cover:
+- [X] T009 [P] [US1] Add pure balance tests to `tests/unit/test_invoice_service.py` (R2): `installment(earlier_count)`, `previous_balance(total, receipts, credit_notes)`, and the default amount `min(balance, unassigned)`.
+- [X] T010 [P] [US1] Write `tests/integration/test_receipt_flow.py`. Seed a stamped PPD invoice with an XML whose `Total` and `Impuestos` are known, a type-200 batch, an active CSD, and `SatCfdiUsage` CP01. Cover:
   - **Create by hand:** defaults (CP01, IMMEDIATE, series); no series gives 422.
   - **Create from a customer payment:**
     - the date, amount, form and reference are copied;
@@ -118,7 +118,7 @@ Both validate against SAT's CFDI 4.0 and Pagos 2.0 schemas, and both seals verif
   - `invoice_transfers(xml) -> list[(factor, rate, base)]`, read from a stored invoice XML.
 
   Make T008 pass.
-- [ ] T013 [US1] Implement the receipts in `app/services/invoice_service.py`:
+- [X] T013 [US1] Implement the receipts in `app/services/invoice_service.py`:
   - the pure balance helpers;
   - `create_payment_receipt(db, current, data)`, applying R7 for the from-payment proposals;
   - `add_paid_invoice`, `update_paid_invoice`, `remove_paid_invoice`;
@@ -130,7 +130,7 @@ Both validate against SAT's CFDI 4.0 and Pagos 2.0 schemas, and both seals verif
   - `update_header` support for the receipt fields.
 
   Make T009 and T010 pass.
-- [ ] T014 [US1] Add the routes to `app/api/v1/endpoints/fiscal_documents.py`: `POST /payment-receipts` (Create 23) and `POST`, `PUT`, `DELETE /{id}/paid-invoices…` (Update 23). Extend `fiscal_document_service.get_document` to attach `paid_invoices` for receipts, with live values on drafts and stored values when sealed or issued. Make T011 pass.
+- [X] T014 [US1] Add the routes to `app/api/v1/endpoints/fiscal_documents.py`: `POST /payment-receipts` (Create 23) and `POST`, `PUT`, `DELETE /{id}/paid-invoices…` (Update 23). Extend `fiscal_document_service.get_document` to attach `paid_invoices` for receipts, with live values on drafts and stored values when sealed or issued. Make T011 pass.
 
 **Checkpoint:** US1 works end to end. This is the MVP.
 

@@ -96,3 +96,43 @@ def test_default_terms_follow_legacy_has_credit(
 )
 def test_issue_date_window(issued: datetime, ok: bool) -> None:
     assert svc.issue_date_ok(issued, now=datetime(2026, 10, 25, 12, 0)) is ok
+
+
+# ── Payment receipt balances (spec 028, research R2) ──────────────────────────
+
+
+@pytest.mark.parametrize(('earlier', 'expected'), [(0, 1), (1, 2), (4, 5)])
+def test_installment_follows_the_earlier_receipts(earlier: int, expected: int) -> None:
+    assert svc.installment(earlier) == expected
+
+
+@pytest.mark.parametrize(
+    ('total', 'paid', 'credited', 'expected'),
+    [
+        ('10000.00', '0', '0', '10000.00'),
+        ('10000.00', '4000.00', '0', '6000.00'),
+        ('10000.00', '4000.00', '1160.00', '4840.00'),
+        ('100.00', '100.00', '0', '0.00'),
+    ],
+)
+def test_previous_balance(total: str, paid: str, credited: str, expected: str) -> None:
+    assert svc.previous_balance(Decimal(total), Decimal(paid), Decimal(credited)) == Decimal(
+        expected
+    )
+
+
+@pytest.mark.parametrize(
+    ('balance', 'unassigned', 'expected'),
+    [
+        ('6000.00', '4000.00', '4000.00'),
+        ('3000.00', '4000.00', '3000.00'),
+        ('3000.00', None, '3000.00'),
+        ('3000.00', '0', '0'),
+        ('3000.00', '-5', '0'),
+    ],
+)
+def test_default_amount_is_the_smaller_of_balance_and_unassigned(
+    balance: str, unassigned: str | None, expected: str
+) -> None:
+    left = Decimal(unassigned) if unassigned is not None else None
+    assert svc.default_amount(Decimal(balance), left) == Decimal(expected)

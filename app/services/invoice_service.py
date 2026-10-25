@@ -9,7 +9,7 @@ Only drafts change. Every function takes a document loaded by
 """
 
 from collections import defaultdict
-from collections.abc import Iterable, Sequence
+from collections.abc import Awaitable, Callable, Iterable, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from decimal import Decimal
@@ -34,22 +34,36 @@ from app.models.fiscal import (
     TaxpayerIssuer,
 )
 from app.models.product import Product, ProductPrice
-from app.models.sales import CustomerRefund, CustomerRefundDetail, SalesOrder, SalesOrderDetail
+from app.models.sales import (
+    CustomerPayment,
+    CustomerRefund,
+    CustomerRefundDetail,
+    SalesOrder,
+    SalesOrderDetail,
+    SalesOrderPayment,
+)
 from app.models.sat_catalog import SatCfdiUsage, SatTaxRegime, SatUnitOfMeasurement
 from app.schemas.fiscal import (
     InvoiceCreate,
     InvoiceLineUpdate,
     InvoiceRelationAdd,
     InvoiceUpdate,
+    PaidInvoiceAdd,
+    PaidInvoiceUpdate,
+    PaymentReceiptCreate,
     relation_code,
 )
-from app.services import cfdi_invoice
+from app.services import cfdi_invoice, cfdi_payment
+from app.services import fiscal_document_service as fds
 
 #: The general public RFC: its postal code is the issuing store's (FR-004).
 GENERAL_PUBLIC = 'XAXX010101000'
 DEFAULT_USAGE = 'G01'
 CFDI_VERSION = Decimal('4.0')
 ISSUE_WINDOW = timedelta(hours=72)
+
+#: Seals the prepared document with the chosen certificate; returns the XML.
+SealBuilder = Callable[[TaxpayerCertificate], Awaitable[str]]
 
 INVOICE: Literal['invoice'] = 'invoice'
 REFUND: Literal['refund'] = 'refund'
@@ -234,29 +248,40 @@ async def _line_or_404(
 # ── Create (FR-003, FR-004; research R7) ──────────────────────────────────────
 
 
-async def create_invoice(db: AsyncSession, current: CurrentUser, data: InvoiceCreate) -> int:
+async def _new_document(
+    db: AsyncSession,
+    current: CurrentUser,
+    *,
+    type_: FiscalDocumentType,
+    customer_id: int,
+    recipient_rfc: str,
+    issuer_rfc: str | None,
+    batch: str | None,
+) -> tuple[FiscalDocument, Customer]:
+    """A draft of any type with the store, issuer, series and recipient copied (research R7).
+
+    Not added to the session: the caller sets its type's defaults first.
+    """
     if current.facility_id is None:
         raise _unprocessable('No facility is configured for your user')
     facility = await db.get(Facility, current.facility_id)
     if facility is None:
         raise _unprocessable('No facility is configured for your user')
-    issuer = await db.get(TaxpayerIssuer, data.issuer or facility.taxpayer)
+    issuer = await db.get(TaxpayerIssuer, issuer_rfc or facility.taxpayer)
     if issuer is None:
         raise _unprocessable('Taxpayer issuer not found')
-    customer = await db.get(Customer, data.customer)
+    customer = await db.get(Customer, customer_id)
     if customer is None:
         raise _error(status.HTTP_404_NOT_FOUND, 'Customer not found')
-    recipient = await _linked_recipient(db, customer.customer_id, data.recipient)
+    recipient = await _linked_recipient(db, customer.customer_id, recipient_rfc)
 
-    batches = await _invoice_batches(db, issuer.taxpayer_issuer_id)
-    if data.batch is not None:
-        if data.batch not in {b.batch for b in batches}:
-            raise _unprocessable('The series is not an invoice series of the issuer')
-        batch = data.batch
+    if batch is not None:
+        if batch not in {b.batch for b in await _batches_of(db, issuer.taxpayer_issuer_id, type_)}:
+            name = _SERIES_NAMES[type_]
+            article = 'an' if name[0] in 'aeiou' else 'a'
+            raise _unprocessable(f'The series is not {article} {name} series of the issuer')
     else:
-        batch = default_batch(facility.default_batch, batches)
-        if batch is None:
-            raise _unprocessable('The issuer has no invoice series')
+        batch = await default_batch_for(db, issuer.taxpayer_issuer_id, facility, type_)
     regime = await db.get(SatTaxRegime, issuer.regime)
 
     now = local_now()
@@ -270,7 +295,7 @@ async def create_invoice(db: AsyncSession, current: CurrentUser, data: InvoiceCr
         issuer_regime=issuer.regime,
         issuer_regime_name=regime.description if regime else None,
         customer=customer.customer_id,
-        type=FiscalDocumentType.INVOICE,
+        type=type_,
         facility=facility.facility_id,
         batch=batch,
         issued_at=facility.address,
@@ -280,7 +305,7 @@ async def create_invoice(db: AsyncSession, current: CurrentUser, data: InvoiceCr
         payment_method=PaymentMethod.TO_BE_DEFINED,
         exchange_rate=Decimal(1),
         currency=CurrencyCode.MXN,
-        payment_terms=default_terms(customer),
+        payment_terms=PaymentTerms.IMMEDIATE,
         usage=DEFAULT_USAGE,
         version=Decimal(0),
         provider=0,
@@ -288,6 +313,20 @@ async def create_invoice(db: AsyncSession, current: CurrentUser, data: InvoiceCr
         local_retention_rate=Decimal(0),
     )
     _copy_recipient(document, recipient, facility)
+    return document, customer
+
+
+async def create_invoice(db: AsyncSession, current: CurrentUser, data: InvoiceCreate) -> int:
+    document, customer = await _new_document(
+        db,
+        current,
+        type_=FiscalDocumentType.INVOICE,
+        customer_id=data.customer,
+        recipient_rfc=data.recipient,
+        issuer_rfc=data.issuer,
+        batch=data.batch,
+    )
+    document.payment_terms = default_terms(customer)
     db.add(document)
     await db.commit()
     return document.fiscal_document_id
@@ -321,6 +360,8 @@ async def remaining_by_order_line(
         .join(FiscalDocument, FiscalDocument.fiscal_document_id == FiscalDocumentDetail.document)
         .where(
             FiscalDocumentDetail.order_detail.in_(ids),
+            # Only invoices take units: a credit note's copied lines keep their order line too.
+            FiscalDocument.type == FiscalDocumentType.INVOICE,
             FiscalDocument.fiscal_document_id != exclude_document,
             FiscalDocument.cancelled.is_(False),
             or_(FiscalDocument.completed.is_(True), sealed),
@@ -636,33 +677,49 @@ def _invoice_data(
     )
 
 
-async def confirm(db: AsyncSession, current: CurrentUser, document: FiscalDocument) -> None:
-    """Validate, assign the serial, seal and store the XML, in one transaction (FR-013)."""
-    _require_draft(document)
+async def _prepare_invoice(db: AsyncSession, document: FiscalDocument) -> SealBuilder:
     lines = await _lines(db, document.fiscal_document_id)
     await _validate_for_confirm(db, document, lines)
-    now = local_now()
-    issued = document.issued or now.replace(microsecond=0)
-    if not issue_date_ok(issued, now=now):
-        raise _unprocessable(
-            'The issue date must be within the last 72 hours and not in the future'
-        )
-    certificate = await _certificate(db, document.issuer, issued)
-    issuer = await db.get(TaxpayerIssuer, document.issuer)
     relation_type, relation_uuids = await _relations(db, document.fiscal_document_id)
 
+    def build(certificate: TaxpayerCertificate) -> Awaitable[str]:
+        return cfdi_invoice.seal_async(
+            _invoice_data(document, lines, relation_type, relation_uuids),
+            certificate_number=certificate.taxpayer_certificate_id,
+            certificate_data=certificate.certificate_data,
+            key_data=certificate.key_data,
+            key_password=certificate.key_password,
+        )
+
+    return build
+
+
+async def confirm(db: AsyncSession, current: CurrentUser, document: FiscalDocument) -> None:
+    """Validate, assign the serial, seal and store the XML, in one transaction (FR-013).
+
+    Each type prepares inside the transaction, so a receipt's or credit note's row locks on its
+    invoices are held until the commit (spec 028, research R2).
+    """
+    _require_draft(document)
+    prepare = {
+        FiscalDocumentType.INVOICE: _prepare_invoice,
+        FiscalDocumentType.PAYMENT_RECEIPT: _prepare_receipt,
+    }[FiscalDocumentType(document.type)]
     try:
+        build = await prepare(db, document)
+        now = local_now()
+        issued = document.issued or now.replace(microsecond=0)
+        if not issue_date_ok(issued, now=now):
+            raise _unprocessable(
+                'The issue date must be within the last 72 hours and not in the future'
+            )
+        certificate = await _certificate(db, document.issuer, issued)
+        issuer = await db.get(TaxpayerIssuer, document.issuer)
         if document.serial is None:
             document.serial = await _next_serial(db, document.issuer, document.batch)
         document.issued = issued
         try:
-            xml = await cfdi_invoice.seal_async(
-                _invoice_data(document, lines, relation_type, relation_uuids),
-                certificate_number=certificate.taxpayer_certificate_id,
-                certificate_data=certificate.certificate_data,
-                key_data=certificate.key_data,
-                key_password=certificate.key_password,
-            )
+            xml = await build(certificate)
         except ValueError as error:
             raise _unprocessable(f"The issuer's certificate cannot sign: {error}") from error
         db.add(FiscalDocumentXml(fiscal_document_xml_id=document.fiscal_document_id, data=xml))
@@ -748,6 +805,8 @@ async def update_header(
         document.payment_reference = data.payment_reference
     if 'ordering_bank' in sent:
         document.reference = data.ordering_bank
+    if receipt:
+        await _check_receipt_header(db, document)
     _touch(document, current)
     await db.commit()
 
@@ -832,3 +891,336 @@ async def reopen(db: AsyncSession, current: CurrentUser, document: FiscalDocumen
     await db.delete(xml)
     _touch(document, current)
     await db.commit()
+
+
+# ── Payment receipts (#53, spec 028; research R2, R7) ─────────────────────────
+
+RECEIPT_USAGE = 'CP01'
+_RECEIPT_REFUSED = 'The invoice cannot be paid by this receipt'
+_OVER_PAYMENT = 'The amounts paid exceed the payment amount'
+_PAYMENT_DATE = "The payment date must be between the invoices' dates and today"
+
+
+def installment(earlier: int) -> int:
+    return earlier + 1
+
+
+def previous_balance(total: Decimal, paid: Decimal, credited: Decimal) -> Decimal:
+    return total - paid - credited
+
+
+def default_amount(balance: Decimal, unassigned: Decimal | None) -> Decimal:
+    """What a newly paid invoice receives: its balance, up to what the payment has left."""
+    amount = balance if unassigned is None else min(balance, unassigned)
+    return amount if amount > 0 else Decimal(0)
+
+
+def _payable(receipt: FiscalDocument, invoice: FiscalDocument) -> bool:
+    """A stamped, live PPD invoice of the receipt's issuer and recipient (FR-003)."""
+    return (
+        invoice.type == FiscalDocumentType.INVOICE
+        and invoice.completed
+        and not invoice.cancelled
+        and bool(invoice.stamp_uuid)
+        and invoice.payment_terms == PaymentTerms.NET_D
+        and invoice.issuer == receipt.issuer
+        and invoice.recipient == receipt.recipient
+    )
+
+
+def _check_payment_date(receipt: FiscalDocument, invoices: Iterable[FiscalDocument]) -> None:
+    if receipt.payment_date is None:
+        return
+    if any(i.issued and receipt.payment_date < i.issued.date() for i in invoices):
+        raise _unprocessable(_PAYMENT_DATE)
+
+
+def _check_amount(amount: Decimal, balance: Decimal, unassigned: Decimal | None) -> None:
+    if amount <= 0 or amount > balance:
+        raise _unprocessable(f'Amount exceeds the invoice balance of {balance:.2f}')
+    if unassigned is not None and amount > unassigned:
+        raise _unprocessable(_OVER_PAYMENT)
+
+
+async def _paid_relations(db: AsyncSession, receipt: int) -> list[FiscalDocumentRelation]:
+    query = (
+        select(FiscalDocumentRelation)
+        .where(FiscalDocumentRelation.document == receipt)
+        .order_by(FiscalDocumentRelation.fiscal_document_relation_id)
+    )
+    return list((await db.execute(query)).scalars())
+
+
+def _unassigned(
+    receipt: FiscalDocument, others: Iterable[FiscalDocumentRelation]
+) -> Decimal | None:
+    if receipt.payment_amount is None:
+        return None
+    return receipt.payment_amount - sum((r.amount for r in others), Decimal(0))
+
+
+async def _pay_invoice(
+    db: AsyncSession,
+    receipt: FiscalDocument,
+    invoice: FiscalDocument,
+    amount: Decimal | None,
+    others: Sequence[FiscalDocumentRelation],
+) -> None:
+    """Relate `invoice` to `receipt` for `amount`, or for the default when it is None."""
+    if not _payable(receipt, invoice):
+        raise _unprocessable(_RECEIPT_REFUSED)
+    if any(r.relation == invoice.fiscal_document_id for r in others):
+        raise _error(status.HTTP_409_CONFLICT, 'The invoice is already on this receipt')
+    _check_payment_date(receipt, [invoice])
+    number, balance = await fds.invoice_position(
+        db, invoice.fiscal_document_id, exclude_document=receipt.fiscal_document_id
+    )
+    unassigned = _unassigned(receipt, others)
+    amount = default_amount(balance, unassigned) if amount is None else amount
+    _check_amount(amount, balance, unassigned)
+    db.add(
+        FiscalDocumentRelation(
+            document=receipt.fiscal_document_id,
+            relation=invoice.fiscal_document_id,
+            exchange_rate=Decimal(1),
+            installment=number,
+            previous_balance=balance,
+            amount=amount,
+        )
+    )
+
+
+async def create_payment_receipt(
+    db: AsyncSession, current: CurrentUser, data: PaymentReceiptCreate
+) -> int:
+    """A receipt draft by hand, or from a customer payment with its invoices proposed.
+
+    FR-001, FR-002 and research R7.
+    """
+    document, _customer = await _new_document(
+        db,
+        current,
+        type_=FiscalDocumentType.PAYMENT_RECEIPT,
+        customer_id=data.customer,
+        recipient_rfc=data.recipient,
+        issuer_rfc=data.issuer,
+        batch=data.batch,
+    )
+    document.usage = RECEIPT_USAGE
+    document.payment_method = PaymentMethod.CASH
+    payment = None
+    if data.customer_payment is not None:
+        payment = await db.get(CustomerPayment, data.customer_payment)
+        if payment is None:
+            raise _error(status.HTTP_404_NOT_FOUND, 'Customer payment not found')
+        if payment.customer != data.customer:
+            raise _unprocessable('The payment belongs to another customer')
+        backed = (
+            await db.execute(
+                select(FiscalDocument.batch, FiscalDocument.serial).where(
+                    FiscalDocument.customer_payment == payment.customer_payment_id,
+                    FiscalDocument.type == FiscalDocumentType.PAYMENT_RECEIPT,
+                    FiscalDocument.cancelled.is_(False),
+                )
+            )
+        ).first()
+        if backed is not None:
+            folio = f'{backed.batch or ""}{backed.serial}' if backed.serial else 'draft'
+            raise _error(status.HTTP_409_CONFLICT, f'This payment already has receipt {folio}')
+        document.customer_payment = payment.customer_payment_id
+        document.payment_date = payment.date.date()
+        document.payment_amount = payment.amount.quantize(Decimal('0.01'))
+        if 1 <= payment.method <= 31:
+            document.payment_method = payment.method
+        document.payment_reference = (payment.reference or '')[:50] or None
+    db.add(document)
+    await db.flush()
+    if payment is not None:
+        await _propose_paid_invoices(db, document, payment.customer_payment_id)
+    await db.commit()
+    return document.fiscal_document_id
+
+
+async def _propose_paid_invoices(db: AsyncSession, receipt: FiscalDocument, payment: int) -> None:
+    """The PPD invoices holding lines of the orders `payment` was applied to (research R7)."""
+    invoices = (
+        await db.execute(
+            select(FiscalDocument)
+            .join(
+                FiscalDocumentDetail,
+                FiscalDocumentDetail.document == FiscalDocument.fiscal_document_id,
+            )
+            .join(
+                SalesOrderDetail,
+                SalesOrderDetail.sales_order_detail_id == FiscalDocumentDetail.order_detail,
+            )
+            .join(SalesOrderPayment, SalesOrderPayment.sales_order == SalesOrderDetail.sales_order)
+            .where(
+                SalesOrderPayment.customer_payment == payment,
+                SalesOrderPayment.cancelled.is_(False),
+            )
+            .distinct()
+            .order_by(FiscalDocument.issued, FiscalDocument.fiscal_document_id)
+        )
+    ).scalars()
+    others: list[FiscalDocumentRelation] = []
+    for invoice in invoices:
+        if not _payable(receipt, invoice):
+            continue
+        if receipt.payment_date and invoice.issued and receipt.payment_date < invoice.issued.date():
+            continue
+        _number, balance = await fds.invoice_position(
+            db, invoice.fiscal_document_id, exclude_document=receipt.fiscal_document_id
+        )
+        if default_amount(balance, _unassigned(receipt, others)) <= 0:
+            continue
+        await _pay_invoice(db, receipt, invoice, None, others)
+        await db.flush()
+        others = await _paid_relations(db, receipt.fiscal_document_id)
+
+
+async def add_paid_invoice(
+    db: AsyncSession, current: CurrentUser, document: FiscalDocument, data: PaidInvoiceAdd
+) -> None:
+    _require_draft(document)
+    _require_type(document, FiscalDocumentType.PAYMENT_RECEIPT)
+    invoice = await db.get(FiscalDocument, data.invoice)
+    if invoice is None:
+        raise _error(status.HTTP_404_NOT_FOUND, 'Invoice not found')
+    others = await _paid_relations(db, document.fiscal_document_id)
+    await _pay_invoice(db, document, invoice, data.amount, others)
+    _touch(document, current)
+    await db.commit()
+
+
+async def _paid_relation_or_404(
+    db: AsyncSession, document: FiscalDocument, relation_id: int
+) -> FiscalDocumentRelation:
+    relation = await db.get(FiscalDocumentRelation, relation_id)
+    if relation is None or relation.document != document.fiscal_document_id:
+        raise _error(status.HTTP_404_NOT_FOUND, 'Paid invoice not found')
+    return relation
+
+
+async def update_paid_invoice(
+    db: AsyncSession,
+    current: CurrentUser,
+    document: FiscalDocument,
+    relation_id: int,
+    data: PaidInvoiceUpdate,
+) -> None:
+    _require_draft(document)
+    _require_type(document, FiscalDocumentType.PAYMENT_RECEIPT)
+    relation = await _paid_relation_or_404(db, document, relation_id)
+    others = [
+        r for r in await _paid_relations(db, document.fiscal_document_id) if r is not relation
+    ]
+    number, balance = await fds.invoice_position(
+        db, relation.relation, exclude_document=document.fiscal_document_id
+    )
+    _check_amount(data.amount, balance, _unassigned(document, others))
+    relation.amount, relation.installment, relation.previous_balance = data.amount, number, balance
+    _touch(document, current)
+    await db.commit()
+
+
+async def remove_paid_invoice(
+    db: AsyncSession, current: CurrentUser, document: FiscalDocument, relation_id: int
+) -> None:
+    _require_draft(document)
+    _require_type(document, FiscalDocumentType.PAYMENT_RECEIPT)
+    await db.delete(await _paid_relation_or_404(db, document, relation_id))
+    _touch(document, current)
+    await db.commit()
+
+
+async def _check_receipt_header(db: AsyncSession, document: FiscalDocument) -> None:
+    """After a header edit: the amounts already paid and the invoices' dates still fit."""
+    relations = await _paid_relations(db, document.fiscal_document_id)
+    if not relations:
+        return
+    unassigned = _unassigned(document, relations)
+    if unassigned is not None and unassigned < 0:
+        raise _unprocessable(_OVER_PAYMENT)
+    invoices = [await db.get(FiscalDocument, r.relation) for r in relations]
+    _check_payment_date(document, invoices)
+
+
+async def _prepare_receipt(db: AsyncSession, document: FiscalDocument) -> SealBuilder:
+    """Lock the paid invoices, recompute their installments and balances, and check the sums."""
+    relations = await _paid_relations(db, document.fiscal_document_id)
+    if not relations:
+        raise _unprocessable('The receipt pays no invoice')
+    if document.payment_date is None or document.payment_amount is None:
+        raise _unprocessable('The receipt needs its payment date and amount')
+    if document.payment_method == PaymentMethod.TO_BE_DEFINED:
+        raise _unprocessable('A payment receipt needs the actual payment form')
+    if document.payment_date > local_now().date():
+        raise _unprocessable(_PAYMENT_DATE)
+    ids = sorted(r.relation for r in relations)
+    invoices = {
+        i.fiscal_document_id: i
+        for i in (
+            await db.execute(
+                select(FiscalDocument)
+                .where(FiscalDocument.fiscal_document_id.in_(ids))
+                .order_by(FiscalDocument.fiscal_document_id)
+                .with_for_update()
+            )
+        ).scalars()
+    }
+    _check_payment_date(document, invoices.values())
+    paid: list[cfdi_payment.PaidInvoiceData] = []
+    for relation in relations:
+        invoice = invoices[relation.relation]
+        if not _payable(document, invoice):
+            raise _unprocessable(_RECEIPT_REFUSED)
+        number, balance = await fds.invoice_position(
+            db, invoice.fiscal_document_id, exclude_document=document.fiscal_document_id
+        )
+        _check_amount(relation.amount, balance, None)
+        relation.installment, relation.previous_balance = number, balance
+        xml = await fds.get_xml(db, invoice.fiscal_document_id)
+        paid.append(
+            cfdi_payment.PaidInvoiceData(
+                uuid=invoice.stamp_uuid,
+                batch=invoice.batch,
+                serial=invoice.serial,
+                installment=number,
+                previous_balance=balance,
+                amount=relation.amount,
+                transfers=cfdi_payment.invoice_transfers(xml) if xml else [],
+            )
+        )
+    if sum((r.amount for r in relations), Decimal(0)) != document.payment_amount:
+        raise _unprocessable('The amounts paid must equal the payment amount')
+
+    def build(certificate: TaxpayerCertificate) -> Awaitable[str]:
+        data = cfdi_payment.PaymentData(
+            batch=document.batch,
+            serial=document.serial,
+            issued=document.issued,
+            issued_location=document.issued_location,
+            issuer=document.issuer,
+            issuer_name=document.issuer_name,
+            issuer_regime=document.issuer_regime,
+            recipient=document.recipient,
+            recipient_name=document.recipient_name,
+            recipient_postal_code=document.taxpayer_postal_code,
+            recipient_regime=document.taxpayer_regime,
+            payment_date=document.payment_date,
+            payment_form=document.payment_method,
+            amount=document.payment_amount,
+            operation_number=document.payment_reference,
+            ordering_bank=document.reference,
+            paid=paid,
+        )
+        return cfdi_payment.seal_async(
+            data,
+            certificate_number=certificate.taxpayer_certificate_id,
+            certificate_data=certificate.certificate_data,
+            key_data=certificate.key_data,
+            key_password=certificate.key_password,
+        )
+
+    return build

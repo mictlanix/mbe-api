@@ -21,6 +21,9 @@ from app.schemas.fiscal import (
     InvoiceRelationAdd,
     InvoiceSalesOrderAdd,
     InvoiceUpdate,
+    PaidInvoiceAdd,
+    PaidInvoiceUpdate,
+    PaymentReceiptCreate,
 )
 from app.services import fiscal_document_service, invoice_service, print_contexts
 from app.services.cfdi import CfdiError
@@ -282,4 +285,63 @@ async def reopen_invoice(
     discarded and the next confirm seals it again."""
     document = await _document_or_404(db, fiscal_document_id)
     await invoice_service.reopen(db, current, document)
+    return await _response(db, fiscal_document_id)
+
+
+# ── Payment receipts (#53, spec 028) ──────────────────────────────────────────
+
+
+@router.post(
+    '/payment-receipts', response_model=FiscalDocumentResponse, status_code=status.HTTP_201_CREATED
+)
+async def create_payment_receipt(
+    data: PaymentReceiptCreate,
+    current: CurrentUser = Depends(_CREATE),
+    db: AsyncSession = Depends(get_db),
+) -> FiscalDocumentResponse:
+    """A payment receipt (Pagos 2.0) draft. From a customer payment it copies the payment and
+    proposes the PPD invoices that payment settled."""
+    fiscal_document_id = await invoice_service.create_payment_receipt(db, current, data)
+    return await _response(db, fiscal_document_id)
+
+
+@router.post('/{fiscal_document_id}/paid-invoices', response_model=FiscalDocumentResponse)
+async def add_paid_invoice(
+    fiscal_document_id: int,
+    data: PaidInvoiceAdd,
+    current: CurrentUser = Depends(_UPDATE),
+    db: AsyncSession = Depends(get_db),
+) -> FiscalDocumentResponse:
+    """A stamped PPD invoice this receipt pays. Its installment and balance are computed."""
+    document = await _document_or_404(db, fiscal_document_id)
+    await invoice_service.add_paid_invoice(db, current, document, data)
+    return await _response(db, fiscal_document_id)
+
+
+@router.put(
+    '/{fiscal_document_id}/paid-invoices/{relation_id}', response_model=FiscalDocumentResponse
+)
+async def update_paid_invoice(
+    fiscal_document_id: int,
+    relation_id: int,
+    data: PaidInvoiceUpdate,
+    current: CurrentUser = Depends(_UPDATE),
+    db: AsyncSession = Depends(get_db),
+) -> FiscalDocumentResponse:
+    document = await _document_or_404(db, fiscal_document_id)
+    await invoice_service.update_paid_invoice(db, current, document, relation_id, data)
+    return await _response(db, fiscal_document_id)
+
+
+@router.delete(
+    '/{fiscal_document_id}/paid-invoices/{relation_id}', response_model=FiscalDocumentResponse
+)
+async def remove_paid_invoice(
+    fiscal_document_id: int,
+    relation_id: int,
+    current: CurrentUser = Depends(_UPDATE),
+    db: AsyncSession = Depends(get_db),
+) -> FiscalDocumentResponse:
+    document = await _document_or_404(db, fiscal_document_id)
+    await invoice_service.remove_paid_invoice(db, current, document, relation_id)
     return await _response(db, fiscal_document_id)
