@@ -95,10 +95,15 @@ def _round(value: Decimal, places: int) -> Decimal:
 
     Legacy writes every amount at the scale its C# decimal carries, so `1250` stays `1250` and
     `87.0000000 / 1.160000` is `75.0`. Python's Decimal follows the same scale rules for `+ - * /`,
-    so only the rounding needs emulating (SC-002 found both on mbe_dev).
+    so only the rounding needs emulating (SC-002 found both on mbe_dev). One difference remains:
+    an exact quotient can come out of Python with a positive exponent (`5E+2`), which a C# decimal
+    never has, so it is brought back to scale 0 before anything multiplies it (spec 028).
     """
-    if value.as_tuple().exponent < -places:
+    exponent = value.as_tuple().exponent
+    if exponent < -places:
         return value.quantize(Decimal(1).scaleb(-places), rounding=ROUND_HALF_UP)
+    if exponent > 0:
+        return value.quantize(Decimal(1))
     return value
 
 

@@ -71,7 +71,7 @@ Both validate against SAT's CFDI 4.0 and Pagos 2.0 schemas, and both seals verif
 
 ### Tests (write first, must fail)
 
-- [ ] T008 [P] [US1] Write `tests/unit/test_cfdi_payment.py` (R3):
+- [X] T008 [P] [US1] Write `tests/unit/test_cfdi_payment.py` (R3):
   - **DR tax shares:**
     - a 16 %-only invoice gives `BaseDR = round6(amount/1.16)` and `ImporteDR = round6(base×0.16)`, legacy's values;
     - an invoice with 16 % and 0 % groups splits by `B×(1+r)` weights;
@@ -112,7 +112,7 @@ Both validate against SAT's CFDI 4.0 and Pagos 2.0 schemas, and both seals verif
 
 ### Implementation
 
-- [ ] T012 [US1] Implement `app/services/cfdi_payment.py` (R3):
+- [X] T012 [US1] Implement `app/services/cfdi_payment.py` (R3):
   - `PaymentData`, `PaidInvoiceData` (UUID, series, folio, installment, previous balance, amount, and the invoice's transfer groups parsed from its XML) and `build(data, certificate_number, certificate) -> root`;
   - `seal`/`seal_async` through `cfdi_invoice.seal_root`;
   - `invoice_transfers(xml) -> list[(factor, rate, base)]`, read from a stored invoice XML.
@@ -205,12 +205,12 @@ Both validate against SAT's CFDI 4.0 and Pagos 2.0 schemas, and both seals verif
 
 **Independent Test:** emailing a stamped invoice to two addresses with a fake mailer sends one message with both attachments, named `{RFC}-{series}{folio:000000}`, with the current system's subject and body, and records an incidence.
 
-- [ ] T023 [P] [US4] Write `tests/unit/test_fiscal_email.py`:
+- [X] T023 [P] [US4] Write `tests/unit/test_fiscal_email.py`:
   - `fiscal_email_message(...)` builds the subject `Comprobante Fiscal - {RFC} - {series}{folio:06d}`;
   - the body carries the UUID, both RFCs, the total and the SAT link from `sat_qr_payload`;
   - the attachments are the PDF and the XML with legacy's names and content types;
   - spec 020's PDF context carries the QR payload for the invoice, credit note and payment fixtures (FR-014).
-- [ ] T024 [P] [US4] Write `tests/integration/test_fiscal_email.py` with a fake `Mailer`:
+- [X] T024 [P] [US4] Write `tests/integration/test_fiscal_email.py` with a fake `Mailer`:
   - a stamped invoice is sent and an incidence (source 13) is recorded;
   - a draft, sealed, cancelled or pre-4.0 document gives 409;
   - a `MailError` gives 502 and no incidence.
@@ -220,7 +220,7 @@ Both validate against SAT's CFDI 4.0 and Pagos 2.0 schemas, and both seals verif
   - 503 when no mailer;
   - 409 and 502 pass through;
   - address validation.
-- [ ] T026 [US4] Implement `app/services/fiscal_email.py`:
+- [X] T026 [US4] Implement `app/services/fiscal_email.py`:
   - the message builder;
   - `email_document(db, document, to, *, mailer, current) -> datetime`, which renders spec 020's PDF via `print_contexts.fiscal_document_context`, sends, and then records the incidence, in spec 024's order.
 
