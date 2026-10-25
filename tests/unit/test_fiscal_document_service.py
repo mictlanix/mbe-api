@@ -14,17 +14,20 @@ _INVOICE = (Path(__file__).parent.parent / 'fixtures' / 'cfdi' / 'invoice.xml').
 
 
 @pytest.mark.parametrize(
-    ('completed', 'cancelled', 'expected'),
+    ('completed', 'cancelled', 'has_xml', 'expected'),
     [
-        (False, False, 'draft'),
-        (True, False, 'issued'),
-        (True, True, 'cancelled'),
-        (False, True, 'cancelled'),
+        (False, False, False, 'draft'),
+        (False, False, True, 'sealed'),
+        (True, False, True, 'issued'),
+        (True, True, True, 'cancelled'),
+        (False, True, False, 'cancelled'),
+        (False, True, True, 'cancelled'),
     ],
 )
-def test_document_status(completed: bool, cancelled: bool, expected: str) -> None:
+def test_document_status(completed: bool, cancelled: bool, has_xml: bool, expected: str) -> None:
+    """Spec 027 research R1: an uncompleted document with its XML stored is sealed."""
     document = SimpleNamespace(completed=completed, cancelled=cancelled)
-    assert svc.document_status(document) == expected
+    assert svc.document_status(document, has_xml=has_xml) == expected
 
 
 @pytest.mark.parametrize(

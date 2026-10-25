@@ -40,7 +40,7 @@ description: "Task list for CFDI invoices up to a sealed document"
 
 ### Sealed state (research R1, FR-016)
 
-- [ ] T005 [P] Extend `tests/unit/test_fiscal_document_service.py` with the `document_status` cases, then extend `tests/integration/test_fiscal_document_queries.py` with the list filter cases. These tests must fail first.
+- [X] T005 [P] Extend `tests/unit/test_fiscal_document_service.py` with the `document_status` cases, then extend `tests/integration/test_fiscal_document_queries.py` with the list filter cases. These tests must fail first.
   - **`document_status(document, has_xml)` returns:**
     - draft: not completed, not cancelled, no XML;
     - sealed: not completed, not cancelled, with XML;
@@ -49,7 +49,7 @@ description: "Task list for CFDI invoices up to a sealed document"
   - **The list filter:**
     - `status=sealed` returns only sealed documents;
     - `status=draft` excludes them.
-- [ ] T006 Implement 'sealed' in `app/services/fiscal_document_service.py`.
+- [X] T006 Implement 'sealed' in `app/services/fiscal_document_service.py`.
   - Add `'sealed'` to `DocumentStatus`, and give `document_status` the XML flag.
   - In `get_document`, pass `xml is not None`.
   - In `list_documents`, pass `document_id in xmls`. Filter `draft` and `sealed` with `exists(select(FiscalDocumentXml.fiscal_document_xml_id).where(... == FiscalDocument.fiscal_document_id))`.
@@ -58,7 +58,7 @@ description: "Task list for CFDI invoices up to a sealed document"
 
 ### Schemas (contracts/fiscal-invoices.md)
 
-- [ ] T007 Add the request and response models to `app/schemas/fiscal.py`, following the contract:
+- [X] T007 Add the request and response models to `app/schemas/fiscal.py`, following the contract:
   - `BatchTemplate`, `TaxpayerBatchCreate`, `TaxpayerBatchUpdate` and `TaxpayerBatchResponse`, including `in_use`;
   - `InvoiceCreate`, `InvoiceUpdate` (all optional, `model_fields_set` decides what changes), `InvoiceLineUpdate`, `InvoiceSalesOrderAdd`, `InvoiceLineAdd` and `InvoiceRelationAdd` (`type: Literal['04', '07']`);
   - `FiscalDocumentRelationResponse`;
@@ -69,7 +69,7 @@ description: "Task list for CFDI invoices up to a sealed document"
 
 ### CFDI builder, original string and seal (research R3, R4, R5)
 
-- [ ] T008 Write `tests/unit/test_cfdi_invoice.py` first; it fails because the module does not exist yet. Use plain dataclass inputs and no database. Build the test CSD with `_make_csd` imported from `tests/unit/test_csd_service.py`.
+- [X] T008 Write `tests/unit/test_cfdi_invoice.py` first; it fails because the module does not exist yet. Use plain dataclass inputs and no database. Build the test CSD with `_make_csd` imported from `tests/unit/test_csd_service.py`.
   - **Line formulas (R5):**
     - the fixture's first line (4 × 90.00, tax included, 16 %) gives `ValorUnitario` 77.586207, `Importe` 310.34, tax 49.66 and `Base` "310.375";
     - a line with a discount;
@@ -90,7 +90,7 @@ description: "Task list for CFDI invoices up to a sealed document"
     - `CfdiRelacionados` writes `TipoRelacion` "07" with one UUID per relation.
   - **Parity:** rebuilding the data of `tests/fixtures/cfdi/invoice.xml` gives the same original string as the fixture without its `Complemento` (SC-002, in the repo).
   - **Seal:** the sealed XML passes `assert_valid_cfdi40`. Its `Sello` verifies with the certificate's public key over `original_string(xml)` (SC-001). `NoCertificado` and `Certificado` are set.
-- [ ] T009 Implement `app/services/cfdi_invoice.py` and make T008 pass. It provides:
+- [X] T009 Implement `app/services/cfdi_invoice.py` and make T008 pass. It provides:
   - `InvoiceData`/`InvoiceLineData`/`RelationData` dataclasses holding only what the XML needs;
   - `build(data) -> lxml Element`;
   - `original_string(xml_bytes) -> str`, using the vendored XSLT compiled once per thread through `threading.local` (R3);
