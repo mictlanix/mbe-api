@@ -1,0 +1,23 @@
+{
+  "workflow": "speckit",
+  "specName": "cfdi payments credit notes",
+  "branch": "028-cfdi-payments-credit-notes",
+  "currentStep": "specify",
+  "status": "specified",
+  "history": [
+    {
+      "step": "specify",
+      "substep": null,
+      "kind": "start",
+      "by": "extension",
+      "at": "2026-10-25T21:43:03.000Z"
+    },
+    {
+      "step": "specify",
+      "substep": null,
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-10-25T21:47:52.861Z"
+    }
+  ]
+}
