@@ -128,7 +128,7 @@ async def update_facility(db: AsyncSession, facility: Facility, data: FacilityUp
         facility.address = data.address
     if data.taxpayer is not None:
         facility.taxpayer = data.taxpayer
-    if data.logo is not None:
+    if 'logo' in data.model_fields_set:
         facility.logo = data.logo
     if data.receipt_message is not None:
         facility.receipt_message = data.receipt_message

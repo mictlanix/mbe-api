@@ -17,6 +17,7 @@ from app.core.deps import CurrentUser
 from app.enums import EntityStatus, SourceType
 from app.models.core import Facility, Warehouse
 from app.models.incidence import Incidence
+from app.schemas.core import FacilityUpdate
 from app.services import facility_service
 
 
@@ -287,3 +288,27 @@ class TestDeleteFacilityIsAudited:
         assert not [o for o in db.added if isinstance(o, Incidence)], (
             'a refused deletion must not be logged as having happened'
         )
+
+
+class TestUpdateFacilityLogo:
+    """An explicit `logo: null` clears the logo; leaving it out keeps it (#250)."""
+
+    @pytest.mark.asyncio
+    async def test_an_explicit_null_clears_the_logo(self):
+        facility = _facility()
+        facility.logo = 'logo.png'
+
+        with patch.object(facility_service, '_attach_relations', AsyncMock()):
+            await facility_service.update_facility(_Db(), facility, FacilityUpdate(logo=None))
+
+        assert facility.logo is None
+
+    @pytest.mark.asyncio
+    async def test_an_update_that_omits_the_logo_keeps_it(self):
+        facility = _facility()
+        facility.logo = 'logo.png'
+
+        with patch.object(facility_service, '_attach_relations', AsyncMock()):
+            await facility_service.update_facility(_Db(), facility, FacilityUpdate(name='Otra'))
+
+        assert facility.logo == 'logo.png'
