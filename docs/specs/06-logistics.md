@@ -92,11 +92,43 @@ Triggered by entering a Sales Order ID into the "New" action:
 
 ### Print / Ticket
 
-- `WebConfig.DeliveryOrdersUseMiniPrinter = true`: uses thermal ticket format
-  - `IsPickedUpInStore = true` → uses `WebConfig.PickUpTicket` template
-  - `IsPickedUpInStore = false` → uses `WebConfig.DeliveryOrderTicket` template
-- `WebConfig.DeliveryOrdersUseMiniPrinter = false`: uses standard PDF via `WebConfig.DeliveryOrderTemplate`
-- Filter `only_current_warehouse=true`: prints only lines whose warehouse matches the current POS warehouse
+**Current system:**
+- **Ticket choice:** with `DeliveryOrdersUseMiniPrinter = true`, which is the live configuration, `Print` renders a 72 mm ticket for a completed delivery order:
+  - `PickUpTicket` when `IsPickedUpInStore`;
+  - `DeliveryTicket` otherwise.
+- **`only_current_warehouse=true`:** keeps only the lines from the warehouse of the user's point of sale.
+- **`PrintFormat`:** renders `DeliveryOrderTemplate` on Letter paper, with no state check. The live site sets `DeliveryFormatRamos`; the other formats are unconfigured or unreferenced.
+- **Access:** only a login. The Read privilege merely hides the buttons.
+- **Data changed while rendering (mictlanix/mbe#54):** the ticket and the Ramos format multiply the tracked payment's `Amount` by `Commission + 1`, and `Print` replaces the order's mapped `Details` with the filtered list. Nothing is flushed, so no change has been stored yet.
+- **Prints in 2026,** from the access log:
+  - `Print`: 8,026, plus 379 with the warehouse filter;
+  - `PrintFormat`: 0.
+
+**New MBE (spec 026).** All documents are PDFs built with spec 019's pipeline. They render read only and record nothing. All require Read on DeliveryOrders (71).
+
+| Route | Document | When |
+|---|---|---|
+| `GET /delivery-orders/{id}/ticket?warehouse=` | 72 mm. The pickup ticket for fulfillment type PICKUP, otherwise the delivery ticket. | From APPROVED onward; DRAFT and PENDING_APPROVAL get 409. A CANCELLED order prints stamped "CANCELADA" |
+| `GET /delivery-orders/{id}/document` | Letter: the Ramos format | Same states |
+
+- **Delivery ticket:**
+  - the store with its taxpayer name and RFC, the order, customer and date;
+  - each sales order with its terms and "No Pagado", "Vencido" or "Por Cobrar";
+  - the contact, ship-to and comment;
+  - the lines with quantity above 0, each with its sales order and comment;
+  - "Pagos Pendientes": the order's sales-order payments that have no cash session;
+  - the amount to collect on unpaid cash orders;
+  - the ship-to's map link as a QR code;
+  - the receiver's signature.
+- **Pickup ticket:**
+  - "Entrega en mostrador", the customer, and for the walk-in customer the sales order's name;
+  - the lines;
+  - "Entregó": the employee who recorded the pickup, else the last updater;
+  - the payments on delivery;
+  - a barcode of the order id.
+- **Letter document:** the Ramos content. It fixes the contact block, which printed ship-to fields; prints the payment terms; and prints the date once.
+- **`warehouse`:** an explicit warehouse id. It filters only the lines, on the ticket only. An unknown warehouse, or one no line comes from, is 422.
+- **No commission factor** is applied to payment amounts.
 
 ### Actions
 - **Complete** (`completed=1`): finalizes the DO; enables approval and itinerary loading
@@ -233,6 +265,23 @@ Route/trip plan for a delivery date. Groups delivery order lines onto a vehicle 
   5. Sets `deliveries_itinerary.IsCompleted = true`
   6. Updates `delivery_order.IsDelivered = true` for any DO whose all lines are now fully sent
 - **Cancel**: sets `IsCancelled = true`; releases all SentQuantity back to remaining pool
+
+### Print
+
+**Current system:**
+- **Documents:** `Print` renders `ItineraryTicket` and `PrintDeliveryNotes` renders `DeliveryNotesTicket`, both 72 mm and only for a completed (confirmed) itinerary.
+- **Delivery notes:** they group lines by ship-to, contact, customer and comment. Each group gets an acknowledgement with a QR of the ship-to link and the contact's signature. After a cut line comes a detachable "Recibo de Entrega" per group.
+- **Prints in 2026:** 3,846 itinerary tickets and 3,553 delivery notes.
+
+**New MBE (spec 026).** Both require Read on DeliveryItineraries (87). They print only for a DEPARTED or CLOSED itinerary: OPEN gets 409 `Itinerary has not departed`, and CANCELLED gets 409 `Itinerary is cancelled`. They render read only.
+
+| Route | Document |
+|---|---|
+| `GET /delivery-itineraries/{id}/ticket` | The dispatch warehouse's store, the itinerary, operator, vehicle, date and comment. Then the stops in sequence, each with its customer, ship-to and lines (sent quantity, unit symbol, product, delivery order), and the operator's signature |
+| `GET /delivery-itineraries/{id}/delivery-notes` | The trip block. Then, within each stop, one acknowledgement per (customer, ship-to, contact, comment) group, and after the cut line one receipt per group showing the sales order ids |
+
+- **Quantities:** the documents print the sent quantities, which are fixed at departure.
+- **Missing vehicle or operator:** prints "—".
 
 ### Business Rules
 - Vehicle operator license must be active and not expired before assignment (advisory check).

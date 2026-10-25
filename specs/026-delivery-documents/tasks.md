@@ -183,12 +183,12 @@
 
 ## Phase 6: Polish & Cross-Cutting
 
-- [ ] T015 [P] Rewrite `docs/specs/06-logistics.md`:
+- [X] T015 [P] Rewrite `docs/specs/06-logistics.md`:
   - **§1 "Print / Ticket"** (FR-012):
     - the current system: the mini-printer setting, PickUpTicket and DeliveryTicket, PrintFormat with DeliveryFormatRamos, `only_current_warehouse`, the 2026 print counts, login-only access, and mictlanix/mbe#54;
     - the new routes, the warehouse option, the states, and the corrections (no commission factor; the Ramos contact, terms and date).
   - **§4, new "Print" subsection:** the itinerary ticket and the delivery notes, by stop and by group, DEPARTED or CLOSED only.
-- [ ] T016 [P] Add to `CHANGELOG.md` `[Unreleased]` `### Added`: delivery documents (mictlanix/mbe-roadmap#42, spec 026). The four routes, their privileges and states, the warehouse option, and rendering that writes nothing (mictlanix/mbe#54 not carried over). No upgrade note.
+- [X] T016 [P] Add to `CHANGELOG.md` `[Unreleased]` `### Added`: delivery documents (mictlanix/mbe-roadmap#42, spec 026). The four routes, their privileges and states, the warehouse option, and rendering that writes nothing (mictlanix/mbe#54 not carried over). No upgrade note.
 - [ ] T017 Run the full gate: `uv run ruff check app/ migrations/ tests/` and `uv run pytest -q`. No new failures against T001. Record the counts here.
 - [ ] T018 **Confirm with the user before deploying.** Deploy the branch to `/var/www/mbe-api-test` and run SC-004 per `quickstart.md`, read only:
   - a real DELIVERY with a link and two sales orders;
