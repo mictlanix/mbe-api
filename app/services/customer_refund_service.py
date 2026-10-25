@@ -17,12 +17,13 @@ from collections.abc import Sequence
 from decimal import Decimal
 
 from fastapi import HTTPException, status
-from sqlalchemy import func, select
+from sqlalchemy import exists, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.clock import local_now
 from app.core.deps import CurrentUser
 from app.enums import CurrencyCode, PaymentMethod, PaymentType, TransactionType
+from app.models.fiscal import FiscalDocument, FiscalDocumentDetail, FiscalDocumentXml
 from app.models.product import Product
 from app.models.sales import (
     CreditNote,
@@ -60,10 +61,38 @@ def assert_refundable_order(order: object) -> None:
         )
 
 
-def refundable_quantity(sold: Decimal, already_refunded: Decimal) -> Decimal:
-    """FR-061 — what was sold on a line less what completed refunds already returned."""
-    remaining = sold - already_refunded
+def refundable_quantity(
+    sold: Decimal, already_refunded: Decimal, invoiced_live: Decimal = Decimal(0)
+) -> Decimal:
+    """FR-061, FR-011 — what was sold on a line less what completed refunds already returned and
+    what sits on live invoices."""
+    remaining = sold - already_refunded - invoiced_live
     return remaining if remaining > 0 else Decimal(0)
+
+
+def assert_not_invoiced(
+    requested: Decimal,
+    *,
+    sold: Decimal,
+    refunded: Decimal,
+    invoiced: Decimal,
+    product_code: str | None,
+    invoice: str | None,
+) -> None:
+    """FR-011 — refuse a quantity that only live-invoice units stand in the way of.
+
+    A request beyond what was sold less refunded is not the invoice's doing; that stays the 422 of
+    `assert_quantity_refundable`.
+    """
+    if requested <= refundable_quantity(sold, refunded):
+        if requested > refundable_quantity(sold, refunded, invoiced):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    f'Units of line {product_code} are on invoice {invoice}; '
+                    'cancel the invoice to refund them'
+                ),
+            )
 
 
 def assert_quantity_refundable(requested: Decimal, refundable: Decimal) -> None:
@@ -122,10 +151,58 @@ async def _already_refunded(db: AsyncSession, sales_order_detail: int) -> Decima
     return total if total is not None else Decimal(0)
 
 
-async def line_refundable(db: AsyncSession, order_line: SalesOrderDetail) -> Decimal:
-    return refundable_quantity(
-        order_line.quantity, await _already_refunded(db, order_line.sales_order_detail_id)
+async def _invoiced_live(db: AsyncSession, sales_order_detail: int) -> tuple[Decimal, str | None]:
+    """Quantity of one order line on live invoices, and the first such invoice's series and folio.
+
+    Live means type 0, not cancelled, and completed or sealed: the predicate of
+    `invoice_service.remaining_by_order_line`. A draft reserves nothing.
+    """
+    sealed = exists().where(
+        FiscalDocumentXml.fiscal_document_xml_id == FiscalDocument.fiscal_document_id
     )
+    rows = (
+        await db.execute(
+            select(FiscalDocument.batch, FiscalDocument.serial, FiscalDocumentDetail.quantity)
+            .join(
+                FiscalDocument, FiscalDocument.fiscal_document_id == FiscalDocumentDetail.document
+            )
+            .where(
+                FiscalDocumentDetail.order_detail == sales_order_detail,
+                FiscalDocument.type == 0,
+                FiscalDocument.cancelled.is_(False),
+                or_(FiscalDocument.completed.is_(True), sealed),
+            )
+            .order_by(FiscalDocument.fiscal_document_id)
+        )
+    ).all()
+    if not rows:
+        return Decimal(0), None
+    batch, serial, _ = rows[0]
+    return sum((quantity for _, _, quantity in rows), Decimal(0)), f'{batch or ""}{serial or ""}'
+
+
+async def line_refundable(db: AsyncSession, order_line: SalesOrderDetail) -> Decimal:
+    line_id = order_line.sales_order_detail_id
+    invoiced, _ = await _invoiced_live(db, line_id)
+    return refundable_quantity(order_line.quantity, await _already_refunded(db, line_id), invoiced)
+
+
+async def _assert_line_quantity(
+    db: AsyncSession, order_line: SalesOrderDetail, requested: Decimal
+) -> Decimal:
+    """Refuse a quantity held by a live invoice (409), and return the line's refundable quantity."""
+    line_id = order_line.sales_order_detail_id
+    refunded = await _already_refunded(db, line_id)
+    invoiced, invoice = await _invoiced_live(db, line_id)
+    assert_not_invoiced(
+        requested,
+        sold=order_line.quantity,
+        refunded=refunded,
+        invoiced=invoiced,
+        product_code=order_line.product_code,
+        invoice=invoice,
+    )
+    return refundable_quantity(order_line.quantity, refunded, invoiced)
 
 
 async def attach_derived(db: AsyncSession, refund: CustomerRefund) -> CustomerRefund:
@@ -250,6 +327,12 @@ async def open_refund(
     refundable = [(line, await line_refundable(db, line)) for line in order_lines]
     available = [(line, qty) for line, qty in refundable if qty > 0]
     if not available:
+        # FR-011 — when a live invoice is what leaves nothing to refund, name it.
+        for line in sorted(order_lines, key=lambda d: d.sales_order_detail_id):
+            sold_less_refunded = refundable_quantity(
+                line.quantity, await _already_refunded(db, line.sales_order_detail_id)
+            )
+            await _assert_line_quantity(db, line, sold_less_refunded)
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail='No refundable items remain on this order',
@@ -365,7 +448,8 @@ async def update_line(
     if 'quantity' in changes and changes['quantity'] is not None:
         order_line = await db.get(SalesOrderDetail, line.sales_order_detail)
         if order_line is not None:
-            assert_quantity_refundable(changes['quantity'], await line_refundable(db, order_line))
+            refundable = await _assert_line_quantity(db, order_line, changes['quantity'])
+            assert_quantity_refundable(changes['quantity'], refundable)
         line.quantity = changes['quantity']
     if 'warehouse' in changes:
         if changes['warehouse'] is not None:
@@ -423,12 +507,19 @@ async def confirm_refund(
         .all()
     )
 
+    # A line short only because another refund got there first is trimmed (FR-063); one short
+    # because its units went onto a live invoice is refused (FR-011).
     with_refundable = []
     for line in lines:
         order_line = await db.get(SalesOrderDetail, line.sales_order_detail)
-        with_refundable.append(
-            (line, await line_refundable(db, order_line) if order_line else Decimal(0))
+        if order_line is None:
+            with_refundable.append((line, Decimal(0)))
+            continue
+        sold_less_refunded = refundable_quantity(
+            order_line.quantity, await _already_refunded(db, order_line.sales_order_detail_id)
         )
+        claim = min(line.quantity, sold_less_refunded)
+        with_refundable.append((line, await _assert_line_quantity(db, order_line, claim)))
 
     keep, drop = reconcile_lines(with_refundable)
     if not keep:

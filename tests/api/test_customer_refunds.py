@@ -210,6 +210,31 @@ async def test_quantity_above_refundable_is_422() -> None:
     assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
 
 
+INVOICED = 'Units of line W-1 are on invoice A42; cancel the invoice to refund them'
+
+
+@pytest.mark.asyncio
+async def test_quantity_on_a_live_invoice_is_409_naming_the_invoice() -> None:
+    """FR-011 — the clerk learns which invoice to cancel."""
+    _auth()
+    conflict = HTTPException(status_code=status.HTTP_409_CONFLICT, detail=INVOICED)
+    with (
+        patch('app.services.customer_refund_service.get_refund', AsyncMock(return_value=_refund())),
+        patch(
+            'app.services.customer_refund_service.get_line',
+            AsyncMock(return_value=SimpleNamespace()),
+        ),
+        patch('app.services.customer_refund_service.update_line', AsyncMock(side_effect=conflict)),
+    ):
+        async with await _client() as client:
+            response = await client.put(
+                '/api/v1/customer-refunds/1/lines/1', json={'quantity': '5'}
+            )
+
+    assert response.status_code == status.HTTP_409_CONFLICT
+    assert response.json()['detail'] == INVOICED
+
+
 @pytest.mark.asyncio
 async def test_negative_quantity_is_rejected_by_the_schema() -> None:
     _auth()
@@ -299,6 +324,25 @@ async def test_confirm_without_an_open_cash_session_is_409() -> None:
 
     assert response.status_code == status.HTTP_409_CONFLICT
     assert 'cash session' in response.json()['detail'].lower()
+
+
+@pytest.mark.asyncio
+async def test_confirm_over_a_live_invoice_is_409_naming_the_invoice() -> None:
+    _auth()
+    conflict = HTTPException(status_code=status.HTTP_409_CONFLICT, detail=INVOICED)
+    with (
+        patch('app.services.customer_refund_service.get_refund', AsyncMock(return_value=_refund())),
+        patch(
+            'app.services.customer_refund_service.confirm_refund', AsyncMock(side_effect=conflict)
+        ),
+    ):
+        async with await _client() as client:
+            response = await client.post(
+                '/api/v1/customer-refunds/1/confirm', json={'payout': 'cash'}
+            )
+
+    assert response.status_code == status.HTTP_409_CONFLICT
+    assert response.json()['detail'] == INVOICED
 
 
 @pytest.mark.asyncio

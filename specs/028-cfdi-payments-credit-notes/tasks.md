@@ -178,8 +178,8 @@ Both validate against SAT's CFDI 4.0 and Pagos 2.0 schemas, and both seals verif
 - a refund of 2 units of a line whose 5 units are on a stamped invoice gives 409 naming the invoice;
 - uninvoiced units of the same order refund as before.
 
-- [ ] T019 [P] [US3] Extend `tests/unit/test_customer_refund_service.py` with `refundable_quantity(sold, refunded, invoiced_live)` cases: 10/0/6 gives 4; 10/2/6 gives 2; 10/0/10 gives 0; never negative.
-- [ ] T020 [P] [US3] Write `tests/integration/test_refund_invoiced.py`. It uses spec 011's refund service and seeds a completed order and a stamped invoice of part of its line, using the helpers from `tests/integration/seed.py` and `test_invoice_flow.py`'s fixture pattern. Cover:
+- [X] T019 [P] [US3] Extend `tests/unit/test_customer_refund_service.py` with `refundable_quantity(sold, refunded, invoiced_live)` cases: 10/0/6 gives 4; 10/2/6 gives 2; 10/0/10 gives 0; never negative.
+- [X] T020 [P] [US3] Write `tests/integration/test_refund_invoiced.py`. It uses spec 011's refund service and seeds a completed order and a stamped invoice of part of its line, using the helpers from `tests/integration/seed.py` and `test_invoice_flow.py`'s fixture pattern. Cover:
   - **Opening a refund:** `refundable_quantity` excludes the invoiced units.
   - **Over the limit:** updating a line above it gives 409, with `{series}{folio}` in the detail.
   - **At confirm:** a line that became over-limit because an invoice was sealed meanwhile gives 409, not a silent trim.
@@ -188,8 +188,8 @@ Both validate against SAT's CFDI 4.0 and Pagos 2.0 schemas, and both seals verif
     - a draft invoice does not;
     - a cancelled invoice does not;
     - the uninvoiced remainder refunds normally.
-- [ ] T021 [P] [US3] Extend `tests/api/test_customer_refunds.py` (delegated): the 409 detail passes through on line update and confirm.
-- [ ] T022 [US3] Implement in `app/services/customer_refund_service.py`:
+- [X] T021 [P] [US3] Extend `tests/api/test_customer_refunds.py` (delegated): the 409 detail passes through on line update and confirm.
+- [X] T022 [US3] Implement in `app/services/customer_refund_service.py`:
   - `refundable_quantity` takes `invoiced_live`;
   - `line_refundable` subtracts the units on live invoices, reusing `invoice_service.remaining_by_order_line`'s live-invoice predicate (extract a shared `live_invoiced_quantities(db, detail_ids)` helper if needed);
   - `assert_quantity_refundable` gives 409 naming the first blocking invoice when the shortfall is due to invoiced units;
