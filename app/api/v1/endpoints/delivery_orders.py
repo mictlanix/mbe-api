@@ -327,6 +327,22 @@ async def print_delivery_order_ticket(
     return rendering.pdf_response(pdf, f'entrega-{order.delivery_order_id:08d}.pdf')
 
 
+@router.get(
+    '/{delivery_order_id}/document', response_class=Response, responses=rendering.PDF_RESPONSE
+)
+async def print_delivery_order_document(
+    delivery_order_id: int,
+    _: CurrentUser = Depends(_READ),
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    """The letter-size delivery order. No warehouse filter: a `warehouse` query is ignored."""
+    order = await _order_or_404(db, delivery_order_id)
+    _assert_approved(order)
+    template, context = await print_contexts.delivery_order_document_context(db, order)
+    pdf = await rendering.render_pdf(template, context)
+    return rendering.pdf_response(pdf, f'orden-entrega-{order.delivery_order_id:08d}.pdf')
+
+
 # ── Counter pickup ────────────────────────────────────────────────────────────
 
 

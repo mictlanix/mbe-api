@@ -116,12 +116,12 @@
 - The notes have three acknowledgements and three receipts.
 - OPEN and CANCELLED give 409.
 
-- [ ] T008 [P] [US2] Extend `tests/api/test_delivery_documents.py` (commit with T011) for both itinerary routes:
+- [X] T008 [P] [US2] Extend `tests/api/test_delivery_documents.py` (commit with T011) for both itinerary routes:
   - 200 with `itinerario-000042.pdf` and `acuses-000042.pdf`;
   - 401, and 403 without Read on 87;
   - 404 `Itinerary not found`;
   - 409 `Itinerary has not departed` for OPEN and `Itinerary is cancelled` for CANCELLED.
-- [ ] T009 [P] [US2] Extend `tests/integration/test_delivery_documents_render.py` (commit with T011).
+- [X] T009 [P] [US2] Extend `tests/integration/test_delivery_documents_render.py` (commit with T011).
   - **Setup:** a DEPARTED itinerary from a warehouse of facility 1, with a vehicle (nickname and plate) and an operator. Stop 1 has customer A's order. Stop 2 has two orders for customer B at the same ship-to and contact, plus customer C's order. Sent quantities differ from the ordered ones.
   - **Ticket:** "Itinerario de Entrega", the padded id, the operator's name, the vehicle nickname and plate, "Parada 1" before "Parada 2", each sent quantity with its unit symbol, each delivery order id, and the operator signature text.
   - **Notes:**
@@ -132,16 +132,21 @@
   - **Missing data:** an itinerary with no vehicle and no operator prints "—" for both. An itinerary with `warehouse=None` takes its header from its first delivery order's facility (research R7).
   - **CLOSED:** it also renders.
   - **Read only:** the same assertion as T005.
-- [ ] T010 [US2] Write `app/rendering/templates/itinerary_ticket.html` and `delivery_notes.html`, extending `_ticket_layout.html`, with the content of data-model.md's itinerary tables.
+- [X] T010 [US2] Write `app/rendering/templates/itinerary_ticket.html` and `delivery_notes.html`, extending `_ticket_layout.html`, with the content of data-model.md's itinerary tables.
   - The notes print a dashed cut line before the receipts.
   - Each receipt repeats the store block: logo, name, RFC and address from the context's `header`, not a second layout.
-- [ ] T011 [US2] Implement `itinerary_ticket_context(db, itinerary)` and `delivery_notes_context(db, itinerary)` in `app/services/print_contexts.py`:
+- [X] T011 [US2] Implement `itinerary_ticket_context(db, itinerary)` and `delivery_notes_context(db, itinerary)` in `app/services/print_contexts.py`:
   - **Data:** stops via `delivery_itinerary_service.stops_of` and `lines_of_stop`. Each itinerary line joins its `delivery_order_detail` and its delivery order (customer, ship-to, contact, comment) and the sales order line's `sales_order`. Units come by symbol (T003).
   - **Header:** from `warehouse.facility`, falling back to the first delivery order's facility.
   - **Operator and vehicle:** "—" when missing.
   - **Notes groups:** `_note_groups`, within each stop.
 
   Add `GET /delivery-itineraries/{id}/ticket` and `/{id}/delivery-notes` to `app/api/v1/endpoints/delivery_itineraries.py`, with the DeliveryItineraries Read gate, a 404, the 409s for OPEN and CANCELLED, and the filenames of FR-011. Run T008 and T009: green. Commit T008–T011.
+  - **As built:**
+    - A stop heading lists every customer in the stop, since a stop can hold several.
+    - The delivery notes print every acknowledgement first, then a dotted cut line and a receipt per group, in the current system's order. The worker had interleaved them; this was corrected in review, and a test asserts the order.
+    - The trip comment prints on both documents.
+    - An itinerary with neither a warehouse nor any line takes the lowest facility for its header.
 
 ---
 
@@ -151,13 +156,13 @@
 
 **Independent test**: an approved order renders every element in research R10 on Letter paper. A 34-line order paginates.
 
-- [ ] T012 [P] [US3] Extend `tests/api/test_delivery_documents.py` (commit with T014) for `/document`:
+- [X] T012 [P] [US3] Extend `tests/api/test_delivery_documents.py` (commit with T014) for `/document`:
   - 200 with `orden-entrega-00000042.pdf`;
   - 401 and 403;
   - 404;
   - 409 for DRAFT;
   - `warehouse` is not a parameter, so it is ignored.
-- [ ] T013 [P] [US3] Extend `tests/integration/test_delivery_documents_render.py` (commit with T014).
+- [X] T013 [P] [US3] Extend `tests/integration/test_delivery_documents_render.py` (commit with T014).
   - **Setup:** an approved delivery with a credit sales order for a customer with `credit_days=15`, a contact with a mobile, a full ship-to, no comment, and a payment on delivery.
   - **Assert:**
     - the store name and address, and no RFC;
@@ -172,7 +177,7 @@
     - "Firma de conformidad".
   - **SC-005:** a 34-line order gives 2 or more Letter pages, with the last product on the last page.
   - **Other cases:** CANCELLED is stamped. The read-only assertion holds.
-- [ ] T014 [US3] Write `app/rendering/templates/delivery_order.html`, extending `_print_layout.html`, and implement `delivery_order_document_context(db, order)` in `app/services/print_contexts.py` (research R10).
+- [X] T014 [US3] Write `app/rendering/templates/delivery_order.html`, extending `_print_layout.html`, and implement `delivery_order_document_context(db, order)` in `app/services/print_contexts.py` (research R10).
   - **Header:** `header_context(..., letter=True)` with `rfc` and `taxpayer_name` blanked.
   - **Terms:** each distinct sales order term through `formatting.terms_name`, with "– N días" from `customer.credit_days` on credit, as `sales_quote_context:481` does.
   - **Route:** add `GET /delivery-orders/{id}/document` to `delivery_orders.py`, with the same gate, 404 and 409 as the ticket.
@@ -189,7 +194,7 @@
     - the new routes, the warehouse option, the states, and the corrections (no commission factor; the Ramos contact, terms and date).
   - **§4, new "Print" subsection:** the itinerary ticket and the delivery notes, by stop and by group, DEPARTED or CLOSED only.
 - [X] T016 [P] Add to `CHANGELOG.md` `[Unreleased]` `### Added`: delivery documents (mictlanix/mbe-roadmap#42, spec 026). The four routes, their privileges and states, the warehouse option, and rendering that writes nothing (mictlanix/mbe#54 not carried over). No upgrade note.
-- [ ] T017 Run the full gate: `uv run ruff check app/ migrations/ tests/` and `uv run pytest -q`. No new failures against T001. Record the counts here.
+- [X] T017 Run the full gate: `uv run ruff check app/ migrations/ tests/` and `uv run pytest -q`. No new failures against T001. Record the counts here. **Result:** ruff clean; 3795 passed, 0 failed (baseline 3727).
 - [ ] T018 **Confirm with the user before deploying.** Deploy the branch to `/var/www/mbe-api-test` and run SC-004 per `quickstart.md`, read only:
   - a real DELIVERY with a link and two sales orders;
   - a PICKUP;

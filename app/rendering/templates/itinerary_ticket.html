@@ -1,0 +1,36 @@
+{#- Itinerary ticket (spec 026), after the current system's itinerary ticket.
+Context: print_contexts.itinerary_ticket_context.
+
+Keys read: header, itinerary_id, operator, vehicle, date, comment or None, stops (number, customers,
+ship_to, lines: quantity, unit, name, delivery_order). Quantities are the sent ones. -#}
+{% extends "_ticket_layout.html" %}
+{% block main %}
+<div class="display-label text-left">
+	<label>Itinerario</label> {{ itinerary_id }}
+	&emsp;
+	<label>Fecha</label> {{ date }}
+</div>
+<div class="display-label"><label>Operador</label> {{ operator }}</div>
+<div class="display-label"><label>Vehículo</label> {{ vehicle }}</div>
+{% if comment %}
+<div class="display-label"><b>{{ comment }}</b></div>
+{% endif %}
+{% for stop in stops %}
+<div class="display-label" style="margin-top: 6px; border-top: 1px solid black;">
+	<label>Parada {{ stop.number }}</label> {{ stop.customers }}
+	{% if stop.ship_to %}<br>{{ stop.ship_to }}{% endif %}
+</div>
+<table>
+	{% for line in stop.lines %}
+	<tr>
+		<td>{{ line.quantity }} {{ line.unit }} {{ line.name }}</td>
+		<td class="number">Entrega {{ line.delivery_order }}</td>
+	</tr>
+	{% endfor %}
+</table>
+{% endfor %}
+<div class="signature">
+	Firma del Operador<br>
+	Confirmación de Partidas y Cantidades descritas en el Despacho
+</div>
+{% endblock %}

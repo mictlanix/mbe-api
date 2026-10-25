@@ -1,9 +1,20 @@
 import json
 from datetime import date as date_type
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    Form,
+    HTTPException,
+    Query,
+    Response,
+    UploadFile,
+    status,
+)
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app import rendering
 from app.core.config import settings
 from app.core.deps import CurrentUser, require_privilege
 from app.db.session import get_db
@@ -24,7 +35,7 @@ from app.schemas.delivery_itinerary import (
     PendingDeliveryLine,
     StopCreate,
 )
-from app.services import delivery_itinerary_service, image_service
+from app.services import delivery_itinerary_service, image_service, print_contexts
 
 router = APIRouter()
 
@@ -153,6 +164,46 @@ async def create_itinerary(
         comment=data.comment,
     )
     return await _full(db, itinerary, warnings)
+
+
+def _assert_printable(itinerary) -> None:  # noqa: ANN001
+    """Only a trip that has left has fixed sent quantities to print (spec 026, FR-008)."""
+    if itinerary.status == ItineraryStatus.OPEN:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail='Itinerary has not departed'
+        )
+    if itinerary.status == ItineraryStatus.CANCELLED:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail='Itinerary is cancelled')
+
+
+@router.get('/{itinerary_id}/ticket', response_class=Response, responses=rendering.PDF_RESPONSE)
+async def print_itinerary_ticket(
+    itinerary_id: int,
+    _: CurrentUser = Depends(_READ),
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    """The 72 mm itinerary ticket of a departed or closed trip."""
+    itinerary = await _itinerary_or_404(db, itinerary_id)
+    _assert_printable(itinerary)
+    template, context = await print_contexts.itinerary_ticket_context(db, itinerary)
+    pdf = await rendering.render_pdf(template, context)
+    return rendering.pdf_response(pdf, f'itinerario-{itinerary.deliveries_itinerary_id:06d}.pdf')
+
+
+@router.get(
+    '/{itinerary_id}/delivery-notes', response_class=Response, responses=rendering.PDF_RESPONSE
+)
+async def print_delivery_notes(
+    itinerary_id: int,
+    _: CurrentUser = Depends(_READ),
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    """The acknowledgements and receipts of a departed or closed trip."""
+    itinerary = await _itinerary_or_404(db, itinerary_id)
+    _assert_printable(itinerary)
+    template, context = await print_contexts.delivery_notes_context(db, itinerary)
+    pdf = await rendering.render_pdf(template, context)
+    return rendering.pdf_response(pdf, f'acuses-{itinerary.deliveries_itinerary_id:06d}.pdf')
 
 
 @router.get('/{itinerary_id}', response_model=ItineraryResponse)
