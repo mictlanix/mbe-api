@@ -71,7 +71,7 @@ async def get_vehicle_operator(
 
 
 async def create_vehicle_operator(
-    db: AsyncSession, data: VehicleOperatorCreate, creator_id: int = 0
+    db: AsyncSession, data: VehicleOperatorCreate, creator_id: int
 ) -> VehicleOperator:
     now = local_now()
     vo = VehicleOperator(
@@ -95,7 +95,7 @@ async def create_vehicle_operator(
 
 
 async def update_vehicle_operator(
-    db: AsyncSession, vo: VehicleOperator, data: VehicleOperatorUpdate, updater_id: int = 0
+    db: AsyncSession, vo: VehicleOperator, data: VehicleOperatorUpdate, updater_id: int
 ) -> VehicleOperator:
     if data.driver is not None:
         vo.driver = data.driver

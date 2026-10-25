@@ -18,6 +18,8 @@ from PIL import Image, UnidentifiedImageError
 from app.core.config import settings
 
 _MAX_BYTES = 2 * 1024 * 1024  # 2 MB
+
+PNG_RESPONSE = {200: {'content': {'image/png': {'schema': {'type': 'string', 'format': 'binary'}}}}}
 _MAX_WIDTH = 150
 _MAX_POD_WIDTH = 1024
 
