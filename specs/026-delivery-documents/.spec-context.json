@@ -3,7 +3,7 @@
   "specName": "Delivery Documents",
   "branch": "026-delivery-documents",
   "currentStep": "implement",
-  "status": "implemented",
+  "status": "completed",
   "history": [
     {
       "step": "specify",
@@ -206,5 +206,26 @@
       "at": "2026-10-25T13:18:15.339Z"
     }
   ],
-  "currentTask": "T018"
+  "currentTask": null,
+  "verified": [
+    {
+      "what": "Test deployment SC-004 (af936c3): delivery 9809, pickup 30206, two-warehouse 30136 filtered, itinerary 4912 ticket and notes render and match mbe_dev; row counts and modification times unchanged"
+    },
+    {
+      "what": "ruff on merged main",
+      "command": "uv run ruff check app/ tests/",
+      "source": "derived",
+      "exitCode": 0,
+      "durationSeconds": 0.4,
+      "result": "All checks passed!"
+    },
+    {
+      "what": "pytest on merged main",
+      "command": "uv run pytest -q -p no:cacheprovider",
+      "source": "derived",
+      "exitCode": 0,
+      "durationSeconds": 62.0,
+      "result": "........................................................................ [ 98%] · ...................................................                      [100%] · 3795 passed in 58.86s"
+    }
+  ]
 }
