@@ -1234,6 +1234,7 @@ CFDI electronic invoice header.
 | `issuer_certificate_number` | char(20) | YES | Serial number of the CSD the issuer signed with, the counterpart of `authority_certificate_number`. Populated on the same 61,166 rows |
 | `payment_date` | date | YES | *Complemento de pago* (REP) settlement date. Populated on only **70** rows, against 35,767 for `payment_amount` beside it — do not assume the two are written together |
 | `payment_amount` | decimal(18,2) | YES | *Complemento de pago* (REP) settled amount. Populated on 35,767 rows; see the caveat on `payment_date` |
+| `customer_payment` | int(11) | YES | FK → `customer_payment` — the payment a *complemento de pago* (type 200) was created from. **API-only**, added by migration 025 (spec 028); the current system never writes it, and a payment backs at most one receipt that is not cancelled |
 | `approval_number` | int(11) | YES | **Legacy** — SAT *número de aprobación* from the printed-folio era, before CFDI. Populated on 10,399 older documents and never written since |
 | `approval_year` | int(11) | YES | **Legacy** — SAT *año de aprobación*, the companion of `approval_number`, with the same 10,399 rows |
 | `taxpayer_regime_name` | varchar(250) | YES | **Never written** — 0 of 62,592 rows populated in `mbe_dev`. `issuer_regime_name` above is the column that actually carries a regime description; this one is a drop candidate, and reaching for it by name would return `NULL` every time |

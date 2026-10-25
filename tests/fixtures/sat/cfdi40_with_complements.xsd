@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Local wrapper, not from SAT: one schema set with CFDI 4.0 and the complements this API
+     writes, because cfdv40.xsd validates `cfdi:Complemento` strictly (spec 028). -->
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema">
+  <xs:import namespace="http://www.sat.gob.mx/cfd/4" schemaLocation="cfdv40.xsd"/>
+  <xs:import namespace="http://www.sat.gob.mx/Pagos20" schemaLocation="Pagos20.xsd"/>
+</xs:schema>

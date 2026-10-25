@@ -1,8 +1,10 @@
+from datetime import date
 from decimal import Decimal
 from typing import Literal
 
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator
 
+from app.core.clock import local_today
 from app.enums import (
     EntityStatus,
     FiscalCertificationProvider,
@@ -11,6 +13,7 @@ from app.enums import (
     PaymentTerms,
 )
 from app.schemas import LocalDateTime
+from app.schemas.sales_quote import QuoteEmailRequest
 from app.schemas.sat_catalog import SatCatalogResponse
 
 # ── Taxpayer Issuer ───────────────────────────────────────────────────────────
@@ -113,7 +116,7 @@ class FiscalDocumentRelationResponse(BaseModel):
 
     fiscal_document_relation_id: int
     relation: int
-    type: Literal['04', '07'] | None
+    type: Literal['01', '04', '07'] | None
     stamp_uuid: str | None
     batch: str | None
     serial: int | None
@@ -142,8 +145,13 @@ class FiscalDocumentResponse(FiscalDocumentSummary):
     cancellation_reason: str | None
     customer: int | None = None
     facility: int | None = None
+    payment_date: date | None = None
+    payment_amount: Decimal | None = None
+    payment_reference: str | None = None
+    customer_payment: int | None = None
     lines: list[FiscalDocumentLine]
     relations: list[FiscalDocumentRelationResponse] = []
+    paid_invoices: list['PaidInvoiceResponse'] = []
 
 
 def relation_code(stored: object) -> str | None:
@@ -228,6 +236,18 @@ class InvoiceUpdate(BaseModel):
     facility: int | None = None
     reference: str | None = Field(None, max_length=25)
     comment: str | None = Field(None, max_length=1000)
+    # A payment receipt's payment (spec 028). Refused on other document types.
+    payment_date: date | None = None
+    payment_amount: Decimal | None = Field(None, gt=0, max_digits=18, decimal_places=2)
+    payment_reference: str | None = Field(None, max_length=50)
+    ordering_bank: str | None = Field(None, max_length=25)
+
+    @field_validator('payment_date')
+    @classmethod
+    def _not_in_the_future(cls, value: date | None) -> date | None:
+        if value is not None and value > local_today():
+            raise ValueError('The payment date cannot be in the future')
+        return value
 
     @field_validator('payment_method')
     @classmethod
@@ -267,3 +287,62 @@ class InvoiceLineUpdate(BaseModel):
 class InvoiceRelationAdd(BaseModel):
     relation: int
     type: Literal['04', '07']
+
+
+# ── Payment receipts, credit notes and email (#53, #55, #50, spec 028) ───────
+
+
+class PaymentReceiptCreate(BaseModel):
+    customer: int
+    recipient: str = Field(min_length=12, max_length=13)
+    issuer: str | None = Field(None, min_length=12, max_length=13)
+    batch: str | None = Field(None, min_length=1, max_length=10)
+    #: Copy its date, amount, form and reference, and propose the PPD invoices it paid.
+    customer_payment: int | None = None
+
+
+class CreditNoteCreate(BaseModel):
+    invoice: int
+
+
+class PaidInvoiceAdd(BaseModel):
+    invoice: int
+    #: Defaults to the smaller of the invoice's balance and the unassigned payment amount.
+    amount: Decimal | None = Field(None, gt=0, max_digits=18, decimal_places=2)
+
+
+class PaidInvoiceUpdate(BaseModel):
+    amount: Decimal = Field(gt=0, max_digits=18, decimal_places=2)
+
+
+class PaidInvoiceResponse(BaseModel):
+    """One invoice a payment receipt pays. Live values on a draft, stored once sealed."""
+
+    fiscal_document_relation_id: int
+    invoice: int
+    batch: str | None
+    serial: int | None
+    stamp_uuid: str | None
+    installment: int
+    previous_balance: Decimal
+    amount: Decimal
+    remaining: Decimal
+
+
+class InvoiceLineCopy(BaseModel):
+    """A line of the credit note's invoice; the quantity defaults to the invoice line's."""
+
+    line: int
+    quantity: Decimal | None = Field(None, gt=0, max_digits=18, decimal_places=4)
+
+
+class FiscalEmailRequest(QuoteEmailRequest):
+    """1–10 addresses, validated and deduplicated as spec 024's quote email does."""
+
+
+class FiscalEmailResponse(BaseModel):
+    recipients: list[str]
+    sent_at: LocalDateTime
+
+
+FiscalDocumentResponse.model_rebuild()

@@ -897,3 +897,96 @@ async def test_a_stamped_invoice_is_never_changed(invoicing: Invoicing) -> None:
     await _status(409, svc.confirm(invoicing.db, invoicing.current, stamped))
     await _status(409, _header(invoicing, stamped, comment='x'))
     await _status(409, _relate(invoicing, stamped, stamped.fiscal_document_id, '07'))
+
+
+# ── Document types (spec 028, T007) ───────────────────────────────────────────
+
+
+async def _draft_of_type(invoicing: Invoicing, type_: int) -> FiscalDocument:
+    document = await invoicing.create()
+    await invoicing.db.execute(
+        update(FiscalDocument)
+        .where(FiscalDocument.fiscal_document_id == document.fiscal_document_id)
+        .values(type=type_)
+    )
+    await invoicing.db.commit()
+    return await invoicing.load(document)
+
+
+@pytest.mark.parametrize('type_', [100, 200])
+async def test_invoice_only_operations_refuse_other_types(invoicing: Invoicing, type_: int) -> None:
+    document = await _draft_of_type(invoicing, type_)
+    order = await seed_sales_order(invoicing.db, completed=True)
+
+    error = await _status(
+        409, svc.add_sales_order(invoicing.db, invoicing.current, document, order)
+    )
+    assert error.detail == 'Not available for this document type'
+    await _status(
+        409,
+        svc.add_relation(
+            invoicing.db,
+            invoicing.current,
+            document,
+            InvoiceRelationAdd.model_validate({'relation': 1, 'type': '07'}),
+        ),
+    )
+
+
+@pytest.mark.parametrize(
+    ('type_', 'body'),
+    [
+        (0, {'payment_date': '2026-10-01'}),
+        (0, {'payment_amount': '10'}),
+        (0, {'ordering_bank': 'BBVA'}),
+        (100, {'recipient': RFC}),
+        (100, {'payment_terms': 1}),
+        (100, {'payment_amount': '10'}),
+        (200, {'recipient': RFC}),
+        (200, {'usage': 'G03'}),
+        (200, {'payment_terms': 1}),
+        (200, {'reference': 'x'}),
+    ],
+)
+async def test_each_type_takes_only_its_header_fields(
+    invoicing: Invoicing, type_: int, body: dict
+) -> None:
+    document = await invoicing.create() if type_ == 0 else await _draft_of_type(invoicing, type_)
+
+    error = await _status(422, _header(invoicing, document, **body))
+    assert error.detail.startswith('Not a field of this document type')
+
+
+async def test_a_receipt_takes_its_payment_fields(invoicing: Invoicing) -> None:
+    document = await _draft_of_type(invoicing, 200)
+
+    document = await _header(
+        invoicing,
+        document,
+        payment_date='2026-10-01',
+        payment_amount='1500.50',
+        payment_method=3,
+        payment_reference='OP-123',
+        ordering_bank='BBVA',
+    )
+
+    assert (document.payment_date.isoformat(), document.payment_amount) == (
+        '2026-10-01',
+        Decimal('1500.50'),
+    )
+    assert (document.payment_method, document.payment_reference, document.reference) == (
+        3,
+        'OP-123',
+        'BBVA',
+    )
+    error = await _status(422, _header(invoicing, document, payment_method=99))
+    assert error.detail == 'A payment receipt needs the actual payment form'
+
+
+async def test_default_batch_for_each_type(invoicing: Invoicing) -> None:
+    facility = await invoicing.db.get(Facility, 1)
+
+    assert await svc.default_batch_for(invoicing.db, ISSUER_RFC, facility, 0) == 'A'
+    assert await svc.default_batch_for(invoicing.db, ISSUER_RFC, facility, 200) == 'P'
+    error = await _status(422, svc.default_batch_for(invoicing.db, ISSUER_RFC, facility, 100))
+    assert error.detail == 'The issuer has no credit note series'

@@ -1,11 +1,15 @@
-"""Validates CFDI 4.0 XML against SAT's own schema, vendored in `tests/fixtures/sat/` (SC-001)."""
+"""Validates CFDI 4.0 XML against SAT's own schemas, vendored in `tests/fixtures/sat/` (SC-001).
+
+`cfdv40.xsd` validates `cfdi:Complemento` strictly, so the schema set also holds `Pagos20.xsd`
+(spec 028) through a local wrapper that imports both.
+"""
 
 from functools import cache
 from pathlib import Path
 
 from lxml import etree
 
-_XSD = Path(__file__).parent / 'fixtures' / 'sat' / 'cfdv40.xsd'
+_XSD = Path(__file__).parent / 'fixtures' / 'sat' / 'cfdi40_with_complements.xsd'
 
 
 @cache

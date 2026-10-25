@@ -13,16 +13,29 @@ from app.enums import AccessRight, SystemObject
 from app.models.fiscal import FiscalDocument
 from app.schemas import ListResponse, LocalDateTime
 from app.schemas.fiscal import (
+    CreditNoteCreate,
     FiscalDocumentResponse,
     FiscalDocumentSummary,
+    FiscalEmailRequest,
+    FiscalEmailResponse,
     InvoiceCreate,
     InvoiceLineAdd,
+    InvoiceLineCopy,
     InvoiceLineUpdate,
     InvoiceRelationAdd,
     InvoiceSalesOrderAdd,
     InvoiceUpdate,
+    PaidInvoiceAdd,
+    PaidInvoiceUpdate,
+    PaymentReceiptCreate,
 )
-from app.services import fiscal_document_service, invoice_service, print_contexts
+from app.services import (
+    fiscal_document_service,
+    fiscal_email,
+    invoice_service,
+    mail,
+    print_contexts,
+)
 from app.services.cfdi import CfdiError
 from app.services.fiscal_document_service import DocumentStatus
 
@@ -283,3 +296,114 @@ async def reopen_invoice(
     document = await _document_or_404(db, fiscal_document_id)
     await invoice_service.reopen(db, current, document)
     return await _response(db, fiscal_document_id)
+
+
+# ── Payment receipts (#53, spec 028) ──────────────────────────────────────────
+
+
+@router.post(
+    '/payment-receipts', response_model=FiscalDocumentResponse, status_code=status.HTTP_201_CREATED
+)
+async def create_payment_receipt(
+    data: PaymentReceiptCreate,
+    current: CurrentUser = Depends(_CREATE),
+    db: AsyncSession = Depends(get_db),
+) -> FiscalDocumentResponse:
+    """A payment receipt (Pagos 2.0) draft. From a customer payment it copies the payment and
+    proposes the PPD invoices that payment settled."""
+    fiscal_document_id = await invoice_service.create_payment_receipt(db, current, data)
+    return await _response(db, fiscal_document_id)
+
+
+@router.post('/{fiscal_document_id}/paid-invoices', response_model=FiscalDocumentResponse)
+async def add_paid_invoice(
+    fiscal_document_id: int,
+    data: PaidInvoiceAdd,
+    current: CurrentUser = Depends(_UPDATE),
+    db: AsyncSession = Depends(get_db),
+) -> FiscalDocumentResponse:
+    """A stamped PPD invoice this receipt pays. Its installment and balance are computed."""
+    document = await _document_or_404(db, fiscal_document_id)
+    await invoice_service.add_paid_invoice(db, current, document, data)
+    return await _response(db, fiscal_document_id)
+
+
+@router.put(
+    '/{fiscal_document_id}/paid-invoices/{relation_id}', response_model=FiscalDocumentResponse
+)
+async def update_paid_invoice(
+    fiscal_document_id: int,
+    relation_id: int,
+    data: PaidInvoiceUpdate,
+    current: CurrentUser = Depends(_UPDATE),
+    db: AsyncSession = Depends(get_db),
+) -> FiscalDocumentResponse:
+    document = await _document_or_404(db, fiscal_document_id)
+    await invoice_service.update_paid_invoice(db, current, document, relation_id, data)
+    return await _response(db, fiscal_document_id)
+
+
+@router.delete(
+    '/{fiscal_document_id}/paid-invoices/{relation_id}', response_model=FiscalDocumentResponse
+)
+async def remove_paid_invoice(
+    fiscal_document_id: int,
+    relation_id: int,
+    current: CurrentUser = Depends(_UPDATE),
+    db: AsyncSession = Depends(get_db),
+) -> FiscalDocumentResponse:
+    document = await _document_or_404(db, fiscal_document_id)
+    await invoice_service.remove_paid_invoice(db, current, document, relation_id)
+    return await _response(db, fiscal_document_id)
+
+
+# ── Credit notes (#55, spec 028) ──────────────────────────────────────────────
+
+
+@router.post(
+    '/credit-notes', response_model=FiscalDocumentResponse, status_code=status.HTTP_201_CREATED
+)
+async def create_credit_note(
+    data: CreditNoteCreate,
+    current: CurrentUser = Depends(_CREATE),
+    db: AsyncSession = Depends(get_db),
+) -> FiscalDocumentResponse:
+    """A credit note (egreso) draft for one stamped invoice, related with type 01."""
+    fiscal_document_id = await invoice_service.create_credit_note(db, current, data)
+    return await _response(db, fiscal_document_id)
+
+
+@router.post('/{fiscal_document_id}/invoice-lines', response_model=FiscalDocumentResponse)
+async def copy_invoice_line(
+    fiscal_document_id: int,
+    data: InvoiceLineCopy,
+    current: CurrentUser = Depends(_UPDATE),
+    db: AsyncSession = Depends(get_db),
+) -> FiscalDocumentResponse:
+    """A line of the credit note's invoice, at its quantity or a smaller one."""
+    document = await _document_or_404(db, fiscal_document_id)
+    await invoice_service.add_invoice_line(db, current, document, data)
+    return await _response(db, fiscal_document_id)
+
+
+# ── Email (#50, spec 028) ─────────────────────────────────────────────────────
+
+
+@router.post('/{fiscal_document_id}/email', response_model=FiscalEmailResponse)
+async def email_fiscal_document(
+    fiscal_document_id: int,
+    data: FiscalEmailRequest,
+    current: CurrentUser = Depends(_READ),
+    mailer: mail.Mailer | None = Depends(mail.get_mailer),
+    db: AsyncSession = Depends(get_db),
+) -> FiscalEmailResponse:
+    """Send a stamped CFDI 4.0's PDF and XML to 1–10 addresses, and record the send."""
+    if mailer is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail='Email is not configured'
+        )
+    document = await _document_or_404(db, fiscal_document_id)
+    sent_at = await fiscal_email.email_document(
+        db, document, data.to, mailer=mailer, current=current
+    )
+    return FiscalEmailResponse(recipients=data.to, sent_at=sent_at)

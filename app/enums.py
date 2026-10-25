@@ -184,6 +184,8 @@ class SourceType(IntEnum):
     SALES_QUOTE = 11
     # API-only, like 10 and 11: a commission settings change (spec 025).
     COMMISSION = 12
+    # API-only, like 10–12: a CFDI emailed to its recipient (spec 028).
+    FISCAL_DOCUMENT = 13
 
 
 class CommissionScheme(IntEnum):

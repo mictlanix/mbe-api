@@ -7,7 +7,7 @@ from datetime import datetime
 from decimal import Decimal, InvalidOperation
 from typing import Literal
 
-from sqlalchemy import exists, func, or_, select
+from sqlalchemy import and_, exists, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
@@ -86,8 +86,108 @@ async def get_relations(db: AsyncSession, fiscal_document_id: int) -> list[dict[
     return [dict(row._mapping) for row in rows]
 
 
+# ── Balances of a paid invoice (spec 028, research R2) ───────────────────────
+
+#: `fiscal_document.type` of the documents that settle or reduce an invoice.
+PAYMENT_RECEIPT = 200
+CREDIT_NOTE = 100
+
+
+def live(document=FiscalDocument):  # noqa: ANN001, ANN201 — an entity or an alias of it
+    """Sealed or issued, and not cancelled: a document that counts (spec 027, research R1)."""
+    # Its own alias, so a query that already reads `fiscal_document_xml` does not swallow it.
+    xml = aliased(FiscalDocumentXml)
+    return and_(
+        document.cancelled.is_(False),
+        or_(
+            document.completed.is_(True),
+            exists().where(xml.fiscal_document_xml_id == document.fiscal_document_id),
+        ),
+    )
+
+
+async def invoice_settlements(
+    db: AsyncSession, invoice: int, *, exclude_document: int | None = None
+) -> tuple[Decimal, int, Decimal, Decimal]:
+    """`invoice`'s stored total, and the count and sum of its live receipts' payments and the sum
+    of its live credit notes' totals. `exclude_document` leaves the one being edited out."""
+    total = xml_total(await get_xml(db, invoice)) or Decimal(0)
+    receipt = aliased(FiscalDocument)
+    paid = await db.execute(
+        select(func.count(), func.coalesce(func.sum(FiscalDocumentRelation.amount), 0))
+        .join(receipt, receipt.fiscal_document_id == FiscalDocumentRelation.document)
+        .where(
+            FiscalDocumentRelation.relation == invoice,
+            receipt.type == PAYMENT_RECEIPT,
+            live(receipt),
+            receipt.fiscal_document_id != (exclude_document or 0),
+        )
+    )
+    receipts, paid_amount = paid.one()
+    note = aliased(FiscalDocument)
+    notes = await db.execute(
+        select(FiscalDocumentXml.data)
+        .join(note, note.fiscal_document_id == FiscalDocumentXml.fiscal_document_xml_id)
+        .join(FiscalDocumentRelation, FiscalDocumentRelation.document == note.fiscal_document_id)
+        .where(
+            FiscalDocumentRelation.relation == invoice,
+            note.type == CREDIT_NOTE,
+            live(note),
+            note.fiscal_document_id != (exclude_document or 0),
+        )
+    )
+    credited = sum((xml_total(data) or Decimal(0) for data in notes.scalars()), Decimal(0))
+    return total, receipts, Decimal(paid_amount), credited
+
+
+async def invoice_position(
+    db: AsyncSession, invoice: int, *, exclude_document: int | None = None
+) -> tuple[int, Decimal]:
+    """The next installment of `invoice` and its balance before it: the total less what live
+    receipts paid and less its live credit notes."""
+    total, receipts, paid, credited = await invoice_settlements(
+        db, invoice, exclude_document=exclude_document
+    )
+    return receipts + 1, total - paid - credited
+
+
+async def get_paid_invoices(
+    db: AsyncSession, document: FiscalDocument, *, live_values: bool
+) -> list[dict[str, object]]:
+    """A payment receipt's paid invoices. Stored values once sealed; recomputed on a draft."""
+    invoice = aliased(FiscalDocument)
+    rows = await db.execute(
+        select(FiscalDocumentRelation, invoice.batch, invoice.serial, invoice.stamp_uuid)
+        .join(invoice, invoice.fiscal_document_id == FiscalDocumentRelation.relation)
+        .where(FiscalDocumentRelation.document == document.fiscal_document_id)
+        .order_by(FiscalDocumentRelation.fiscal_document_relation_id)
+    )
+    paid = []
+    for relation, batch, serial, stamp_uuid in rows.all():
+        installment, balance = relation.installment, relation.previous_balance
+        if live_values:
+            installment, balance = await invoice_position(
+                db, relation.relation, exclude_document=document.fiscal_document_id
+            )
+        paid.append(
+            {
+                'fiscal_document_relation_id': relation.fiscal_document_relation_id,
+                'invoice': relation.relation,
+                'batch': batch,
+                'serial': serial,
+                'stamp_uuid': stamp_uuid,
+                'installment': installment,
+                'previous_balance': balance,
+                'amount': relation.amount,
+                'remaining': balance - relation.amount,
+            }
+        )
+    return paid
+
+
 async def get_document(db: AsyncSession, fiscal_document_id: int) -> FiscalDocument | None:
-    """The document with `lines`, `relations`, `status` and `total` attached."""
+    """The document with `lines`, `relations`, `status` and `total` attached, and a payment
+    receipt's `paid_invoices`."""
     document = await db.get(FiscalDocument, fiscal_document_id)
     if document is None:
         return None
@@ -101,6 +201,11 @@ async def get_document(db: AsyncSession, fiscal_document_id: int) -> FiscalDocum
     xml = await get_xml(db, fiscal_document_id)
     document.status = document_status(document, has_xml=xml is not None)
     document.total = xml_total(xml)
+    document.paid_invoices = (
+        await get_paid_invoices(db, document, live_values=document.status == 'draft')
+        if document.type == PAYMENT_RECEIPT
+        else []
+    )
     return document
 
 

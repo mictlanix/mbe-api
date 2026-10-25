@@ -145,8 +145,11 @@ async def test_no_redemption_route_exists() -> None:
     Guards against a well-meaning addition that would bypass the unapplied-amount bound and the
     reversal path the payment application already provides.
     """
+    # Store credit only; `/fiscal-documents/credit-notes` is the CFDI credit note (spec 028).
     credit_note_paths = {
-        route.path for route in app.routes if '/credit-notes' in str(getattr(route, 'path', ''))
+        route.path
+        for route in app.routes
+        if str(getattr(route, 'path', '')).startswith('/api/v1/credit-notes')
     }
 
     assert credit_note_paths == {'/api/v1/credit-notes', '/api/v1/credit-notes/{credit_note_id}'}

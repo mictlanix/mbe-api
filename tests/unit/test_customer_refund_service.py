@@ -15,6 +15,7 @@ import pytest
 from fastapi import HTTPException
 
 from app.services.customer_refund_service import (
+    assert_not_invoiced,
     assert_quantity_refundable,
     assert_refundable_order,
     reconcile_lines,
@@ -72,6 +73,59 @@ class TestRefundableQuantity:
     def test_never_goes_negative(self) -> None:
         """Defensive: an over-refunded line reports zero, not a negative allowance."""
         assert refundable_quantity(Decimal('10'), Decimal('12')) == Decimal('0')
+
+
+class TestRefundableQuantityExcludesLiveInvoices:
+    """FR-011 — units on a live invoice are not refundable until that invoice is cancelled."""
+
+    def test_invoiced_units_are_excluded(self) -> None:
+        assert refundable_quantity(Decimal('10'), Decimal('0'), Decimal('6')) == Decimal('4')
+
+    def test_refunded_and_invoiced_units_are_both_excluded(self) -> None:
+        assert refundable_quantity(Decimal('10'), Decimal('2'), Decimal('6')) == Decimal('2')
+
+    def test_a_fully_invoiced_line_leaves_nothing(self) -> None:
+        assert refundable_quantity(Decimal('10'), Decimal('0'), Decimal('10')) == Decimal('0')
+
+    def test_never_goes_negative(self) -> None:
+        assert refundable_quantity(Decimal('10'), Decimal('5'), Decimal('6')) == Decimal('0')
+
+
+class TestAssertNotInvoiced:
+    def _check(self, requested: str, *, refunded: str = '0', invoiced: str = '6') -> None:
+        assert_not_invoiced(
+            Decimal(requested),
+            sold=Decimal('10'),
+            refunded=Decimal(refunded),
+            invoiced=Decimal(invoiced),
+            product_code='P1',
+            invoice='A42',
+        )
+
+    def test_the_uninvoiced_remainder_passes(self) -> None:
+        self._check('4')
+
+    def test_invoiced_units_are_refused_naming_the_invoice(self) -> None:
+        with pytest.raises(HTTPException) as exc:
+            self._check('5')
+
+        assert exc.value.status_code == 409
+        assert exc.value.detail == (
+            'Units of line P1 are on invoice A42; cancel the invoice to refund them'
+        )
+
+    def test_more_than_was_sold_is_left_to_the_422(self) -> None:
+        self._check('11')
+
+    def test_no_invoice_never_refuses(self) -> None:
+        self._check('10', invoiced='0')
+
+    def test_invoiced_units_are_refused_after_an_earlier_refund(self) -> None:
+        """Another refund took 3 and an invoice holds 6: only 1 of the 7 left is refundable."""
+        with pytest.raises(HTTPException) as exc:
+            self._check('7', refunded='3')
+
+        assert exc.value.status_code == 409
 
 
 class TestAssertQuantityRefundable:

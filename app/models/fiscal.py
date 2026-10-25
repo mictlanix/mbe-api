@@ -1,7 +1,17 @@
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, LargeBinary, Numeric, String, Text
+from sqlalchemy import (
+    Boolean,
+    Date,
+    DateTime,
+    ForeignKey,
+    Integer,
+    LargeBinary,
+    Numeric,
+    String,
+    Text,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -83,6 +93,13 @@ class FiscalDocument(Base):
     reference: Mapped[str | None] = mapped_column(String(25))
     payment_method: Mapped[int] = mapped_column(Integer)
     payment_reference: Mapped[str | None] = mapped_column(String(50))
+    # A payment receipt's payment (type 200, spec 028): `FechaPago` and `Monto` of its Pagos node.
+    payment_date: Mapped[date | None] = mapped_column(Date)
+    payment_amount: Mapped[Decimal | None] = mapped_column(Numeric(18, 2))
+    # The customer payment a receipt was made from (migration 025, API-only).
+    customer_payment: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey('customer_payment.customer_payment_id')
+    )
     exchange_rate: Mapped[Decimal] = mapped_column(Numeric(8, 4))
     currency: Mapped[CurrencyCode] = mapped_column(Integer)
     payment_terms: Mapped[int] = mapped_column(Integer)
