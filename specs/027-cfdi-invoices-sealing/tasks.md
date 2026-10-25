@@ -21,16 +21,16 @@ description: "Task list for CFDI invoices up to a sealed document"
 
 **Purpose:** the dependency and the vendored SAT files every later phase needs.
 
-- [ ] T001 Add `lxml` to `[project].dependencies` in `pyproject.toml` and run `uv lock`, which updates `uv.lock`. Verify that `uv run python -c "import lxml.etree"` works.
-- [ ] T002 [P] Vendor the XSLT set into `app/resources/cfdi40/`.
+- [X] T001 Add `lxml` to `[project].dependencies` in `pyproject.toml` and run `uv lock`, which updates `uv.lock`. Verify that `uv run python -c "import lxml.etree"` works.
+- [X] T002 [P] Vendor the XSLT set into `app/resources/cfdi40/`.
   - Copy `cadena_original_4_0.xslt` and every file it includes from `/Users/eddy/Projects/mictlanix/cfdlib/src/CFDv40/Resources/`: all `*.xslt` except `cadenaoriginal_4_0.xslt`, the XSLT 2.0 copy, and `cadenaoriginal_TFD_1_1.xslt`.
   - Change the include `divisas.xslt` to `Divisas.xslt` in the vendored main file.
   - Add `app/resources/cfdi40/README.md` stating the source, the commit (`git -C …/cfdlib rev-parse HEAD`) and that one edit (research R3).
-- [ ] T003 [P] Vendor SAT's schemas into `tests/fixtures/sat/`.
+- [X] T003 [P] Vendor SAT's schemas into `tests/fixtures/sat/`.
   - Download `cfdv40.xsd`, `tdCFDI.xsd` and `catCFDI.xsd` from the URLs in research R12, and gzip the catalogue as `catCFDI.xsd.gz`.
   - Rewrite the `xs:import schemaLocation` attributes to the local file names.
   - Add `tests/fixtures/sat/README.md` with the URLs and the download date.
-- [ ] T004 Add `tests/cfdi_schema.py` with `assert_valid_cfdi40(xml: str) -> None`. It loads `tests/fixtures/sat/cfdv40.xsd` once with `lxml.etree.XMLSchema` and raises `AssertionError` listing `schema.error_log`. Add a smoke test in `tests/unit/test_cfdi_schema.py`: `tests/fixtures/cfdi/invoice.xml` with its TFD complement stripped validates, and the same XML with `Moneda` removed fails. This depends on T001 and T003.
+- [X] T004 Add `tests/cfdi_schema.py` with `assert_valid_cfdi40(xml: str) -> None`. It loads `tests/fixtures/sat/cfdv40.xsd` once with `lxml.etree.XMLSchema` and raises `AssertionError` listing `schema.error_log`. Add a smoke test in `tests/unit/test_cfdi_schema.py`: `tests/fixtures/cfdi/invoice.xml` with its TFD complement stripped validates, and the same XML with `Moneda` removed fails. This depends on T001 and T003.
 
 ---
 
