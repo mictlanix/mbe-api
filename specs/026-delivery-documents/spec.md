@@ -216,14 +216,14 @@ A branch that delivers concrete prints the delivery order on Letter paper. The r
 - **Templates:** the documents reuse spec 019's layouts, header block and formatting helpers. Content must match the current system; layout need not.
 - **Data under the v2 model:** the pickup ticket's "picked up in store" is fulfillment type PICKUP, as migration 008 mapped it. The itinerary's operator and vehicle come from the v2 columns.
 - **Letter document states:** it follows FR-003's states, like the ticket. The current system's PrintFormat checked no state, but printing an unapproved order on Letter paper would bypass the approval rule the ticket keeps.
-- **Warehouse option:** the warehouse is passed explicitly. The API has no "current point of sale warehouse" in the request.
+- **Warehouse option:** the warehouse is passed explicitly. The API could derive the current point of sale's warehouse, as `delivery_itinerary_service._pos_warehouse` does. But a warehouse clerk may have no point of sale, and the client already knows which warehouse it shows, so an explicit value covers both.
 - **Filtered lines:** the warehouse option applies to the delivery ticket and the pickup ticket only, as in the current system. With the filter, the pending payments and the amount to collect still describe the whole order, as they do in the current system.
-- **The sales order's payment status** on the delivery ticket uses the current system's labels:
-  - "Vencido": past its due date and unpaid;
-  - "Por Cobrar": cash terms and unpaid;
-  - "No Pagado": otherwise unpaid.
+- **The sales order's payment status** on the delivery ticket uses the current system's rule (`DeliveryTicket.cshtml:33-50`). Every sales order is listed with its id and terms. An unpaid one gets one of these labels:
+  - "No Pagado": cash terms;
+  - "Vencido": credit terms, due before today;
+  - "Por Cobrar": credit terms, not yet due.
 
-  It is taken from the API's derived order balance.
+  A paid order gets no label. "Paid" is the order's own paid flag.
 
 ## Out of Scope
 
