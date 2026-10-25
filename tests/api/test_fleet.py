@@ -285,10 +285,8 @@ async def test_get_vehicle_operator_returns_404() -> None:
 @pytest.mark.asyncio
 async def test_create_vehicle_operator_returns_201() -> None:
     _auth()
-    with patch(
-        'app.services.vehicle_operator_service.create_vehicle_operator',
-        new=AsyncMock(return_value=_vehicle_operator()),
-    ):
+    create = AsyncMock(return_value=_vehicle_operator())
+    with patch('app.services.vehicle_operator_service.create_vehicle_operator', new=create):
         async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as c:
             r = await c.post(
                 '/api/v1/vehicle-operators',
@@ -303,6 +301,7 @@ async def test_create_vehicle_operator_returns_201() -> None:
             )
     assert r.status_code == 201
     assert r.json()['license_type'] == 'C'
+    assert create.await_args.kwargs['creator_id'] == 7
 
 
 @pytest.mark.asyncio
@@ -310,20 +309,19 @@ async def test_update_vehicle_operator_returns_200() -> None:
     _auth()
     updated = _vehicle_operator()
     updated.issuing_location = 'GDL'
+    update = AsyncMock(return_value=updated)
     with (
         patch(
             'app.services.vehicle_operator_service.get_vehicle_operator',
             new=AsyncMock(return_value=_vehicle_operator()),
         ),
-        patch(
-            'app.services.vehicle_operator_service.update_vehicle_operator',
-            new=AsyncMock(return_value=updated),
-        ),
+        patch('app.services.vehicle_operator_service.update_vehicle_operator', new=update),
     ):
         async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as c:
             r = await c.put('/api/v1/vehicle-operators/1', json={'issuing_location': 'GDL'})
     assert r.status_code == 200
     assert r.json()['issuing_location'] == 'GDL'
+    assert update.await_args.kwargs['updater_id'] == 7
 
 
 @pytest.mark.asyncio

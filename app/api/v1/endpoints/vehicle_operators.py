@@ -40,10 +40,12 @@ async def list_vehicle_operators(
 @router.post('', response_model=VehicleOperatorResponse, status_code=http_status.HTTP_201_CREATED)
 async def create_vehicle_operator(
     data: VehicleOperatorCreate,
-    _: CurrentUser = Depends(_CREATE),
+    current: CurrentUser = Depends(_CREATE),
     db: AsyncSession = Depends(get_db),
 ) -> VehicleOperatorResponse:
-    vo = await vehicle_operator_service.create_vehicle_operator(db, data)
+    vo = await vehicle_operator_service.create_vehicle_operator(
+        db, data, creator_id=current.employee_id
+    )
     return VehicleOperatorResponse.model_validate(vo)
 
 
@@ -65,7 +67,7 @@ async def get_vehicle_operator(
 async def update_vehicle_operator(
     vehicle_operator_id: int,
     data: VehicleOperatorUpdate,
-    _: CurrentUser = Depends(_UPDATE),
+    current: CurrentUser = Depends(_UPDATE),
     db: AsyncSession = Depends(get_db),
 ) -> VehicleOperatorResponse:
     vo = await vehicle_operator_service.get_vehicle_operator(db, vehicle_operator_id)
@@ -73,7 +75,9 @@ async def update_vehicle_operator(
         raise HTTPException(
             status_code=http_status.HTTP_404_NOT_FOUND, detail='Vehicle operator not found'
         )
-    vo = await vehicle_operator_service.update_vehicle_operator(db, vo, data)
+    vo = await vehicle_operator_service.update_vehicle_operator(
+        db, vo, data, updater_id=current.employee_id
+    )
     return VehicleOperatorResponse.model_validate(vo)
 
 
@@ -116,7 +120,11 @@ async def upload_license_photo(
     return VehicleOperatorResponse.model_validate(vo)
 
 
-@router.get('/{vehicle_operator_id}/license-photo')
+@router.get(
+    '/{vehicle_operator_id}/license-photo',
+    response_class=FileResponse,
+    responses=image_service.PNG_RESPONSE,
+)
 async def get_license_photo(
     vehicle_operator_id: int,
     _: CurrentUser = Depends(_READ),

@@ -411,7 +411,11 @@ async def get_proof(
     return ProofOfDeliveryResponse.model_validate(await _proof_or_404(db, order))
 
 
-@router.get('/{delivery_order_id}/proof/image')
+@router.get(
+    '/{delivery_order_id}/proof/image',
+    response_class=FileResponse,
+    responses=image_service.PNG_RESPONSE,
+)
 async def get_proof_image(
     delivery_order_id: int,
     _: CurrentUser = Depends(_READ),
