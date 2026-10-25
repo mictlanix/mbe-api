@@ -85,7 +85,8 @@ Against those 75 refunds stand 3 fiscal credit notes. The rest of the returned i
 
 ### Session 2026-10-25
 
-*(Open for `/speckit-clarify`. The request asks to settle there how refunds and credit payments relate to fiscal credit notes.)*
+- Q: What happens when a refund returns goods that were already invoiced (75 refunds in 12 months, 3 credit notes)? → A: The refund is refused until the invoice is cancelled. Refunds never create credit notes; a fiscal credit note stays a billing document (US2).
+- Q: Should a payment receipt be tied to a recorded customer payment? → A: Either. It is created from a customer payment (pre-filled, invoices proposed, link stored) or by hand with the same rules, for payments with no record, such as for standalone invoices.
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -122,7 +123,7 @@ Both sealed XMLs validate against SAT's CFDI 4.0 and Pagos 2.0 schemas, and thei
 
 Billing issues a fiscal credit note to return or discount part of what was invoiced. The credit note relates the invoice or invoices it adjusts with relation type 01, carries the returned products or a discount concept, and is sealed to wait for stamping.
 
-**Why this priority**: the goods in 75 refunds in a year had already been invoiced, and only 3 credit notes were issued against them. Fiscal credit notes are what makes refunding invoiced goods correct.
+**Why this priority**: billing needs credit notes for returns and discounts on invoiced sales. Refunds of invoiced goods are refused (US3), so a credit note is how such a sale is reduced without cancelling the invoice.
 
 **Independent Test**:
 1. Seal a credit note related to a stamped invoice, with one line copied from that invoice at a smaller quantity.
@@ -142,25 +143,22 @@ Billing issues a fiscal credit note to return or discount part of what was invoi
 
 ---
 
-### User Story 3 - A refund of invoiced goods produces a fiscal credit note, or is refused (Priority: P2)
+### User Story 3 - A refund of invoiced goods is refused until the invoice is cancelled (Priority: P2)
 
-When a refund returns goods that were already invoiced, the system issues the fiscal credit note for them; otherwise the refund cannot be completed (the 22 Apr decision on mictlanix/mbe-roadmap#55).
+A refund may return only units that are not on a live invoice. Units on a sealed or stamped invoice that is not cancelled cannot be refunded until that invoice is cancelled (the 22 Apr decision on mictlanix/mbe-roadmap#55, clarified 2026-10-25).
 
-**Why this priority**: today such refunds silently leave the invoice overstating the sale. The rule closes that gap, and it depends on stories 1–2 only for the credit note itself.
+**Why this priority**: today such refunds silently leave the invoice overstating the sale: 75 of them in 12 months, mostly paid back as store credit. The rule stops new ones. It is independent of stories 1, 2 and 4.
 
 **Independent Test**:
-1. Complete a refund of 2 units of an order line whose 5 units are on a stamped invoice. The system produces a draft credit note for 2 units, related to that invoice.
-2. Refund units that were never invoiced. No credit note is produced.
+1. Refund 2 units of an order line whose 5 units are on a stamped invoice. The refund is refused with a message naming the invoice.
+2. Refund units of the same order that were never invoiced. The refund goes through as today.
 
 **Acceptance Scenarios**:
 
-1. **Given** an order line partly or fully on a stamped invoice, **When** a refund of that line is completed, **Then** a draft credit note is created:
-   - for the refunded units that had been invoiced;
-   - related to that invoice;
-   - at the invoice's prices;
-   - linked to the refund.
-2. **Given** a refund of units that were never invoiced, **When** it is completed, **Then** no credit note is created and the refund behaves as today.
-3. **Given** a refund of invoiced units that cannot have a credit note, **When** completion is attempted, **Then** it is refused with a message naming the reason. Such cases include an invoice that is sealed but not yet stamped, an issuer without a credit-note series, or a recipient without a regime or postal code.
+1. **Given** an order line whose units are on a sealed or stamped invoice that is not cancelled, **When** a refund of those units is created, edited or completed, **Then** it is refused (409). The message names the invoice's series and folio.
+2. **Given** an order line of 10 with 6 on a live invoice, **When** a refund of up to 4 is completed, **Then** it goes through. A refund of 5 is refused.
+3. **Given** a refund of units that were never invoiced, or whose invoice was cancelled, **When** it is completed, **Then** it behaves as today.
+4. **Given** units on a draft invoice, **When** they are refunded, **Then** the refund goes through, because a draft reserves nothing (spec 027). Confirming that invoice later refuses the quantity the refund took.
 
 ---
 
@@ -197,10 +195,10 @@ Billing sends a stamped CFDI's PDF and XML to one or more addresses and learns w
   - it cannot precede the related invoice's date.
 - **A payment with no customer payment record:** this covers payments for standalone invoices (9 of 21 receipts). Billing creates the receipt by hand with the same rules.
 - **Credit notes and receipts on the same invoice:** a credit note lowers what the invoice still owes, so a later receipt's previous balance counts sealed or stamped credit notes too.
-- **A refund that spans an invoiced and an uninvoiced line:** only the invoiced units go on the credit note.
-- **A refund touching two invoices:** one credit note relates both, if they share issuer and recipient. Otherwise there is one credit note per issuer and recipient.
-- **A cancelled draft credit note created from a refund:** the refund stays completed, and the credit note can be recreated.
-- **Store credit or cash:** the refund's payout (cash or store credit) is unchanged. The fiscal credit note records the reduction of the sale; it does not move money.
+- **A refund that spans an invoiced and an uninvoiced line:** it is refused as a whole, and the message names the invoiced line and its invoice. The clerk can refund the uninvoiced line alone.
+- **A sealed, unstamped invoice:** its units are refused too. Billing can reopen it and remove the line (spec 027), which frees the units.
+- **Cancellation is not built yet** (#51): until it is, units on a stamped invoice issued by the new MBE cannot be refunded at all. Invoices cancelled in the current system before the cutover free their units.
+- **Store credit or cash:** a refund that is allowed pays back as today. A fiscal credit note issued by billing records a reduction of the sale; it does not move money.
 - **Email of a cancelled CFDI:** it is refused.
 
 ## Requirements *(mandatory)*
@@ -211,7 +209,7 @@ Billing sends a stamped CFDI's PDF and XML to one or more addresses and learns w
 
 - **FR-001**: The system MUST create payment receipt drafts (type 200):
   - for a customer and recipient, under the issuer's payment-receipt series;
-  - optionally from a customer payment, whose date, amount, form and reference it copies.
+  - optionally from a customer payment, whose date, amount, form and reference it copies. The receipt keeps a link to that payment.
 - **FR-002**: When created from a customer payment, the system MUST propose relations to the stamped PPD invoices that hold lines of the orders that payment was applied to. Billing may remove them, or add others.
 - **FR-003**: A receipt MUST accept relations only to documents that:
   - are stamped, not cancelled, PPD and of type Invoice;
@@ -254,10 +252,10 @@ Billing sends a stamped CFDI's PDF and XML to one or more addresses and learns w
   - `CfdiRelacionados` type 01;
   - `MetodoPago` PUE.
 
-**Refunds of invoiced goods (#55, 22 Apr decision)**
+**Refunds of invoiced goods (#55, 22 Apr decision, clarified 2026-10-25)**
 
-- **FR-011**: Completing a refund MUST determine, for each refunded order line, how many of the refunded units were already invoiced on stamped invoices. If any were, it MUST create a draft credit note for those units, related to those invoices and linked to the refund.
-- **FR-012**: A refund of invoiced units MUST be refused when no credit note can be produced, with a message naming the reason. This covers an invoice that is sealed but not stamped, an issuer with no credit-note series, or a recipient missing its regime or postal code.
+- **FR-011**: A refund MUST NOT return more of an order line than is sold and not on a live invoice. A live invoice is sealed or stamped and not cancelled, so the refundable quantity is the line's quantity, less the units refunded before, less the units on live invoices. Creating, editing or completing a refund over that limit MUST be refused (409), naming the invoice's series and folio.
+- **FR-012**: Refunds MUST NOT create fiscal credit notes. A fiscal credit note is always issued by billing (FR-008 to FR-010).
 
 **Email and QR (#50)**
 
@@ -283,16 +281,16 @@ Billing sends a stamped CFDI's PDF and XML to one or more addresses and learns w
   - StandaloneFiscalDocuments (56) for hand-added products;
   - FiscalDocuments Read to email.
 
-  A refund keeps its own privileges. The credit note it creates needs no extra privilege.
+  Refunds keep their own privileges.
 - **FR-017**: `docs/specs/10-fiscal-documents.md` MUST describe what is built: payment receipts, credit notes, the refund rule and email. It MUST mark stamping and cancellation as pending.
 
 ### Key Entities
 
 - **Payment receipt:** a fiscal document of type 200. It has a payment (date, form, amount, reference, ordering bank) and relations to the invoices it pays. Each relation has an installment, a previous balance, the amount paid and the remaining balance.
-- **Fiscal credit note:** a fiscal document of type 100 with lines and type-01 relations to the invoices it reduces, optionally linked to the refund that produced it.
+- **Fiscal credit note:** a fiscal document of type 100 with lines and type-01 relations to the invoices it reduces. Billing issues it; refunds never do.
 - **Customer payment:** money received, applied to sales orders (spec 011). It is the optional source of a receipt.
-- **Refund:** goods returned by a customer (spec 011). It is the optional source of a credit note.
-- **Store credit:** spec 011's non-fiscal "credit note" (`credit_note`). It is unrelated to the fiscal credit note except through the refund both may come from.
+- **Refund:** goods returned by a customer (spec 011). It may only return units that are not on a live invoice.
+- **Store credit:** spec 011's non-fiscal "credit note" (`credit_note`), a refund's payout. It is unrelated to the fiscal credit note.
 - **Email send:** a record that a CFDI was mailed: to whom, by whom and when.
 
 ## Success Criteria *(mandatory)*
@@ -304,21 +302,23 @@ Billing sends a stamped CFDI's PDF and XML to one or more addresses and learns w
   - rebuilding each from its stored data gives the stored original string, apart from the differences the corrections in FR-007 require, which are listed;
   - the computed installments and previous balances equal the stored ones wherever the stored ones are consistent.
 - **SC-003**: Two receipts paying one PPD invoice in two installments give installments 1 and 2, and the second's previous balance equals the first's remaining balance.
-- **SC-004**: On the test deployment:
-  - a refund of invoiced units on a real order produces a related draft credit note, which seals;
-  - a refund of uninvoiced units produces none;
-  - no table outside fiscal documents, refunds and their payments changes.
+- **SC-004**: On the test deployment, against real orders:
+  - a refund of units on a stamped invoice is refused, naming the invoice;
+  - a refund of uninvoiced units of the same order goes through;
+  - nothing changes outside the refunds, their payments and stock, as before this feature.
 - **SC-005**: An emailed stamped invoice arrives with both attachments. A refused send returns an error and records nothing.
 
 ## Assumptions
 
 - **Advance payments applied (type 101)** are out of scope: there were 25 in 12 months, but they are not requested.
 - **MXN only.** Every receipt relation in 12 months was in MXN at rate 1. Receipts and credit notes are MXN at rate 1, and the XML writes `MonedaP`/`MonedaDR` MXN, `EquivalenciaDR` 1 and `TipoCambioP` 1.
-- **Credit note payment terms:** PUE. The payment form is the related invoice's, unless that is 99, in which case billing chooses it. Usage defaults to G02 (returns, discounts or bonuses).
-- **No schema change is expected.** Receipts use the existing `payment_date`, `payment_amount`, `payment_reference` and `reference` columns of `fiscal_document`, and the existing relation columns. The links from a receipt to its customer payment and from a credit note to its refund need a place to live, which `/speckit-plan` decides.
+- **Credit note defaults:** PUE, with the related invoice's payment form and CFDI usage. Billing chooses the form when the invoice's is 99.
+
+  Measured on mbe_dev: all 16 credit notes since 2023 are PUE with the invoice's form, 03 on 15 of them. Their usages are G03 on 11, G01 on 4 and G02 on 1. None relates a PPD invoice.
+- **No schema change is expected.** Receipts use the existing `payment_date`, `payment_amount`, `payment_reference` and `reference` columns of `fiscal_document`, and the existing relation columns. The link from a receipt to its customer payment needs a place to live, which `/speckit-plan` decides.
 - **Receipts from the current system** are read as stored. Their typed installments and balances are trusted for computing the next ones, even where inconsistent.
 - **Email CC** is not configured in the current system, so none is added. The sender is spec 024's.
-- **The refund rule** applies to refunds completed in the new MBE after this feature ships. Past refunds of invoiced goods are not revisited.
+- **The refund rule** applies to refunds created, edited or completed in the new MBE after this feature ships. Past refunds of invoiced goods are not revisited, and no credit notes are issued for them.
 
 ## Out of Scope
 
