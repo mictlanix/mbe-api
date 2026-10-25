@@ -121,7 +121,7 @@ Both sealed XMLs validate against SAT's CFDI 4.0 and Pagos 2.0 schemas, and thei
 
 ### User Story 2 - Billing issues a credit note against invoices (Priority: P1)
 
-Billing issues a fiscal credit note to return or discount part of what was invoiced. The credit note relates the invoice or invoices it adjusts with relation type 01, carries the returned products or a discount concept, and is sealed to wait for stamping.
+Billing issues a fiscal credit note to return or discount part of what was invoiced. The credit note relates the one invoice it adjusts with relation type 01, carries the returned products or a discount line, and is sealed to wait for stamping.
 
 **Why this priority**: billing needs credit notes for returns and discounts on invoiced sales. Refunds of invoiced goods are refused (US3), so a credit note is how such a sale is reduced without cancelling the invoice.
 
@@ -136,8 +136,8 @@ Billing issues a fiscal credit note to return or discount part of what was invoi
    - the credit note takes the invoice's customer, recipient, issuer and store;
    - its series is the issuer's credit-note series;
    - it relates the invoice with type 01.
-2. **Given** a draft credit note, **When** billing adds lines from a related invoice, **Then** each line keeps that invoice line's price, discount and tax, at a quantity no larger than what the invoice still holds after earlier credit notes.
-3. **Given** a draft credit note, **When** billing adds a product or a discount concept by hand, **Then** it is kept within the invoice line rules of spec 027.
+2. **Given** a draft credit note, **When** billing adds lines from the related invoice, **Then** each line keeps that invoice line's product, SAT keys, price, discount and tax, at a quantity no larger than the invoice line's.
+3. **Given** a draft credit note, **When** billing adds a product by hand, for example a service product renamed "Descuento" at the discount's amount, **Then** it is kept within the invoice line rules of spec 027.
 4. **Given** a credit note whose total exceeds what remains of the related invoices after earlier credit notes, **When** it is confirmed, **Then** confirm is refused.
 5. **Given** a confirmed credit note, **Then** it has the next serial of its series, a sealed XML and the state "sealed". It can be reopened as an invoice can.
 
@@ -194,7 +194,8 @@ Billing sends a stamped CFDI's PDF and XML to one or more addresses and learns w
   - it may predate the receipt by more than the 72-hour rule, which applies only to the receipt's issue date;
   - it cannot precede the related invoice's date.
 - **A payment with no customer payment record:** this covers payments for standalone invoices (9 of 21 receipts). Billing creates the receipt by hand with the same rules.
-- **Credit notes and receipts on the same invoice:** a credit note lowers what the invoice still owes, so a later receipt's previous balance counts sealed or stamped credit notes too.
+- **Credit notes and receipts on the same invoice:** a credit note lowers what the invoice still owes, so a later receipt's previous balance counts the related invoice's sealed or stamped credit notes too.
+- **One live receipt per customer payment:** a customer payment can back only one receipt that is not cancelled. A second one is refused.
 - **A refund that spans an invoiced and an uninvoiced line:** it is refused as a whole, and the message names the invoiced line and its invoice. The clerk can refund the uninvoiced line alone.
 - **A sealed, unstamped invoice:** its units are refused too. Billing can reopen it and remove the line (spec 027), which frees the units.
 - **Cancellation is not built yet** (#51): until it is, units on a stamped invoice issued by the new MBE cannot be refunded at all. Invoices cancelled in the current system before the cutover free their units.
@@ -226,7 +227,7 @@ Billing sends a stamped CFDI's PDF and XML to one or more addresses and learns w
   - payment date: not in the future, and not before the related invoices;
   - payment form: a SAT form other than 99;
   - amount;
-  - operation number (≤ 100 characters);
+  - operation number (≤ 50 characters, the column's size; the longest stored is 28);
   - ordering bank name.
 - **FR-007**: The receipt XML MUST follow Pagos 2.0 as the current system writes it:
   - a zero-value Comprobante, type P, currency XXX, usage CP01, one "Pago" concept;
@@ -241,13 +242,14 @@ Billing sends a stamped CFDI's PDF and XML to one or more addresses and learns w
 **Credit notes (#55)**
 
 - **FR-008**: The system MUST create credit note drafts (type 100, egreso):
-  - for one or more stamped, non-cancelled invoices of the same issuer and recipient, related with type 01;
+  - for exactly one stamped, non-cancelled Invoice, related with type 01, taking its issuer, customer, recipient and store;
   - under the issuer's credit-note series.
-- **FR-009**: A credit note's lines MUST come from three sources:
-  - its related invoices' lines, at a quantity no larger than what the invoice line still holds after earlier sealed or stamped credit notes;
-  - products added by hand (Create on StandaloneFiscalDocuments, as in spec 027);
-  - a discount concept (SAT 84111506, unit ACT) at a stated amount.
-- **FR-010**: Confirm MUST refuse a credit note whose total exceeds what its related invoices still hold after earlier credit notes. Otherwise it seals the credit note exactly as spec 027 seals an invoice: serial, XML, original string, seal and the sealed state. The XML differs in these values:
+
+  Every credit note on mbe_dev relates one invoice (112) or none (11).
+- **FR-009**: A credit note's lines MUST come from two sources:
+  - the related invoice's lines, at a quantity no larger than the invoice line's;
+  - products added by hand (Create on StandaloneFiscalDocuments, as in spec 027), whose name, code and price billing may edit, e.g. a discount or a returned service.
+- **FR-010**: Confirm MUST refuse a credit note whose total exceeds the related invoice's total, less its earlier sealed or stamped, non-cancelled credit notes. Otherwise it seals the credit note exactly as spec 027 seals an invoice: serial, XML, original string, seal and the sealed state. The XML differs in these values:
   - `TipoDeComprobante` E;
   - `CfdiRelacionados` type 01;
   - `MetodoPago` PUE.
@@ -287,7 +289,7 @@ Billing sends a stamped CFDI's PDF and XML to one or more addresses and learns w
 ### Key Entities
 
 - **Payment receipt:** a fiscal document of type 200. It has a payment (date, form, amount, reference, ordering bank) and relations to the invoices it pays. Each relation has an installment, a previous balance, the amount paid and the remaining balance.
-- **Fiscal credit note:** a fiscal document of type 100 with lines and type-01 relations to the invoices it reduces. Billing issues it; refunds never do.
+- **Fiscal credit note:** a fiscal document of type 100 with lines and a type-01 relation to the one invoice it reduces. Billing issues it; refunds never do.
 - **Customer payment:** money received, applied to sales orders (spec 011). It is the optional source of a receipt.
 - **Refund:** goods returned by a customer (spec 011). It may only return units that are not on a live invoice.
 - **Store credit:** spec 011's non-fiscal "credit note" (`credit_note`), a refund's payout. It is unrelated to the fiscal credit note.
