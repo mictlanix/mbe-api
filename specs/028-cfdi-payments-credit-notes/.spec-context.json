@@ -2,8 +2,8 @@
   "workflow": "speckit",
   "specName": "CFDI Payment Receipts, Credit Notes and Email",
   "branch": "028-cfdi-payments-credit-notes",
-  "currentStep": "tasks",
-  "status": "ready-to-implement",
+  "currentStep": "implement",
+  "status": "implementing",
   "history": [
     {
       "step": "specify",
@@ -46,6 +46,13 @@
       "kind": "complete",
       "by": "extension",
       "at": "2026-10-25T22:13:45.492Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "kind": "start",
+      "by": "extension",
+      "at": "2026-10-25T22:19:52.862Z"
     }
   ]
 }

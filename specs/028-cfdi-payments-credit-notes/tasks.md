@@ -20,9 +20,9 @@ No commit carries a Co-Authored-By line. Delegated test-writing goes to agents w
 
 ## Phase 1: Setup
 
-- [ ] T001 [P] Write `migrations/025_fiscal_document_customer_payment.sql` and `migrations/025_fiscal_document_customer_payment_rollback.sql` (data-model.md). Follow the style and header of `migrations/024_supplier_code_unique.sql`. **Do not apply them to mbe_dev**; T037 does that, after confirmation. Extend `tests/unit/test_migrate.py` only if it enumerates migration files.
-- [ ] T002 [P] Vendor SAT's `Pagos20.xsd` and `catPagos.xsd` into `tests/fixtures/sat/`, from `http://www.sat.gob.mx/sitio_internet/cfd/Pagos/Pagos20.xsd` and the `catPagos.xsd` it imports. Rewrite their `schemaLocation` imports to the local files (`catCFDI.xsd.gz`, `tdCFDI.xsd`, `catPagos.xsd`), and add both to `tests/fixtures/sat/README.md`. Extend `tests/cfdi_schema.py` so `assert_valid_cfdi40(xml)` also validates the `pago20:Pagos` complement against `Pagos20.xsd` when present. Add a smoke test in `tests/unit/test_cfdi_schema.py`: `tests/fixtures/cfdi/payment.xml` without its TFD passes, and with `MontoTotalPagos` removed it fails.
-- [ ] T003 [P] Model and enum additions:
+- [X] T001 [P] Write `migrations/025_fiscal_document_customer_payment.sql` and `migrations/025_fiscal_document_customer_payment_rollback.sql` (data-model.md). Follow the style and header of `migrations/024_supplier_code_unique.sql`. **Do not apply them to mbe_dev**; T037 does that, after confirmation. Extend `tests/unit/test_migrate.py` only if it enumerates migration files.
+- [X] T002 [P] Vendor SAT's `Pagos20.xsd` and `catPagos.xsd` into `tests/fixtures/sat/`, from `http://www.sat.gob.mx/sitio_internet/cfd/Pagos/Pagos20.xsd` and the `catPagos.xsd` it imports. Rewrite their `schemaLocation` imports to the local files (`catCFDI.xsd.gz`, `tdCFDI.xsd`, `catPagos.xsd`), and add both to `tests/fixtures/sat/README.md`. Extend `tests/cfdi_schema.py` so `assert_valid_cfdi40(xml)` also validates the `pago20:Pagos` complement against `Pagos20.xsd` when present. Add a smoke test in `tests/unit/test_cfdi_schema.py`: `tests/fixtures/cfdi/payment.xml` without its TFD passes, and with `MontoTotalPagos` removed it fails.
+- [X] T003 [P] Model and enum additions:
   - in `app/models/fiscal.py`, `FiscalDocument.customer_payment: Mapped[int | None]` (FK `customer_payment.customer_payment_id`), `payment_date: Mapped[date | None]` and `payment_amount: Mapped[Decimal | None]` (`Numeric(18, 2)`);
   - in `app/enums.py`, `SourceType.FISCAL_DOCUMENT = 13` with an "API-only" comment like 11 and 12.
 

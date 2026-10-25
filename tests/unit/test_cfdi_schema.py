@@ -28,3 +28,26 @@ def test_a_missing_required_attribute_is_reported() -> None:
 
     with pytest.raises(AssertionError, match='Moneda'):
         assert_valid_cfdi40(etree.tostring(root))
+
+
+_PAYMENT = Path(__file__).parents[1] / 'fixtures' / 'cfdi' / 'payment.xml'
+_PAGOS = '{http://www.sat.gob.mx/Pagos20}'
+
+
+def _payment_without_stamp() -> etree._Element:
+    root = etree.parse(str(_PAYMENT)).getroot()
+    for timbre in root.iter('{http://www.sat.gob.mx/TimbreFiscalDigital}TimbreFiscalDigital'):
+        timbre.getparent().remove(timbre)
+    return root
+
+
+def test_a_payment_receipt_is_checked_against_pagos_20() -> None:
+    assert_valid_cfdi40(etree.tostring(_payment_without_stamp()))
+
+
+def test_a_broken_pagos_complement_is_reported() -> None:
+    root = _payment_without_stamp()
+    del next(root.iter(f'{_PAGOS}Totales')).attrib['MontoTotalPagos']
+
+    with pytest.raises(AssertionError, match='MontoTotalPagos'):
+        assert_valid_cfdi40(etree.tostring(root))
