@@ -175,7 +175,7 @@ A clerk changes the recipient, series, CFDI usage, payment terms and form, issue
 
 1. **Given** a draft, **When** the payment terms are set to credit (PPD), **Then** the payment form becomes 99.
 2. **Given** a draft, **When** the issue date is set more than 72 hours back, or in the future, **Then** the request is refused.
-3. **Given** a draft and a stamped invoice of the same issuer, **When** a relation of type 04 or 07 is added, **Then** the sealed XML lists that invoice's UUID under that relation type.
+3. **Given** a draft and a stamped invoice of the same issuer and recipient (cancelled, for type 04), **When** a relation of type 04 or 07 is added, **Then** the sealed XML lists that invoice's UUID under that relation type.
 4. **Given** a sealed invoice, **When** it is reopened, **Then** it returns to draft with the same serial, and its sealed XML is gone.
 5. **Given** a stamped or cancelled invoice, **When** any change, reopen or confirm is attempted, **Then** the request is refused (409).
 
@@ -232,7 +232,11 @@ A clerk changes the recipient, series, CFDI usage, payment terms and form, issue
   - PPD MUST force payment form 99.
   - Changing the issuing store MUST keep the current system's separate permission.
 - **FR-009**: The issue date MUST be no more than 72 hours before now and not in the future, both when it is set and at confirm.
-- **FR-010**: A draft MUST accept relations to stamped invoices of the same issuer and recipient, each with relation type 04 or 07, and allow removing them.
+- **FR-010**: A draft MUST accept relations to stamped documents of the same issuer and recipient, and allow removing them. As in the current system:
+  - type 04 (substitution) relates a cancelled invoice;
+  - type 07 (application of an advance) relates a non-cancelled invoice or advance payments applied (101).
+
+  All relations of one invoice share one relation type.
 - **FR-011**: Line rules:
   - quantity is positive and, for an order line, at most its remaining quantity;
   - price is zero or more;
@@ -295,6 +299,7 @@ A clerk changes the recipient, series, CFDI usage, payment terms and form, issue
 
   The current system allowed PUE with payment form 99 (29 stamped invoices), so it stays allowed.
 - **Remaining quantity.** The current system's rule (the larger of invoiced and refunded) is replaced, because it let 141 lines refunded before invoicing in the last year be invoiced again. Sealed invoices also count. Invoices are ordered by their issue time and refunds by their completion time.
+- **New dependency.** Computing the original string with SAT's stylesheet, and validating against SAT's schema in tests, needs an XSLT 1.0 and XML Schema processor. `lxml` is added for both (constitution V).
 - **Template.** The template is stored as the current system's JSON and used by spec 020's PDF. This feature does not change printing.
 - **Order of states.** "Sealed" sits between draft and issued. The current system would show a sealed invoice as a draft, but after the cutover it no longer writes these tables.
 
