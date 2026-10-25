@@ -7,6 +7,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Changed
+- **Refunds of invoiced goods are refused** (mictlanix/mbe-roadmap#55, spec 028). A refund can no longer return units that sit on a live invoice (sealed or stamped, not cancelled). Opening, editing or confirming such a refund returns 409 naming the invoice, and the invoice must be cancelled first. Refunds never create fiscal credit notes.
+  - **Volume:** in the last 12 months, 75 of 1,540 refunds would have been refused.
+  - **Refundable quantity:** each order line's `refundable_quantity` now excludes invoiced units.
+  - **At confirm:** a line made over-limit by an invoice raises the 409 instead of being trimmed silently.
 - **Fiscal documents report a `sealed` status** (spec 027). It covers documents that are not completed or cancelled but have their XML stored: confirmed by the new MBE and waiting to be stamped. `GET /fiscal-documents?status=draft` no longer includes them, and `status=sealed` selects them. The detail now returns `customer`, `facility`, `relations`, and each line's `product` and `order_detail`.
 - **Payments stamp `balance_zeroed_time` when they settle an order** (spec 025). The current system stamps it in every payment path, and it dates an order's commission month. This API never did. It is set once and never cleared, and the refund path still never writes it. Migration 023 backfills the 38 paid orders since 2025-10-01 that lacked it.
 - **Pilot sales rules** (mictlanix/mbe-roadmap#149, mictlanix/mbe-roadmap#35, spec 023).
@@ -40,6 +44,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **The `PaymentOnDelivery` model** (#248). The current system dropped `payment_on_delivery` in mictlanix/mbe#84, and nothing in this API read or wrote it. The model, its data-dictionary section and its schema-dump block are gone. The receipt's "Contraentrega" label, for payments collected without a cash session, is unaffected.
 
 ### Added
+- **CFDI payment receipts up to a sealed document** (mictlanix/mbe-roadmap#53, spec 028). Pagos 2.0 receipts for PPD invoices, created by hand or from a customer payment (`POST /fiscal-documents/payment-receipts`, `/{id}/paid-invoices`).
+  - **Installments and balances:** each invoice's installment and previous balance are computed from its earlier receipts and credit notes, including the current system's, and recomputed under a row lock at confirm. The current system had them typed by hand.
+  - **Taxes:** they follow each invoice's own rates. The current system assumed 16 % and dropped `Totales` for untaxed invoices.
+  - **Migration 025** adds `fiscal_document.customer_payment`: one live receipt per payment.
+- **CFDI credit notes up to a sealed document** (mictlanix/mbe-roadmap#55, spec 028). Egreso credit notes for one stamped invoice, related with type 01 (`POST /fiscal-documents/credit-notes`, `/{id}/invoice-lines`). Their lines are copied from the invoice or added by hand, and their total is capped at what the invoice still holds.
+- **Email of stamped CFDIs** (mictlanix/mbe-roadmap#50, spec 028). `POST /fiscal-documents/{id}/email` sends a stamped CFDI 4.0's PDF and XML with the current system's subject, body and file names. The caller learns whether the server accepted it, and each send is recorded. The PDF already carried SAT's QR (spec 020).
 - **CFDI 4.0 invoices up to a sealed document** (mictlanix/mbe-roadmap#47, spec 027). No PAC is contacted; stamping is mictlanix/mbe-roadmap#46.
   - **Editor:** `POST /fiscal-documents` creates an Invoice draft with the current system's defaults. Routes then:
     - add a completed sales order's invoiceable lines at their remaining quantity (`/sales-orders`);

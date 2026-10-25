@@ -158,7 +158,7 @@ Both validate against SAT's CFDI 4.0 and Pagos 2.0 schemas, and both seals verif
     - the XML has E, 01 and PUE and validates;
     - a total above the invoice's remaining total gives 422. Seed an earlier sealed credit note.
   - **Reopen:** works.
-- [ ] T016 [P] [US2] Write `tests/api/test_fiscal_credit_notes.py` (`test_credit_notes.py` is spec 011's store credit), delegated, for `POST /fiscal-documents/credit-notes` and `POST /{id}/invoice-lines`: success, 401, 403, 404, 409/422 mapping and validation.
+- [X] T016 [P] [US2] Write `tests/api/test_fiscal_credit_notes.py` (`test_credit_notes.py` is spec 011's store credit), delegated, for `POST /fiscal-documents/credit-notes` and `POST /{id}/invoice-lines`: success, 401, 403, 404, 409/422 mapping and validation.
 - [X] T017 [US2] Implement in `app/services/invoice_service.py`:
   - `create_credit_note(db, current, data)`;
   - `add_invoice_line(db, current, document, data)`;
@@ -214,7 +214,7 @@ Both validate against SAT's CFDI 4.0 and Pagos 2.0 schemas, and both seals verif
   - a stamped invoice is sent and an incidence (source 13) is recorded;
   - a draft, sealed, cancelled or pre-4.0 document gives 409;
   - a `MailError` gives 502 and no incidence.
-- [ ] T025 [P] [US4] Write `tests/api/test_fiscal_email.py`, delegated:
+- [X] T025 [P] [US4] Write `tests/api/test_fiscal_email.py`, delegated:
   - the success case;
   - 401, 403 (Read 23), 404;
   - 503 when no mailer;
@@ -231,12 +231,12 @@ Both validate against SAT's CFDI 4.0 and Pagos 2.0 schemas, and both seals verif
 
 ## Phase 7: Polish & Cross-Cutting Concerns
 
-- [ ] T028 [P] Update `docs/specs/10-fiscal-documents.md` (FR-017): receipts (balances, Pagos XML and corrections), credit notes, the refund rule, and email. Mark stamping and cancellation pending. Rewrite spec 027's remaining-quantity paragraph: its sentence "A refund of already-invoiced goods needs a credit note; it does not free units to invoice again." becomes "Refunds cannot take units on a live invoice (spec 028)."
-- [ ] T029 [P] Update `CHANGELOG.md` `[Unreleased]`:
+- [X] T028 [P] Update `docs/specs/10-fiscal-documents.md` (FR-017): receipts (balances, Pagos XML and corrections), credit notes, the refund rule, and email. Mark stamping and cancellation pending. Rewrite spec 027's remaining-quantity paragraph: its sentence "A refund of already-invoiced goods needs a credit note; it does not free units to invoice again." becomes "Refunds cannot take units on a live invoice (spec 028)."
+- [X] T029 [P] Update `CHANGELOG.md` `[Unreleased]`:
   - **Added:** payment receipts, credit notes, CFDI email, and migration 025.
   - **Changed:** refunds of invoiced units are refused (409).
-- [ ] T030 Run `uv run ruff check app/ migrations/ tests/` and `uv run pytest -q`; everything must be green. Include `tests/integration/test_no_endpoint_returns_500.py` for the new routes.
-- [ ] T031 Run SC-002 parity read-only (quickstart §3):
+- [X] T030 Run `uv run ruff check app/ migrations/ tests/` and `uv run pytest -q`; everything must be green. Include `tests/integration/test_no_endpoint_returns_500.py` for the new routes.
+- [X] T031 Run SC-002 parity read-only (quickstart §3):
   - export the 21 live receipts and 3 credit notes of the last 12 months, with their rows and related invoices' XML;
   - rebuild each locally with `cfdi_payment.build` and `cfdi_invoice.build`;
   - compare the original strings, listing each difference and its FR-007 cause;

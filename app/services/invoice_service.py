@@ -949,6 +949,8 @@ def _check_amount(amount: Decimal, balance: Decimal, unassigned: Decimal | None)
 
 
 async def _paid_relations(db: AsyncSession, receipt: int) -> list[FiscalDocumentRelation]:
+    # In the order billing added them. Legacy reads them unordered, so its XML follows whatever
+    # plan MariaDB picks: by row on RHP 12 and RHP 23, by invoice on CGR 10 (SC-002).
     query = (
         select(FiscalDocumentRelation)
         .where(FiscalDocumentRelation.document == receipt)

@@ -322,6 +322,22 @@ Billing sends a stamped CFDI's PDF and XML to one or more addresses and learns w
 - **Email CC** is not configured in the current system, so none is added. The sender is spec 024's.
 - **The refund rule** applies to refunds created, edited or completed in the new MBE after this feature ships. Past refunds of invoiced goods are not revisited, and no credit notes are issued for them.
 
+## Verification
+
+### SC-002: parity with the current system's receipts and credit notes (2026-10-25)
+
+**Method.** Every payment receipt (23, 2 of them cancelled) and every credit note (3, 1 cancelled) issued on mbe_dev since 2025-10-25 was exported read-only, with its rows, its relations and the related invoices' stored XML. Each was rebuilt locally from its rows only: receipts with `cfdi_payment.build`, credit notes with `cfdi_invoice.build` (`E`, relation 01). `NoCertificado` and `Certificado` were taken from the stored XML. The original strings were compared through the vendored stylesheet.
+
+**Result:** 25 of 26 are identical.
+- **CGR 10:** the only difference is the order of its two paid invoices. The current system reads relations without an ORDER BY, so its XML follows MariaDB's plan:
+  - RHP 12 and RHP 23 list them in row order, as the new MBE does;
+  - CGR 10 lists them by invoice.
+
+  The values are the same.
+- **No tax correction showed:** every receipt in the period pays 16 %-only invoices, so the tax-share correction of FR-007 changes nothing here. The other cases are covered by unit tests.
+
+**Balances.** For all 29 receipt relations, the stored, hand-typed installment and previous balance equal the formulas of FR-004, computed from the receipts issued before each one. There are 29 consistent and 0 inconsistent.
+
 ## Out of Scope
 
 - Stamping (#46) and cancellation (#51), including SAT cancellation of a credit note or receipt.

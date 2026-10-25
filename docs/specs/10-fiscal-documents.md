@@ -254,7 +254,7 @@ Each returns the document.
   - what sealed or issued, non-cancelled invoices hold, other than this one. Drafts reserve nothing;
   - each completed refund, counted only for the units not yet invoiced when it was recorded.
 
-  Events are taken in time order: invoices by issue date, refunds by date, and at equal times the refund first. A refund of already-invoiced goods needs a credit note; it does not free units to invoice again. Legacy's `quantity − max(invoiced, refunded)` let goods refunded before invoicing be invoiced anyway.
+  Events are taken in time order: invoices by issue date, refunds by date, and at equal times the refund first. Refunds cannot take units on a live invoice (spec 028). Legacy's `quantity − max(invoiced, refunded)` let goods refunded before invoicing be invoiced anyway.
 
 **Manual lines.**
 - Quantity 1, at the customer's price-list price.
@@ -300,6 +300,59 @@ Each returns the document.
 6. The XML is stored and the invoice is left **sealed**.
 
 **Reopen.** A sealed invoice can return to draft. The sealed XML is removed and the serial is kept, and the next confirm reuses that serial.
+
+### New MBE: payment receipts, credit notes and email (spec 028, #53, #55, #50)
+
+**Stamping and cancellation are still pending** (#46, #51). Receipts and credit notes stop at a sealed document, as invoices do. Spec 027's states, serial lock, 72-hour rule, certificate choice and reopen apply to both.
+
+**Payment receipts** (type 200, Pagos 2.0):
+
+| Route | Does |
+|---|---|
+| `POST /fiscal-documents/payment-receipts` | Creates a draft, by hand or from a customer payment. From a payment it copies the date, amount, form and reference, keeps the link (`fiscal_document.customer_payment`, migration 025) and proposes the PPD invoices holding lines of the orders that payment settled |
+| `PUT /fiscal-documents/{id}` | Edits `payment_date`, `payment_amount`, `payment_method` (not 99), `payment_reference` (`NumOperacion`, ≤ 50), `ordering_bank` (`NomBancoOrdExt`, stored in `reference`), `issued` and `comment` |
+| `POST`, `PUT`, `DELETE /fiscal-documents/{id}/paid-invoices…` | Adds, edits and removes the invoices the receipt pays |
+
+- **Which invoices can be paid:** stamped, non-cancelled PPD invoices of the receipt's issuer and recipient.
+- **Installment:** 1 plus the invoice's earlier live receipts.
+- **Previous balance:** the invoice's stored total, less its live receipts' payments and its live credit notes' totals. Receipts from the current system count too.
+- **Amount paid:** defaults to the smaller of that balance and the unassigned payment amount, and must not exceed the balance.
+- **At confirm:**
+  - the paid invoices are locked;
+  - installments and balances are recomputed and stored;
+  - the amounts paid must equal the payment amount.
+
+  The relation rows keep `installment`, `previous_balance` and `amount`.
+- **The XML** is the current system's zero-value receipt, with these corrections:
+  - each paid invoice's taxes follow that invoice's own transfers (16 %, 0 %, exempt), scaled to the amount paid; the current system assumed 16 %;
+  - an untaxed invoice is `ObjetoImpDR` 01;
+  - `Totales` is always written, with one field per rate.
+
+  A 16 %-only invoice gives the current system's exact values.
+- A customer payment backs at most one receipt that is not cancelled.
+
+**Credit notes** (type 100, egreso):
+
+| Route | Does |
+|---|---|
+| `POST /fiscal-documents/credit-notes` | Creates a draft for one stamped invoice, related with type 01 (stored as `'1'`). It copies the invoice's parties, store, payment form and usage; terms are PUE |
+| `POST /fiscal-documents/{id}/invoice-lines` | Copies an invoice line at its quantity or less |
+| `POST /fiscal-documents/{id}/lines` | Adds a product by hand (privilege 56), for example a discount concept |
+
+- **Confirm refuses:**
+  - payment form 99;
+  - a total above the invoice's total less its other live credit notes. The invoice row is locked while this is checked.
+- **The XML:** spec 027's invoice XML, with `TipoDeComprobante` E, `MetodoPago` PUE and `CfdiRelacionados` 01.
+- **Remaining quantity:** a credit note's copied lines keep their `order_detail`, but only invoices count toward an order line's invoiced quantity.
+
+**Refunds of invoiced goods.** A refund cannot return units on a live invoice (sealed or stamped, not cancelled). Opening, editing or confirming such a refund is refused with 409, naming the invoice: "Units of line {code} are on invoice {series}{folio}; cancel the invoice to refund them". Refunds never create credit notes; billing issues them. A sealed, unstamped invoice can be reopened and the line removed to free its units.
+
+**Email.** `POST /fiscal-documents/{id}/email` (Read on 23) sends a stamped CFDI 4.0 of any type to 1–10 addresses.
+- **Message:** the current system's subject, `Comprobante Fiscal - {RFC} - {series}{folio:000000}`, and its Spanish body.
+- **Attachments:** the PDF and the stored XML, named `{RFC}-{series}{folio:000000}`.
+- **Recording:** each send the server accepts is recorded as an incidence (source 13).
+- **Errors:** 409 for anything not stamped, 502 when the server refuses, 503 when mail is not configured.
+- **QR:** spec 020's PDF already prints the SAT verification QR.
 
 ### Document Type Views
 Different view templates per document type:
