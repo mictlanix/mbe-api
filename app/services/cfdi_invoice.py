@@ -34,7 +34,6 @@ _SCHEMA_LOCATION = (
 )
 _XSLT = Path(__file__).resolve().parents[1] / 'resources' / 'cfdi40' / 'cadena_original_4_0.xslt'
 
-_CENTS = Decimal('0.01')
 _MICROS = Decimal('0.000001')
 _QUANTITY = Decimal('0.0001')
 _IVA = '002'
@@ -89,25 +88,33 @@ class LineAmounts:
     base: Decimal
 
 
-def _cents(value: Decimal) -> Decimal:
-    return value.quantize(_CENTS, rounding=ROUND_HALF_UP)
+def _round(value: Decimal, places: int) -> Decimal:
+    """C#'s `Math.Round(d, places, AwayFromZero)`: it removes decimal places, never adds them.
+
+    Legacy writes every amount at the scale its C# decimal carries, so `1250` stays `1250` and
+    `87.0000000 / 1.160000` is `75.0`. Python's Decimal follows the same scale rules for `+ - * /`,
+    so only the rounding needs emulating (SC-002 found both on mbe_dev).
+    """
+    if value.as_tuple().exponent < -places:
+        return value.quantize(Decimal(1).scaleb(-places), rounding=ROUND_HALF_UP)
+    return value
 
 
 def line_amounts(line: InvoiceLineData) -> LineAmounts:
     """Legacy's `FiscalDocumentDetail` figures for one line (exchange rate 1: MXN only)."""
     q, p, d, t = line.quantity, line.price, line.discount_rate, line.tax_rate
-    divisor = 1 + t if line.tax_included and t > 0 else Decimal(1)
+    divided = line.tax_included and t > 0
 
-    subtotal = _cents(q * p / divisor)
-    discount = _cents(q * p * d / divisor)
-    gross_discount = _cents(q * p * d) if d > 0 else Decimal(0)
+    subtotal = _round(q * p / (1 + t) if divided else q * p, 2)
+    discount = _round(q * p * d / (1 + t) if divided else q * p * d, 2)
+    gross_discount = _round(q * p * d, 2) if d > 0 else Decimal(0)
     if line.tax_included or t <= 0:
-        total = _cents(q * p - gross_discount)
+        total = _round(q * p - gross_discount, 2)
     else:
-        total = _cents((q * p - gross_discount) * (1 + t))
+        total = _round((q * p - gross_discount) * (1 + t), 2)
     taxes = total - subtotal + discount
     return LineAmounts(
-        unit_value=(p / divisor).quantize(_MICROS, rounding=ROUND_HALF_UP),
+        unit_value=_round(p / (1 + t) if divided else p, 6),
         subtotal=subtotal,
         discount=discount,
         total=total,
@@ -117,12 +124,12 @@ def line_amounts(line: InvoiceLineData) -> LineAmounts:
 
 
 def format_base(value: Decimal) -> str:
-    """A transfer's line `Base`, unrounded, at the scale a C# decimal prints it (research R5)."""
+    """A decimal as C# prints it: its own scale, never an exponent (research R5)."""
     return format(value, 'f')
 
 
 def _money(value: Decimal) -> str:
-    return f'{_cents(value):f}'
+    return format_base(value)
 
 
 def _rate(value: Decimal) -> str:
@@ -208,7 +215,7 @@ def build(data: InvoiceData, *, certificate_number: str, certificate: str) -> et
                 'ClaveUnidad': line.unit,
                 'Unidad': line.unit_name or None,
                 'Descripcion': line.description,
-                'ValorUnitario': f'{amounts.unit_value:f}',
+                'ValorUnitario': format_base(amounts.unit_value),
                 'Importe': _money(amounts.subtotal),
                 'Descuento': _money(amounts.discount) if amounts.discount > 0 else None,
                 'ObjetoImp': '01' if not_taxed else '02',
@@ -242,12 +249,12 @@ def build(data: InvoiceData, *, certificate_number: str, certificate: str) -> et
         groups[key][1] += amounts.taxes
 
     if groups:
-        rated = [importe for (factor, _), (_, importe) in groups.items() if factor == 'Tasa']
+        rated = [_round(i, 2) for (factor, _), (_, i) in groups.items() if factor == 'Tasa']
         taxes = _element(
             root,
             'Impuestos',
             # SAT: with only exempt transfers there is no total transferred.
-            {'TotalImpuestosTrasladados': _money(sum(map(_cents, rated))) if rated else None},
+            {'TotalImpuestosTrasladados': _money(sum(rated)) if rated else None},
         )
         traslados = _element(taxes, 'Traslados', {})
         for (factor, rate), (base, importe) in groups.items():
@@ -256,11 +263,11 @@ def build(data: InvoiceData, *, certificate_number: str, certificate: str) -> et
                 traslados,
                 'Traslado',
                 {
-                    'Base': _money(base),
+                    'Base': _money(_round(base, 2)),
                     'Impuesto': _IVA,
                     'TipoFactor': factor,
                     'TasaOCuota': None if exempt else _rate(rate),
-                    'Importe': None if exempt else _money(importe),
+                    'Importe': None if exempt else _money(_round(importe, 2)),
                 },
             )
     return root

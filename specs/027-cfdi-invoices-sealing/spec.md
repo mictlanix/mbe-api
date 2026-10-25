@@ -304,6 +304,21 @@ A clerk changes the recipient, series, CFDI usage, payment terms and form, issue
 - **Template.** The template is stored as the current system's JSON and used by spec 020's PDF. This feature does not change printing.
 - **Order of states.** "Sealed" sits between draft and issued. The current system would show a sealed invoice as a draft, but after the cutover it no longer writes these tables.
 
+## Verification
+
+### SC-002: parity with stamped invoices (2026-10-25)
+
+**Method:**
+- 55 stamped CFDI 4.0 invoices were exported read-only from mbe_dev on xolotl, with their rows and stored XML:
+  - the spec's cases: 3 order-based, 3 standalone, 2 XAXX, 2 with a 0 % line, the 1 exempt, 3 with discounts, 2 PPD and 2 with a type 07 relation;
+  - 40 random 2026 invoices.
+- Each one was rebuilt locally with `cfdi_invoice.build`, from its rows only. `Fecha`, `NoCertificado` and `Certificado` came from the stored XML.
+- The original strings of the rebuilt and stored XML were compared through the vendored stylesheet.
+
+**Result:** 55 of 55 are identical.
+
+The first run matched 48 of 55. The other 7 differed only in number formatting: `75.0` against `75.000000`, and `1250` against `1250.00`. The builder now keeps C#'s decimal scale (research R5), and `tests/unit/test_cfdi_invoice.py` pins both cases with the invoices that showed them (ACH6216 and GR4776).
+
 ## Out of Scope
 
 - Stamping with a PAC (#46), cancellation (#51), the payment complement (#53), credit notes and advance payments applied (#55), email and QR (#50), and the UI.

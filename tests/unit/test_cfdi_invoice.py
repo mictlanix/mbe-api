@@ -347,3 +347,33 @@ def test_a_wrong_password_is_refused() -> None:
             key_data=key_data,
             key_password=b'wrong',
         )
+
+
+# ── C# decimal scale (found by SC-002 on mbe_dev) ─────────────────────────────
+
+
+def test_an_exact_division_keeps_the_scale_c_sharp_gives_it() -> None:
+    """Invoice ACH6216: 145.0000000 / 1.160000 is written `125.0`, not `125.000000`."""
+    amounts = cfdi.line_amounts(_line(price=Decimal('145.0000000')))
+
+    assert cfdi.format_base(amounts.unit_value) == '125.0'
+
+
+def test_rounding_never_adds_decimal_places() -> None:
+    """Invoice GR4776: the summary transfer's `Base` is `1250`, rounded but not padded."""
+    data = replace(
+        _fixture_data(),
+        lines=(
+            _line(
+                quantity=Decimal('3.0000'),
+                price=Decimal('550.0000000'),
+                discount_rate=Decimal('0.12121212'),
+            ),
+        ),
+    )
+
+    root = cfdi.build(data, certificate_number=_CERTIFICATE_NUMBER, certificate='AA==')
+
+    [summary] = _attrs(root, 'cfdi:Impuestos/cfdi:Traslados/cfdi:Traslado')
+    assert (summary['Base'], summary['Importe']) == ('1250', '200.00')
+    assert root.find('cfdi:Impuestos', _NS).get('TotalImpuestosTrasladados') == '200.00'

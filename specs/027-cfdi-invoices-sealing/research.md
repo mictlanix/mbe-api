@@ -139,10 +139,13 @@ The legacy `Total` helper's tax-excluded branch is at `ModelHelpers.cs:84-88`; t
 
 - `Cantidad` keeps the column's 4 places (`"4.0000"`).
 - `TasaOCuota` uses 6 places (`"0.160000"`).
-- 2-place amounts always show 2 places.
-- `Base` is written normalised, without exponent or trailing zeros (`"310.375"`, `"1569"`). This matches C#'s decimal division in `tests/fixtures/cfdi/invoice.xml`.
+- Every other value is written at the scale its C# decimal carries, never padded:
+  - `Math.Round(d, n)` only removes places, so a rounded `1250` stays `"1250"`;
+  - an exact division keeps the dividend's scale minus the divisor's, so `87.0000000 / 1.160000` is `"75.0"`.
 
-  Python's `Decimal` division can return an exponent form (`1.569E+3`), so the writer formats with `format(value.normalize(), 'f')`.
+  Python's `Decimal` follows the same scale rules for `+ − × ÷`. The builder therefore rounds only when a value has more places than allowed, and prints with `format(value, 'f')`, which also avoids exponent forms such as `1.569E+3`.
+
+  *Corrected after SC-002.* The first version padded amounts to 2 places and unit values to 6. Parity then differed on 7 of 55 real invoices, in format only.
 
 ### Header
 
