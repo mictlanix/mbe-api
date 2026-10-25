@@ -9,8 +9,14 @@ from typing import Literal
 
 from sqlalchemy import exists, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 
-from app.models.fiscal import FiscalDocument, FiscalDocumentDetail, FiscalDocumentXml
+from app.models.fiscal import (
+    FiscalDocument,
+    FiscalDocumentDetail,
+    FiscalDocumentRelation,
+    FiscalDocumentXml,
+)
 
 DocumentStatus = Literal['draft', 'sealed', 'issued', 'cancelled']
 
@@ -61,8 +67,27 @@ async def get_xml(db: AsyncSession, fiscal_document_id: int) -> str | None:
     return (await db.execute(query)).scalar_one_or_none()
 
 
+async def get_relations(db: AsyncSession, fiscal_document_id: int) -> list[dict[str, object]]:
+    """The documents this one relates, with the UUID, series and folio each is known by."""
+    related = aliased(FiscalDocument)
+    rows = await db.execute(
+        select(
+            FiscalDocumentRelation.fiscal_document_relation_id,
+            FiscalDocumentRelation.relation,
+            FiscalDocumentRelation.type,
+            related.stamp_uuid,
+            related.batch,
+            related.serial,
+        )
+        .join(related, related.fiscal_document_id == FiscalDocumentRelation.relation)
+        .where(FiscalDocumentRelation.document == fiscal_document_id)
+        .order_by(FiscalDocumentRelation.fiscal_document_relation_id)
+    )
+    return [dict(row._mapping) for row in rows]
+
+
 async def get_document(db: AsyncSession, fiscal_document_id: int) -> FiscalDocument | None:
-    """The document with `lines`, `status` and `total` attached."""
+    """The document with `lines`, `relations`, `status` and `total` attached."""
     document = await db.get(FiscalDocument, fiscal_document_id)
     if document is None:
         return None
@@ -72,6 +97,7 @@ async def get_document(db: AsyncSession, fiscal_document_id: int) -> FiscalDocum
         .order_by(FiscalDocumentDetail.fiscal_document_detail_id)
     )
     document.lines = list(lines.scalars())
+    document.relations = await get_relations(db, fiscal_document_id)
     xml = await get_xml(db, fiscal_document_id)
     document.status = document_status(document, has_xml=xml is not None)
     document.total = xml_total(xml)

@@ -156,14 +156,23 @@ def relation_code(stored: object) -> str | None:
 # ── Taxpayer Batch (#44, spec 027) ────────────────────────────────────────────
 
 
+class BatchAccount(BaseModel):
+    """A bank account printed on the invoice: one entry of the template's `ExtraInfo`."""
+
+    bank: str = ''
+    account: str = ''
+    clabe: str = ''
+    currency: str = ''
+
+
 class BatchTemplate(BaseModel):
     """The print template, stored as legacy's JSON (`cfdi.batch_settings` reads it)."""
 
     name: str = Field(min_length=1, max_length=50)
     logo: str | None = None
     header_height: int = Field(0, ge=0)
-    footer_height: int = Field(0, ge=0)
-    extra_info: list[str] = []
+    footer_height: int = Field(15, ge=0)
+    extra_info: list[BatchAccount] = []
 
 
 class TaxpayerBatchCreate(BaseModel):

@@ -111,7 +111,7 @@ description: "Task list for CFDI invoices up to a sealed document"
 
 ### Tests for User Story 1 (write first, must fail)
 
-- [ ] T010 [P] [US1] Add `remaining_quantity(quantity, events)` cases to `tests/unit/test_invoice_service.py` (R6):
+- [X] T010 [P] [US1] Add `remaining_quantity(quantity, events)` cases to `tests/unit/test_invoice_service.py` (R6):
   - 10 with 3 refunded, then 7 invoiced, gives 0;
   - 10 with 7 invoiced, then 3 refunded, gives 0;
   - 10 with 3 refunded first gives 7;
@@ -124,7 +124,7 @@ description: "Task list for CFDI invoices up to a sealed document"
   - the store's default when it is an Invoice batch of the issuer;
   - otherwise the first Invoice batch by id;
   - no Invoice batch gives `None`.
-- [ ] T011 [P] [US1] Add `tests/integration/test_invoice_flow.py` on the SQLite schema, using `seed_baseline`, `seed_sales_order` and `seed_fiscal_document`, plus a seeded issuer, Invoice batch, recipient link and an active certificate from `_make_csd`.
+- [X] T011 [P] [US1] Add `tests/integration/test_invoice_flow.py` on the SQLite schema, using `seed_baseline`, `seed_sales_order` and `seed_fiscal_document`, plus a seeded issuer, Invoice batch, recipient link and an active certificate from `_make_csd`.
   - **Create (R7):**
     - the defaults apply;
     - a customer with a credit limit but 0 credit days defaults to IMMEDIATE (PUE); one with both defaults to NET_D (PPD);
@@ -149,13 +149,13 @@ description: "Task list for CFDI invoices up to a sealed document"
     - a second confirm of a sealed invoice gives 409;
     - a confirm that fails after the serial step leaves no serial and no XML.
   - Edits to a sealed document give 409.
-- [ ] T012 [P] [US1] Extend `tests/api/test_fiscal_documents.py` (spec 020's routes): `GET /fiscal-documents?status=sealed` returns 200 and passes `sealed` to the service; the detail returns `customer`, `facility`, `relations` (type as `"07"`, legacy `'0'` as null) and each line's `product` and `order_detail`. Then add `tests/api/test_invoices.py`, with the services patched as in `tests/api/test_fiscal_documents.py`. Cover these US1 routes from the contract: `POST /fiscal-documents`, `POST /{id}/sales-orders`, `PUT` and `DELETE /{id}/lines/{line_id}`, and `POST /{id}/confirm`.
+- [X] T012 [P] [US1] Extend `tests/api/test_fiscal_documents.py` (spec 020's routes): `GET /fiscal-documents?status=sealed` returns 200 and passes `sealed` to the service; the detail returns `customer`, `facility`, `relations` (type as `"07"`, legacy `'0'` as null) and each line's `product` and `order_detail`. Then add `tests/api/test_invoices.py`, with the services patched as in `tests/api/test_fiscal_documents.py`. Cover these US1 routes from the contract: `POST /fiscal-documents`, `POST /{id}/sales-orders`, `PUT` and `DELETE /{id}/lines/{line_id}`, and `POST /{id}/confirm`.
   - Each route: the happy path with status code and body shape; 401 without a token; 403 without privilege 23 at the right level (Create for POST, Update for the rest); 404 for a missing document.
   - Service errors map to 409 and 422 with the contract's detail texts.
 
 ### Implementation for User Story 1
 
-- [ ] T013 [US1] Implement `app/services/invoice_service.py`, US1 part. Make T010 and T011 pass.
+- [X] T013 [US1] Implement `app/services/invoice_service.py`, US1 part. Make T010 and T011 pass.
   - **Pure helpers:** `remaining_quantity(quantity, events)` and `default_batch(...)`.
   - **`create_invoice(db, current, data)`** applies R7:
     - `current.facility_id` is required;
@@ -176,7 +176,7 @@ description: "Task list for CFDI invoices up to a sealed document"
     - commit once, or roll back on any error.
   - **`_require_draft(document)`** raises the 409 "Fiscal document is not a draft".
   - **Errors:** raise `ValueError`/`LookupError` subclasses, following the module conventions of `sales_order_service.py`, that the routes map to 422 and 409.
-- [ ] T014 [US1] Add the US1 routes to `app/api/v1/endpoints/fiscal_documents.py`:
+- [X] T014 [US1] Add the US1 routes to `app/api/v1/endpoints/fiscal_documents.py`:
   - `POST ''` (201), `POST /{id}/sales-orders`, `PUT` and `DELETE /{id}/lines/{line_id}`, and `POST /{id}/confirm`, as in the contract;
   - privileges with `require_privilege(SystemObject.FISCAL_DOCUMENTS, AccessRight.CREATE/UPDATE)`;
   - each returns `FiscalDocumentResponse` built from `fiscal_document_service.get_document`, which now attaches relations and the new fields (extend `get_document` to load relations with the related document's `stamp_uuid`, batch and serial).
@@ -193,19 +193,19 @@ description: "Task list for CFDI invoices up to a sealed document"
 
 **Independent Test:** a draft with two manual lines, edited and confirmed, is sealed. The XML validates, and its totals match the lines.
 
-- [ ] T015 [P] [US2] Extend `tests/integration/test_invoice_flow.py`:
+- [X] T015 [P] [US2] Extend `tests/integration/test_invoice_flow.py`:
   - a manual line takes quantity 1, the customer's price-list price, and the product's tax rate, tax-included flag, SAT keys, unit and unit name;
   - a product with no price in that list gives 422;
   - a blank name on update resets to the product's name;
   - a draft with only manual lines confirms, and `Total` equals the sum of the line totals.
-- [ ] T016 [P] [US2] Extend `tests/api/test_invoices.py` for `POST /fiscal-documents/{id}/lines`:
+- [X] T016 [P] [US2] Extend `tests/api/test_invoices.py` for `POST /fiscal-documents/{id}/lines`:
   - 201 or 200 with the document;
   - 401;
   - 403 for a user with Update on 23 but no Create on 56;
   - 404;
   - 409 on a sealed document.
-- [ ] T017 [US2] Implement `add_manual_line(db, current, document, product_id)` in `app/services/invoice_service.py` (R8, manual), and the blank-name reset in `update_line`.
-- [ ] T018 [US2] Add `POST /{id}/lines` to `app/api/v1/endpoints/fiscal_documents.py`, gated with `require_privilege(SystemObject.STANDALONE_FISCAL_DOCUMENTS, AccessRight.CREATE)`. Make T015 and T016 pass.
+- [X] T017 [US2] Implement `add_manual_line(db, current, document, product_id)` in `app/services/invoice_service.py` (R8, manual), and the blank-name reset in `update_line`.
+- [X] T018 [US2] Add `POST /{id}/lines` to `app/api/v1/endpoints/fiscal_documents.py`, gated with `require_privilege(SystemObject.STANDALONE_FISCAL_DOCUMENTS, AccessRight.CREATE)`. Make T015 and T016 pass.
 
 **Checkpoint:** US1 and US2 both work. The invoice types in use, order-based and standalone, can be sealed.
 
@@ -217,7 +217,7 @@ description: "Task list for CFDI invoices up to a sealed document"
 
 **Independent Test:** create a series, use it on an invoice, then try to rename it (409), change its template (200) and delete it (409).
 
-- [ ] T019 [P] [US3] Write the batch tests in two files. `tests/api/test_taxpayer_batches.py` patches `taxpayer_batch_service`, as `tests/api/test_fiscal_documents.py` does: each route's success case, 401, 403 for privilege 24 at the right level, 404, and the 409 and 422 mapping (constitution: endpoint tests live in `tests/api/`). `tests/integration/test_taxpayer_batches.py` covers the service rules on the SQLite schema:
+- [X] T019 [P] [US3] Write the batch tests in two files. `tests/api/test_taxpayer_batches.py` patches `taxpayer_batch_service`, as `tests/api/test_fiscal_documents.py` does: each route's success case, 401, 403 for privilege 24 at the right level, 404, and the 409 and 422 mapping (constitution: endpoint tests live in `tests/api/`). `tests/integration/test_taxpayer_batches.py` covers the service rules on the SQLite schema:
   - **List:** batches ordered by series, with `in_use`.
   - **Create:**
     - 201;
@@ -231,8 +231,8 @@ description: "Task list for CFDI invoices up to a sealed document"
   - **Delete:** in use gives 409; otherwise 204.
   - **Not found:** an unknown issuer, or a batch of another issuer, is reported as not found.
   - **Template round trip:** a legacy single-quoted template reads back parsed, and a saved template is valid JSON that `cfdi.batch_settings` reads.
-- [ ] T020 [US3] Implement `app/services/taxpayer_batch_service.py`: `list_batches`, `get_batch`, `create_batch`, `update_batch`, `delete_batch` and `in_use(db, issuer, batch)`. The template is serialized to and from the legacy JSON keys `Name`, `Logo`, `HeaderHeight`, `FooterHeight` and `ExtraInfo`. Parsing reuses the tolerant parsing in `cfdi.batch_settings`.
-- [ ] T021 [US3] Add the four `/{rfc}/batches` routes to `app/api/v1/endpoints/taxpayer_issuers.py`, gated on `SystemObject.TAXPAYERS` with READ, CREATE, UPDATE and DELETE. A duplicate series maps to 409 via the existing integrity-error handling or an explicit check. Make T019 pass.
+- [X] T020 [US3] Implement `app/services/taxpayer_batch_service.py`: `list_batches`, `get_batch`, `create_batch`, `update_batch`, `delete_batch` and `in_use(db, issuer, batch)`. The template is serialized to and from the legacy JSON keys `Name`, `Logo`, `HeaderHeight`, `FooterHeight` and `ExtraInfo`. Parsing reuses the tolerant parsing in `cfdi.batch_settings`.
+- [X] T021 [US3] Add the four `/{rfc}/batches` routes to `app/api/v1/endpoints/taxpayer_issuers.py`, gated on `SystemObject.TAXPAYERS` with READ, CREATE, UPDATE and DELETE. A duplicate series maps to 409 via the existing integrity-error handling or an explicit check. Make T019 pass.
 
 **Checkpoint:** batches can be maintained without the current system.
 
@@ -244,7 +244,7 @@ description: "Task list for CFDI invoices up to a sealed document"
 
 **Independent Test:** edit each header field, add a 07 relation, confirm and check the XML, reopen, change the date, and confirm again with the same serial.
 
-- [ ] T022 [P] [US4] Extend `tests/integration/test_invoice_flow.py`.
+- [X] T022 [P] [US4] Extend `tests/integration/test_invoice_flow.py`.
   - **Header:**
     - a recipient change recopies the name, regime and postal code (XAXX rule);
     - a recipient not linked to the customer gives 422;
@@ -274,11 +274,11 @@ description: "Task list for CFDI invoices up to a sealed document"
   - happy paths, 401, 403 and 404;
   - a `facility` change without Update on IssuedLocationId (103) gives 403, while other fields with only 23 give 200;
   - 409 and 422 mapping.
-- [ ] T024 [US4] Implement in `app/services/invoice_service.py`:
+- [X] T024 [US4] Implement in `app/services/invoice_service.py`:
   - `update_header(db, current, document, data)` (R10), where only fields in `model_fields_set` change;
   - `add_relation` and `remove_relation` (R9);
   - `reopen` (R10).
-- [ ] T025 [US4] Add `PUT /{id}`, `POST /{id}/relations`, `DELETE /{id}/relations/{relation_id}` and `POST /{id}/reopen` to `app/api/v1/endpoints/fiscal_documents.py`. For a body with `facility`, also check `has_privilege` or `require_privilege(SystemObject.ISSUED_LOCATION_ID, AccessRight.UPDATE)` inside the handler. Make T022 and T023 pass.
+- [X] T025 [US4] Add `PUT /{id}`, `POST /{id}/relations`, `DELETE /{id}/relations/{relation_id}` and `POST /{id}/reopen` to `app/api/v1/endpoints/fiscal_documents.py`. For a body with `facility`, also check `has_privilege` or `require_privilege(SystemObject.ISSUED_LOCATION_ID, AccessRight.UPDATE)` inside the handler. Make T022 and T023 pass.
 
 **Checkpoint:** all four stories work.
 

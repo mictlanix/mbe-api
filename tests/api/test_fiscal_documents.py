@@ -374,3 +374,67 @@ def test_xml_route_declares_a_binary_schema() -> None:
     ]['200']['content']
 
     assert content == {'application/xml': {'schema': {'type': 'string', 'format': 'binary'}}}
+
+
+@pytest.mark.asyncio
+async def test_list_filters_by_the_sealed_status() -> None:
+    _auth()
+    with patch(f'{_SERVICE}.list_documents', AsyncMock(return_value=([_row()], 1))) as listed:
+        async with await _client() as client:
+            response = await client.get('/api/v1/fiscal-documents', params={'status': 'sealed'})
+
+    assert response.status_code == status.HTTP_200_OK
+    assert listed.await_args.kwargs['status'] == 'sealed'
+
+
+@pytest.mark.asyncio
+async def test_detail_returns_the_customer_facility_relations_and_line_links() -> None:
+    _auth()
+    line = _row().lines[0]
+    line.product = 12
+    line.order_detail = 34
+    relations = [
+        SimpleNamespace(
+            fiscal_document_relation_id=1,
+            relation=70,
+            type='7',
+            stamp_uuid='11111111-2222-3333-4444-555555555555',
+            batch='GR',
+            serial=12,
+        ),
+        SimpleNamespace(
+            fiscal_document_relation_id=2,
+            relation=71,
+            type='0',
+            stamp_uuid=None,
+            batch=None,
+            serial=None,
+        ),
+    ]
+    document = _row(customer=3, facility=2, relations=relations, lines=[line])
+    with patch(f'{_SERVICE}.get_document', AsyncMock(return_value=document)):
+        async with await _client() as client:
+            response = await client.get('/api/v1/fiscal-documents/9')
+
+    assert response.status_code == status.HTTP_200_OK
+    body = response.json()
+    assert (body['customer'], body['facility']) == (3, 2)
+    assert body['relations'] == [
+        {
+            'fiscal_document_relation_id': 1,
+            'relation': 70,
+            'type': '07',
+            'stamp_uuid': '11111111-2222-3333-4444-555555555555',
+            'batch': 'GR',
+            'serial': 12,
+        },
+        {
+            'fiscal_document_relation_id': 2,
+            'relation': 71,
+            'type': None,
+            'stamp_uuid': None,
+            'batch': None,
+            'serial': None,
+        },
+    ]
+    assert (body['lines'][0]['product'], body['lines'][0]['order_detail']) == (12, 34)
