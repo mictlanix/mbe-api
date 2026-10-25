@@ -29,3 +29,16 @@ The checks are read only, on `test.api.mbe.mictlanix.com`, as an administrator. 
 Render each document, extract its text, and compare the values with the database: customer, lines, quantities, sales order ids and payments. Record the ids and the results here.
 
 Pre-v2 delivery orders were settled into PICKED_UP, DELIVERED or CANCELLED (migration 008), so they all render. Abandoned ones show the CANCELADA stamp.
+
+### Results, 2026-10-25
+
+Branch at af936c3 on `test.api.mbe.mictlanix.com`, as an administrator. All seven renders returned 200 with the FR-011 filename. Each printed value was checked against mbe_dev:
+
+| Record | Document | Checked |
+|---|---|---|
+| Delivery order 9809 (DELIVERY, DELIVERED, two sales orders, map link) | Ticket and Letter document | Customer, contact name and mobile, ship-to, link, and the three lines with their quantities and sales orders 276806 and 276421. Both sales orders are cash and paid, so no status label prints. Their payments belong to cash sessions, so there is no "Pagos Pendientes" block. The Letter prints "Ninguno" for the empty comment and "Contado" as the terms |
+| Delivery order 30206 (PICKUP, PICKED_UP) | Pickup ticket | Folio 00011988, date, customer, both lines of sales order 343985 and the barcode. The order has no events, so "Entregó" falls back to the updater, employee 76 |
+| Delivery order 30136 (lines from warehouses 11 and 12) | Ticket, whole and filtered to 11 | Whole: both lines. Filtered: only the warehouse 11 line |
+| Itinerary 4912 (CLOSED, one stop with three customers) | Ticket and delivery notes | Operator (through `vehicle_operator.driver`), vehicle, date, and the five lines with their sent quantities and delivery orders 30137, 30148 and 30143. The notes print three acknowledgements, then three receipts carrying sales orders 343766, 343795 and 343781 |
+
+Read only: the `delivery_order` and `delivery_order_detail` row counts (30230 and 61831), and the latest `modification_time` of `delivery_order` and `deliveries_itinerary`, were the same before and after the renders.

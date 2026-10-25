@@ -195,7 +195,7 @@
   - **§4, new "Print" subsection:** the itinerary ticket and the delivery notes, by stop and by group, DEPARTED or CLOSED only.
 - [X] T016 [P] Add to `CHANGELOG.md` `[Unreleased]` `### Added`: delivery documents (mictlanix/mbe-roadmap#42, spec 026). The four routes, their privileges and states, the warehouse option, and rendering that writes nothing (mictlanix/mbe#54 not carried over). No upgrade note.
 - [X] T017 Run the full gate: `uv run ruff check app/ migrations/ tests/` and `uv run pytest -q`. No new failures against T001. Record the counts here. **Result:** ruff clean; 3795 passed, 0 failed (baseline 3727).
-- [ ] T018 **Confirm with the user before deploying.** Deploy the branch to `/var/www/mbe-api-test` and run SC-004 per `quickstart.md`, read only:
+- [X] T018 **Confirm with the user before deploying.** Deploy the branch to `/var/www/mbe-api-test` and run SC-004 per `quickstart.md`, read only:
   - a real DELIVERY with a link and two sales orders;
   - a PICKUP;
   - a two-warehouse order, filtered;
