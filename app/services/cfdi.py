@@ -121,17 +121,25 @@ class BatchSettings:
 _ACCOUNT_KEYS = ('Bank', 'Account', 'CLABE', 'Currency')
 
 
-def batch_settings(template: str | None) -> BatchSettings:
+def template_values(template: str | None) -> dict:
     """`taxpayer_batch.template`, a single-quoted literal legacy parsed with Newtonsoft.
 
-    `ast.literal_eval` reads it and cannot run code. Anything unreadable falls back to the
-    defaults, field by field (research R5).
+    `ast.literal_eval` reads it, and the JSON spec 027 writes, and cannot run code. Anything
+    unreadable is an empty dict.
     """
     try:
         values = ast.literal_eval(template or '')
     except (ValueError, SyntaxError, TypeError, MemoryError, RecursionError):
-        return BatchSettings()
-    if not isinstance(values, dict):
+        return {}
+    return values if isinstance(values, dict) else {}
+
+
+def batch_settings(template: str | None) -> BatchSettings:
+    """The print settings of a batch template. Anything unreadable falls back to the defaults,
+    field by field (research R5).
+    """
+    values = template_values(template)
+    if not values:
         return BatchSettings()
 
     logo = values.get('Logo')

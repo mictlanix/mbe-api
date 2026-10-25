@@ -30,6 +30,18 @@ class FiscalCertificationProvider(IntEnum):
     PROFACT = 4
 
 
+class FiscalDocumentType(IntEnum):
+    """`fiscal_document.type`, `taxpayer_batch.type` — legacy's FiscalDocumentType."""
+
+    INVOICE = 0
+    FEE_RECEIPT = 1
+    RENT_RECEIPT = 2
+    DEBIT_NOTE = 3
+    CREDIT_NOTE = 100
+    ADVANCE_PAYMENTS_APPLIED = 101
+    PAYMENT_RECEIPT = 200
+
+
 class EntityStatus(IntEnum):
     """Unified lifecycle state shared by all status-bearing entities."""
 

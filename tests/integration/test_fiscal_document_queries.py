@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.fiscal import FiscalDocumentXml
 from app.services import fiscal_document_service as svc
-from tests.integration.seed import seed_fiscal_document
+from tests.integration.seed import CFDI_FIXTURES, seed_fiscal_document
 
 
 async def _ids(db: AsyncSession, **filters: object) -> list[int]:
@@ -81,6 +81,24 @@ async def test_list_filters(db: AsyncSession) -> None:
     assert await _ids(db, date_from=datetime(2026, 9, 1), date_to=datetime(2026, 9, 29, 0, 0)) == [
         cancelled
     ]
+
+
+@pytest.mark.usefixtures('seeded')
+async def test_sealed_documents_are_neither_drafts_nor_issued(db: AsyncSession) -> None:
+    """Spec 027 research R1: not completed, not cancelled, with the sealed XML stored."""
+    invoice = await seed_fiscal_document(db, 'invoice')
+    draft = await seed_fiscal_document(db, 'invoice', completed=False, stamp=False)
+    sealed = await seed_fiscal_document(
+        db, 'invoice', completed=False, stamp=False, xml=(CFDI_FIXTURES / 'invoice.xml').read_text()
+    )
+
+    assert await _ids(db, status='sealed') == [sealed]
+    assert await _ids(db, status='draft') == [draft]
+    assert await _ids(db, status='issued') == [invoice]
+    items, _ = await svc.list_documents(db)
+    assert {d.fiscal_document_id: d.status for d in items}[sealed] == 'sealed'
+    assert (await svc.get_document(db, sealed)).status == 'sealed'
+    assert (await svc.get_document(db, draft)).status == 'draft'
 
 
 @pytest.mark.usefixtures('seeded')

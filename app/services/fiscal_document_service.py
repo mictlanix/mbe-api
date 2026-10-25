@@ -7,22 +7,34 @@ from datetime import datetime
 from decimal import Decimal, InvalidOperation
 from typing import Literal
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import exists, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 
-from app.models.fiscal import FiscalDocument, FiscalDocumentDetail, FiscalDocumentXml
+from app.models.fiscal import (
+    FiscalDocument,
+    FiscalDocumentDetail,
+    FiscalDocumentRelation,
+    FiscalDocumentXml,
+)
 
-DocumentStatus = Literal['draft', 'issued', 'cancelled']
+DocumentStatus = Literal['draft', 'sealed', 'issued', 'cancelled']
 
 _BATCH_SERIAL = re.compile(r'([A-Za-z]+)\s*(\d+)')
 _UUID = re.compile(r'[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}', re.IGNORECASE)
 
 
-def document_status(document: FiscalDocument) -> DocumentStatus:
-    """Legacy's own rule: `completed` decides whether a document was issued (research R10)."""
+def document_status(document: FiscalDocument, *, has_xml: bool = False) -> DocumentStatus:
+    """Legacy's own rule: `completed` decides whether a document was issued (research R10).
+
+    An uncompleted document with its XML stored has been sealed and waits to be stamped
+    (spec 027, research R1); legacy never stores XML before completing a document.
+    """
     if document.cancelled:
         return 'cancelled'
-    return 'issued' if document.completed else 'draft'
+    if document.completed:
+        return 'issued'
+    return 'sealed' if has_xml else 'draft'
 
 
 def classify_search(search: str) -> tuple[str, object]:
@@ -55,8 +67,27 @@ async def get_xml(db: AsyncSession, fiscal_document_id: int) -> str | None:
     return (await db.execute(query)).scalar_one_or_none()
 
 
+async def get_relations(db: AsyncSession, fiscal_document_id: int) -> list[dict[str, object]]:
+    """The documents this one relates, with the UUID, series and folio each is known by."""
+    related = aliased(FiscalDocument)
+    rows = await db.execute(
+        select(
+            FiscalDocumentRelation.fiscal_document_relation_id,
+            FiscalDocumentRelation.relation,
+            FiscalDocumentRelation.type,
+            related.stamp_uuid,
+            related.batch,
+            related.serial,
+        )
+        .join(related, related.fiscal_document_id == FiscalDocumentRelation.relation)
+        .where(FiscalDocumentRelation.document == fiscal_document_id)
+        .order_by(FiscalDocumentRelation.fiscal_document_relation_id)
+    )
+    return [dict(row._mapping) for row in rows]
+
+
 async def get_document(db: AsyncSession, fiscal_document_id: int) -> FiscalDocument | None:
-    """The document with `lines`, `status` and `total` attached."""
+    """The document with `lines`, `relations`, `status` and `total` attached."""
     document = await db.get(FiscalDocument, fiscal_document_id)
     if document is None:
         return None
@@ -66,8 +97,10 @@ async def get_document(db: AsyncSession, fiscal_document_id: int) -> FiscalDocum
         .order_by(FiscalDocumentDetail.fiscal_document_detail_id)
     )
     document.lines = list(lines.scalars())
-    document.status = document_status(document)
-    document.total = xml_total(await get_xml(db, fiscal_document_id))
+    document.relations = await get_relations(db, fiscal_document_id)
+    xml = await get_xml(db, fiscal_document_id)
+    document.status = document_status(document, has_xml=xml is not None)
+    document.total = xml_total(xml)
     return document
 
 
@@ -101,6 +134,11 @@ async def list_documents(
     elif status is not None:
         both(FiscalDocument.cancelled.is_(False))
         both(FiscalDocument.completed.is_(status == 'issued'))
+        if status != 'issued':
+            sealed = exists().where(
+                FiscalDocumentXml.fiscal_document_xml_id == FiscalDocument.fiscal_document_id
+            )
+            both(sealed if status == 'sealed' else ~sealed)
     if date_from is not None:
         both(FiscalDocument.issued >= date_from)
     if date_to is not None:
@@ -135,6 +173,6 @@ async def list_documents(
         )
         xmls = dict(rows.all())
     for document in items:
-        document.status = document_status(document)
+        document.status = document_status(document, has_xml=document.fiscal_document_id in xmls)
         document.total = xml_total(xmls.get(document.fiscal_document_id))
     return items, total

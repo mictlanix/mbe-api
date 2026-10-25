@@ -65,6 +65,22 @@ Configure the company's RFC(s) used to issue CFDI documents. Each facility is li
 - If no `TaxpayerBatch` exists for the issuer + document type, creating a fiscal document of that type fails.
 - Certificates must be renewed before `valid_to`; alert 30 days prior.
 
+### New MBE: batch maintenance (spec 027, #44)
+
+Legacy only lists batches. The API maintains them under the issuer, gated on Taxpayers (24):
+
+| Method | Route | Right |
+|---|---|---|
+| GET | `/api/v1/taxpayer-issuers/{rfc}/batches` | Read |
+| POST | `/api/v1/taxpayer-issuers/{rfc}/batches` | Create |
+| PUT | `/api/v1/taxpayer-issuers/{rfc}/batches/{id}` | Update |
+| DELETE | `/api/v1/taxpayer-issuers/{rfc}/batches/{id}` | Delete |
+
+- **Series:** 1–10 characters, unique per issuer (409).
+- **Type:** one of the `FiscalDocumentType` codes: 0, 1, 2, 3, 100, 101, 200.
+- **In use:** once any fiscal document of the issuer carries the series, its series and type cannot change and it cannot be deleted (409). Its template can still change. Each response says `in_use`.
+- **Template:** the API exchanges it as `name`, `logo`, `header_height`, `footer_height` and `extra_info` (bank accounts: `bank`, `account`, `clabe`, `currency`). It stores legacy's keys (`Name`, `Logo`, `HeaderHeight`, `FooterHeight`, `ExtraInfo`) as JSON, which the PDF of spec 020 reads, as it does legacy's single-quoted text.
+
 ---
 
 ## 2. Fiscal Documents
@@ -187,6 +203,103 @@ view = string.Format("Print{0:00}{1}", model.Version * 10, template.Name)
 - **QR Code** (`QRCode`): generates QR code with: `issuer.RFC|recipient.RFC|total|UUID|...`
 - **Send by Email** (`SendEmail`): sends XML + PDF as MIME attachments; uses `WebConfig.DefaultSender` and optional CC
 - **Cancel**: PAC cancellation with reason; or `CancelNoReason`
+
+### New MBE: invoices up to a sealed CFDI (spec 027, #47)
+
+The new MBE builds Invoice (type 0) only. In the 24 months to 2026-10-25, mbe_dev issued 10,698 invoices and no fee receipts, rent receipts or debit notes. Credit notes, payment receipts and the payment complement are separate roadmap items.
+
+**Stamping is pending** (mictlanix/mbe-roadmap#46). Confirm stops at a sealed, unstamped document and contacts no PAC.
+
+**States.** These derive from existing columns, with no schema change:
+
+| State | completed | cancelled | `fiscal_document_xml` |
+|---|---|---|---|
+| draft | 0 | 0 | none |
+| sealed | 0 | 0 | the sealed XML |
+| issued | 1 | 0 | the stamped XML |
+| cancelled | – | 1 | – |
+
+Legacy never stores XML for an uncompleted document, so a sealed invoice reads as a draft there. Spec 020's list and detail report `sealed`, and `GET /fiscal-documents?status=sealed` filters by it. The XML download and PDF still require an issued document.
+
+**Routes** (`/api/v1/fiscal-documents`):
+
+| Method | Route | Privilege |
+|---|---|---|
+| POST | `` | Create on 23 |
+| PUT | `/{id}` | Update on 23; changing `facility` also needs Update on IssuedLocationId (103) |
+| POST | `/{id}/sales-orders` | Update on 23 |
+| POST | `/{id}/lines` | Create on StandaloneFiscalDocuments (56) |
+| PUT, DELETE | `/{id}/lines/{line_id}` | Update on 23 |
+| POST, DELETE | `/{id}/relations`, `/{id}/relations/{relation_id}` | Update on 23 |
+| POST | `/{id}/confirm` | Update on 23 |
+| POST | `/{id}/reopen` | Update on 23 |
+
+Each returns the document.
+
+**Create.**
+- **Store:** the caller's store.
+- **Issuer:** the store's taxpayer, unless given.
+- **Series:** the store's `default_batch` when it is an Invoice series of the issuer, else the issuer's first Invoice series. 422 "The issuer has no invoice series" when there is none.
+- **Recipient:** must be one of the customer's taxpayers. Its name, regime and postal code are copied; for XAXX010101000 the postal code is the store's.
+- **Defaults:**
+  - CFDI usage G01;
+  - payment form 99;
+  - PPD when the customer has credit days and a credit limit, else PUE;
+  - MXN at rate 1.
+
+**Lines from sales orders.**
+- **Accepted orders:** completed and not cancelled. Payment is not checked, and another customer's order is accepted.
+- **Which lines:** each line of an invoiceable product, added at its remaining quantity. Lines already on the draft are skipped, so adding an order twice duplicates nothing.
+- **Remaining quantity:** the line's quantity minus:
+  - what sealed or issued, non-cancelled invoices hold, other than this one. Drafts reserve nothing;
+  - each completed refund, counted only for the units not yet invoiced when it was recorded.
+
+  Events are taken in time order: invoices by issue date, refunds by date, and at equal times the refund first. A refund of already-invoiced goods needs a credit note; it does not free units to invoice again. Legacy's `quantity − max(invoiced, refunded)` let goods refunded before invoicing be invoiced anyway.
+
+**Manual lines.**
+- Quantity 1, at the customer's price-list price.
+- The product's tax rate, tax-included flag, SAT keys and unit.
+
+**Editing a line.**
+- Quantity > 0, and no more than the remaining quantity for an order line.
+- Price ≥ 0.
+- Discount 0–1.
+- Tax rate 0.16, 0 or -1 (exempt).
+- A blank name resets to the product's.
+
+**Header.**
+- Only the fields sent change.
+- PPD forces payment form 99.
+- The issue date must be within the last 72 hours and not in the future. It is checked when set and again at confirm. When it is empty, confirm uses the current time.
+- Once an invoice has a serial, its series cannot change.
+
+**Relations.**
+- The related document must be stamped, with the same issuer and recipient:
+  - 04 (substitution) relates a cancelled invoice (type < 100);
+  - 07 (application of an advance) relates a non-cancelled document that is not a credit note or payment receipt.
+- An invoice uses one relation type for all its relations.
+- Stored as legacy does, `'4'` or `'7'`; read and written as `04` and `07`.
+
+**Confirm.**
+1. **Checks:**
+   - the invoice has lines;
+   - each line has its SAT keys;
+   - quantities are within what remains;
+   - the recipient has a regime and postal code;
+   - the issue date is within 72 hours;
+   - an active certificate is valid at the issue date. The latest to expire wins.
+2. **Serial:** the issuer's series row is locked (`SELECT … FOR UPDATE`), then the highest serial is read with a locking read, plus 1. A plain read would not do: MariaDB's REPEATABLE READ snapshot can miss a serial the previous confirm committed, which is legacy's duplicate-serial race (mictlanix/mbe#45). A failed confirm rolls back and consumes no number.
+3. **XML:** CFDI 4.0 with legacy's values and rounding (`CFDHelpers40.InvoiceToCFDv40`), half away from zero, per line:
+   - `MetodoPago` follows the terms;
+   - usage P01 is written as G03;
+   - an exempt line carries an exempt transfer;
+   - a fully discounted line is `ObjetoImp` 01;
+   - no retentions, no `TipoCambio`, no `InformacionGlobal`.
+4. **Original string:** SAT's stylesheet, from cfdlib's XSLT 1.0 copy in `app/resources/cfdi40/`.
+5. **Seal:** SHA-256 with RSA under the CSD key, with `NoCertificado` and `Certificado` set.
+6. The XML is stored and the invoice is left **sealed**.
+
+**Reopen.** A sealed invoice can return to draft. The sealed XML is removed and the serial is kept, and the next confirm reuses that serial.
 
 ### Document Type Views
 Different view templates per document type:
