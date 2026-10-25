@@ -4,15 +4,26 @@ Plain dicts, one per template. Values arrive pre-formatted (research R9) and eve
 block has its flag here, so the templates only print and test.
 """
 
+from collections.abc import Sequence
+from datetime import date, datetime
 from decimal import ROUND_HALF_UP, Decimal
 from pathlib import Path, PurePosixPath
+from types import SimpleNamespace
 from urllib.parse import urlsplit
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.clock import local_today
 from app.core.config import settings
-from app.enums import CurrencyCode, PaymentMethod, PaymentTerms, PaymentType
+from app.enums import (
+    CurrencyCode,
+    DeliveryOrderStatus,
+    FulfillmentType,
+    PaymentMethod,
+    PaymentTerms,
+    PaymentType,
+)
 from app.models.core import (
     Address,
     CashSession,
@@ -20,20 +31,39 @@ from app.models.core import (
     Employee,
     Facility,
     PaymentMethodOption,
+    Vehicle,
+    VehicleOperator,
+    Warehouse,
 )
 from app.models.customer import Customer
 from app.models.fiscal import FiscalDocument, TaxpayerBatch, TaxpayerIssuer
+from app.models.logistics import (
+    DeliveriesItinerary,
+    DeliveriesItineraryDetail,
+    DeliveryOrder,
+    DeliveryOrderDetail,
+    DeliveryOrderEvent,
+)
 from app.models.sales import (
     CreditNote,
     CustomerPayment,
     CustomerRefund,
     CustomerRefundDetail,
     SalesOrder,
+    SalesOrderDetail,
     SalesQuote,
 )
 from app.models.sat_catalog import SatCfdiUsage, SatTaxRegime
 from app.rendering import formatting, words
-from app.services import cash_session_service, cfdi, customer_payment_service, totals
+from app.services import (
+    cash_session_service,
+    cfdi,
+    customer_payment_service,
+    delivery_itinerary_service,
+    delivery_order_service,
+    sales_order_service,
+    totals,
+)
 
 _CARD_METHODS = {PaymentMethod.CREDIT_CARD, PaymentMethod.DEBIT_CARD}
 
@@ -708,3 +738,451 @@ async def fiscal_document_context(
         ),
     }
     return 'fiscal_document.html', context
+
+
+# ── Delivery documents (spec 026) ─────────────────────────────────────────────
+
+
+def _order_status_label(
+    terms: int, paid: bool, due_date: date | datetime, today: date
+) -> str | None:
+    """`DeliveryTicket.cshtml:33-50` (research R4): nothing once paid, "No Pagado" on cash terms,
+    on credit "Vencido" once the due date has passed, else "Por Cobrar"."""
+    if paid:
+        return None
+    if terms == PaymentTerms.IMMEDIATE:
+        return 'No Pagado'
+    due = due_date.date() if isinstance(due_date, datetime) else due_date
+    return 'Vencido' if due < today else 'Por Cobrar'
+
+
+def _unit_label(unit: object | None, *, symbol: bool) -> str:
+    """The unit of measurement as printed (research R5): its name, or with `symbol` its symbol
+    falling back to the name when there is none. `unit` carries `name` and `symbol`."""
+    if unit is None:
+        return ''
+    if symbol and unit.symbol and unit.symbol.strip():
+        return unit.symbol.strip()
+    return unit.name
+
+
+def _note_groups(lines: Sequence) -> list[tuple[tuple, list]]:
+    """Lines grouped by their delivery order's (customer, ship_to, contact, comment), in order of
+    first appearance (research R6). Each line carries those four attributes."""
+    groups: dict[tuple, list] = {}
+    for line in lines:
+        key = (line.customer, line.ship_to, line.contact, line.comment)
+        groups.setdefault(key, []).append(line)
+    return list(groups.items())
+
+
+async def _delivery_sales_orders(
+    db: AsyncSession, details: Sequence[DeliveryOrderDetail]
+) -> list[SalesOrder]:
+    """The distinct sales orders the lines draw on, by id, each through `attach_derived`."""
+    detail_ids = {d.sales_order_detail for d in details if d.sales_order_detail is not None}
+    if not detail_ids:
+        return []
+    order_ids = set(
+        (
+            await db.execute(
+                select(SalesOrderDetail.sales_order).where(
+                    SalesOrderDetail.sales_order_detail_id.in_(detail_ids)
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    orders = await _by_id(db, SalesOrder, SalesOrder.sales_order_id, order_ids)
+    for order_id in sorted(orders):
+        await sales_order_service.attach_derived(db, orders[order_id])
+    return [orders[order_id] for order_id in sorted(orders)]
+
+
+async def _payments_on_delivery(db: AsyncSession, sales_orders: Sequence[SalesOrder]) -> list[dict]:
+    """Research R3: the standing applications whose payment has no cash session, as
+    `{order, amount, method}` with the payment's own amount, as legacy printed it."""
+    applications = [
+        a
+        for order in sales_orders
+        for a in await customer_payment_service.list_order_applications(
+            db, order.sales_order_id
+        )
+        if not a['cancelled']
+    ]
+    payments = await _by_id(
+        db,
+        CustomerPayment,
+        CustomerPayment.customer_payment_id,
+        {a['customer_payment'] for a in applications},
+    )
+    return [
+        {
+            'order': a['sales_order'],
+            'amount': payments[a['customer_payment']].amount,
+            'method': payments[a['customer_payment']].method,
+        }
+        for a in applications
+        if payments[a['customer_payment']].cash_session is None
+    ]
+
+
+def _full_name(employee: Employee) -> str:
+    return f'{employee.first_name} {employee.last_name}'.strip()
+
+
+async def delivery_ticket_context(
+    db: AsyncSession, order: DeliveryOrder, *, warehouse: int | None = None
+) -> tuple[str, dict]:
+    """The 72 mm delivery ticket, or the counter ticket for a pickup (spec 026, research R1).
+
+    Reads only. The warehouse filter builds a new list; the sales orders, the payments on
+    delivery and the amount to collect still describe the whole order (research R9).
+    """
+    money = formatting.money
+    pickup = order.fulfillment_type == FulfillmentType.PICKUP
+    header = await header_context(
+        db, order.facility, 'Entrega en Mostrador' if pickup else 'Orden de Entrega'
+    )
+    if pickup:
+        header['rfc'] = ''
+    customer = await db.get(Customer, order.customer)
+    contact = await db.get(Contact, order.contact) if order.contact is not None else None
+    ship_to = await db.get(Address, order.ship_to) if order.ship_to is not None else None
+
+    every_line = sorted(
+        await delivery_order_service.lines_of(db, order.delivery_order_id),
+        key=lambda line: line.delivery_order_detail_id,
+    )
+    sales_orders = await _delivery_sales_orders(db, every_line)
+    payments = await _payments_on_delivery(db, sales_orders)
+    source = {
+        line.sales_order_detail_id: (sales_order.sales_order_id, line.comment)
+        for sales_order in sales_orders
+        for line in sales_order.lines
+    }
+    units = await sales_order_service.units_by_product(db, {row.product for row in every_line})
+
+    lines = [row for row in every_line if warehouse is None or row.warehouse == warehouse]
+    if not pickup:
+        lines = [row for row in lines if row.quantity > 0]
+
+    today = local_today()
+    walk_in = ''
+    if pickup and order.customer == settings.default_customer_id and sales_orders:
+        walk_in = (sales_orders[0].customer_name or '').strip()
+
+    delivered_by = ''
+    if pickup:
+        event = (
+            await db.execute(
+                select(DeliveryOrderEvent)
+                .where(
+                    DeliveryOrderEvent.delivery_order == order.delivery_order_id,
+                    DeliveryOrderEvent.to_status == DeliveryOrderStatus.PICKED_UP,
+                )
+                .order_by(DeliveryOrderEvent.delivery_order_event_id.desc())
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+        employee = await db.get(Employee, event.employee if event is not None else order.updater)
+        delivered_by = _full_name(employee)
+
+    to_collect = sum(
+        (
+            sales_order.balance
+            for sales_order in sales_orders
+            if sales_order.payment_terms == PaymentTerms.IMMEDIATE and not sales_order.paid
+        ),
+        Decimal(0),
+    )
+    url = (ship_to.url_address or '').strip() if ship_to is not None else ''
+    order_id = formatting.pad8(order.delivery_order_id)
+    cancelled = order.status == DeliveryOrderStatus.CANCELLED
+    context = {
+        'header': header,
+        'order_id': order_id,
+        'folio': formatting.pad8(order.serial) if order.serial is not None else '',
+        'customer': customer.name,
+        'customer_name': walk_in,
+        'date': formatting.date_short(order.date or order.creation_time),
+        'sales_orders': [
+            {
+                'id': sales_order.sales_order_id,
+                'terms': formatting.terms_name(sales_order.payment_terms),
+                'status': _order_status_label(
+                    sales_order.payment_terms, sales_order.paid, sales_order.due_date, today
+                ),
+            }
+            for sales_order in sales_orders
+        ],
+        'contact': (
+            {'name': contact.name, 'mobile': (contact.mobile or '').strip()}
+            if contact is not None
+            else None
+        ),
+        'ship_to': _ship_to_lines(ship_to),
+        'comment': (order.comment or '').strip() or None,
+        'lines': [
+            {
+                'quantity': formatting.qty(line.quantity),
+                'unit': _unit_label(units.get(line.product), symbol=False),
+                'name': line.product_name,
+                'sales_order': source.get(line.sales_order_detail, ('', None))[0],
+                'comment': source.get(line.sales_order_detail, ('', None))[1] or '',
+            }
+            for line in lines
+        ],
+        'payments': [
+            {
+                'order': p['order'],
+                'amount': money(p['amount']),
+                'method': formatting.method_name(p['method']),
+            }
+            for p in payments
+        ],
+        'to_collect': money(to_collect) if to_collect > 0 else None,
+        'link': (
+            {
+                'nickname': (ship_to.nickname or '').strip(),
+                'url': url,
+                'qr': formatting.qr_data_uri(url),
+            }
+            if url
+            else None
+        ),
+        'delivered_by': delivered_by,
+        'barcode': formatting.barcode_data_uri(order_id),
+        'cancelled': cancelled,
+        'cancelled_at': formatting.date_time(order.modification_time) if cancelled else None,
+    }
+    return ('pickup_ticket.html' if pickup else 'delivery_ticket.html'), context
+
+
+_DASH = '—'
+
+
+async def _itinerary_data(db: AsyncSession, itinerary: DeliveriesItinerary, title: str) -> dict:
+    """What both itinerary documents print: the header, the trip block and the stops.
+
+    Every stop line is a `SimpleNamespace` carrying the four `_note_groups` keys (its delivery
+    order's customer, ship-to, contact and comment) next to what the templates print. Quantities
+    are the sent ones, fixed at departure. Reads only.
+    """
+    stops = await delivery_itinerary_service.stops_of(db, itinerary.deliveries_itinerary_id)
+    rows = []
+    for stop in stops:
+        stop_rows = await delivery_itinerary_service.lines_of_stop(
+            db, stop.deliveries_itinerary_stop_id
+        )
+        rows.append((stop, sorted(stop_rows, key=lambda row: row.deliveries_itinerary_detail_id)))
+    every = [line for _, lines in rows for line in lines]
+    details = await _by_id(
+        db,
+        DeliveryOrderDetail,
+        DeliveryOrderDetail.delivery_order_detail_id,
+        {line.delivery_order_detail for line in every},
+    )
+    order_ids = {d.delivery_order for d in details.values()}
+    orders = await _by_id(db, DeliveryOrder, DeliveryOrder.delivery_order_id, order_ids)
+    sales_ids = {
+        d.sales_order_detail for d in details.values() if d.sales_order_detail is not None
+    }
+    sales_lines = await _by_id(
+        db, SalesOrderDetail, SalesOrderDetail.sales_order_detail_id, sales_ids
+    )
+    placed = list(orders.values())
+    customers = await _by_id(db, Customer, Customer.customer_id, {o.customer for o in placed})
+    contacts = await _by_id(
+        db, Contact, Contact.contact_id, {o.contact for o in placed if o.contact is not None}
+    )
+    addresses = await _by_id(
+        db, Address, Address.address_id, {o.ship_to for o in placed if o.ship_to is not None}
+    )
+    units = await sales_order_service.units_by_product(
+        db, {d.product for d in details.values()}
+    )
+
+    # The store: the dispatch warehouse's, else the first order's (research R7).
+    warehouse = await db.get(Warehouse, itinerary.warehouse) if itinerary.warehouse else None
+    if warehouse is not None:
+        facility_id = warehouse.facility
+    elif every:
+        facility_id = orders[details[every[0].delivery_order_detail].delivery_order].facility
+    else:
+        facility_id = (await db.execute(select(func.min(Facility.facility_id)))).scalar_one()
+    header = await header_context(db, facility_id, title)
+
+    vehicle = await db.get(Vehicle, itinerary.vehicle) if itinerary.vehicle is not None else None
+    operator = (
+        await db.get(VehicleOperator, itinerary.vehicle_operator)
+        if itinerary.vehicle_operator is not None
+        else None
+    )
+    driver = await db.get(Employee, operator.driver) if operator is not None else None
+
+    def stop_lines(lines: Sequence[DeliveriesItineraryDetail]) -> list[SimpleNamespace]:
+        built = []
+        for line in lines:
+            detail = details[line.delivery_order_detail]
+            order = orders[detail.delivery_order]
+            sales_line = sales_lines.get(detail.sales_order_detail)
+            contact = contacts.get(order.contact)
+            built.append(
+                SimpleNamespace(
+                    customer=order.customer,
+                    ship_to=order.ship_to,
+                    contact=order.contact,
+                    comment=(order.comment or '').strip() or None,
+                    customer_name=customers[order.customer].name,
+                    contact_name=contact.name if contact is not None else None,
+                    contact_mobile=(contact.mobile or '').strip() if contact is not None else '',
+                    address=addresses.get(order.ship_to),
+                    quantity=formatting.qty(line.sent_quantity),
+                    unit=_unit_label(units.get(detail.product), symbol=True),
+                    name=detail.product_name,
+                    delivery_order=order.delivery_order_id,
+                    sales_order=sales_line.sales_order if sales_line is not None else '',
+                )
+            )
+        return built
+
+    return {
+        'header': header,
+        'itinerary_id': formatting.pad6(itinerary.deliveries_itinerary_id),
+        'operator': _full_name(driver) if driver is not None else _DASH,
+        'vehicle': f'{vehicle.nickname} · {vehicle.license_plate}' if vehicle else _DASH,
+        'date': formatting.date_short(itinerary.date),
+        'comment': (itinerary.comment or '').strip() or None,
+        'stops': [(stop, stop_lines(lines)) for stop, lines in rows],
+    }
+
+
+async def itinerary_ticket_context(
+    db: AsyncSession, itinerary: DeliveriesItinerary
+) -> tuple[str, dict]:
+    """The 72 mm itinerary ticket: the trip, then its stops in sequence (spec 026, research R6)."""
+    data = await _itinerary_data(db, itinerary, 'Itinerario de Entrega')
+    stops = []
+    for stop, lines in data.pop('stops'):
+        names = list(dict.fromkeys(line.customer_name for line in lines))
+        first = _ship_to_lines(lines[0].address)[:1] if lines else []
+        stops.append(
+            {
+                'number': stop.sequence,
+                'customers': ', '.join(names),
+                'ship_to': first[0] if first else '',
+                'lines': lines,
+            }
+        )
+    data['stops'] = stops
+    return 'itinerary_ticket.html', data
+
+
+async def delivery_notes_context(
+    db: AsyncSession, itinerary: DeliveriesItinerary
+) -> tuple[str, dict]:
+    """The acknowledgements and receipts, one pair per group within each stop (research R6)."""
+    data = await _itinerary_data(db, itinerary, 'Acuses de Recibido')
+    groups = []
+    for _, lines in data.pop('stops'):
+        for _key, group in _note_groups(lines):
+            first = group[0]
+            url = (first.address.url_address or '').strip() if first.address else ''
+            groups.append(
+                {
+                    'customer': first.customer_name,
+                    'contact': first.contact_name,
+                    'mobile': first.contact_mobile,
+                    'ship_to': _ship_to_lines(first.address),
+                    'comment': first.comment,
+                    'link': (
+                        {
+                            'nickname': (first.address.nickname or '').strip(),
+                            'url': url,
+                            'qr': formatting.qr_data_uri(url),
+                        }
+                        if url
+                        else None
+                    ),
+                    'receiver': first.contact_name or first.customer_name,
+                    'lines': group,
+                }
+            )
+    data['groups'] = groups
+    return 'delivery_notes.html', data
+
+
+async def delivery_order_document_context(
+    db: AsyncSession, order: DeliveryOrder
+) -> tuple[str, dict]:
+    """The letter-size delivery order, after legacy `DeliveryFormatRamos` (spec 026, research R10).
+
+    Every line prints; this document has no warehouse filter. The taxpayer is blanked as on the
+    pedido, and the contact's phone is the contact's own, which corrects the legacy copy-paste.
+    """
+    money = formatting.money
+    order_id = formatting.pad8(order.delivery_order_id)
+    header = await header_context(db, order.facility, f'Orden de Entrega {order_id}', letter=True)
+    header['rfc'] = header['taxpayer_name'] = ''
+    customer = await db.get(Customer, order.customer)
+    contact = await db.get(Contact, order.contact) if order.contact is not None else None
+    ship_to = await db.get(Address, order.ship_to) if order.ship_to is not None else None
+
+    lines = sorted(
+        await delivery_order_service.lines_of(db, order.delivery_order_id),
+        key=lambda line: line.delivery_order_detail_id,
+    )
+    sales_orders = await _delivery_sales_orders(db, lines)
+    payments = await _payments_on_delivery(db, sales_orders)
+    comments = {
+        line.sales_order_detail_id: line.comment
+        for sales_order in sales_orders
+        for line in sales_order.lines
+    }
+
+    terms = []
+    for sales_order in sales_orders:
+        name = formatting.terms_name(sales_order.payment_terms)
+        if sales_order.payment_terms == PaymentTerms.NET_D:
+            name += f' – {customer.credit_days or 0} días'
+        if name not in terms:
+            terms.append(name)
+
+    phone = None
+    if contact is not None:
+        phone = (contact.mobile or '').strip() or (contact.phone or '').strip() or None
+
+    cancelled = order.status == DeliveryOrderStatus.CANCELLED
+    context = {
+        'header': header,
+        'order_id': order_id,
+        'customer': customer.name,
+        'contact': contact.name if contact is not None else None,
+        'contact_phone': phone,
+        'ship_to': _ship_to_lines(ship_to),
+        'comment': (order.comment or '').strip() or None,
+        'date': formatting.date_short(order.date or order.creation_time),
+        'terms': ', '.join(terms),
+        'lines': [
+            {
+                'quantity': formatting.qty(line.quantity),
+                'code': line.product_code,
+                'name': line.product_name,
+                'comment': comments.get(line.sales_order_detail) or '',
+            }
+            for line in lines
+        ],
+        'payments': [
+            {
+                'order': p['order'],
+                'amount': money(p['amount']),
+                'method': formatting.method_name(p['method']),
+            }
+            for p in payments
+        ],
+        'cancelled': cancelled,
+        'cancelled_at': formatting.date_time(order.modification_time) if cancelled else None,
+    }
+    return 'delivery_order.html', context

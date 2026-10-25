@@ -1,0 +1,94 @@
+{#- Delivery notes (spec 026), in the current system's order (DeliveryNotesTicket.cshtml): every
+group's acknowledgement, which the customer signs, then for each group a cut line and the receipt
+the customer keeps.
+Context: print_contexts.delivery_notes_context.
+
+Keys read: header (the receipt repeats the store block), itinerary_id, operator, vehicle, date,
+comment or None,
+groups (customer, contact or None, mobile, ship_to, comment or None, link (nickname, url, qr) or
+None, receiver, lines: quantity, unit, name, delivery_order, sales_order). -#}
+{% extends "_ticket_layout.html" %}
+{% block main %}
+<div class="display-label text-left">
+	<label>Itinerario</label> {{ itinerary_id }}
+	&emsp;
+	<label>Fecha</label> {{ date }}
+</div>
+<div class="display-label"><label>Operador</label> {{ operator }}</div>
+<div class="display-label"><label>Vehículo</label> {{ vehicle }}</div>
+{% if comment %}
+<div class="display-label"><b>{{ comment }}</b></div>
+{% endif %}
+{% for group in groups %}
+<div style="margin-top: 8px; border-top: 2px solid black;"></div>
+<div class="display-label"><label>Acuse</label></div>
+<div class="display-label"><label>Cliente</label> {{ group.customer }}</div>
+{% if group.contact %}
+<div class="display-label"><label>Contacto</label> {{ group.contact }} {{ group.mobile }}</div>
+{% endif %}
+{% if group.ship_to %}
+<div class="display-label">{% for line in group.ship_to %}{{ line }}{% if not loop.last %}<br>{% endif %}{% endfor %}</div>
+{% endif %}
+{% if group.comment %}
+<div class="display-label"><b>{{ group.comment }}</b></div>
+{% endif %}
+{% if group.link %}
+<div class="text-center">
+	{% if group.link.nickname %}<div><b>{{ group.link.nickname }}</b></div>{% endif %}
+	<div style="word-break: break-all;">{{ group.link.url }}</div>
+	<img src="{{ group.link.qr }}" alt="QR" style="width: 25mm; height: 25mm;">
+</div>
+{% endif %}
+<table>
+	{% for line in group.lines %}
+	<tr>
+		<td>{{ line.quantity }} {{ line.unit }} {{ line.name }}</td>
+		<td class="number">Entrega {{ line.delivery_order }}</td>
+	</tr>
+	{% endfor %}
+</table>
+<div class="signature">
+	{{ group.receiver }}<br>
+	Firma de conformidad
+</div>
+{% endfor %}
+{% for group in groups %}
+<div style="margin: 6px 0; border-top: 2px dotted black;"></div>
+<header>
+	<table>
+		<tr>
+			{% if header.logo %}
+			<td><div id="logo"><img src="{{ header.logo }}" alt="Logo"></div></td>
+			{% endif %}
+			<td>
+				<h2 class="text-center">{{ header.name }}</h2>
+				{% if header.taxpayer_name %}<h3 class="text-center">{{ header.taxpayer_name }}</h3>{% endif %}
+				{% if header.rfc %}<h3 class="text-center">{{ header.rfc }}</h3>{% endif %}
+				{% for line in header.address %}<h3 class="text-center">{{ line }}</h3>{% endfor %}
+			</td>
+		</tr>
+	</table>
+	<h2 class="text-center">Recibo de Entrega</h2>
+</header>
+<div class="display-label text-left">
+	<label>Fecha</label> {{ date }}
+</div>
+<div class="display-label"><label>Operador</label> {{ operator }}</div>
+<div class="display-label"><label>Vehículo</label> {{ vehicle }}</div>
+<div class="display-label"><label>Cliente</label> {{ group.customer }}</div>
+{% if group.contact %}
+<div class="display-label"><label>Contacto</label> {{ group.contact }}</div>
+{% endif %}
+{% if group.ship_to %}
+<div class="display-label">{% for line in group.ship_to %}{{ line }}{% if not loop.last %}<br>{% endif %}{% endfor %}</div>
+{% endif %}
+<table>
+	{% for line in group.lines %}
+	<tr>
+		<td>{{ line.quantity }} {{ line.unit }} {{ line.name }}</td>
+		<td class="number">{% if line.sales_order %}Pedido {{ line.sales_order }}{% endif %}</td>
+	</tr>
+	{% endfor %}
+</table>
+{% endfor %}
+{% endblock %}

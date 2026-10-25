@@ -1,13 +1,25 @@
 import os
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    Form,
+    HTTPException,
+    Query,
+    Response,
+    UploadFile,
+    status,
+)
 from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app import rendering
 from app.core.config import settings
 from app.core.deps import CurrentUser, require_privilege
 from app.db.session import get_db
 from app.enums import AccessRight, DeliveryOrderStatus, FulfillmentType, SystemObject
+from app.models.core import Warehouse
 from app.models.logistics import ProofOfDelivery
 from app.schemas import ListResponse, LocalDateTime
 from app.schemas.delivery_order import (
@@ -22,7 +34,7 @@ from app.schemas.delivery_order import (
     ProofOfDeliveryResponse,
     ReasonRequest,
 )
-from app.services import delivery_order_service, image_service
+from app.services import delivery_order_service, image_service, print_contexts
 
 router = APIRouter()
 
@@ -272,6 +284,63 @@ async def list_delivery_order_events(
     await _order_or_404(db, delivery_order_id)
     events = await delivery_order_service.events_of(db, delivery_order_id)
     return [DeliveryOrderEventResponse.model_validate(e) for e in events]
+
+
+# ── Printed documents (spec 026) ──────────────────────────────────────────────
+
+
+def _assert_approved(order) -> None:  # noqa: ANN001
+    if order.status in (DeliveryOrderStatus.DRAFT, DeliveryOrderStatus.PENDING_APPROVAL):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail='Delivery order is not approved'
+        )
+
+
+@router.get(
+    '/{delivery_order_id}/ticket', response_class=Response, responses=rendering.PDF_RESPONSE
+)
+async def print_delivery_order_ticket(
+    delivery_order_id: int,
+    warehouse: int | None = Query(None, description='Print only the lines from this warehouse'),
+    _: CurrentUser = Depends(_READ),
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    """The 72 mm ticket: the delivery ticket, or the counter ticket for a pickup. A cancelled
+    order prints stamped; a draft or one awaiting approval is refused."""
+    order = await _order_or_404(db, delivery_order_id)
+    _assert_approved(order)
+    if warehouse is not None:
+        if await db.get(Warehouse, warehouse) is None:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail='Unknown warehouse'
+            )
+        lines = await delivery_order_service.lines_of(db, order.delivery_order_id)
+        if not any(line.warehouse == warehouse for line in lines):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail='No line of this order comes from that warehouse',
+            )
+    template, context = await print_contexts.delivery_ticket_context(
+        db, order, warehouse=warehouse
+    )
+    pdf = await rendering.render_pdf(template, context)
+    return rendering.pdf_response(pdf, f'entrega-{order.delivery_order_id:08d}.pdf')
+
+
+@router.get(
+    '/{delivery_order_id}/document', response_class=Response, responses=rendering.PDF_RESPONSE
+)
+async def print_delivery_order_document(
+    delivery_order_id: int,
+    _: CurrentUser = Depends(_READ),
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    """The letter-size delivery order. No warehouse filter: a `warehouse` query is ignored."""
+    order = await _order_or_404(db, delivery_order_id)
+    _assert_approved(order)
+    template, context = await print_contexts.delivery_order_document_context(db, order)
+    pdf = await rendering.render_pdf(template, context)
+    return rendering.pdf_response(pdf, f'orden-entrega-{order.delivery_order_id:08d}.pdf')
 
 
 # ── Counter pickup ────────────────────────────────────────────────────────────

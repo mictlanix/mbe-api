@@ -39,6 +39,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **The `PaymentOnDelivery` model** (#248). The current system dropped `payment_on_delivery` in mictlanix/mbe#84, and nothing in this API read or wrote it. The model, its data-dictionary section and its schema-dump block are gone. The receipt's "Contraentrega" label, for payments collected without a cash session, is unaffected.
 
 ### Added
+- **Delivery documents** (mictlanix/mbe-roadmap#42, spec 026). Four PDF routes on spec 019's pipeline.
+  - **`GET /delivery-orders/{id}/ticket`:** the 72 mm delivery ticket, or the pickup ticket for counter pickups. An optional `warehouse` prints only that warehouse's lines.
+  - **`GET /delivery-orders/{id}/document`:** the Letter delivery order, in the format the live site configures (DeliveryFormatRamos).
+  - **`GET /delivery-itineraries/{id}/ticket` and `/delivery-notes`:** the trip's ticket and the driver's acknowledgements, with detachable receipts.
+  - **States and access:** delivery order documents print from APPROVED onward, and a CANCELLED order prints stamped "CANCELADA". Itinerary documents print once DEPARTED or CLOSED. They require Read on DeliveryOrders or DeliveryItineraries; the current system only hid the buttons.
+  - **Rendering writes nothing.** The current system's views modified tracked entities while rendering (mictlanix/mbe#54), and that is not carried over: no commission factor is applied to payment amounts, and the filtered lines are a copy.
 - **Commissions with stable history** (mictlanix/mbe-roadmap#32, mictlanix/mbe-roadmap#33, spec 025).
   - **Settings:** `/commissions/labels`, `/participations`, `/agents`, `/agent-rates` and `/product-labels` maintain the shared commission tables. The current system had no screen for them. A product's label can now be changed, and each change writes an `incidence` with the new source **12 (Commission)**.
   - **Periods:** `/commissions/periods/{year}/{month}` computes a month and `…/close` freezes it. A closed month's lines keep their agent, rates and names copied, so reassigning a customer or changing a rate never changes a closed month, which it does in the current system's live report. Months close in sequence, only the latest closed month can be reopened, and `…/pay` makes a month final.

@@ -1,0 +1,89 @@
+{#- Letter-size delivery order (spec 026), after legacy Views/DeliveryOrders/DeliveryFormatRamos.cshtml.
+Context: print_contexts.delivery_order_document_context.
+
+Keys read: header (the taxpayer is blanked), order_id, customer, contact or None, contact_phone or
+None, ship_to (list), comment or None, date, terms, lines (quantity, code, name, comment), payments
+(order, amount, method), cancelled, cancelled_at. Laid out like sales_order.html. -#}
+{% extends "_print_layout.html" %}
+{% block main %}
+{% if cancelled %}
+<div style="position: fixed; top: 90mm; left: 0; width: 100%; text-align: center; color: rgba(200, 0, 0, .35); font: bold 60pt 'Roboto', sans-serif; transform: rotate(-30deg);">CANCELADA<br><span style="font-size: 24pt;">{{ cancelled_at }}</span></div>
+{% endif %}
+<div>
+	<div style="float: left; width: 49.5%;">
+		<h2 class="uppercase">Cliente</h2>
+		<p><span class="mylabel">Nombre</span></p>
+		<p>{{ customer }}</p>
+		{% if ship_to %}
+		<p><span class="mylabel">Datos de Entrega</span></p>
+		<p>{% for line in ship_to %}{{ line }}{% if not loop.last %}<br>{% endif %}{% endfor %}</p>
+		{% endif %}
+		{% if contact %}
+		<p><span class="mylabel">Contacto</span></p>
+		<p>{{ contact }}{% if contact_phone %}<br>{{ contact_phone }}{% endif %}</p>
+		{% endif %}
+		<p><span class="mylabel">Comentario</span></p>
+		<p>{{ comment or 'Ninguno' }}</p>
+	</div>
+	<div style="float: right; width: 49.5%; text-align: right;">
+		<h2 class="text-right uppercase">Orden de entrega {{ order_id }}</h2>
+		<p><span class="mylabel">Fecha</span></p>
+		<p>{{ date }}</p>
+		<p><span class="mylabel">Condiciones de pago</span></p>
+		<p>{{ terms }}</p>
+	</div>
+	<div style="clear: both;"></div>
+</div>
+
+<div style="margin-top: 5mm; min-height: 2.2mm; border-top: #333 solid 1px; border-bottom: #333 solid 3px;"></div>
+
+<table style="border-spacing: 0 4px; border-collapse: separate;">
+	<thead>
+		<tr>
+			<th class="text-center" style="width: 12%;">Cantidad</th>
+			<th class="text-center" style="width: 20%;">Código</th>
+			<th class="text-center" style="width: 68%;">Descripción</th>
+		</tr>
+	</thead>
+	<tbody>
+		{% for line in lines %}
+		<tr class="alt">
+			<td class="nowrap text-center">{{ line.quantity }}</td>
+			<td class="text-center">{{ line.code }}</td>
+			<td class="text-center">{{ line.name }}{% if line.comment %}<br>{{ line.comment }}{% endif %}</td>
+		</tr>
+		{% endfor %}
+	</tbody>
+</table>
+
+<div style="min-height: 2.2mm; border-top: #333 solid 3px; border-bottom: #333 solid 1px;"></div>
+
+{% if payments %}
+<table>
+	<thead>
+		<tr>
+			<th class="text-center">Pago a la entrega</th>
+			<th class="text-center">Pedido</th>
+			<th class="text-center">Forma de pago</th>
+			<th class="text-center">Importe</th>
+		</tr>
+	</thead>
+	<tbody>
+		{% for payment in payments %}
+		<tr>
+			<td></td>
+			<td class="text-center">{{ payment.order }}</td>
+			<td class="text-center">{{ payment.method }}</td>
+			<td class="nowrap text-right">{{ payment.amount }}</td>
+		</tr>
+		{% endfor %}
+	</tbody>
+</table>
+{% endif %}
+
+<div style="margin-top: 10mm; break-inside: avoid;">
+	<p class="text-center">Recibí de conformidad. Antes de descargar, verifiqué las características del concreto solicitadas</p>
+	<p style="margin-top: 12mm;"><span class="mylabel">Nombre</span></p>
+	<div class="signature">Firma de conformidad</div>
+</div>
+{% endblock %}
