@@ -1,0 +1,55 @@
+{#- Counter pickup ticket (spec 026), after the current system's PickUpTicket.cshtml.
+Context: print_contexts.delivery_ticket_context (the same dict as delivery_ticket.html).
+
+Keys read: header, order_id, folio, customer, customer_name, date, lines (quantity, unit, name,
+sales_order), delivered_by, payments (order, amount, method), barcode, cancelled, cancelled_at.
+The cancelled stamp is sale_receipt.html's, over the lines. -#}
+{% extends "_ticket_layout.html" %}
+{% block main %}
+<div class="display-label text-left">
+	<label>Folio</label> {{ folio }}
+	&emsp;
+	<label>Fecha</label> {{ date }}
+</div>
+<div class="display-label">
+	<label>Cliente</label> {{ customer }}
+	{% if customer_name %}&emsp; {{ customer_name }}{% endif %}
+</div>
+<div class="display-label text-center">
+	<label>Entrega en mostrador</label>
+</div>
+<div style="position: relative;">
+	{% if cancelled %}
+	<div id="cancellation_stamp" style="position: absolute; top: 0; left: 0; width: 100%; text-align: center; transform: rotate(-35deg);">
+		<span style="font-size: 3.2em; font-weight: bold; display: block; background-color: white; padding-bottom: 2px;">CANCELADA</span>
+		<span style="display: block; background-color: white; margin-top: 0; font-size: 0.9em;">{{ cancelled_at }}</span>
+		<span style="display: block; background-color: white; font-size: 0.9em;">{{ order_id }}</span>
+	</div>
+	{% endif %}
+	<table>
+		{% for line in lines %}
+		<tr>
+			<td colspan="2">{{ line.quantity }} {{ line.unit }} <span>{% if line.sales_order %}Pedido {{ line.sales_order }}{% endif %}</span></td>
+		</tr>
+		<tr>
+			<td class="line" colspan="2">{{ line.name }}</td>
+		</tr>
+		{% endfor %}
+	</table>
+</div>
+<div class="display-label">
+	<label>Entregó</label> {{ delivered_by }}
+</div>
+{% if payments %}
+<div class="text-center" style="font-size: large;">
+	<span>Contraentrega</span>
+	{% for payment in payments %}
+	<div>{{ payment.method }} : {{ payment.amount }}</div>
+	{% endfor %}
+</div>
+{% endif %}
+{% endblock %}
+{% block footer %}
+<img src="{{ barcode }}" alt="{{ order_id }}">
+<p>{{ order_id }}</p>
+{% endblock %}

@@ -23,13 +23,14 @@
 
 ## Phase 1: Setup
 
-- [ ] T001 Record the baseline before any change: run `uv run ruff check app/ migrations/ tests/` and `uv run pytest -q`, and write the counts under this task · `specs/026-delivery-documents/tasks.md`
+- [X] T001 Record the baseline before any change: run `uv run ruff check app/ migrations/ tests/` and `uv run pytest -q`, and write the counts under this task · `specs/026-delivery-documents/tasks.md`
+  - **Baseline (2026-10-25)**: ruff clean; pytest 3727 passed, 0 failed.
 
 ---
 
 ## Phase 2: Foundational (blocks all stories)
 
-- [ ] T002 Write `tests/integration/delivery_seed.py`, the builders shared by the render tests. They insert ORM rows directly, in the style of `tests/integration/commission_seed.py`, over the `seeded` baseline:
+- [X] T002 Write `tests/integration/delivery_seed.py`, the builders shared by the render tests. They insert ORM rows directly, in the style of `tests/integration/commission_seed.py`, over the `seeded` baseline:
   - `delivery_order(db, *, fulfillment_type, status, customer=1, ship_to=None, contact=None, lines=[(product, quantity, warehouse, sales_order_detail)], comment=None) -> int`;
   - `sales_order_for(db, *, terms, paid, due_date, customer=1, customer_name=None) -> (sales_order_id, detail_id)`;
   - `payment_on_delivery(db, sales_order_id, amount, method)`: a `customer_payment` with `cash_session=None` and a standing `sales_order_payment`;
@@ -39,7 +40,7 @@
   - `itinerary(db, *, status, vehicle=True, operator=True, warehouse) -> int` and `stop(db, itinerary, sequence, [(delivery_order_detail, sent_quantity)])`.
 
   Reuse `tests/integration/seed.py` where it already builds a sales order. Check `tests/integration/test_itinerary_flow.py:36` for the rows an approved order needs.
-- [ ] T003 Add the shared pure helpers to `app/services/print_contexts.py`, with their unit tests first in `tests/unit/test_delivery_print_helpers.py` (commit together):
+- [X] T003 Add the shared pure helpers to `app/services/print_contexts.py`, with their unit tests first in `tests/unit/test_delivery_print_helpers.py` (commit together):
   - `_order_status_label(terms, paid, due_date, today) -> str | None` (research R4): "No Pagado", "Vencido", "Por Cobrar" or None;
   - `_unit_label(unit, *, symbol) -> str` (research R5): the symbol falling back to the name, or the name;
   - `_note_groups(lines) -> list[(key, lines)]` (research R6): groups in order of first appearance, keyed by `(customer, ship_to, contact, comment)`.
@@ -58,14 +59,14 @@
 - Render an approved delivery and an approved pickup: each element in data-model.md's two ticket tables appears in the extracted text.
 - DRAFT gives 409, CANCELLED is stamped, and the warehouse filter keeps only that warehouse's lines.
 
-- [ ] T004 [P] [US1] Write `tests/api/test_delivery_documents.py` (commit with T007). Patch the context and `render_pdf` as `test_print_endpoints.py` does, and cover:
+- [X] T004 [P] [US1] Write `tests/api/test_delivery_documents.py` (commit with T007). Patch the context and `render_pdf` as `test_print_endpoints.py` does, and cover:
   - 200 `application/pdf` with `inline; filename="entrega-00000042.pdf"`;
   - 401 without a token, and 403 without Read on 71 for a non-admin;
   - 404 `Delivery order not found`;
   - 409 `Delivery order is not approved` for DRAFT and PENDING_APPROVAL;
   - 422 for `warehouse=abc`;
   - 422 `Unknown warehouse` and `No line of this order comes from that warehouse`.
-- [ ] T005 [P] [US1] Write `tests/integration/test_delivery_documents_render.py`, ticket part (commit with T007), using `delivery_seed`:
+- [X] T005 [P] [US1] Write `tests/integration/test_delivery_documents_render.py`, ticket part (commit with T007), using `delivery_seed`:
   - **Delivery ticket:** two sales orders, one cash and unpaid, one credit and past due. A payment on delivery of 1,500.00 in cash, a contact with a mobile, a ship-to with `url_address` and nickname, a line at quantity 0, and a comment. Assert:
     - the taxpayer name and RFC, "Orden de Entrega", the padded id, the customer, the date;
     - each sales order id with its terms and "No Pagado" or "Vencido";
@@ -81,7 +82,7 @@
   - **CANCELLED:** the text contains "CANCELADA".
   - **SC-005, ticket half:** a 34-line delivery ticket is one page, and the first and last products both appear in the extracted text, which shows the page cut held.
   - **Read only:** every render ends with `db.dirty`, `db.new` and `db.deleted` empty, and the `delivery_order`, `delivery_order_detail` and `customer_payment` row counts unchanged.
-- [ ] T006 [US1] Write the templates `app/rendering/templates/delivery_ticket.html` and `pickup_ticket.html`, extending `_ticket_layout.html` with a header comment giving the context contract, as `sale_receipt.html` does. The content is data-model.md's two ticket tables. The delivery ticket prints `header.taxpayer_name` at the top of its `main` block, because the layout prints only the RFC (analysis U1). The CANCELADA stamp copies `sale_receipt.html:34-38`. Spanish labels follow the current system's resources:
+- [X] T006 [US1] Write the templates `app/rendering/templates/delivery_ticket.html` and `pickup_ticket.html`, extending `_ticket_layout.html` with a header comment giving the context contract, as `sale_receipt.html` does. The content is data-model.md's two ticket tables. The delivery ticket prints `header.taxpayer_name` at the top of its `main` block, because the layout prints only the RFC (analysis U1). The CANCELADA stamp copies `sale_receipt.html:34-38`. Spanish labels follow the current system's resources:
   - "Orden de Entrega" and "Cliente";
   - "Fecha de entrega";
   - "Contacto";
@@ -89,7 +90,7 @@
   - "Importe por cobrar";
   - "Persona que recibe" and "Nombre y firma";
   - "Entrega en mostrador" and "Entregó".
-- [ ] T007 [US1] Implement the ticket:
+- [X] T007 [US1] Implement the ticket:
   - **`delivery_ticket_context(db, order, *, warehouse=None)`** in `app/services/print_contexts.py`. It loads the lines (`delivery_order_service.lines_of`), the units, customer, contact and ship-to, then the sales orders and payments on delivery (T003). Each line's comment comes from the `attach_derived` lines of those sales orders, keyed by `sales_order_detail` id, with no extra query (analysis U2). "Entregó" is the employee of the order's latest `delivery_order_event` with `to_status = PICKED_UP`, falling back to the order's `updater` (research R7). It filters by warehouse into a new list, drops lines at quantity 0 on the delivery ticket only, and returns `pickup_ticket.html` when `fulfillment_type == PICKUP`, else `delivery_ticket.html`.
   - **`GET /delivery-orders/{id}/ticket`** in `app/api/v1/endpoints/delivery_orders.py`, gated with the existing DeliveryOrders Read dependency:
     - 404 for an unknown id;
@@ -98,6 +99,11 @@
     - otherwise render and return `pdf_response(pdf, f'entrega-{id:08d}.pdf')`.
 
   Run T004 and T005: green. Commit T004–T007.
+  - **As built:**
+    - WeasyPrint draws an SVG data URI (the QR) as vector paths, not as an image XObject, so the render tests count path segments: more than 100 with a link, few without one. The pickup barcode is counted as `re` rectangles.
+    - The warehouse 422s are checked in the route, and the context assumes a valid warehouse.
+    - The read-only tests call the context and `render_pdf` on the test's own session, because a route call would use another session and make `db.dirty` trivially empty. One more test goes through the route.
+    - 34 new tests; full suite 3761 passed.
 
 ---
 

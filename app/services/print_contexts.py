@@ -4,6 +4,8 @@ Plain dicts, one per template. Values arrive pre-formatted (research R9) and eve
 block has its flag here, so the templates only print and test.
 """
 
+from collections.abc import Sequence
+from datetime import date, datetime
 from decimal import ROUND_HALF_UP, Decimal
 from pathlib import Path, PurePosixPath
 from urllib.parse import urlsplit
@@ -11,8 +13,16 @@ from urllib.parse import urlsplit
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.clock import local_today
 from app.core.config import settings
-from app.enums import CurrencyCode, PaymentMethod, PaymentTerms, PaymentType
+from app.enums import (
+    CurrencyCode,
+    DeliveryOrderStatus,
+    FulfillmentType,
+    PaymentMethod,
+    PaymentTerms,
+    PaymentType,
+)
 from app.models.core import (
     Address,
     CashSession,
@@ -23,17 +33,26 @@ from app.models.core import (
 )
 from app.models.customer import Customer
 from app.models.fiscal import FiscalDocument, TaxpayerBatch, TaxpayerIssuer
+from app.models.logistics import DeliveryOrder, DeliveryOrderDetail, DeliveryOrderEvent
 from app.models.sales import (
     CreditNote,
     CustomerPayment,
     CustomerRefund,
     CustomerRefundDetail,
     SalesOrder,
+    SalesOrderDetail,
     SalesQuote,
 )
 from app.models.sat_catalog import SatCfdiUsage, SatTaxRegime
 from app.rendering import formatting, words
-from app.services import cash_session_service, cfdi, customer_payment_service, totals
+from app.services import (
+    cash_session_service,
+    cfdi,
+    customer_payment_service,
+    delivery_order_service,
+    sales_order_service,
+    totals,
+)
 
 _CARD_METHODS = {PaymentMethod.CREDIT_CARD, PaymentMethod.DEBIT_CARD}
 
@@ -708,3 +727,223 @@ async def fiscal_document_context(
         ),
     }
     return 'fiscal_document.html', context
+
+
+# ── Delivery documents (spec 026) ─────────────────────────────────────────────
+
+
+def _order_status_label(
+    terms: int, paid: bool, due_date: date | datetime, today: date
+) -> str | None:
+    """`DeliveryTicket.cshtml:33-50` (research R4): nothing once paid, "No Pagado" on cash terms,
+    on credit "Vencido" once the due date has passed, else "Por Cobrar"."""
+    if paid:
+        return None
+    if terms == PaymentTerms.IMMEDIATE:
+        return 'No Pagado'
+    due = due_date.date() if isinstance(due_date, datetime) else due_date
+    return 'Vencido' if due < today else 'Por Cobrar'
+
+
+def _unit_label(unit: object | None, *, symbol: bool) -> str:
+    """The unit of measurement as printed (research R5): its name, or with `symbol` its symbol
+    falling back to the name when there is none. `unit` carries `name` and `symbol`."""
+    if unit is None:
+        return ''
+    if symbol and unit.symbol and unit.symbol.strip():
+        return unit.symbol.strip()
+    return unit.name
+
+
+def _note_groups(lines: Sequence) -> list[tuple[tuple, list]]:
+    """Lines grouped by their delivery order's (customer, ship_to, contact, comment), in order of
+    first appearance (research R6). Each line carries those four attributes."""
+    groups: dict[tuple, list] = {}
+    for line in lines:
+        key = (line.customer, line.ship_to, line.contact, line.comment)
+        groups.setdefault(key, []).append(line)
+    return list(groups.items())
+
+
+async def _delivery_sales_orders(
+    db: AsyncSession, details: Sequence[DeliveryOrderDetail]
+) -> list[SalesOrder]:
+    """The distinct sales orders the lines draw on, by id, each through `attach_derived`."""
+    detail_ids = {d.sales_order_detail for d in details if d.sales_order_detail is not None}
+    if not detail_ids:
+        return []
+    order_ids = set(
+        (
+            await db.execute(
+                select(SalesOrderDetail.sales_order).where(
+                    SalesOrderDetail.sales_order_detail_id.in_(detail_ids)
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    orders = await _by_id(db, SalesOrder, SalesOrder.sales_order_id, order_ids)
+    for order_id in sorted(orders):
+        await sales_order_service.attach_derived(db, orders[order_id])
+    return [orders[order_id] for order_id in sorted(orders)]
+
+
+async def _payments_on_delivery(db: AsyncSession, sales_orders: Sequence[SalesOrder]) -> list[dict]:
+    """Research R3: the standing applications whose payment has no cash session, as
+    `{order, amount, method}` with the payment's own amount, as legacy printed it."""
+    applications = [
+        a
+        for order in sales_orders
+        for a in await customer_payment_service.list_order_applications(
+            db, order.sales_order_id
+        )
+        if not a['cancelled']
+    ]
+    payments = await _by_id(
+        db,
+        CustomerPayment,
+        CustomerPayment.customer_payment_id,
+        {a['customer_payment'] for a in applications},
+    )
+    return [
+        {
+            'order': a['sales_order'],
+            'amount': payments[a['customer_payment']].amount,
+            'method': payments[a['customer_payment']].method,
+        }
+        for a in applications
+        if payments[a['customer_payment']].cash_session is None
+    ]
+
+
+def _full_name(employee: Employee) -> str:
+    return f'{employee.first_name} {employee.last_name}'.strip()
+
+
+async def delivery_ticket_context(
+    db: AsyncSession, order: DeliveryOrder, *, warehouse: int | None = None
+) -> tuple[str, dict]:
+    """The 72 mm delivery ticket, or the counter ticket for a pickup (spec 026, research R1).
+
+    Reads only. The warehouse filter builds a new list; the sales orders, the payments on
+    delivery and the amount to collect still describe the whole order (research R9).
+    """
+    money = formatting.money
+    pickup = order.fulfillment_type == FulfillmentType.PICKUP
+    header = await header_context(
+        db, order.facility, 'Entrega en Mostrador' if pickup else 'Orden de Entrega'
+    )
+    if pickup:
+        header['rfc'] = ''
+    customer = await db.get(Customer, order.customer)
+    contact = await db.get(Contact, order.contact) if order.contact is not None else None
+    ship_to = await db.get(Address, order.ship_to) if order.ship_to is not None else None
+
+    every_line = sorted(
+        await delivery_order_service.lines_of(db, order.delivery_order_id),
+        key=lambda line: line.delivery_order_detail_id,
+    )
+    sales_orders = await _delivery_sales_orders(db, every_line)
+    payments = await _payments_on_delivery(db, sales_orders)
+    source = {
+        line.sales_order_detail_id: (sales_order.sales_order_id, line.comment)
+        for sales_order in sales_orders
+        for line in sales_order.lines
+    }
+    units = await sales_order_service.units_by_product(db, {row.product for row in every_line})
+
+    lines = [row for row in every_line if warehouse is None or row.warehouse == warehouse]
+    if not pickup:
+        lines = [row for row in lines if row.quantity > 0]
+
+    today = local_today()
+    walk_in = ''
+    if pickup and order.customer == settings.default_customer_id and sales_orders:
+        walk_in = (sales_orders[0].customer_name or '').strip()
+
+    delivered_by = ''
+    if pickup:
+        event = (
+            await db.execute(
+                select(DeliveryOrderEvent)
+                .where(
+                    DeliveryOrderEvent.delivery_order == order.delivery_order_id,
+                    DeliveryOrderEvent.to_status == DeliveryOrderStatus.PICKED_UP,
+                )
+                .order_by(DeliveryOrderEvent.delivery_order_event_id.desc())
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+        employee = await db.get(Employee, event.employee if event is not None else order.updater)
+        delivered_by = _full_name(employee)
+
+    to_collect = sum(
+        (
+            sales_order.balance
+            for sales_order in sales_orders
+            if sales_order.payment_terms == PaymentTerms.IMMEDIATE and not sales_order.paid
+        ),
+        Decimal(0),
+    )
+    url = (ship_to.url_address or '').strip() if ship_to is not None else ''
+    order_id = formatting.pad8(order.delivery_order_id)
+    cancelled = order.status == DeliveryOrderStatus.CANCELLED
+    context = {
+        'header': header,
+        'order_id': order_id,
+        'folio': formatting.pad8(order.serial) if order.serial is not None else '',
+        'customer': customer.name,
+        'customer_name': walk_in,
+        'date': formatting.date_short(order.date or order.creation_time),
+        'sales_orders': [
+            {
+                'id': sales_order.sales_order_id,
+                'terms': formatting.terms_name(sales_order.payment_terms),
+                'status': _order_status_label(
+                    sales_order.payment_terms, sales_order.paid, sales_order.due_date, today
+                ),
+            }
+            for sales_order in sales_orders
+        ],
+        'contact': (
+            {'name': contact.name, 'mobile': (contact.mobile or '').strip()}
+            if contact is not None
+            else None
+        ),
+        'ship_to': _ship_to_lines(ship_to),
+        'comment': (order.comment or '').strip() or None,
+        'lines': [
+            {
+                'quantity': formatting.qty(line.quantity),
+                'unit': _unit_label(units.get(line.product), symbol=False),
+                'name': line.product_name,
+                'sales_order': source.get(line.sales_order_detail, ('', None))[0],
+                'comment': source.get(line.sales_order_detail, ('', None))[1] or '',
+            }
+            for line in lines
+        ],
+        'payments': [
+            {
+                'order': p['order'],
+                'amount': money(p['amount']),
+                'method': formatting.method_name(p['method']),
+            }
+            for p in payments
+        ],
+        'to_collect': money(to_collect) if to_collect > 0 else None,
+        'link': (
+            {
+                'nickname': (ship_to.nickname or '').strip(),
+                'url': url,
+                'qr': formatting.qr_data_uri(url),
+            }
+            if url
+            else None
+        ),
+        'delivered_by': delivered_by,
+        'barcode': formatting.barcode_data_uri(order_id),
+        'cancelled': cancelled,
+        'cancelled_at': formatting.date_time(order.modification_time) if cancelled else None,
+    }
+    return ('pickup_ticket.html' if pickup else 'delivery_ticket.html'), context

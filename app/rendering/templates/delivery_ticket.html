@@ -1,0 +1,93 @@
+{#- Delivery order ticket (spec 026), after the current system's DeliveryTicket.cshtml.
+Context: print_contexts.delivery_ticket_context (the same dict as pickup_ticket.html).
+
+Keys read: header, order_id, customer, date, sales_orders (id, terms, status or None), contact
+(name, mobile) or None, ship_to (list of lines), comment or None, lines (quantity, unit, name,
+sales_order, comment), payments (order, amount, method), to_collect or None, link (nickname, url,
+qr) or None, cancelled, cancelled_at.
+
+_ticket_layout.html prints only the RFC, so the taxpayer name is printed here, as the current
+system does. The cancelled stamp is sale_receipt.html's, over the lines. -#}
+{% extends "_ticket_layout.html" %}
+{% block main %}
+{% if header.taxpayer_name %}<h3 class="text-center">{{ header.taxpayer_name }}</h3>{% endif %}
+<div class="display-label text-left">
+	<label>Orden de Entrega</label> {{ order_id }}
+</div>
+<div class="display-label">
+	<label>Cliente</label> {{ customer }}
+</div>
+<div class="display-label">
+	<label>Fecha de entrega</label> {{ date }}
+</div>
+{% for sales_order in sales_orders %}
+<div class="display-label">
+	Pedido {{ sales_order.id }}: {{ sales_order.terms }}{% if sales_order.status %}, <b>{{ sales_order.status }}</b>{% endif %}
+</div>
+{% endfor %}
+{% if contact %}
+<div class="display-label">
+	<label>Contacto</label> {{ contact.name }} {{ contact.mobile }}
+</div>
+{% endif %}
+{% if ship_to %}
+<div class="display-label">
+	{% for line in ship_to %}{{ line }}{% if not loop.last %}<br>{% endif %}{% endfor %}
+</div>
+{% endif %}
+{% if comment %}
+<div class="display-label"><b>{{ comment }}</b></div>
+{% endif %}
+<div style="position: relative;">
+	{% if cancelled %}
+	<div id="cancellation_stamp" style="position: absolute; top: 0; left: 0; width: 100%; text-align: center; transform: rotate(-35deg);">
+		<span style="font-size: 3.2em; font-weight: bold; display: block; background-color: white; padding-bottom: 2px;">CANCELADA</span>
+		<span style="display: block; background-color: white; margin-top: 0; font-size: 0.9em;">{{ cancelled_at }}</span>
+		<span style="display: block; background-color: white; font-size: 0.9em;">{{ order_id }}</span>
+	</div>
+	{% endif %}
+	<table>
+		{% for line in lines %}
+		<tr>
+			<td colspan="2">{{ line.quantity }} {{ line.unit }} <span>{% if line.sales_order %}Pedido {{ line.sales_order }}{% endif %}</span></td>
+		</tr>
+		<tr>
+			<td class="line" colspan="2">{{ line.name }}{% if line.comment %} <b><i>{{ line.comment }}</i></b>{% endif %}</td>
+		</tr>
+		{% endfor %}
+	</table>
+</div>
+{% if payments %}
+<div class="display-label"><label>Pagos Pendientes</label></div>
+<table>
+	<tr>
+		<td><label>Pedido</label></td>
+		<td class="number"><label>Importe</label></td>
+		<td><label>Forma de pago</label></td>
+	</tr>
+	{% for payment in payments %}
+	<tr>
+		<td>{{ payment.order }}</td>
+		<td class="number">{{ payment.amount }}</td>
+		<td>{{ payment.method }}</td>
+	</tr>
+	{% endfor %}
+</table>
+{% endif %}
+{% if to_collect %}
+<div class="text-center" style="font-size: large;">
+	<div>Importe por cobrar : {{ to_collect }}</div>
+</div>
+{% endif %}
+{% if link %}
+<div class="text-center">
+	{% if link.nickname %}<div><b>{{ link.nickname }}</b></div>{% endif %}
+	<div style="word-break: break-all;">{{ link.url }}</div>
+	<img src="{{ link.qr }}" alt="QR" style="width: 25mm; height: 25mm;">
+</div>
+{% endif %}
+<div class="signature">
+	Persona que recibe<br>
+	Nombre y firma
+</div>
+{% endblock %}
