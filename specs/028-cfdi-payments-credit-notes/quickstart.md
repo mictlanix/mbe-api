@@ -39,12 +39,13 @@ Expect:
 
 ## 4. Deploy and SC-004 (confirm first)
 
-1. Deploy the branch to the test instance (spec 027's procedure) and apply migration 025.
+1. Apply migration 025 first (§2), then deploy the branch to the test instance (spec 027's procedure). The deployed model reads the new column.
 2. On a real order whose lines are on a stamped invoice:
    - a refund of an invoiced unit is refused, naming the invoice;
-   - a refund of an uninvoiced line of the same order goes through, in a throwaway draft refund that is cancelled afterwards.
+   - a refund of an uninvoiced line of the same order is accepted when its line is edited on a draft refund;
+   - the draft is cancelled afterwards and never completed, so no stock or money moves.
 
-   No row outside the refunds and their payments changes.
+   No row outside that draft refund changes.
 
 ## 5. SC-005: email (confirm first; sends real mail)
 

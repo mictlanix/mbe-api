@@ -110,7 +110,7 @@ Both sealed XMLs validate against SAT's CFDI 4.0 and Pagos 2.0 schemas, and thei
    - the PPD invoices covering the orders that payment was applied to are proposed as relations.
 2. **Given** a draft receipt, **When** billing relates a stamped PPD invoice of the same issuer and recipient, **Then** the relation shows:
    - the next installment number;
-   - the previous balance: the invoice total less what earlier sealed or stamped receipts paid;
+   - the previous balance: the invoice total less what earlier sealed or stamped receipts paid and less its sealed or stamped credit notes;
    - an amount paid that defaults to the smaller of that balance and the unassigned payment amount.
 3. **Given** a relation, **When** the amount paid exceeds the invoice's previous balance, **Then** the request is refused.
 4. **Given** a draft receipt, **When** the relations add up to more than the payment amount, **Then** the request is refused. **When** they add up to less, **Then** confirm is refused until they match.
@@ -306,8 +306,8 @@ Billing sends a stamped CFDI's PDF and XML to one or more addresses and learns w
 - **SC-003**: Two receipts paying one PPD invoice in two installments give installments 1 and 2, and the second's previous balance equals the first's remaining balance.
 - **SC-004**: On the test deployment, against real orders:
   - a refund of units on a stamped invoice is refused, naming the invoice;
-  - a refund of uninvoiced units of the same order goes through;
-  - nothing changes outside the refunds, their payments and stock, as before this feature.
+  - a refund of uninvoiced units of the same order is accepted when its line is edited on a draft refund;
+  - the draft is then cancelled, never completed, so no stock or money moves on mbe_dev and nothing changes outside that draft refund.
 - **SC-005**: An emailed stamped invoice arrives with both attachments. A refused send returns an error and records nothing.
 
 ## Assumptions
