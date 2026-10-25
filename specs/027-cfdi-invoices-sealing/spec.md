@@ -107,6 +107,8 @@ Invoices:
 - Q: Public-general invoices carry no `InformacionGlobal` today. What should the new MBE do? → A: Keep as today. No `InformacionGlobal`, and the recipient name is used as stored.
 - Q: Should an invoice be able to carry CFDI relations? → A: Yes. Include both type 04 (substitution) and type 07 (application of an advance).
 - Q: What happens to a sealed invoice that is wrong, or that waited too long to be stamped? → A: It can return to draft. The sealed XML is discarded, the serial stays with the invoice, and confirming again reseals it with a valid date.
+- Q: How should a refund count against an order line's remaining quantity? → A: By order of events. A refund counts only for the units that had not been invoiced when it was recorded; a refund of already-invoiced units does not free them (that needs a credit note).
+- Q: Who can return a sealed invoice to draft? → A: Anyone with the Update privilege on FiscalDocuments (23), the same privilege that edits a draft.
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -211,15 +213,18 @@ A clerk changes the recipient, series, CFDI usage, payment terms and form, issue
 **Invoices (#47)**
 
 - **FR-003**: The system MUST create Invoice drafts only. The other document types are out of scope (see Out of Scope). A draft has:
-  - the issuer and an Invoice batch of that issuer;
+  - the issuer, by default the issuing store's taxpayer;
+  - an Invoice batch of that issuer, by default the store's default series when it belongs to that issuer, else the issuer's first Invoice batch;
   - the customer, and a recipient taken from the customer's taxpayer records;
   - the issuing store;
   - the defaults listed in the Findings.
 - **FR-004**: The recipient's postal code MUST be the recipient record's, except for XAXX010101000, where it is the issuing store's postal code.
 - **FR-005**: The system MUST add lines from a sales order only when the order is completed and not cancelled. It adds each line of an invoiceable product at its remaining quantity. The order's customer MAY differ from the invoice's.
-- **FR-006**: An order line's remaining quantity MUST be its quantity minus the larger of:
-  - its quantity on sealed or issued, non-cancelled invoices other than this one;
-  - its refunded quantity.
+- **FR-006**: An order line's remaining quantity MUST be its quantity minus:
+  - its quantity on sealed or issued, non-cancelled invoices other than this one; and
+  - for each completed refund, only the part that had not been invoiced when the refund was recorded (the line's quantity minus what was invoiced and refunded before it, floored at zero).
+
+  The result is floored at zero. Example: a line of 10, 3 refunded, then 7 invoiced leaves 0; a line of 10, 7 invoiced, then 3 refunded also leaves 0.
 
   Adding an order whose lines are already on the draft MUST NOT duplicate them.
 - **FR-007**: Adding a line by hand MUST require the Create privilege on StandaloneFiscalDocuments (56). Every other invoice action requires the matching privilege on FiscalDocuments (23).
@@ -227,7 +232,7 @@ A clerk changes the recipient, series, CFDI usage, payment terms and form, issue
   - PPD MUST force payment form 99.
   - Changing the issuing store MUST keep the current system's separate permission.
 - **FR-009**: The issue date MUST be no more than 72 hours before now and not in the future, both when it is set and at confirm.
-- **FR-010**: A draft MUST accept relations to stamped invoices of the same issuer, each with relation type 04 or 07, and allow removing them.
+- **FR-010**: A draft MUST accept relations to stamped invoices of the same issuer and recipient, each with relation type 04 or 07, and allow removing them.
 - **FR-011**: Line rules:
   - quantity is positive and, for an order line, at most its remaining quantity;
   - price is zero or more;
@@ -248,7 +253,7 @@ A clerk changes the recipient, series, CFDI usage, payment terms and form, issue
 
   No PAC is contacted.
 - **FR-014**: The serial MUST be the next number for the issuer and series, continuing from the highest serial already recorded. It MUST be unique even when invoices are confirmed concurrently, and a failed confirm MUST NOT consume a number.
-- **FR-015**: A sealed, unstamped invoice MUST be able to return to draft. Its sealed XML is removed, it keeps its serial, and a later confirm reuses that serial.
+- **FR-015**: A sealed, unstamped invoice MUST be able to return to draft, with the Update privilege on FiscalDocuments (23). Its sealed XML is removed, it keeps its serial, and a later confirm reuses that serial.
 - **FR-016**: The read endpoints of spec 020 MUST report the "sealed" state for a sealed, unstamped invoice. They MUST keep reporting draft, issued and cancelled as they do today.
 
 **Docs**
@@ -289,7 +294,7 @@ A clerk changes the recipient, series, CFDI usage, payment terms and form, issue
   - the 72-hour message says what is wrong.
 
   The current system allowed PUE with payment form 99 (29 stamped invoices), so it stays allowed.
-- **Remaining quantity.** It keeps the current system's rule of the larger of invoiced and refunded, but also counts sealed invoices.
+- **Remaining quantity.** The current system's rule (the larger of invoiced and refunded) is replaced, because it let 141 lines refunded before invoicing in the last year be invoiced again. Sealed invoices also count. Invoices are ordered by their issue time and refunds by their completion time.
 - **Template.** The template is stored as the current system's JSON and used by spec 020's PDF. This feature does not change printing.
 - **Order of states.** "Sealed" sits between draft and issued. The current system would show a sealed invoice as a draft, but after the cutover it no longer writes these tables.
 
