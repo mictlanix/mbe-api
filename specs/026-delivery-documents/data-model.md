@@ -8,7 +8,7 @@ Common to all five: `header` comes from `header_context(db, facility, title, let
 
 | Element | Source |
 |---|---|
-| Header | `header_context(order.facility, 'Orden de Entrega')`: store, RFC, address |
+| Header | `header_context(order.facility, 'Orden de Entrega')`: store, RFC, address. `_ticket_layout.html` prints only the RFC, so the template also prints `header.taxpayer_name` at the top of its `main` block, as `DeliveryTicket.cshtml:11-16` does |
 | Delivery order id | `pad8(order.delivery_order_id)` |
 | Customer | `customer.name` |
 | Delivery date | `date_short(order.date)` |
@@ -16,7 +16,7 @@ Common to all five: `header` comes from `header_context(db, facility, title, let
 | Contact | `contact.name` and `contact.mobile`; omitted when there is no contact |
 | Ship-to | `_ship_to_lines(ship_to)`; omitted when there is no ship-to |
 | Comment | `order.comment`, when present |
-| Lines | Lines with `quantity > 0`, after the warehouse filter: `qty(quantity)`, unit name, `product_name`, sales order id, the sales order line's `comment` |
+| Lines | Lines with `quantity > 0`, after the warehouse filter: `qty(quantity)`, unit name, `product_name`, sales order id, and the sales order line's `comment`, taken from the `attach_derived` lines of the loaded sales orders |
 | Pagos Pendientes | Payments on delivery (research R3): sales order id, `money(payment.amount)`, `method_name(method)` |
 | Por cobrar | `money(sum of balance of unpaid cash-terms sales orders)`, when above 0 |
 | Map link | `ship_to.nickname`, `ship_to.url_address` and `qr_data_uri(url_address)`, when there is a link |
@@ -32,7 +32,7 @@ Common to all five: `header` comes from `header_context(db, facility, title, let
 | Customer | `customer.name`. For the walk-in customer, also `(first sales order's customer_name)` |
 | Label | "Entrega en mostrador" |
 | Lines | All lines, after the warehouse filter: `qty(quantity)`, unit name, `product_name`, sales order id |
-| Entregó | The `updater` employee: first and last name |
+| Entregó | The employee of the latest PICKED_UP `delivery_order_event`, else the `updater` (research R7): first and last name |
 | Payments on delivery | Research R3: method and amount |
 | Barcode | `barcode_data_uri(pad8(delivery_order_id))` and the id as text |
 | Cancelled stamp | As on the delivery ticket |

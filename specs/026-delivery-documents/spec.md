@@ -165,6 +165,7 @@ A branch that delivers concrete prints the delivery order on Letter paper. The r
 - **FR-002**: The delivery ticket and the pickup ticket MUST print the content listed for them in the Findings, with these differences from the current system:
   - The amount of a payment on delivery is the payment amount as stored. No commission factor is applied (mictlanix/mbe#54).
   - "Payments on delivery" are the live payments of the order's sales orders that have no cash session.
+  - On the pickup ticket, "who handed it over" is the employee who recorded the pickup: the PICKED_UP event. Before pickup it is the order's last updater. The current system always printed the last updater, which a later edit changes.
 - **FR-003**: A delivery order's documents MUST be refused with 409 while the order is DRAFT or PENDING_APPROVAL. Every later state renders. A CANCELLED order renders with a visible "CANCELADA" mark.
 - **FR-004**: The ticket MUST accept an optional warehouse. When it is given, only the lines from that warehouse print. A warehouse that does not exist, or that none of the order's lines come from, is refused with 422.
 - **FR-005**: The delivery ticket and the delivery notes MUST print a QR code of the ship-to's map link, with the link's text and nickname, when the ship-to has one.

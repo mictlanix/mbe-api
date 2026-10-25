@@ -67,7 +67,7 @@ Measured on mbe_dev (read only) on 2026-10-25, for 2026 data, unless stated othe
   - The vehicle prints `nickname` and `license_plate`. The operator prints its driver employee's first and last name.
   - When either is missing, a dash prints instead. In 2026, 71 itineraries have no vehicle and 70 no operator.
 - **Pickup ticket:**
-  - "Entregó" is the order's `updater` employee, as the current system prints `Updater.Name`.
+  - "Entregó" is the employee of the order's latest `delivery_order_event` with `to_status = PICKED_UP`, the person who recorded the handover. Before pickup it falls back to the order's `updater`. The current system prints `Updater.Name`, but in v2 a later edit, such as a cancel after pickup, changes `updater`, while the event keeps who handed the goods over (analysis U3).
   - For the walk-in customer (`settings.default_customer_id`), the first sales order's `customer_name` prints beside the customer, as `sale_ticket_context` does.
 - **Delivery ticket:**
   - **No ship-to** (118 deliveries in 2026): the address and QR blocks are omitted.

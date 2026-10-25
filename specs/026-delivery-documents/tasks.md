@@ -35,6 +35,7 @@
   - `payment_on_delivery(db, sales_order_id, amount, method)`: a `customer_payment` with `cash_session=None` and a standing `sales_order_payment`;
   - `address(db, *, url_address=None, nickname=None) -> int` and `contact(db, *, mobile) -> int`;
   - `warehouse(db, facility=1) -> int`;
+  - `pickup_event(db, delivery_order, employee)`: a `delivery_order_event` with `to_status = PICKED_UP`;
   - `itinerary(db, *, status, vehicle=True, operator=True, warehouse) -> int` and `stop(db, itinerary, sequence, [(delivery_order_detail, sent_quantity)])`.
 
   Reuse `tests/integration/seed.py` where it already builds a sales order. Check `tests/integration/test_itinerary_flow.py:36` for the rows an approved order needs.
@@ -66,7 +67,7 @@
   - 422 `Unknown warehouse` and `No line of this order comes from that warehouse`.
 - [ ] T005 [P] [US1] Write `tests/integration/test_delivery_documents_render.py`, ticket part (commit with T007), using `delivery_seed`:
   - **Delivery ticket:** two sales orders, one cash and unpaid, one credit and past due. A payment on delivery of 1,500.00 in cash, a contact with a mobile, a ship-to with `url_address` and nickname, a line at quantity 0, and a comment. Assert:
-    - "Orden de Entrega", the padded id, the customer, the date;
+    - the taxpayer name and RFC, "Orden de Entrega", the padded id, the customer, the date;
     - each sales order id with its terms and "No Pagado" or "Vencido";
     - the contact and mobile, the ship-to lines, the comment, the product names and the sales order ids;
     - "Pagos Pendientes" with 1,500.00 and "Efectivo";
@@ -74,12 +75,13 @@
     - the link text, and an image XObject on the page for the QR (the `_xobjects` helper, `tests/integration/test_print_render.py:832`);
     - the signature text;
     - the product on the 0-quantity line is absent.
-  - **Pickup ticket:** for the walk-in customer, assert "Entrega en mostrador", the sales order's customer name, "Entregó" with the updater's name, the payment on delivery, and the padded id under the barcode.
+  - **Pickup ticket:** for the walk-in customer, assert "Entrega en mostrador", the sales order's customer name, and "Entregó" with the name of the PICKED_UP event's employee (seed that event with a different employee from `updater`). Also assert the payment on delivery and the padded id under the barcode. A READY_FOR_PICKUP order, which has no such event, prints the updater.
   - **No ship-to and no contact:** neither block appears, and the page has no image XObject beyond the logo.
   - **Warehouse filter:** an order with lines in two warehouses. Filtered, only that warehouse's product appears, and "Pagos Pendientes" is unchanged.
   - **CANCELLED:** the text contains "CANCELADA".
+  - **SC-005, ticket half:** a 34-line delivery ticket is one page, and the first and last products both appear in the extracted text, which shows the page cut held.
   - **Read only:** every render ends with `db.dirty`, `db.new` and `db.deleted` empty, and the `delivery_order`, `delivery_order_detail` and `customer_payment` row counts unchanged.
-- [ ] T006 [US1] Write the templates `app/rendering/templates/delivery_ticket.html` and `pickup_ticket.html`, extending `_ticket_layout.html` with a header comment giving the context contract, as `sale_receipt.html` does. The content is data-model.md's two ticket tables. The CANCELADA stamp copies `sale_receipt.html:34-38`. Spanish labels follow the current system's resources:
+- [ ] T006 [US1] Write the templates `app/rendering/templates/delivery_ticket.html` and `pickup_ticket.html`, extending `_ticket_layout.html` with a header comment giving the context contract, as `sale_receipt.html` does. The content is data-model.md's two ticket tables. The delivery ticket prints `header.taxpayer_name` at the top of its `main` block, because the layout prints only the RFC (analysis U1). The CANCELADA stamp copies `sale_receipt.html:34-38`. Spanish labels follow the current system's resources:
   - "Orden de Entrega" and "Cliente";
   - "Fecha de entrega";
   - "Contacto";
@@ -88,7 +90,7 @@
   - "Persona que recibe" and "Nombre y firma";
   - "Entrega en mostrador" and "Entregó".
 - [ ] T007 [US1] Implement the ticket:
-  - **`delivery_ticket_context(db, order, *, warehouse=None)`** in `app/services/print_contexts.py`. It loads the lines (`delivery_order_service.lines_of`), the units, customer, contact, ship-to and updater, then the sales orders and payments on delivery (T003). It filters by warehouse into a new list, drops lines at quantity 0 on the delivery ticket only, and returns `pickup_ticket.html` when `fulfillment_type == PICKUP`, else `delivery_ticket.html`.
+  - **`delivery_ticket_context(db, order, *, warehouse=None)`** in `app/services/print_contexts.py`. It loads the lines (`delivery_order_service.lines_of`), the units, customer, contact and ship-to, then the sales orders and payments on delivery (T003). Each line's comment comes from the `attach_derived` lines of those sales orders, keyed by `sales_order_detail` id, with no extra query (analysis U2). "Entregó" is the employee of the order's latest `delivery_order_event` with `to_status = PICKED_UP`, falling back to the order's `updater` (research R7). It filters by warehouse into a new list, drops lines at quantity 0 on the delivery ticket only, and returns `pickup_ticket.html` when `fulfillment_type == PICKUP`, else `delivery_ticket.html`.
   - **`GET /delivery-orders/{id}/ticket`** in `app/api/v1/endpoints/delivery_orders.py`, gated with the existing DeliveryOrders Read dependency:
     - 404 for an unknown id;
     - 409 for DRAFT and PENDING_APPROVAL;
@@ -121,7 +123,7 @@
     - exactly three acknowledgements: A; B, with both its orders' lines; and C;
     - each with its contact, ship-to and QR;
     - three "Recibo de Entrega" blocks, each showing sales order ids.
-  - **Missing data:** an itinerary with no vehicle and no operator prints "—" for both.
+  - **Missing data:** an itinerary with no vehicle and no operator prints "—" for both. An itinerary with `warehouse=None` takes its header from its first delivery order's facility (research R7).
   - **CLOSED:** it also renders.
   - **Read only:** the same assertion as T005.
 - [ ] T010 [US2] Write `app/rendering/templates/itinerary_ticket.html` and `delivery_notes.html`, extending `_ticket_layout.html`, with the content of data-model.md's itinerary tables.

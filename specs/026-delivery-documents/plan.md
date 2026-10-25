@@ -40,7 +40,7 @@ How it is built:
 
 **Project Type**: web service (REST API under `/api/v1`)
 
-**Performance Goals**: one render of each document per print. In 2026 the busiest ticket ran about 40 a day. A context is under 10 queries, and the 34-line order is the largest case.
+**Performance Goals**: one render of each document per print. In 2026 the busiest ticket ran about 40 a day. A context runs a few queries per sales order (`attach_derived` and `list_order_applications` run once per order) plus a constant handful. Orders in 2026 have at most 34 lines, and a delivery order rarely spans more than a few sales orders.
 
 **Constraints**:
 - Rendering never writes (FR-010, SC-002).
