@@ -102,7 +102,9 @@ async def delete_image(directory: str, filename: str) -> None:
 
 def image_url(filename: str | None) -> str | None:
     """Resolve a stored image filename to a URL a non-same-origin client can render."""
-    if filename is None or '/' in filename:
+    if not filename:
+        return None
+    if '/' in filename:
         return filename
     base = settings.images_base_url.rstrip('/')
     return f'{base}/images/{filename}' if base else f'/images/{filename}'

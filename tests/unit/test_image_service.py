@@ -11,6 +11,7 @@ from PIL import Image
 
 from app.services.image_service import (
     delete_image,
+    image_url,
     normalise_to_png,
     process_and_save_image,
     save_proof_image,
@@ -107,3 +108,12 @@ class TestDeleteImage:
             await delete_image(str(inner), filename)
 
         assert outside.exists()
+
+
+class TestImageUrl:
+    def test_a_blank_filename_is_no_image(self) -> None:
+        # Not `/images/`, a URL that resolves to nothing (#250)
+        assert image_url('') is None
+
+    def test_a_filename_resolves_under_images(self) -> None:
+        assert image_url('logo.png').endswith('/images/logo.png')
