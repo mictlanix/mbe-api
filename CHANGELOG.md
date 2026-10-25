@@ -7,6 +7,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Changed
+- **Fiscal documents report a `sealed` status** (spec 027). It covers documents that are not completed or cancelled but have their XML stored: confirmed by the new MBE and waiting to be stamped. `GET /fiscal-documents?status=draft` no longer includes them, and `status=sealed` selects them. The detail now returns `customer`, `facility`, `relations`, and each line's `product` and `order_detail`.
 - **Payments stamp `balance_zeroed_time` when they settle an order** (spec 025). The current system stamps it in every payment path, and it dates an order's commission month. This API never did. It is set once and never cleared, and the refund path still never writes it. Migration 023 backfills the 38 paid orders since 2025-10-01 that lacked it.
 - **Pilot sales rules** (mictlanix/mbe-roadmap#149, mictlanix/mbe-roadmap#35, spec 023).
   - **Customer discounts on lines:** a sales order or quote line added without a `discount_rate` starts at the customer's override for the product, or 0. An explicit rate, 0 included, is kept. The override is read only when the line is added, never on edits, a customer change, conversion or duplication, as in the current system.
@@ -39,6 +40,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **The `PaymentOnDelivery` model** (#248). The current system dropped `payment_on_delivery` in mictlanix/mbe#84, and nothing in this API read or wrote it. The model, its data-dictionary section and its schema-dump block are gone. The receipt's "Contraentrega" label, for payments collected without a cash session, is unaffected.
 
 ### Added
+- **CFDI 4.0 invoices up to a sealed document** (mictlanix/mbe-roadmap#47, spec 027). No PAC is contacted; stamping is mictlanix/mbe-roadmap#46.
+  - **Editor:** `POST /fiscal-documents` creates an Invoice draft with the current system's defaults. Routes then:
+    - add a completed sales order's invoiceable lines at their remaining quantity (`/sales-orders`);
+    - add a product by hand (`/lines`, StandaloneFiscalDocuments);
+    - edit or remove lines;
+    - edit the header (`PUT`; changing the store needs IssuedLocationId);
+    - relate stamped documents as 04 or 07 (`/relations`).
+  - **Confirm** (`/confirm`) seals the invoice:
+    - it assigns the next serial of the issuer and series. The series row is locked and the maximum is read with a locking read, so concurrent confirms never share a number (the mictlanix/mbe#45 pattern is not carried over);
+    - it builds the CFDI 4.0 XML with the current system's values and rounding;
+    - it computes the original string with SAT's stylesheet and seals it with the issuer's CSD that is valid at the issue date.
+  - **Reopen** (`/reopen`) returns a sealed invoice to draft, keeping its serial.
+  - **Remaining quantity of an order line** counts sealed and issued invoices. It counts a refund only for the units not yet invoiced when it was recorded. The current system's `max(invoiced, refunded)` let goods refunded before invoicing be invoiced anyway.
+  - **Fixed against the current system:**
+    - an order added twice no longer duplicates its lines;
+    - an empty invoice is refused;
+    - certificate validity is checked;
+    - the 72-hour rule says what is wrong.
+- **Taxpayer batches** (mictlanix/mbe-roadmap#44, spec 027): `/taxpayer-issuers/{rfc}/batches` lists, creates, updates and deletes an issuer's series. A series in use keeps its text and type; its print template can change.
+- **Dependency:** `lxml`, for SAT's original-string stylesheet. SAT's CFDI 4.0 schemas are vendored under `tests/fixtures/sat/`, and every sealed XML in the tests validates against them.
 - **Delivery documents** (mictlanix/mbe-roadmap#42, spec 026). Four PDF routes on spec 019's pipeline.
   - **`GET /delivery-orders/{id}/ticket`:** the 72 mm delivery ticket, or the pickup ticket for counter pickups. An optional `warehouse` prints only that warehouse's lines.
   - **`GET /delivery-orders/{id}/document`:** the Letter delivery order, in the format the live site configures (DeliveryFormatRamos).

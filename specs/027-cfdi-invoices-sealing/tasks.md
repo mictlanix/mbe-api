@@ -270,7 +270,7 @@ description: "Task list for CFDI invoices up to a sealed document"
     - a draft gives 409;
     - after reopening, changing the date and confirming again keeps the same serial;
     - a stamped invoice (completed) gives 409 on reopen, confirm and edits.
-- [ ] T023 [P] [US4] Extend `tests/api/test_invoices.py` for `PUT /fiscal-documents/{id}`, `POST`/`DELETE /{id}/relations…` and `POST /{id}/reopen`:
+- [X] T023 [P] [US4] Extend `tests/api/test_invoices.py` for `PUT /fiscal-documents/{id}`, `POST`/`DELETE /{id}/relations…` and `POST /{id}/reopen`:
   - happy paths, 401, 403 and 404;
   - a `facility` change without Update on IssuedLocationId (103) gives 403, while other fields with only 23 give 200;
   - 409 and 422 mapping.
@@ -286,7 +286,7 @@ description: "Task list for CFDI invoices up to a sealed document"
 
 ## Phase 7: Polish & Cross-Cutting Concerns
 
-- [ ] T026 [P] Update `docs/specs/10-fiscal-documents.md` (FR-017) with:
+- [X] T026 [P] Update `docs/specs/10-fiscal-documents.md` (FR-017) with:
   - batch maintenance;
   - the invoice editor and its routes;
   - remaining quantity (the clarified rule);
@@ -295,10 +295,10 @@ description: "Task list for CFDI invoices up to a sealed document"
   - the sealed state and reopen;
   - relation targets;
   - stamping marked as pending (#46).
-- [ ] T027 [P] Update `CHANGELOG.md` `[Unreleased]`:
+- [X] T027 [P] Update `CHANGELOG.md` `[Unreleased]`:
   - **Added:** taxpayer batches, the invoice editor, sealing and lxml.
   - **Changed:** fiscal document `status` gains `sealed`.
-- [ ] T028 Run `uv run ruff check app/ migrations/ tests/` and `uv run pytest -q`. Everything must be green. Fix anything this feature broke, including `tests/integration/test_no_endpoint_returns_500.py` for the new routes.
+- [X] T028 Run `uv run ruff check app/ migrations/ tests/` and `uv run pytest -q`. Everything must be green. Fix anything this feature broke, including `tests/integration/test_no_endpoint_returns_500.py` for the new routes.
 - [ ] T029 Write the SC-002 parity script in the scratchpad, following quickstart §3, and run it read-only on xolotl. Selecting the samples and the stored values needs the branch deployed (T030) or the code copied to `/tmp`. Record the samples, the result and any differences in the spec's verification notes, in `specs/027-cfdi-invoices-sealing/spec.md` under a "Verification" section.
 - [ ] T030 **Ask the user first.** Deploy the branch to the xolotl test instance (quickstart §2): as `mictlanix@`, check out `027-cfdi-invoices-sealing`, run `uv sync`, then, as root, `systemctl restart mbe-api-test`.
 - [ ] T031 **Ask the user first; it writes to mbe_dev.** Run SC-003 (quickstart §4): 20 concurrent confirms in a throwaway series `ZZ027`, plus the failure run. Then do the cleanup, listing each step and getting approval before it runs. Record the outcome in spec.md "Verification".

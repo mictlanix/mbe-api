@@ -17,12 +17,13 @@ from httpx import AsyncClient
 from app.db.session import get_db
 from app.enums import AccessRight, SystemObject
 from app.main import app
-from app.schemas.fiscal import InvoiceCreate, InvoiceLineUpdate
+from app.schemas.fiscal import InvoiceCreate, InvoiceLineUpdate, InvoiceRelationAdd, InvoiceUpdate
 from tests.api.test_fiscal_documents import _auth, _client, _deny_privileges, _row
 
 _SERVICE = 'app.services.fiscal_document_service'
 _INVOICES = 'app.services.invoice_service'
 _BASE = '/api/v1/fiscal-documents'
+_ENDPOINTS = 'app.api.v1.endpoints.fiscal_documents'
 
 # key: (method, path, body, invoice_service function)
 _ROUTES = {
@@ -32,6 +33,15 @@ _ROUTES = {
     'remove-line': ('DELETE', f'{_BASE}/9/lines/4', None, 'remove_line'),
     'confirm': ('POST', f'{_BASE}/9/confirm', None, 'confirm'),
     'add-line': ('POST', f'{_BASE}/9/lines', {'product': 5}, 'add_manual_line'),
+    'update-header': ('PUT', f'{_BASE}/9', {'comment': 'Entrega'}, 'update_header'),
+    'add-relation': (
+        'POST',
+        f'{_BASE}/9/relations',
+        {'relation': 70, 'type': '07'},
+        'add_relation',
+    ),
+    'remove-relation': ('DELETE', f'{_BASE}/9/relations/6', None, 'remove_relation'),
+    'reopen': ('POST', f'{_BASE}/9/reopen', None, 'reopen'),
 }
 _EXISTING = [key for key in _ROUTES if key != 'create']
 # Add-line is gated by Create on standalone documents (56), not by the rights of the others.
@@ -258,6 +268,198 @@ async def test_confirm_returns_the_sealed_document() -> None:
     assert response.json()['fiscal_document_id'] == 9
     assert response.json()['status'] == 'sealed'
     assert confirm.await_args.args[2] is document
+
+
+# ── Update the header ─────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_update_header_returns_the_reloaded_document() -> None:
+    _auth()
+    document = _draft()
+    with (
+        patch(f'{_INVOICES}.update_header', AsyncMock()) as update,
+        patch(f'{_SERVICE}.get_document', AsyncMock(return_value=document)),
+    ):
+        async with await _client() as client:
+            response = await client.put(
+                f'{_BASE}/9', json={'comment': 'Entrega', 'reference': 'OC-1'}
+            )
+
+    assert response.status_code == status.HTTP_200_OK
+    assert response.json()['fiscal_document_id'] == 9
+    assert response.json()['status'] == 'draft'
+    args = update.await_args.args
+    assert args[2] is document
+    assert args[3] == InvoiceUpdate(comment='Entrega', reference='OC-1')
+    assert args[3].model_fields_set == {'comment', 'reference'}
+
+
+@pytest.mark.asyncio
+async def test_update_facility_without_the_privilege_is_403() -> None:
+    _auth(administrator=False)
+    _grant_update_on_fiscal_documents_only()
+    with (
+        patch(f'{_ENDPOINTS}.has_any_privilege', AsyncMock(return_value=False)) as has,
+        patch(f'{_INVOICES}.update_header', AsyncMock()) as update,
+        patch(f'{_SERVICE}.get_document', AsyncMock(return_value=_draft())),
+    ):
+        async with await _client() as client:
+            response = await client.put(f'{_BASE}/9', json={'facility': 2})
+
+    assert response.status_code == status.HTTP_403_FORBIDDEN
+    assert has.await_args.args[1:] == (
+        'tester',
+        ((SystemObject.ISSUED_LOCATION_ID, AccessRight.UPDATE),),
+    )
+    update.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_update_facility_with_the_privilege_is_200() -> None:
+    _auth(administrator=False)
+    _grant_update_on_fiscal_documents_only()
+    with (
+        patch(f'{_ENDPOINTS}.has_any_privilege', AsyncMock(return_value=True)),
+        patch(f'{_INVOICES}.update_header', AsyncMock()) as update,
+        patch(f'{_SERVICE}.get_document', AsyncMock(return_value=_draft())),
+    ):
+        async with await _client() as client:
+            response = await client.put(f'{_BASE}/9', json={'facility': 2})
+
+    assert response.status_code == status.HTTP_200_OK
+    assert update.await_args.args[3].facility == 2
+
+
+@pytest.mark.asyncio
+async def test_update_without_the_facility_skips_the_location_check() -> None:
+    _auth(administrator=False)
+    _grant_update_on_fiscal_documents_only()
+    with (
+        patch(f'{_ENDPOINTS}.has_any_privilege', AsyncMock(return_value=False)) as has,
+        patch(f'{_INVOICES}.update_header', AsyncMock()) as update,
+        patch(f'{_SERVICE}.get_document', AsyncMock(return_value=_draft())),
+    ):
+        async with await _client() as client:
+            response = await client.put(f'{_BASE}/9', json={'comment': 'Entrega'})
+
+    assert response.status_code == status.HTTP_200_OK
+    has.assert_not_awaited()
+    update.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    'body',
+    [{'payment_method': 0}, {'reference': 'x' * 26}],
+    ids=['payment-form-0', 'reference-too-long'],
+)
+async def test_update_header_with_an_invalid_body_is_422(body: dict) -> None:
+    _auth()
+    with (
+        patch(f'{_INVOICES}.update_header', AsyncMock()) as update,
+        patch(f'{_SERVICE}.get_document', AsyncMock(return_value=_draft())),
+    ):
+        async with await _client() as client:
+            response = await client.put(f'{_BASE}/9', json=body)
+
+    assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
+    update.assert_not_awaited()
+
+
+# ── Relations ─────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_add_relation_returns_the_reloaded_document() -> None:
+    _auth()
+    document = _draft()
+    with (
+        patch(f'{_INVOICES}.add_relation', AsyncMock()) as add,
+        patch(f'{_SERVICE}.get_document', AsyncMock(return_value=document)),
+    ):
+        async with await _client() as client:
+            response = await client.post(
+                f'{_BASE}/9/relations', json={'relation': 70, 'type': '07'}
+            )
+
+    assert response.status_code == status.HTTP_200_OK
+    assert response.json()['fiscal_document_id'] == 9
+    assert response.json()['status'] == 'draft'
+    args = add.await_args.args
+    assert args[2] is document
+    assert args[3] == InvoiceRelationAdd(relation=70, type='07')
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('relation_type', ['7', '01'])
+async def test_add_relation_with_an_unknown_type_is_422(relation_type: str) -> None:
+    _auth()
+    with (
+        patch(f'{_INVOICES}.add_relation', AsyncMock()) as add,
+        patch(f'{_SERVICE}.get_document', AsyncMock(return_value=_draft())),
+    ):
+        async with await _client() as client:
+            response = await client.post(
+                f'{_BASE}/9/relations', json={'relation': 70, 'type': relation_type}
+            )
+
+    assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
+    add.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_remove_relation_returns_the_reloaded_document() -> None:
+    _auth()
+    document = _draft()
+    with (
+        patch(f'{_INVOICES}.remove_relation', AsyncMock()) as remove,
+        patch(f'{_SERVICE}.get_document', AsyncMock(return_value=document)),
+    ):
+        async with await _client() as client:
+            response = await client.delete(f'{_BASE}/9/relations/6')
+
+    assert response.status_code == status.HTTP_200_OK
+    assert response.json()['fiscal_document_id'] == 9
+    assert response.json()['status'] == 'draft'
+    args = remove.await_args.args
+    assert args[2] is document
+    assert args[3] == 6
+
+
+# ── Reopen ────────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_reopen_returns_the_draft() -> None:
+    _auth()
+    document = _draft()
+    with (
+        patch(f'{_INVOICES}.reopen', AsyncMock()) as reopen,
+        patch(f'{_SERVICE}.get_document', AsyncMock(return_value=document)),
+    ):
+        async with await _client() as client:
+            response = await client.post(f'{_BASE}/9/reopen')
+
+    assert response.status_code == status.HTTP_200_OK
+    assert response.json()['fiscal_document_id'] == 9
+    assert response.json()['status'] == 'draft'
+    assert reopen.await_args.args[2] is document
+
+
+@pytest.mark.asyncio
+async def test_reopen_of_an_unsealed_document_is_409() -> None:
+    _auth()
+    refusal = HTTPException(status.HTTP_409_CONFLICT, 'Fiscal document is not sealed')
+    with (
+        patch(f'{_INVOICES}.reopen', AsyncMock(side_effect=refusal)),
+        patch(f'{_SERVICE}.get_document', AsyncMock(return_value=_draft())),
+    ):
+        async with await _client() as client:
+            response = await client.post(f'{_BASE}/9/reopen')
+
+    assert response.status_code == status.HTTP_409_CONFLICT
+    assert response.json() == {'detail': 'Fiscal document is not sealed'}
 
 
 # ── Every route ───────────────────────────────────────────────────────────────
