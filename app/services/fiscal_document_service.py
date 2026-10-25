@@ -106,15 +106,11 @@ def live(document=FiscalDocument):  # noqa: ANN001, ANN201 — an entity or an a
     )
 
 
-async def invoice_position(
+async def invoice_settlements(
     db: AsyncSession, invoice: int, *, exclude_document: int | None = None
-) -> tuple[int, Decimal]:
-    """The next installment of `invoice` and its balance before it.
-
-    The balance is the invoice's stored total, less what live payment receipts paid of it and
-    less the totals of its live credit notes. `exclude_document` leaves one receipt or credit
-    note out, the one being edited or confirmed.
-    """
+) -> tuple[Decimal, int, Decimal, Decimal]:
+    """`invoice`'s stored total, and the count and sum of its live receipts' payments and the sum
+    of its live credit notes' totals. `exclude_document` leaves the one being edited out."""
     total = xml_total(await get_xml(db, invoice)) or Decimal(0)
     receipt = aliased(FiscalDocument)
     paid = await db.execute(
@@ -127,7 +123,7 @@ async def invoice_position(
             receipt.fiscal_document_id != (exclude_document or 0),
         )
     )
-    earlier, paid_amount = paid.one()
+    receipts, paid_amount = paid.one()
     note = aliased(FiscalDocument)
     notes = await db.execute(
         select(FiscalDocumentXml.data)
@@ -141,7 +137,18 @@ async def invoice_position(
         )
     )
     credited = sum((xml_total(data) or Decimal(0) for data in notes.scalars()), Decimal(0))
-    return earlier + 1, total - Decimal(paid_amount) - credited
+    return total, receipts, Decimal(paid_amount), credited
+
+
+async def invoice_position(
+    db: AsyncSession, invoice: int, *, exclude_document: int | None = None
+) -> tuple[int, Decimal]:
+    """The next installment of `invoice` and its balance before it: the total less what live
+    receipts paid and less its live credit notes."""
+    total, receipts, paid, credited = await invoice_settlements(
+        db, invoice, exclude_document=exclude_document
+    )
+    return receipts + 1, total - paid - credited
 
 
 async def get_paid_invoices(

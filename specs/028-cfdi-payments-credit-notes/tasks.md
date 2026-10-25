@@ -108,7 +108,7 @@ Both validate against SAT's CFDI 4.0 and Pagos 2.0 schemas, and both seals verif
   - **Second receipt:** installment 2 with the reduced balance. A sealed credit note on the invoice also reduces the balance (seed a type-100 doc with XML relating it).
   - **Reopen:** the receipt's amount is freed for a new receipt.
   - **Concurrency, simulated:** two drafts each claiming the full balance. Confirming the first succeeds; the second's confirm gives 422, because the balance was recomputed at confirm.
-- [ ] T011 [P] [US1] Write `tests/api/test_payment_receipts.py`, delegated, in the patched-service style of `tests/api/test_invoices.py`. Cover `POST /fiscal-documents/payment-receipts` and `POST`, `PUT` and `DELETE /fiscal-documents/{id}/paid-invoices…`: success, 401, 403, 404, 409/422 mapping and body validation.
+- [X] T011 [P] [US1] Write `tests/api/test_payment_receipts.py`, delegated, in the patched-service style of `tests/api/test_invoices.py`. Cover `POST /fiscal-documents/payment-receipts` and `POST`, `PUT` and `DELETE /fiscal-documents/{id}/paid-invoices…`: success, 401, 403, 404, 409/422 mapping and body validation.
 
 ### Implementation
 
@@ -142,7 +142,7 @@ Both validate against SAT's CFDI 4.0 and Pagos 2.0 schemas, and both seals verif
 
 **Independent Test:** a credit note copying one invoice line at a smaller quantity seals. Its XML is E with `CfdiRelacionados` 01, it validates, and its seal verifies.
 
-- [ ] T015 [P] [US2] Write `tests/integration/test_credit_note_flow.py`:
+- [X] T015 [P] [US2] Write `tests/integration/test_credit_note_flow.py`:
   - **Create from a stamped invoice:**
     - the issuer, customer, recipient, store, form and usage are copied;
     - IMMEDIATE, the type-100 series, and the relation type stored as `'1'`;
@@ -158,15 +158,15 @@ Both validate against SAT's CFDI 4.0 and Pagos 2.0 schemas, and both seals verif
     - the XML has E, 01 and PUE and validates;
     - a total above the invoice's remaining total gives 422. Seed an earlier sealed credit note.
   - **Reopen:** works.
-- [ ] T016 [P] [US2] Write `tests/api/test_credit_notes.py`, delegated, for `POST /fiscal-documents/credit-notes` and `POST /{id}/invoice-lines`: success, 401, 403, 404, 409/422 mapping and validation.
-- [ ] T017 [US2] Implement in `app/services/invoice_service.py`:
+- [ ] T016 [P] [US2] Write `tests/api/test_fiscal_credit_notes.py` (`test_credit_notes.py` is spec 011's store credit), delegated, for `POST /fiscal-documents/credit-notes` and `POST /{id}/invoice-lines`: success, 401, 403, 404, 409/422 mapping and validation.
+- [X] T017 [US2] Implement in `app/services/invoice_service.py`:
   - `create_credit_note(db, current, data)`;
   - `add_invoice_line(db, current, document, data)`;
   - the copied-line cap in `update_line` for credit notes;
   - the credit-note branch of `confirm`: lock the invoice row, check the cap (R4), then spec 027's path with `voucher_type='E'`, `relation_type='01'` and PUE.
 
   Make T015 pass.
-- [ ] T018 [US2] Add `POST /credit-notes` (Create 23) and `POST /{id}/invoice-lines` (Update 23) to `app/api/v1/endpoints/fiscal_documents.py`. Make T016 pass.
+- [X] T018 [US2] Add `POST /credit-notes` (Create 23) and `POST /{id}/invoice-lines` (Update 23) to `app/api/v1/endpoints/fiscal_documents.py`. Make T016 pass.
 
 ---
 
@@ -225,7 +225,7 @@ Both validate against SAT's CFDI 4.0 and Pagos 2.0 schemas, and both seals verif
   - `email_document(db, document, to, *, mailer, current) -> datetime`, which renders spec 020's PDF via `print_contexts.fiscal_document_context`, sends, and then records the incidence, in spec 024's order.
 
   Make T023 and T024 pass.
-- [ ] T027 [US4] Add `POST /fiscal-documents/{id}/email` (Read 23, `mail.get_mailer`, 503 when none) to `app/api/v1/endpoints/fiscal_documents.py`. Make T025 pass.
+- [X] T027 [US4] Add `POST /fiscal-documents/{id}/email` (Read 23, `mail.get_mailer`, 503 when none) to `app/api/v1/endpoints/fiscal_documents.py`. Make T025 pass.
 
 ---
 

@@ -10,7 +10,7 @@ Only drafts change. Every function takes a document loaded by
 
 from collections import defaultdict
 from collections.abc import Awaitable, Callable, Iterable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
 from decimal import Decimal
 from typing import Literal
@@ -44,7 +44,9 @@ from app.models.sales import (
 )
 from app.models.sat_catalog import SatCfdiUsage, SatTaxRegime, SatUnitOfMeasurement
 from app.schemas.fiscal import (
+    CreditNoteCreate,
     InvoiceCreate,
+    InvoiceLineCopy,
     InvoiceLineUpdate,
     InvoiceRelationAdd,
     InvoiceUpdate,
@@ -514,7 +516,10 @@ async def update_line(
     _require_draft(document)
     line = await _line_or_404(db, document, line_id)
     changes = data.model_dump(include=data.model_fields_set)
-    if changes.get('quantity') is not None and line.order_detail is not None:
+    credit_note = document.type == FiscalDocumentType.CREDIT_NOTE
+    if changes.get('quantity') is not None and credit_note:
+        await _check_credited_quantity(db, document, line.product, changes['quantity'])
+    elif changes.get('quantity') is not None and line.order_detail is not None:
         detail = await db.get(SalesOrderDetail, line.order_detail)
         remaining = (
             await remaining_by_order_line(
@@ -703,6 +708,7 @@ async def confirm(db: AsyncSession, current: CurrentUser, document: FiscalDocume
     _require_draft(document)
     prepare = {
         FiscalDocumentType.INVOICE: _prepare_invoice,
+        FiscalDocumentType.CREDIT_NOTE: _prepare_credit_note,
         FiscalDocumentType.PAYMENT_RECEIPT: _prepare_receipt,
     }[FiscalDocumentType(document.type)]
     try:
@@ -1217,6 +1223,207 @@ async def _prepare_receipt(db: AsyncSession, document: FiscalDocument) -> SealBu
         )
         return cfdi_payment.seal_async(
             data,
+            certificate_number=certificate.taxpayer_certificate_id,
+            certificate_data=certificate.certificate_data,
+            key_data=certificate.key_data,
+            key_password=certificate.key_password,
+        )
+
+    return build
+
+
+# ── Credit notes (#55, spec 028; research R4, R8) ─────────────────────────────
+
+#: cfdlib's enum number for SAT relation type 01, as `fiscal_document_relation.type` stores it.
+_CREDIT_NOTE_RELATION = '1'
+
+
+def _creditable(invoice: FiscalDocument) -> bool:
+    return (
+        invoice.type == FiscalDocumentType.INVOICE
+        and invoice.completed
+        and not invoice.cancelled
+        and bool(invoice.stamp_uuid)
+    )
+
+
+async def _credited_invoice(db: AsyncSession, document: FiscalDocument) -> FiscalDocument:
+    """The one invoice a credit note relates (FR-008)."""
+    relation = (
+        await db.execute(
+            select(FiscalDocumentRelation.relation).where(
+                FiscalDocumentRelation.document == document.fiscal_document_id
+            )
+        )
+    ).scalar_one()
+    return await db.get(FiscalDocument, relation)
+
+
+async def create_credit_note(db: AsyncSession, current: CurrentUser, data: CreditNoteCreate) -> int:
+    """A credit note draft for one stamped invoice, copying its parties, form and usage."""
+    invoice = await db.get(FiscalDocument, data.invoice)
+    if invoice is None:
+        raise _error(status.HTTP_404_NOT_FOUND, 'Invoice not found')
+    if not _creditable(invoice):
+        raise _unprocessable('The invoice cannot be credited')
+    facility = await db.get(Facility, invoice.facility)
+    batch = await default_batch_for(db, invoice.issuer, facility, FiscalDocumentType.CREDIT_NOTE)
+
+    now = local_now()
+    document = FiscalDocument(
+        creation_time=now,
+        modification_time=now,
+        creator=current.employee_id,
+        updater=current.employee_id,
+        type=FiscalDocumentType.CREDIT_NOTE,
+        batch=batch,
+        completed=False,
+        cancelled=False,
+        payment_terms=PaymentTerms.IMMEDIATE,
+        version=Decimal(0),
+        provider=0,
+        retention_rate=Decimal(0),
+        local_retention_rate=Decimal(0),
+        exchange_rate=Decimal(1),
+        currency=CurrencyCode.MXN,
+        **{
+            column: getattr(invoice, column)
+            for column in (
+                'issuer',
+                'issuer_name',
+                'issuer_regime',
+                'issuer_regime_name',
+                'customer',
+                'recipient',
+                'recipient_name',
+                'taxpayer_regime',
+                'taxpayer_postal_code',
+                'facility',
+                'issued_at',
+                'issued_location',
+                'payment_method',
+                'usage',
+            )
+        },
+    )
+    db.add(document)
+    await db.flush()
+    db.add(
+        FiscalDocumentRelation(
+            document=document.fiscal_document_id,
+            relation=invoice.fiscal_document_id,
+            type=_CREDIT_NOTE_RELATION,
+            exchange_rate=Decimal(1),
+            installment=1,
+            previous_balance=Decimal(0),
+            amount=Decimal(0),
+        )
+    )
+    await db.commit()
+    return document.fiscal_document_id
+
+
+async def _check_credited_quantity(
+    db: AsyncSession, document: FiscalDocument, product: int, quantity: Decimal
+) -> None:
+    """A credit note line may not exceed what its invoice billed of that product, per line."""
+    invoice = await _credited_invoice(db, document)
+    billed = [
+        line.quantity
+        for line in await _lines(db, invoice.fiscal_document_id)
+        if line.product == product
+    ]
+    if billed and quantity > max(billed):
+        raise _unprocessable(f"Quantity exceeds the invoice line's {max(billed):f}")
+
+
+async def add_invoice_line(
+    db: AsyncSession, current: CurrentUser, document: FiscalDocument, data: InvoiceLineCopy
+) -> None:
+    """Copy a line of the credit note's invoice, at its quantity or a smaller one (FR-009)."""
+    _require_draft(document)
+    _require_type(document, FiscalDocumentType.CREDIT_NOTE)
+    invoice = await _credited_invoice(db, document)
+    source = await db.get(FiscalDocumentDetail, data.line)
+    if source is None or source.document != invoice.fiscal_document_id:
+        raise _error(status.HTTP_404_NOT_FOUND, 'Invoice line not found')
+    quantity = data.quantity if data.quantity is not None else source.quantity
+    if quantity > source.quantity:
+        raise _unprocessable(f"Quantity exceeds the invoice line's {source.quantity:f}")
+    db.add(
+        FiscalDocumentDetail(
+            document=document.fiscal_document_id,
+            quantity=quantity,
+            **{
+                column: getattr(source, column)
+                for column in (
+                    'product',
+                    'order_detail',
+                    'product_service',
+                    'product_code',
+                    'product_name',
+                    'unit_of_measurement',
+                    'unit_of_measurement_name',
+                    'price',
+                    'discount',
+                    'tax_rate',
+                    'exchange_rate',
+                    'currency',
+                    'tax_included',
+                    'comment',
+                )
+            },
+        )
+    )
+    _touch(document, current)
+    await db.commit()
+
+
+async def _prepare_credit_note(db: AsyncSession, document: FiscalDocument) -> SealBuilder:
+    """Check the lines and the cap against the invoice, locked, then build an egreso (R4)."""
+    lines = await _lines(db, document.fiscal_document_id)
+    if not lines:
+        raise _unprocessable('The invoice has no lines')
+    for number, line in enumerate(lines, start=1):
+        if not line.product_service or not line.unit_of_measurement:
+            raise _unprocessable(f'Line {number}: missing SAT product key or unit')
+    if not document.taxpayer_regime or not document.taxpayer_postal_code:
+        raise _unprocessable('The recipient has no tax regime or postal code')
+    if document.payment_method == PaymentMethod.TO_BE_DEFINED:
+        raise _unprocessable('A credit note needs the actual payment form')
+    relation = (
+        await db.execute(
+            select(FiscalDocumentRelation.relation).where(
+                FiscalDocumentRelation.document == document.fiscal_document_id
+            )
+        )
+    ).scalar_one()
+    invoice = (
+        await db.execute(
+            select(FiscalDocument)
+            .where(FiscalDocument.fiscal_document_id == relation)
+            .with_for_update()
+        )
+    ).scalar_one()
+    if not _creditable(invoice):
+        raise _unprocessable('The invoice cannot be credited')
+
+    data = replace(_invoice_data(document, lines, '01', [invoice.stamp_uuid]), voucher_type='E')
+    total = sum((cfdi_invoice.line_amounts(line).total for line in data.lines), Decimal(0))
+    # Receipts do not limit a credit: only the invoice's total and its other credit notes do.
+    invoice_total, _receipts, _paid, credited = await fds.invoice_settlements(
+        db, invoice.fiscal_document_id, exclude_document=document.fiscal_document_id
+    )
+    creditable = invoice_total - credited
+    if total > creditable:
+        folio = f'{invoice.batch or ""}{invoice.serial}'
+        raise _unprocessable(
+            f'The credit note exceeds what remains of invoice {folio}: {creditable:.2f}'
+        )
+
+    def build(certificate: TaxpayerCertificate) -> Awaitable[str]:
+        return cfdi_invoice.seal_async(
+            replace(data, batch=document.batch, serial=document.serial, issued=document.issued),
             certificate_number=certificate.taxpayer_certificate_id,
             certificate_data=certificate.certificate_data,
             key_data=certificate.key_data,

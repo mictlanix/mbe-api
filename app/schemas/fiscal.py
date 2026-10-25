@@ -116,7 +116,7 @@ class FiscalDocumentRelationResponse(BaseModel):
 
     fiscal_document_relation_id: int
     relation: int
-    type: Literal['04', '07'] | None
+    type: Literal['01', '04', '07'] | None
     stamp_uuid: str | None
     batch: str | None
     serial: int | None
