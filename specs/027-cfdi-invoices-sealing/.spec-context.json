@@ -3,7 +3,7 @@
   "specName": "CFDI Invoices up to a Sealed Document",
   "branch": "027-cfdi-invoices-sealing",
   "currentStep": "implement",
-  "status": "implemented",
+  "status": "completed",
   "history": [
     {
       "step": "specify",
@@ -318,5 +318,32 @@
       "at": "2026-10-25T21:24:37.586Z"
     }
   ],
-  "currentTask": "T032"
+  "currentTask": null,
+  "verified": [
+    {
+      "what": "pytest on merged main (eb459c1)",
+      "command": "uv run pytest -q",
+      "source": "derived",
+      "exitCode": 0,
+      "durationSeconds": 75.5,
+      "result": "........................................................................ [ 99%] · ........................                                                 [100%] · 4056 passed in 71.66s (0:01:11)"
+    },
+    {
+      "what": "ruff check on merged main",
+      "command": "uv run ruff check app/ migrations/ tests/",
+      "source": "derived",
+      "exitCode": 0,
+      "durationSeconds": 0.5,
+      "result": "All checks passed!"
+    },
+    {
+      "what": "SC-002 parity: 55/55 stamped mbe_dev invoices rebuild to the identical original string (after the C# decimal-scale fix)"
+    },
+    {
+      "what": "SC-003 on the test deployment (MariaDB): 20 concurrent confirms got serials 1-20; a failing draft consumed no serial (21-25 for the rest)"
+    },
+    {
+      "what": "SC-004 on the test deployment: two real orders, 07 relation, sealed XML valid against SAT XSD and seal verifies; reopen/reseal kept the serial; non-fiscal tables unchanged; ZZ027 test rows deleted"
+    }
+  ]
 }
