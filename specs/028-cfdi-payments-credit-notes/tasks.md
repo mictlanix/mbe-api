@@ -243,15 +243,15 @@ Both validate against SAT's CFDI 4.0 and Pagos 2.0 schemas, and both seals verif
   - check the computed installments and balances against the stored ones.
 
   Record the result in spec.md under a "Verification" section.
-- [ ] T032 **Ask the user first; DDL.** Apply migration 025 to mbe_dev (quickstart §2), and record it in spec.md "Verification".
-- [ ] T033 **Ask the user first.** Deploy the branch to the test instance (spec 027's procedure). **Only after T032.** The model maps `fiscal_document.customer_payment`, so the deployed code fails every read of fiscal documents, spec 020's included, until migration 025 is on mbe_dev.
-- [ ] T034 **Ask the user first; writes to mbe_dev.** Run SC-004 (quickstart §4) on a throwaway draft refund:
+- [X] T032 **Ask the user first; DDL.** Apply migration 025 to mbe_dev (quickstart §2), and record it in spec.md "Verification".
+- [X] T033 **Ask the user first.** Deploy the branch to the test instance (spec 027's procedure). **Only after T032.** The model maps `fiscal_document.customer_payment`, so the deployed code fails every read of fiscal documents, spec 020's included, until migration 025 is on mbe_dev.
+- [X] T034 **Ask the user first; writes to mbe_dev.** Run SC-004 (quickstart §4) on a throwaway draft refund:
   - editing a line to invoiced units is refused (409);
   - editing a line to uninvoiced units is accepted;
   - the draft is then cancelled, **never completed**, so no stock or money moves.
 
   Cleanup is listed and approved before it runs. Record the result.
-- [ ] T035 **Ask the user first; sends real mail.** Run SC-005 (quickstart §5) to an address the user names, and record the result. Remove scratch scripts from xolotl.
+- [X] T035 **Ask the user first; sends real mail.** Run SC-005 (quickstart §5) to an address the user names, and record the result. Remove scratch scripts from xolotl.
 
 ---
 

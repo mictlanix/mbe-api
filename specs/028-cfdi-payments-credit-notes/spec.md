@@ -338,6 +338,28 @@ Billing sends a stamped CFDI's PDF and XML to one or more addresses and learns w
 
 **Balances.** For all 29 receipt relations, the stored, hand-typed installment and previous balance equal the formulas of FR-004, computed from the receipts issued before each one. There are 29 consistent and 0 inconsistent.
 
+### Migration and deployment (2026-10-25)
+
+- **Migration:** 025 was applied to mbe_dev from the test checkout, with approval. `fiscal_document.customer_payment` exists (`int(11)`, nullable), and every existing row is NULL.
+- **Deployment:** the branch, at 952f9a0, runs on the test instance. Health returns 200, and the new routes are listed in the OpenAPI schema.
+
+### SC-004: refunds of invoiced goods on the test deployment (2026-10-25)
+
+Run through the API with approval:
+- **Fully invoiced order 344007:** opening a refund gives 409 "Units of line ARENATRIAZ are on invoice GR4776; cancel the invoice to refund them", and nothing is written.
+- **Order 343389,** with two lines on invoice A5204 and two not invoiced:
+  - the draft refund (9610) leaves out the fully invoiced line;
+  - it offers 9 of the line with 270 sold and 261 invoiced;
+  - editing that line to 10 gives 409 naming A5204;
+  - editing an uninvoiced line to 1 is accepted.
+- **Cancellation:** the draft was cancelled, never completed.
+
+A snapshot of payments, store credit, sales orders, fiscal documents and completed refunds was identical before and after. The cancelled draft refund 9610 and its 3 lines were then deleted, with approval, in one counted transaction.
+
+### SC-005: email
+
+Covered by the tests, with a fake mailer and real PDF rendering. A real send was skipped at the user's choice.
+
 ## Out of Scope
 
 - Stamping (#46) and cancellation (#51), including SAT cancellation of a credit note or receipt.
