@@ -138,7 +138,7 @@ A user opens the kardex of a product in a warehouse for a date range and sees th
 - **Negative stock.** A product with negative on hand counted at 0 gets a positive adjustment.
 - **Reserved stock.** A count below what is reserved still confirms: reality wins. The count reports, per product, where available stock goes negative, so sales can act.
 - **Counted twice.** The same product cannot appear on two lines of a count; entering it again replaces the quantity.
-- **Overlapping counts.** Two drafts of one warehouse may cover the same product. The later confirm corrects against stock at its own confirm, and its response warns that the other count corrected that product after this one was created.
+- **Overlapping counts.** Two drafts of one warehouse may cover the same product. The later confirm corrects against stock at its own confirm, and its response warns that the other count corrected that product at or after this one's creation time.
 - **Products.** Only stockable products are accepted. A product discontinued after it went on a draft still confirms.
 - **In-transit warehouses** cannot be counted.
 - **Facility rule.** A non-administrator confirms or cancels only counts of their own facility.
@@ -173,7 +173,7 @@ A user opens the kardex of a product in a warehouse for a date range and sees th
 - **FR-008**: Each count action MUST require the right on PhysicalCountAdjustment (74): read to list and view, create to create, update to edit and confirm, delete to cancel a draft. A non-administrator MUST belong to the count's facility to confirm or cancel it.
 - **FR-009**: Count lists MUST follow spec 029's scope: the caller's point-of-sale warehouse plus the counts they created, or all counts with the delete right. They MUST be filterable by state and warehouse, newest first.
 - **FR-010**: The confirm response MUST report the products whose available stock (on hand − reserved) is negative after the count.
-- **FR-010a**: A warehouse MAY have several draft counts at once. The confirm response MUST list each of this count's products that another count of the same warehouse confirmed after this count was created, with that count's serial. It is a warning; the confirm still applies.
+- **FR-010a**: A warehouse MAY have several draft counts at once. The confirm response MUST list each of this count's products that another count of the same warehouse confirmed at or after this count's creation time, with that count's serial. It is a warning; the confirm still applies.
 - **FR-011**: A count of 15,000 lines MUST be enterable in batches and confirmable in one confirm.
 
 **Stock (#66)**
