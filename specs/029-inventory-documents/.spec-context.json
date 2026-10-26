@@ -3,7 +3,7 @@
   "specName": "Warehouse Receipts, Issues and Transfers",
   "branch": "029-inventory-documents",
   "currentStep": "implement",
-  "status": "implemented",
+  "status": "completed",
   "history": [
     {
       "step": "specify",
@@ -326,5 +326,37 @@
       "at": "2026-10-26T04:25:59.534Z"
     }
   ],
-  "currentTask": "T033"
+  "currentTask": null,
+  "verified": [
+    {
+      "what": "full test suite on merged main",
+      "command": "env BUSINESS_TIMEZONE=America/Mexico_City uv run pytest -q",
+      "source": "derived",
+      "exitCode": 0,
+      "durationSeconds": 115.1,
+      "result": "Using CPython 3.12.13 · Creating virtual environment at: .venv · Installed 69 packages in 177ms"
+    },
+    {
+      "what": "ruff lint on merged main",
+      "command": "uv run ruff check app/ migrations/ tests/",
+      "source": "derived",
+      "exitCode": 0,
+      "durationSeconds": 0.6,
+      "result": "All checks passed!"
+    },
+    {
+      "what": "Migration 026 applied to mbe_dev (approved); columns checked; 19,525 transfers read in_transit 0; legacy transfer 19728 reads received"
+    },
+    {
+      "what": "SC-007 on the test deployment: receipt 32023, issue 9808 and transfer 19729 (facility 47 to 51) through confirm/dispatch, partial receive, close and cancel; balances restored"
+    },
+    {
+      "what": "SC-002/SC-003 on the test deployment: 20 concurrent confirms got serials 873-892; double confirm, over-subscribing issues and duplicate receives let one through; complementary race made one draft; no 5xx; all test documents cancelled and netting to zero"
+    }
+  ],
+  "concerns": [
+    {
+      "note": "A customer refund racing an issue was not run: it would pay money out on mbe_dev. Recorded as research R2's known limit."
+    }
+  ]
 }
