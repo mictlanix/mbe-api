@@ -3,7 +3,7 @@
   "specName": "Physical Inventory Count, Stock and Kardex",
   "branch": "030-physical-count-kardex",
   "currentStep": "implement",
-  "status": "implemented",
+  "status": "completed",
   "history": [
     {
       "step": "specify",
@@ -270,5 +270,35 @@
       "at": "2026-10-26T06:43:17.683Z"
     }
   ],
-  "currentTask": "T026"
+  "currentTask": null,
+  "verified": [
+    {
+      "what": "full test suite on merged main",
+      "command": "env BUSINESS_TIMEZONE=America/Mexico_City uv run pytest -q",
+      "source": "derived",
+      "exitCode": 0,
+      "durationSeconds": 127.8,
+      "result": "Using CPython 3.12.13 · Creating virtual environment at: .venv · Installed 69 packages in 244ms"
+    },
+    {
+      "what": "ruff lint on merged main",
+      "command": "uv run ruff check app/ migrations/ tests/",
+      "source": "derived",
+      "exitCode": 0,
+      "durationSeconds": 0.5,
+      "result": "All checks passed!"
+    },
+    {
+      "what": "Migration 027 applied to mbe_dev (approved); both tables and unique keys checked; branch deployed to the test instance"
+    },
+    {
+      "what": "SC-005/SC-004 read-only: 62 products across warehouses 8, 12, 11 (incl. multi-label) match ledger and reservations; kardex balances for 5 products equal the ledger"
+    },
+    {
+      "what": "SC-001/SC-002: count 1 in warehouse 8 blind draft, concurrent confirms 200/409, entries only for the differing products, cancel refused, count 2 restored balances"
+    },
+    {
+      "what": "SC-003: 15,000-line counts on idle warehouse 19 confirmed in 2.2 s and 2.8 s (target 60 s); warehouse nets to zero; no 5xx"
+    }
+  ]
 }
