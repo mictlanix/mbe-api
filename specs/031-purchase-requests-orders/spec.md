@@ -202,7 +202,7 @@ The buyer downloads the confirmed PO as a PDF, or emails it to one of the suppli
 ### Edge Cases
 
 - **Concurrency.** Submitting, approving, confirming and cancelling are each applied once, including two at the same moment. Request serials are never repeated within a facility, and a failed submit consumes no number.
-- **One live PO per request line.** This holds under concurrent "create by supplier", "add from request" and line moves. A request line on a cancelled PO is pending again.
+- **One live PO per request line.** This holds under concurrent "create by supplier", "add from request", PO line removal and PO cancel. A request line on a cancelled PO is pending again.
 - **Resubmitting** a rejected request keeps its serial; its header warehouse cannot have moved to another facility (FR-002).
 - **Cross-facility lines.** A request line or a PO line may go to a warehouse of another facility. The request's serial follows the header warehouse's facility.
 - **Products.** Requests and POs accept only purchasable products. Non-stockable PO lines get no receipt line. A warehouse with only non-stockable lines gets no receipt.

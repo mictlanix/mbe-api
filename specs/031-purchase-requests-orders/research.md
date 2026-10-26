@@ -34,13 +34,14 @@ The current system reads the same flags until cutover.
 ## R2. Request serial on submit
 
 **Decision**: submit runs the locking pattern, adapted because `purchase_request` has no facility column.
-1. **Pre-read:** the facility → transit-warehouse map (`inv._transit_map`) and the warehouse → facility map (every warehouse; a few dozen rows), then commit. Both are fixed rows (spec 029 R4), so plain reads are current.
+1. **Pre-read:** the facility → transit-warehouse map (`inv._transit_map`) and the warehouse → facility map (every warehouse; a few dozen rows), then commit. Transit rows are fixed, but a warehouse's facility can be edited (`WarehouseUpdate.facility`), so the map is re-checked after the locks (step 4).
 2. **Lock the request row** `FOR UPDATE`, and re-read it (`populate_existing`).
 3. **Lock the transit warehouse** of the header warehouse's facility (`inv.lock_warehouses`). The facility comes from the pre-read map, looked up in memory with the locked row's warehouse: an ordinary read here would open the snapshot before the numbering lock, and `MAX(serial)` could miss a serial another submit just committed. Spec 029 avoids this because its documents carry `facility` on the locked row; `purchase_request` does not.
    - This is the same numbering lock receipts, issues, transfers and counts take for that facility, so every facility numbering step queues on one row.
    - A facility without a transit warehouse answers 422, as in spec 029.
 4. **Checks and serial:**
    - check the state, that there are lines, and that every quantity is above 0;
+   - re-read the header warehouse's facility (an ordinary read is safe now); if it differs from the pre-read map, answer 409 "The warehouse changed facility, retry" before numbering;
    - when `serial` is NULL, read `MAX(serial) + 1` over requests joined to warehouses of that facility, with an ordinary read;
    - set `completed = 1`.
 
@@ -69,8 +70,8 @@ A refusal rolls back, so no number is used. Deadlocks and lock waits answer 409 
 | Cancel a request (FR-009) | request row → its line rows |
 
 **No ordinary read may run between the commit and the last lock** of a step: the first ordinary read opens the REPEATABLE READ snapshot. So:
-- the facility rule (`assert_facility`) and the request's facility use the warehouse → facility map pre-read before the commit (R2), looked up in memory;
-- the ids of the rows to lock (a request's lines, a to-purchase group's lines) are pre-read before the commit; after the locks, the pending check re-reads them, and rows that appeared in between are not added.
+- the facility rule (`assert_facility`) and the request's facility use the warehouse → facility map pre-read before the commit (R2), looked up in memory. After the last lock, the header warehouse's facility is re-read; a mismatch with the map answers 409 "retry" (a warehouse moved facility in between);
+- the ids of the rows to lock (a request's lines, a to-purchase group's lines, the request of a line being marked) are pre-read before the commit; after the locks, the pending check re-reads them, and rows that appeared in between are not added.
 
 The check that follows the locks is an ordinary read, so it sees every committed PO line:
 - **Pending:** no `purchase_order_detail` links the line from a PO that is not cancelled.

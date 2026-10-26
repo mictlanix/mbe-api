@@ -102,7 +102,7 @@ description: "Task list for purchase requests, purchase orders and average cost"
   - **Approve and reject:** approve stores the approver and time; reject writes a source-4 incidence with the reason, clears the approver, and returns the request to draft.
   - **Bulk approve:** reports each id approved or refused with its reason.
   - **Cancel:** refused when a line is on a non-cancelled PO; allowed when the PO line is on a cancelled PO.
-  - **Lines:** a new line is stored with `to_purchase = 1`, `customer = settings.default_customer_id` and `Accepted = 0` (FR-008, FR-013; the column default of `to_purchase` is 0); marking a line of a draft or cancelled request gives 409; unmarking a line on a live PO is refused; FR-010's live PO fields are shown; the line warehouse defaults to the header's, the name to the product's, and the quantity to the minimum order quantity; a non-purchasable product gives 422; an in-transit warehouse gives 422.
+  - **Lines:** a new line is stored with `to_purchase = 1`, `customer = settings.default_customer_id` and `Accepted = 0` (FR-008, FR-013; the column default of `to_purchase` is 0); marking a line of a draft or cancelled request gives 409; unmarking a line on a live PO is refused; FR-010's live PO fields are shown; the line warehouse defaults to the header's, the name to the product's, and the quantity to the minimum order quantity, or 1 when that minimum is 0; a non-purchasable product gives 422; an in-transit warehouse gives 422.
   - **Lists:** by default the caller's own, without cancelled; `all=true`; every filter; the queue is oldest first with the facility filter and line counts.
 - [ ] T008 [P] [US1] Write `tests/api/test_purchase_requests.py` first:
   - every route of the contract with 401, 403 (86, 96, or 20 for marking) and 404;
@@ -112,15 +112,15 @@ description: "Task list for purchase requests, purchase orders and average cost"
   - the pure helpers of T006;
   - create (warehouse defaulting to the caller's point-of-sale warehouse via `_pos_warehouse`, 422 if none);
   - header update and line add, update and remove, all draft-only. A new line writes `to_purchase = 1`, `customer = settings.default_customer_id` and `Accepted = 0` explicitly, never relying on the column defaults (FR-008, FR-013);
-  - submit per research R2: pre-read `inv._transit_map` and the warehouse → facility map, commit, lock the request row with `populate_existing`, look up its facility in the map (no ordinary read before the next lock), `inv.lock_warehouses([transit of facility])`, then the checks, then `MAX(serial)` over requests joined to the facility's warehouses;
+  - submit per research R2: pre-read `inv._transit_map` and the warehouse → facility map, commit, lock the request row with `populate_existing`, look up its facility in the map (no ordinary read before the next lock), `inv.lock_warehouses([transit of facility])`, then re-read the header warehouse's facility and answer 409 "retry" if it differs from the map, then the checks, then `MAX(serial)` over requests joined to the facility's warehouses;
   - approve and bulk approve (each id in its own locked transaction);
   - reject, with `incidences.record` source `PURCHASE_REQUEST`;
-  - marking per research R3: lock the request row, then the line row `FOR UPDATE` (the same order as cancel), then refuse unless the request is submitted or approved, then run the live-PO check;
+  - marking per research R3: pre-read the line's request before the commit, then lock the request row, then the line row `FOR UPDATE` (the same order as cancel); 404 if the line no longer belongs to that request; then refuse unless the request is submitted or approved, then run the live-PO check;
   - cancel per research R3: pre-read the request's line ids, commit, lock the request row, check the facility from the pre-read map, lock those line rows ascending, then check (no ordinary read before the line locks);
   - `attach` (status, facility, line count, lines with product code and min order quantity, live PO line);
   - lists and the queue per research R11.
 
-  Every write runs inside `inv.busy_as_conflict` and starts like spec 029's `begin_locked`: commit, lock the request row `FOR UPDATE` with `populate_existing`, then check its state (research R3). The facility rule, `inv.assert_facility`, is checked once the row is locked, on edit, submit and cancel only, with the facility looked up in the warehouse → facility map pre-read before the commit, never with a query between locks (research R2, R3).
+  Every write runs inside `inv.busy_as_conflict` and starts like spec 029's `begin_locked`: commit, lock the request row `FOR UPDATE` with `populate_existing`, then check its state (research R3). The facility rule, `inv.assert_facility`, is checked once the row is locked, on edit, submit and cancel only, with the facility looked up in the warehouse → facility map pre-read before the commit, never with a query between locks; after the last lock the header warehouse's facility is re-read, and a mismatch with the map answers 409 "retry" (research R2, R3).
 - [ ] T010 [US1] Create `app/api/v1/endpoints/purchase_requests.py` with the 14 routes of the contract. Declare `/approval-queue` and `/approve` before `/{id}`. Register it in `app/api/v1/router.py` under `/purchase-requests`. Make T006–T008 pass.
 
 **Checkpoint:** requests work end to end and are usable on their own.
