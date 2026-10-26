@@ -98,6 +98,9 @@ Inventory moves from the current system to the new MBE in a single cutover. The 
 ### Session 2026-10-25
 
 - Q: Can the destination receive less than was dispatched? → A: Yes, per line. The shortfall stays in transit and the transfer stays open until the rest is received, or someone closes the remainder, which returns it to the origin (FR-042, FR-043).
+- Q: Who closes the remainder of a short transfer, and where do the units go? → A: Either facility, origin or destination, can close it. The units always return to the origin; goods really lost are then written off with an issue at the origin (FR-043).
+- Q: What happens when a sales order's items are added to a transfer twice? → A: Only products not yet on the transfer are added; existing lines stay as they are, so repeating changes nothing (FR-046).
+- Q: Which right gives the wider list view? → A: The delete right on each document type (InventoryReceipts, InventoryIssues, InventoryTransfers). The current system had it only on receipts; it now applies to all three (FR-012).
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -155,11 +158,11 @@ The origin warehouse dispatches a transfer to another warehouse, usually in anot
    - the transfer is in transit.
 4. **Given** a transfer in transit, **When** a user at the destination facility receives it in full, **Then** each line posts an outbound entry at the transit warehouse and an inbound entry at the destination, and the transfer is received.
 5. **Given** a transfer of 10 units in transit, **When** the destination receives 8, **Then** 8 move from transit to the destination, 2 stay in transit, and the transfer stays in transit. A later receipt of the 2 completes it.
-6. **Given** a transfer with 2 units still in transit, **When** a user closes the remainder, **Then** the 2 return from transit to the origin and the transfer is received, showing 8 of 10 received.
+6. **Given** a transfer with 2 units still in transit, **When** a user at either facility closes the remainder, **Then** the 2 return from transit to the origin and the transfer is received, showing 8 of 10 received.
 7. **Given** a line with 2 units outstanding, **When** the destination tries to receive 3, **Then** it is refused.
 8. **Given** a transfer in transit, **When** users at the origin or the destination list transfers, **Then** both see it, marked in transit.
 9. **Given** a product with transfers in transit, **When** a user asks for stock in transit, **Then** they see the quantity in transit per product and per transfer.
-10. **Given** a draft transfer and a confirmed sales order, **When** the clerk adds the order's items, **Then** the order's stockable lines are added with their quantities. Adding the same order again does not duplicate lines.
+10. **Given** a draft transfer and a confirmed sales order, **When** the clerk adds the order's items, **Then** the order's stockable lines are added with their quantities, except products already on the transfer, whose lines stay as they are. Adding the same order again changes nothing.
 11. **Given** a transfer in transit, **When** it is cancelled, **Then** everything it posted is reversed: units still in transit go back to the origin, and units already received go from the destination back to the origin.
 
 ---
@@ -251,13 +254,14 @@ Clerks see the receipts, issues and transfers of their own warehouse and the one
   - read to list and view;
   - create to create;
   - update to edit, confirm, dispatch and receive;
-  - delete to cancel.
+  - delete to cancel, and to close a transfer's remainder.
 - **FR-011**: A non-administrator MUST belong to the facility where the step happens:
   - the document's facility to confirm or cancel it;
-  - the origin facility to dispatch a transfer, close its remainder or cancel it;
-  - the destination facility to receive one.
+  - the origin facility to dispatch or cancel a transfer;
+  - the destination facility to receive one;
+  - either the origin or the destination facility to close a transfer's remainder.
 - **FR-012**: Lists MUST show, by default, documents of the caller's point-of-sale warehouse plus those the caller created. For transfers, the caller's warehouse may be the origin or the destination.
-  - A caller with the delete right on the document type MAY see all documents.
+  - A caller with the delete right on the document type (or an administrator) MAY see all documents of that type.
   - Lists MUST be filterable by state and by warehouse, newest first.
 - **FR-013**: Any action on an unknown document or line MUST answer "not found" and write nothing.
 
@@ -297,7 +301,7 @@ Clerks see the receipts, issues and transfers of their own warehouse and the one
 - **FR-043**: Users MUST be able to close the remainder of a transfer in transit.
   - The outstanding quantities are posted from the transit warehouse back to the origin.
   - The transfer becomes received, keeping the dispatched and received quantities of each line.
-  - Closing requires the same right and facility as cancelling (FR-010, FR-011 for the origin facility).
+  - Closing requires the delete right on InventoryTransfers (FR-010). A non-administrator must belong to the origin or the destination facility.
 - **FR-044**: Cancelling a transfer MUST reverse everything it posted (FR-008):
   - outstanding units go from transit back to the origin;
   - received units go from the destination back to the origin. This is refused if the destination's available stock would go negative.
@@ -305,8 +309,9 @@ Clerks see the receipts, issues and transfers of their own warehouse and the one
 - **FR-045**: Transfer lists MUST let the caller see transfers in transit to or from their warehouse.
   - Users MUST be able to see, for a facility, the quantity in transit per product and the transfers it belongs to.
 - **FR-046**: Users MUST be able to add to a draft transfer the stockable lines of a sales order that is confirmed and not cancelled, at the ordered quantities.
-  - Products already on the transfer are not duplicated; they are added to the existing line.
-  - Adding the same order twice MUST NOT add the quantities twice.
+  - Products already on the transfer MUST be skipped, and their lines left unchanged.
+  - Adding the same order again therefore changes nothing.
+  - A product on more than one line of the order MUST be added once, with those lines' quantities summed.
 
 ### Key Entities
 
@@ -336,7 +341,6 @@ Clerks see the receipts, issues and transfers of their own warehouse and the one
 
 ## Assumptions
 
-- **Wider view.** It uses the right the current system used for its `*` search on receipts: delete on the document's object. It is applied to all three documents.
 - **Searches stay in scope.** The current system's numeric search, which found any document regardless of scope, is not carried over.
 - **Zero quantities.** A line can no longer be set to 0; it is removed instead. The current system allowed 0, and 1,128 confirmed lines have it.
 - **The issue's reason** (waste, damage, internal use) goes in the comment, as today. There is no reason field.
