@@ -26,17 +26,17 @@ description: "Task list for the physical inventory count, stock queries and kard
 
 ## Phase 1: Setup
 
-- [ ] T001 Write `migrations/027_inventory_count.sql` and `migrations/027_inventory_count_rollback.sql` per data-model.md and research R8:
+- [X] T001 Write `migrations/027_inventory_count.sql` and `migrations/027_inventory_count_rollback.sql` per data-model.md and research R8:
   - the header comment block and idempotent style of `migrations/023_commission_periods.sql`;
   - named keys, including UNIQUE `(facility, serial)` and UNIQUE `(count, product)`, and FKs to facility, warehouse, employee, product and the header;
   - the rollback drops the detail table first.
 
   **Do not apply it to mbe_dev**; T024 does, after confirmation.
-- [ ] T002 After T001, in `app/models/inventory.py`, add `InventoryCount` and `InventoryCountDetail` matching migration 027 column for column, in the style of the existing inventory models.
+- [X] T002 After T001, in `app/models/inventory.py`, add `InventoryCount` and `InventoryCountDetail` matching migration 027 column for column, in the style of the existing inventory models.
   - In `app/enums.py`, add `TransactionType.PHYSICAL_COUNT = 12` and `DELIVERY_PICKUP = 13`, with comments: 12 is posted by counts and replaces type 8 for new counts; 13 is a counter pickup referencing the delivery order; 10 is now the itinerary only. Update the enum docstring.
   - Add both tables to `docs/data-dictionary.md` §7 (API-only, migration 027).
   - Run `uv run pytest tests/unit/test_model_schema.py tests/unit/test_data_dictionary.py tests/unit/test_migrate.py -q`.
-- [ ] T003 [P] In `app/schemas/inventory.py`, add the schemas of contracts/count-stock-kardex.md:
+- [X] T003 [P] In `app/schemas/inventory.py`, add the schemas of contracts/count-stock-kardex.md:
   - **counts:** `CountCreate`, `CountUpdate`, `CountLinesSet {lines: 1..2000 of {product?, product_code?, quantity ≥ 0}}` (exactly one of `product` and `product_code`), `CountLineUpdate {quantity ≥ 0}`, `CountConfirm {include_uncounted: bool = False}`, and `InventoryCountResponse` with lines whose `quantity_on_hand` and `difference` are nullable;
   - **confirm response:** `InventoryCountConfirmResponse` with `negative_available` and `corrected_by_other_counts`, and `InventoryCountSummary`;
   - **reads:** `StockRow`, `ProductStock`, `KardexRow`, `KardexDocument` and `Kardex`.
@@ -47,13 +47,13 @@ description: "Task list for the physical inventory count, stock queries and kard
 
 ## Phase 2: Foundational
 
-- [ ] T004 Extend `app/services/inventory_documents.py`:
+- [X] T004 Extend `app/services/inventory_documents.py`:
   - add a `cancellable_when_completed: bool = True` field to `Kind`, with RECEIPT, ISSUE and TRANSFER unchanged;
   - add a `COUNT` kind: header `InventoryCount`, line `InventoryCountDetail`, `line_fk='count_id'` (the `count` column is mapped to the attribute `count_id`; research R1), `id_attr='inventory_count_id'`, `line_id_attr='count_detail_id'`, `warehouses=('warehouse',)`, `transit=False`, `transaction_type=PHYSICAL_COUNT`, `system_object=PHYSICAL_COUNT_ADJUSTMENT`, `label='Count'`, `cancellable_when_completed=False`;
   - in `cancel`, after the facility check, a completed document whose kind is not cancellable gives 409 "A confirmed count cannot be cancelled".
 
   Write the tests first: in `tests/unit/test_inventory_documents.py`, the 409 for a completed COUNT; in `tests/unit/test_inventory_locks.py`, that it comes after the locks and the facility check. Spec 029's tests must stay green.
-- [ ] T005 Extend `tests/integration/inventory_seed.py` with `count(db, warehouse, lines)`, which writes a draft count directly, and with a product that has several labels (for SC-005).
+- [X] T005 Extend `tests/integration/inventory_seed.py` with `count(db, warehouse, lines)`, which writes a draft count directly, and with a product that has several labels (for SC-005).
 
 **Checkpoint:** the count tables, the type numbers and the count kind exist. Spec 029 is unchanged.
 

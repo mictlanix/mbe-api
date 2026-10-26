@@ -1,7 +1,7 @@
 """Pure helpers of the shared inventory mechanics (spec 029, T005).
 
 Line merging, per-product totals, shortages, the reversal of what a document posted, and the set
-of warehouses a step locks (research R1–R3).
+of warehouses a step locks (research R1–R3). Then the count kind of spec 030 (research R1).
 """
 
 from decimal import Decimal
@@ -10,8 +10,10 @@ from types import SimpleNamespace
 import pytest
 from fastapi import HTTPException
 
+from app.enums import SystemObject, TransactionType
+from app.models.inventory import InventoryCount, InventoryCountDetail
 from app.services import inventory_documents as inv
-from app.services.inventory_documents import ISSUE, RECEIPT, TRANSFER
+from app.services.inventory_documents import COUNT, ISSUE, RECEIPT, TRANSFER
 
 
 def _line(line_id: int, product: int, quantity: str) -> SimpleNamespace:
@@ -147,3 +149,64 @@ class TestWarehousesToLock:
             inv.warehouses_to_lock(RECEIPT, receipt, TRANSIT, set())
         assert exc.value.status_code == 422
         assert exc.value.detail == 'Facility 7 has no in-transit location'
+
+
+# ── The count kind (spec 030, R1) ─────────────────────────────────────────────
+
+
+class TestCountKind:
+    def test_is_the_count_tables_with_its_own_type_and_object(self):
+        assert COUNT.header is InventoryCount
+        assert COUNT.line is InventoryCountDetail
+        assert COUNT.line_fk == 'count_id'
+        assert COUNT.id_attr == 'inventory_count_id'
+        assert COUNT.line_id_attr == 'count_detail_id'
+        assert COUNT.warehouses == ('warehouse',)
+        assert COUNT.transit is False
+        assert COUNT.transaction_type == TransactionType.PHYSICAL_COUNT == 12
+        assert COUNT.system_object == SystemObject.PHYSICAL_COUNT_ADJUSTMENT
+        assert COUNT.label == 'Count'
+
+    def test_line_fk_names_the_count_column(self):
+        assert getattr(InventoryCountDetail, COUNT.line_fk).property.columns[0].name == 'count'
+
+    def test_only_a_count_is_final_once_completed(self):
+        assert COUNT.cancellable_when_completed is False
+        assert all(k.cancellable_when_completed for k in (RECEIPT, ISSUE, TRANSFER))
+
+    def test_counts_lock_their_warehouse_and_their_facilitys_transit(self):
+        count = SimpleNamespace(facility=1, warehouse=5)
+        assert inv.warehouses_to_lock(COUNT, count, TRANSIT, set()) == [2, 5]
+
+
+def test_delivery_pickup_is_13():
+    assert TransactionType.DELIVERY_PICKUP == 13
+
+
+class _Session:
+    def __init__(self) -> None:
+        self.rolled_back = False
+
+    async def rollback(self) -> None:
+        self.rolled_back = True
+
+
+def _locked(document: SimpleNamespace):  # noqa: ANN202
+    async def begin_locked(db, kind, document_id, **_):  # noqa: ANN001, ANN202
+        return document
+
+    return begin_locked
+
+
+async def test_cancelling_a_confirmed_count_is_409(monkeypatch):
+    count = SimpleNamespace(facility=1, completed=True, cancelled=False, serial=3)
+    monkeypatch.setattr(inv, 'begin_locked', _locked(count))
+    db = _Session()
+
+    with pytest.raises(HTTPException) as exc:
+        await inv.cancel(db, COUNT, 10, current=SimpleNamespace(administrator=True))
+
+    assert exc.value.status_code == 409
+    assert exc.value.detail == 'A confirmed count cannot be cancelled'
+    assert count.cancelled is False
+    assert db.rolled_back

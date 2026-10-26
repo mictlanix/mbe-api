@@ -18,7 +18,7 @@ from sqlalchemy.exc import OperationalError
 
 from app.models.inventory import InventoryReceipt
 from app.services import inventory_documents as inv
-from app.services.inventory_documents import ISSUE, RECEIPT
+from app.services.inventory_documents import COUNT, ISSUE, RECEIPT
 
 COMMIT = 'COMMIT'
 ROLLBACK = 'ROLLBACK'
@@ -376,3 +376,48 @@ async def test_cancel_reads_the_documents_ledger_warehouses_before_the_commit():
     assert any('lot_serial_tracking' in sql for sql in db.log[:commit])
     warehouse_lock = next(sql for sql in db.log if 'FROM warehouse' in sql and _is_lock(sql))
     assert 'IN (2, 5, 6)' in warehouse_lock
+
+
+# ── Cancelling a confirmed count (spec 030, R1) ───────────────────────────────
+
+
+def _confirmed_count() -> SimpleNamespace:
+    return SimpleNamespace(
+        inventory_count_id=10,
+        facility=1,
+        warehouse=5,
+        completed=True,
+        cancelled=False,
+        serial=3,
+        updater=1,
+        modification_time=None,
+    )
+
+
+async def test_a_confirmed_count_is_refused_after_the_locks_and_before_any_ledger_work():
+    count = _confirmed_count()
+    db = FakeSession(_respond(count, ledger=[5]))
+
+    with pytest.raises(HTTPException) as exc:
+        await inv.cancel(db, COUNT, 10, current=ADMIN)
+
+    assert exc.value.status_code == 409
+    assert exc.value.detail == 'A confirmed count cannot be cancelled'
+    commit = db.log.index(COMMIT)
+    after = db.log[commit + 1 :]
+    # The document lock, the warehouse lock, then nothing but the rollback.
+    assert 'FROM inventory_count' in after[0] and _is_lock(after[0])
+    assert 'FROM warehouse' in after[1] and _is_lock(after[1])
+    assert after[2:] == [ROLLBACK]
+    assert db.added == []
+    assert count.cancelled is False
+
+
+async def test_another_facility_learns_nothing_about_a_confirmed_count():
+    db = FakeSession(_respond(_confirmed_count()))
+    stranger = SimpleNamespace(administrator=False, facility_id=3, employee_id=9)
+
+    with pytest.raises(HTTPException) as exc:
+        await inv.cancel(db, COUNT, 10, current=stranger)
+
+    assert exc.value.status_code == 403
