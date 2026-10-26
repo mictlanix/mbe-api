@@ -136,7 +136,7 @@ No commit carries a Co-Authored-By line. Delegated work goes to agents with abso
 
 **Independent Test**: spec US1. Create, add two lines, confirm: the serial is the next one, stock rises, and the receipt is read-only. Cancel restores the stock, and is refused once the goods are issued.
 
-- [ ] T008 [P] [US1] Write `tests/integration/test_inventory_receipt_flow.py` first. It covers US1 scenarios 1–6:
+- [X] T008 [P] [US1] Write `tests/integration/test_inventory_receipt_flow.py` first. It covers US1 scenarios 1–6:
   - **Confirm:** it assigns serial = max + 1 per facility; there is one +qty entry per line with source 4, reference = receipt id, and NULL lot, serial and expiry (SC-001).
   - **Lines:** adding the same product twice merges; adding a non-stockable product → 422; editing or adding after confirm → 409.
   - **Refusals:** confirm with no lines → 409, and no serial is consumed (the next confirm gets the number).
@@ -147,16 +147,16 @@ No commit carries a Co-Authored-By line. Delegated work goes to agents with abso
   - **Repeats:** confirming the same receipt a second time → 409 with no new entries and no serial consumed, and the same for cancelling twice. This proves the state is re-read after `begin_locked`; the concurrent pair runs in T033.
   - **Product status:** a product discontinued after it was added still confirms; adding a discontinued but stockable product is accepted (R9).
   - **Legacy entries outside the header:** a confirmed receipt whose ledger entries are in a warehouse other than its current header warehouse (seeded directly, as the current system's post-confirm edits left 813 of them) is reversed in that warehouse too, and its stock check covers it.
-- [ ] T009 [P] [US1] Write `tests/api/test_inventory_receipts.py` first, covering the routes of contracts/inventory-documents.md except `/complementary`:
+- [X] T009 [P] [US1] Write `tests/api/test_inventory_receipts.py` first, covering the routes of contracts/inventory-documents.md except `/complementary`:
   - status codes 201 and 200;
   - 401 without a token, and 403 without the right: Create, Update, Delete and Read on object 15;
   - 404 for an unknown receipt and line, and 422 for quantity 0.
 
   Patch services where the existing API tests do.
-- [ ] T010 [US1] Create `app/services/inventory_receipt_service.py` with:
+- [X] T010 [US1] Create `app/services/inventory_receipt_service.py` with:
   - `attach_derived(db, receipt)`: the status, the line list, and empty warnings for now (US4 fills them);
   - thin wrappers over `inventory_documents`: `create`, `update`, `add_line`, `update_line`, `remove_line`, `confirm` and `cancel`.
-- [ ] T011 [US1] Create `app/api/v1/endpoints/inventory_receipts.py` with the routes and rights per the contract: `_READ`, `_CREATE`, `_UPDATE` and `_DELETE` on `SystemObject.INVENTORY_RECEIPTS`; 404 via `_receipt_or_404`. Register it in `app/api/v1/router.py` under `/inventory-receipts`, tag `inventory-receipts`. Make T008 and T009 pass.
+- [X] T011 [US1] Create `app/api/v1/endpoints/inventory_receipts.py` with the routes and rights per the contract: `_READ`, `_CREATE`, `_UPDATE` and `_DELETE` on `SystemObject.INVENTORY_RECEIPTS`; 404 via `_receipt_or_404`. Register it in `app/api/v1/router.py` under `/inventory-receipts`, tag `inventory-receipts`. Make T008 and T009 pass.
 
 **Checkpoint:** receipts work end to end, and stock can be brought in.
 
@@ -168,7 +168,7 @@ No commit carries a Co-Authored-By line. Delegated work goes to agents with abso
 
 **Independent Test**: spec US2. With 10 on hand and 4 reserved, issuing 7 is refused and issuing 6 succeeds.
 
-- [ ] T012 [P] [US2] Write `tests/integration/test_inventory_issue_flow.py` first. It covers US2 scenarios 1–4:
+- [X] T012 [P] [US2] Write `tests/integration/test_inventory_issue_flow.py` first. It covers US2 scenarios 1–4:
   - **Available stock:** an issue over available (on hand − reserved) → 409 naming the product and warehouse.
   - **In-transit warehouse:** an issue on an in-transit warehouse → 422 (FR-009).
   - **Repeated products:** two lines of the same product together exceeding stock → 409. Lines added through the service merge, so seed this case with two detail rows written directly, as legacy drafts do.
@@ -176,9 +176,9 @@ No commit carries a Co-Authored-By line. Delegated work goes to agents with abso
   - **Cancel:** posts +qty.
   - **Unknown id:** confirm and cancel → 404 at the route; at the service, `get_document` returns None.
   - **Supplier return:** a legacy issue with `supplier_return` set shows it, and no request field can change it (FR-031).
-- [ ] T013 [P] [US2] Write `tests/api/test_inventory_issues.py` first: the same coverage as T009, on object 16.
-- [ ] T014 [US2] Add `attach_issue(document)` (status and lines) to `app/services/inventory_documents.py`. There is no `inventory_issue_service.py`: the issue routes call `inventory_documents` with `ISSUE` directly (plan structure).
-- [ ] T015 [US2] Create `app/api/v1/endpoints/inventory_issues.py` and register it under `/inventory-issues`. The response includes `supplier_return`. Make T012 and T013 pass.
+- [X] T013 [P] [US2] Write `tests/api/test_inventory_issues.py` first: the same coverage as T009, on object 16.
+- [X] T014 [US2] Add `attach_issue(document)` (status and lines) to `app/services/inventory_documents.py`. There is no `inventory_issue_service.py`: the issue routes call `inventory_documents` with `ISSUE` directly (plan structure).
+- [X] T015 [US2] Create `app/api/v1/endpoints/inventory_issues.py` and register it under `/inventory-issues`. The response includes `supplier_return`. Make T012 and T013 pass.
 
 **Checkpoint:** stock can be written off and never goes below what sales orders hold.
 
@@ -190,11 +190,11 @@ No commit carries a Co-Authored-By line. Delegated work goes to agents with abso
 
 **Independent Test**: spec US3. Dispatch from facility A to facility B: stock leaves A and appears in transit, and both see the transfer. Receive 8 of 10: 2 stay in transit. Close the remainder: the 2 return to A.
 
-- [ ] T016 [P] [US3] Write `tests/unit/test_inventory_transfer_state.py` first:
+- [X] T016 [P] [US3] Write `tests/unit/test_inventory_transfer_state.py` first:
   - `transfer_line_figures(quantity, quantity_received, completed, in_transit) -> (received, outstanding)` for new and legacy (NULL) lines, in each state. The status branches are tested once, in T003's schema tests;
   - `apply_receipt(lines, requested)`: a line id not on this transfer → 404; the same line id twice → 422; a quantity over the outstanding one, or on a line with nothing outstanding → 409;
   - `sales_order_additions(order_lines, existing_products)`, which sums per product, skips existing products, and drops non-stockable products.
-- [ ] T017 [P] [US3] Write `tests/integration/test_inventory_transfer_flow.py` first. It covers US3 scenarios 1–11:
+- [X] T017 [P] [US3] Write `tests/integration/test_inventory_transfer_flow.py` first. It covers US3 scenarios 1–11:
   - **Origin and destination:** the same warehouse → 422; an in-transit warehouse as either → 422.
   - **Dispatch:**
     - over available at the origin → 409;
@@ -218,8 +218,8 @@ No commit carries a Co-Authored-By line. Delegated work goes to agents with abso
     - a draft or cancelled order → 409.
   - **Legacy:** a legacy completed transfer (`in_transit` 0, `quantity_received` NULL) reads `received` with outstanding 0. Cancelling it reverses its recorded entries, including entries in a warehouse that is no longer its origin or destination (785 such transfers on mbe_dev).
   - **Cancelled transfer:** after cancel, the lines still show what had been received before it, and the status is `cancelled`.
-- [ ] T018 [P] [US3] Write `tests/api/test_inventory_transfers.py` first: all 13 routes of the contract, with 401, 403 (each right on object 17, including Delete for `/close` and `/cancel`), 404 and 422.
-- [ ] T019 [US3] Create `app/services/inventory_transfer_service.py`:
+- [X] T018 [P] [US3] Write `tests/api/test_inventory_transfers.py` first: all 13 routes of the contract, with 401, 403 (each right on object 17, including Delete for `/close` and `/cancel`), 404 and 422.
+- [X] T019 [US3] Create `app/services/inventory_transfer_service.py`:
   - the pure helpers of T016;
   - `attach_derived`;
   - **Every step below runs inside `busy_as_conflict` and starts with `inventory_documents.begin_locked`, with no ordinary read before it** (R2).
@@ -242,7 +242,7 @@ No commit carries a Co-Authored-By line. Delegated work goes to agents with abso
   - **`cancel`:** `inventory_documents.cancel(db, TRANSFER, …)`, which locks the origin, destination, transit and ledger warehouses, nets the reversal across all of them, and clears `in_transit` in the same transaction (T006).
   - **`add_sales_order_items`:** `begin_locked` (document only), `assert_editable`; the order must exist (404) and be completed and not cancelled (409).
   - **`in_transit_view(db, facility)`:** per R10.
-- [ ] T020 [US3] Create `app/api/v1/endpoints/inventory_transfers.py` and register it under `/inventory-transfers`.
+- [X] T020 [US3] Create `app/api/v1/endpoints/inventory_transfers.py` and register it under `/inventory-transfers`.
   - `/in-transit` is declared **before** `/{id}`.
   - The status filter uses `TransferStatus` through `list_documents`' `status_clause`.
   - Make T016, T017 and T018 pass.
@@ -257,7 +257,7 @@ No commit carries a Co-Authored-By line. Delegated work goes to agents with abso
 
 **Independent Test**: spec US4. A short-received completed purchase order gives a complementary draft holding only the remaining line; asking again returns the same draft.
 
-- [ ] T021 [P] [US4] Write the US4 tests first.
+- [X] T021 [P] [US4] Write the US4 tests first.
 
   `tests/unit/test_inventory_receipt_service.py` (constitution: branching services get unit tests) covers the pure helpers:
   - `over_receipt_warnings(lines, ordered_by_po_line, received_elsewhere)`: sums this receipt's lines per order line, compares against the order line's own quantity, and gives one message per order line over it;
@@ -273,8 +273,8 @@ No commit carries a Co-Authored-By line. Delegated work goes to agents with abso
     - a second call returns the same draft (200);
     - called on that open draft itself, it returns the draft (200).
   - **Complementary receipt, the refusals (409 with the reason):** the order is not completed, cancelled, or fully received, or the receipt has no purchase order.
-- [ ] T022 [P] [US4] Extend `tests/api/test_inventory_receipts.py` for `/complementary`: 200, 201, 403 without Create, 404 and 409.
-- [ ] T023 [US4] In `app/services/inventory_receipt_service.py`, add:
+- [X] T022 [P] [US4] Extend `tests/api/test_inventory_receipts.py` for `/complementary`: 200, 201, 403 without Create, 404 and 409.
+- [X] T023 [US4] In `app/services/inventory_receipt_service.py`, add:
   - the pure helpers of T021;
   - `_received_elsewhere(db, purchase_order_details, exclude_receipt)`, one grouped query;
   - warnings in `attach_derived`, per R7, against the purchase-order lines' own quantities;
