@@ -4,8 +4,14 @@
 
 ```bash
 uv run ruff check app/ migrations/ tests/
-uv run pytest tests/unit/test_purchase_requests.py tests/unit/test_purchase_orders.py \
-  tests/unit/test_purchase_cost.py tests/integration/test_purchasing_flow.py \
+uv run pytest tests/unit/test_purchase_schemas.py tests/unit/test_purchase_states.py \
+  tests/unit/test_purchase_requests.py tests/unit/test_purchase_orders.py \
+  tests/unit/test_purchase_cost.py tests/unit/test_purchase_order_print.py \
+  tests/integration/test_purchase_request_flow.py \
+  tests/integration/test_purchase_order_lines_flow.py \
+  tests/integration/test_purchase_order_confirm_flow.py \
+  tests/integration/test_purchase_cost_flow.py \
+  tests/integration/test_purchase_order_document_flow.py \
   tests/api/test_purchase_requests.py tests/api/test_purchase_orders.py \
   tests/api/test_inventory_receipts.py
 uv run pytest -q

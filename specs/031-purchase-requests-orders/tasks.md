@@ -107,7 +107,7 @@ description: "Task list for purchase requests, purchase orders and average cost"
   - every route of the contract with 401, 403 (86, 96, or 20 for marking) and 404;
   - 409 and 422 cases;
   - 403 for a non-administrator editing, submitting or cancelling another facility's request, while approving, rejecting and marking are allowed (FR-011).
-- [ ] T009 [US1] Create `app/services/purchase_request_service.py`:
+- [ ] T009 [US1] Extend `app/services/purchase_request_service.py` (T004 created it with the state helpers):
   - the pure helpers of T006;
   - create (warehouse defaulting to the caller's point-of-sale warehouse via `_pos_warehouse`, 422 if none);
   - header update and line add, update and remove, all draft-only. A new line writes `to_purchase = 1`, `customer = settings.default_customer_id` and `Accepted = 0` explicitly, never relying on the column defaults (FR-008, FR-013);
@@ -148,7 +148,7 @@ description: "Task list for purchase requests, purchase orders and average cost"
 
   SQLite can't show row-lock races; the concurrent case is quickstart step 4 (T035).
 - [ ] T013 [P] [US2] Write `tests/api/test_purchase_orders.py` first, covering the line, request-line, to-purchase, list and detail routes: 401, 403 (20), 404, 409 and 422.
-- [ ] T014 [US2] Create `app/services/purchase_order_service.py` (the T004 state helpers already exist):
+- [ ] T014 [US2] Extend `app/services/purchase_order_service.py` (T004 created it with the state helpers):
   - the pure helpers of T011;
   - create; header update (draft-only, refusing changes to fixed fields); line add, update and remove (draft-only), with the line warehouse defaulting to the caller's point-of-sale warehouse via `_pos_warehouse` (FR-021);
   - `add_request_lines` per research R3: commit, lock the PO row, lock the request's line rows ascending, read the request header, then add the pending lines;

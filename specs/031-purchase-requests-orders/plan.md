@@ -125,10 +125,18 @@ app/
     ├── inventory_receipt_service.py              # warnings merge; warehouse refusal for receipts with a PO
     └── print_contexts.py                         # + purchase_order_context
 tests/
+├── unit/test_purchase_schemas.py                 # NEW
+├── unit/test_purchase_states.py                  # NEW
 ├── unit/test_purchase_requests.py                # NEW
 ├── unit/test_purchase_orders.py                  # NEW
 ├── unit/test_purchase_cost.py                    # NEW
-├── integration/test_purchasing_flow.py           # NEW
+├── unit/test_purchase_order_print.py             # NEW
+├── integration/inventory_seed.py                 # + request, supplier and cost seeds
+├── integration/test_purchase_request_flow.py     # NEW
+├── integration/test_purchase_order_lines_flow.py # NEW
+├── integration/test_purchase_order_confirm_flow.py # NEW
+├── integration/test_purchase_cost_flow.py        # NEW
+├── integration/test_purchase_order_document_flow.py # NEW
 ├── api/test_purchase_requests.py                 # NEW
 ├── api/test_purchase_orders.py                   # NEW
 └── api/test_inventory_receipts.py                # + cost on confirm and cancel, warehouse refusal
