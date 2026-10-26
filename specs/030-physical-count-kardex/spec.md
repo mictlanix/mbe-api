@@ -58,6 +58,8 @@ Lots, serials and expiry are not used, so this covers stock and history only. In
 
 - Q: How should the kardex tell the current system's adjustments (type 8, reference = receipt) from new counts? → A: New counts post a new type, **12 (physical count)**, referencing the count. Type 8 stays the current system's only, and resolves to its receipt (FR-004, FR-032).
 - Q: How should the kardex tell a counter pickup from an itinerary departure or settlement under type 10? → A: Counter pickups post a new type, **13 (delivery pickup)**, referencing the delivery order. Type 10 is then always an itinerary. This changes spec 012's pickup posting, which is safe because mbe_dev has no type-10 entries yet (FR-034).
+- Q: Can a warehouse have several draft counts at once? → A: Yes. The confirm response warns about each product that another count of the same warehouse confirmed after this count was created (FR-010a).
+- Q: Should a draft count show the system's expected quantity? → A: No, the count is blind. Drafts show only counted quantities; the on-hand quantity and the difference appear only once the count is confirmed (FR-003a).
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -136,6 +138,7 @@ A user opens the kardex of a product in a warehouse for a date range and sees th
 - **Negative stock.** A product with negative on hand counted at 0 gets a positive adjustment.
 - **Reserved stock.** A count below what is reserved still confirms: reality wins. The count reports, per product, where available stock goes negative, so sales can act.
 - **Counted twice.** The same product cannot appear on two lines of a count; entering it again replaces the quantity.
+- **Overlapping counts.** Two drafts of one warehouse may cover the same product. The later confirm corrects against stock at its own confirm, and its response warns that the other count corrected that product after this one was created.
 - **Products.** Only stockable products are accepted. A product discontinued after it went on a draft still confirms.
 - **In-transit warehouses** cannot be counted.
 - **Facility rule.** A non-administrator confirms or cancels only counts of their own facility.
@@ -156,6 +159,7 @@ A user opens the kardex of a product in a warehouse for a date range and sees th
   - remove a product;
   - set many products at once from a list of product codes or ids with quantities. The whole list is refused when any entry is unknown, not stockable or repeated, and the refusal names those entries.
 - **FR-003**: Each line MUST keep a snapshot of the product's code and name, and the counted quantity with up to 4 decimals.
+- **FR-003a**: A draft count MUST NOT show on-hand or expected quantities, on its lines or anywhere in its responses. The on-hand quantity read and the difference posted appear only once it is confirmed.
 - **FR-004**: Confirming a count MUST:
   - be refused for a count that is not a draft, or that has no lines (unless "include uncounted as zero" adds some);
   - assign the next count serial within the facility, safely under concurrent confirms, with no number consumed by a failed confirm;
@@ -169,6 +173,7 @@ A user opens the kardex of a product in a warehouse for a date range and sees th
 - **FR-008**: Each count action MUST require the right on PhysicalCountAdjustment (74): read to list and view, create to create, update to edit and confirm, delete to cancel a draft. A non-administrator MUST belong to the count's facility to confirm or cancel it.
 - **FR-009**: Count lists MUST follow spec 029's scope: the caller's point-of-sale warehouse plus the counts they created, or all counts with the delete right. They MUST be filterable by state and warehouse, newest first.
 - **FR-010**: The confirm response MUST report the products whose available stock (on hand − reserved) is negative after the count.
+- **FR-010a**: A warehouse MAY have several draft counts at once. The confirm response MUST list each of this count's products that another count of the same warehouse confirmed after this count was created, with that count's serial. It is a warning; the confirm still applies.
 - **FR-011**: A count of 15,000 lines MUST be enterable in batches and confirmable in one confirm.
 
 **Stock (#66)**
