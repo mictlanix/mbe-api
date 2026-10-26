@@ -65,7 +65,7 @@ description: "Task list for the physical inventory count, stock queries and kard
 
 **Independent Test**: spec US1. With 10 on hand, count 7 and confirm: the count gets a serial, stock is 7, there is one type-12 entry of −3, and a second confirm is refused.
 
-- [ ] T006 [P] [US1] Write `tests/unit/test_inventory_count.py` first, covering the pure helpers of T009:
+- [X] T006 [P] [US1] Write `tests/unit/test_inventory_count.py` first, covering the pure helpers of T009:
   - `validate_batch(items, products_by_id, products_by_code)`: unknown, not stockable, repeated, and both or neither of id and code each produce an error with the index; a clean batch gives none;
   - `apply_batch(existing_lines, items)` replaces existing quantities and returns the new lines, idempotent when repeated;
   - `differences(lines, on_hand)` gives `(on_hand, difference)` per line, and skips zero differences for posting;
@@ -73,7 +73,7 @@ description: "Task list for the physical inventory count, stock queries and kard
   - `uncounted_lines(on_hand_by_product, counted_products, stockable)` lists non-zero balances not on the count, including negative ones;
   - `negative_available(lines, reserved)`;
   - `overlaps(this_products, other_counts)` keeps only other completed counts of the warehouse confirmed at or after this one's creation time (`>=`, research R2).
-- [ ] T007 [P] [US1] Write `tests/integration/test_inventory_count_flow.py` first, covering US1 scenarios 1–6 and these edge cases:
+- [X] T007 [P] [US1] Write `tests/integration/test_inventory_count_flow.py` first, covering US1 scenarios 1–6 and these edge cases:
   - **Confirm:** gives serial = max + 1 per facility; type-12 entries only for non-zero differences, reference = the count id; lines show on hand and difference; SC-001 (on hand equals counted, and entries sum to the differences).
   - **Blind:** a draft's lines and responses carry no on-hand or difference (FR-003a).
   - **Batches:** a batch replaces quantities; a repeated batch is idempotent; a batch with a bad entry gives 422 listing every bad entry and applying nothing; quantity 0 is allowed.
@@ -85,8 +85,8 @@ description: "Task list for the physical inventory count, stock queries and kard
   - **Validation:** an in-transit warehouse gives 422, and a non-stockable product 422.
   - **Empty with uncounted:** an empty count confirmed with `include_uncounted` on a warehouse with nothing non-zero gives 409 and uses no serial.
   - **List (FR-009):** the caller's point-of-sale warehouse plus their own counts by default; everything with the delete right on 74; the state and warehouse filters; newest first.
-- [ ] T008 [P] [US1] Write `tests/api/test_inventory_counts.py` first: the 9 routes of the contract, with 401, 403 (each right on object 74), 404, 409 and 422, and services patched as in `tests/api/test_inventory_receipts.py`.
-- [ ] T009 [US1] Create `app/services/inventory_count_service.py`:
+- [X] T008 [P] [US1] Write `tests/api/test_inventory_counts.py` first: the 9 routes of the contract, with 401, 403 (each right on object 74), 404, 409 and 422, and services patched as in `tests/api/test_inventory_receipts.py`.
+- [X] T009 [US1] Create `app/services/inventory_count_service.py`:
   - the pure helpers of T006 and `attach_derived` (blind for drafts);
   - `create`/`update`/`list`/`cancel` through `inventory_documents` with `COUNT`;
   - `set_lines(db, id, items, current)`: `begin_locked` (document only), `assert_editable`, one `IN` query per batch for products by id and by code, `validate_batch` (422 with `errors`), then apply;
@@ -100,7 +100,7 @@ description: "Task list for the physical inventory count, stock queries and kard
     6. bulk line update;
     7. the warnings;
     8. the serial set last, then commit.
-- [ ] T010 [US1] Create `app/api/v1/endpoints/inventory_counts.py` with the 9 routes and rights per the contract. Register it under `/inventory-counts` in `app/api/v1/router.py`. Make T006–T008 pass.
+- [X] T010 [US1] Create `app/api/v1/endpoints/inventory_counts.py` with the 9 routes and rights per the contract. Register it under `/inventory-counts` in `app/api/v1/router.py`. Make T006–T008 pass.
 
 **Checkpoint:** counts work end to end.
 
@@ -112,13 +112,13 @@ description: "Task list for the physical inventory count, stock queries and kard
 
 **Independent Test**: spec US2.
 
-- [ ] T011 [US2] Extend `tests/integration/test_inventory_count_flow.py` first:
+- [X] T011 [US2] Extend `tests/integration/test_inventory_count_flow.py` first:
   - 8 batches of 2,000 (15,000 lines in all) build the count, and a repeated batch changes nothing;
   - confirm posts one entry per differing product and leaves every product at its counted quantity;
   - a failure injected in the middle of posting (patch the bulk insert to raise on its third chunk) rolls back everything, with no entries, no serial and the count still a draft.
 
   Record the SQLite confirm time in the test output, without asserting it; SC-003 is measured on MariaDB in T026.
-- [ ] T012 [US2] Fix whatever T011 exposes in `inventory_count_service.confirm` (chunking, bulk statements, rollback). Record in the commit message if nothing needed changing.
+- [X] T012 [US2] Fix whatever T011 exposes in `inventory_count_service.confirm` (chunking, bulk statements, rollback). Record in the commit message if nothing needed changing.
 
 **Checkpoint:** the opening count path is proven at size.
 
@@ -130,14 +130,14 @@ description: "Task list for the physical inventory count, stock queries and kard
 
 **Independent Test**: spec US3. With 10 on hand, 3 reserved and 2 incoming, the query shows 10, 3, 7 and 2.
 
-- [ ] T013 [P] [US3] Write `tests/unit/test_stock_queries.py` first (constitution: a branching service needs unit tests), for T015's pure helpers: `merge_stock(on_hand, reserved, incoming)` per product with available, `keep_row(row, include_zero)`, `split_transit(rows, transit_warehouses)` for the product view, and sorting and paging. Then write `tests/integration/test_stock_queries.py`, covering US3 scenarios 1–3:
+- [X] T013 [P] [US3] Write `tests/unit/test_stock_queries.py` first (constitution: a branching service needs unit tests), for T015's pure helpers: `merge_stock(on_hand, reserved, incoming)` per product with available, `keep_row(row, include_zero)`, `split_transit(rows, transit_warehouses)` for the product view, and sorting and paging. Then write `tests/integration/test_stock_queries.py`, covering US3 scenarios 1–3:
   - **Figures:** on hand, reserved (type 11 only; stale types are ignored), available and incoming (outstanding lines of transfers in transit to the warehouse);
   - **Filters:** `q` on code and name, `include_zero`, and paging sorted by code;
   - **Product view:** every warehouse with a non-zero figure, plus `in_transit` per facility transit warehouse;
   - **Labels:** a product with several labels counts once (FR-022);
   - **Errors:** an in-transit warehouse as the `/stock` target gives 422, and an unknown warehouse or product 404.
-- [ ] T014 [P] [US3] Write `tests/api/test_stock.py` first: both routes, with 401, 403 (Read on 67), 404 and 422, and `limit` ≤ 500.
-- [ ] T015 [US3] Create `app/services/stock_query_service.py` per research R5 (the pure helpers of T013, then grouped queries merged by product, with the product view's third query for incoming), and `app/api/v1/endpoints/stock.py`. Register it under `/stock`. Make T013 and T014 pass.
+- [X] T014 [P] [US3] Write `tests/api/test_stock.py` first: both routes, with 401, 403 (Read on 67), 404 and 422, and `limit` ≤ 500.
+- [X] T015 [US3] Create `app/services/stock_query_service.py` per research R5 (the pure helpers of T013, then grouped queries merged by product, with the product view's third query for incoming), and `app/api/v1/endpoints/stock.py`. Register it under `/stock`. Make T013 and T014 pass.
 
 **Checkpoint:** stock is visible with reservations and incoming transfers.
 
@@ -149,19 +149,19 @@ description: "Task list for the physical inventory count, stock queries and kard
 
 **Independent Test**: spec US4.
 
-- [ ] T016 [P] [US4] Write `tests/unit/test_kardex.py` first:
+- [X] T016 [P] [US4] Write `tests/unit/test_kardex.py` first:
   - `kardex_rows(opening, entries)`: running balance, totals in and out, and closing;
   - `range_bounds(from, to)`: the end inclusive of its whole day; over 366 days, or `to` before `from`, gives 422;
   - `resolve(entries, documents_by_type)`: every type of research R6's table, with type 8 reference 0 unresolved, and a type-2 entry whose product is not on that refund's lines (`customer_refund_detail`) unresolved.
-- [ ] T017 [P] [US4] Write `tests/integration/test_kardex_flow.py` first, covering US4 scenarios 1–4 and SC-004:
+- [X] T017 [P] [US4] Write `tests/integration/test_kardex_flow.py` first, covering US4 scenarios 1–4 and SC-004:
   - movements from a receipt, an issue, a transfer (dispatch, receive, close, cancel), a count (type 12), a customer refund (type 2) and a counter pickup (type 13) each resolve with facility and serial;
   - an itinerary entry (type 10) resolves to the itinerary id;
   - a legacy type-8 entry resolves to its receipt;
   - an empty range gives opening equal to closing;
   - the closing balance equals the ledger sum up to the range end.
-- [ ] T018 [P] [US4] Write `tests/api/test_kardex.py` first: 401, 403 (Read on 32), 404 for an unknown product or warehouse, and 422 for the range.
-- [ ] T019 [US4] Change the counter pickup posting in `app/services/delivery_order_service.py` (around line 886) to `TransactionType.DELIVERY_PICKUP` (FR-034). First add or extend a test in the existing delivery-order pickup tests asserting the pickup's ledger entry has source 13. Itinerary postings keep 10.
-- [ ] T020 [US4] Create `app/services/kardex_service.py` per research R6 (opening sum, ranged entries ordered by `(date, id)`, batched resolution per type), and `app/api/v1/endpoints/kardex.py`. Register it under `/kardex`. Make T016–T018 pass.
+- [X] T018 [P] [US4] Write `tests/api/test_kardex.py` first: 401, 403 (Read on 32), 404 for an unknown product or warehouse, and 422 for the range.
+- [X] T019 [US4] Change the counter pickup posting in `app/services/delivery_order_service.py` (around line 886) to `TransactionType.DELIVERY_PICKUP` (FR-034). First add or extend a test in the existing delivery-order pickup tests asserting the pickup's ledger entry has source 13. Itinerary postings keep 10.
+- [X] T020 [US4] Create `app/services/kardex_service.py` per research R6 (opening sum, ranged entries ordered by `(date, id)`, batched resolution per type), and `app/api/v1/endpoints/kardex.py`. Register it under `/kardex`. Make T016–T018 pass.
 
 **Checkpoint:** every story is done.
 
