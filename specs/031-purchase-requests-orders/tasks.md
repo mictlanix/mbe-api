@@ -93,6 +93,7 @@ description: "Task list for purchase requests, purchase orders and average cost"
   - `next_request_serial(highest)`;
   - `submit_refusal(status, lines)`: not a draft, no lines, or a zero quantity;
   - `below_minimum_warning(code, quantity, min_order_qty)`: none when the minimum is 0 or 1, or when at or above it;
+  - `default_quantity(min_order_qty)`: the minimum when it is at least 1, otherwise 1 (259 purchasable products have a minimum of 0; FR-002);
   - `facility_move_refusal(serial, old_facility, new_facility)`, for FR-002;
   - `approve_refusal(status)`, `reject_refusal(status)`, `cancel_refusal(status, lines_on_live_po)`, `mark_refusal(status, to_purchase, on_live_po)` (marking or unmarking is refused unless the request is submitted or approved, FR-008 and FR-009; unmarking a line on a live PO is refused).
 - [ ] T007 [P] [US1] Write `tests/integration/test_purchase_request_flow.py` first, covering US1 scenarios 1–8 and the matching edge cases:
@@ -111,15 +112,15 @@ description: "Task list for purchase requests, purchase orders and average cost"
   - the pure helpers of T006;
   - create (warehouse defaulting to the caller's point-of-sale warehouse via `_pos_warehouse`, 422 if none);
   - header update and line add, update and remove, all draft-only. A new line writes `to_purchase = 1`, `customer = settings.default_customer_id` and `Accepted = 0` explicitly, never relying on the column defaults (FR-008, FR-013);
-  - submit per research R2: pre-read `inv._transit_map`, commit, lock the request row with `populate_existing`, `inv.lock_warehouses([transit of facility])`, then the checks, then `MAX(serial)` over requests joined to the facility's warehouses;
+  - submit per research R2: pre-read `inv._transit_map` and the warehouse → facility map, commit, lock the request row with `populate_existing`, look up its facility in the map (no ordinary read before the next lock), `inv.lock_warehouses([transit of facility])`, then the checks, then `MAX(serial)` over requests joined to the facility's warehouses;
   - approve and bulk approve (each id in its own locked transaction);
   - reject, with `incidences.record` source `PURCHASE_REQUEST`;
-  - marking per research R3: lock the line row `FOR UPDATE`, then refuse unless the request is submitted or approved, then run the live-PO check;
-  - cancel per research R3: lock the request row, then its line rows ascending, then check;
+  - marking per research R3: lock the request row, then the line row `FOR UPDATE` (the same order as cancel), then refuse unless the request is submitted or approved, then run the live-PO check;
+  - cancel per research R3: pre-read the request's line ids, commit, lock the request row, check the facility from the pre-read map, lock those line rows ascending, then check (no ordinary read before the line locks);
   - `attach` (status, facility, line count, lines with product code and min order quantity, live PO line);
   - lists and the queue per research R11.
 
-  Every write runs inside `inv.busy_as_conflict` and starts like spec 029's `begin_locked`: commit, lock the request row `FOR UPDATE` with `populate_existing`, then check its state (research R3). The facility rule, `inv.assert_facility`, is checked once the row is locked, on edit, submit and cancel only.
+  Every write runs inside `inv.busy_as_conflict` and starts like spec 029's `begin_locked`: commit, lock the request row `FOR UPDATE` with `populate_existing`, then check its state (research R3). The facility rule, `inv.assert_facility`, is checked once the row is locked, on edit, submit and cancel only, with the facility looked up in the warehouse → facility map pre-read before the commit, never with a query between locks (research R2, R3).
 - [ ] T010 [US1] Create `app/api/v1/endpoints/purchase_requests.py` with the 14 routes of the contract. Declare `/approval-queue` and `/approve` before `/{id}`. Register it in `app/api/v1/router.py` under `/purchase-requests`. Make T006–T008 pass.
 
 **Checkpoint:** requests work end to end and are usable on their own.
@@ -147,12 +148,12 @@ description: "Task list for purchase requests, purchase orders and average cost"
   - SC-001 sequentially: a line taken by one PO is in `skipped` for the next.
 
   SQLite can't show row-lock races; the concurrent case is quickstart step 4 (T035).
-- [ ] T013 [P] [US2] Write `tests/api/test_purchase_orders.py` first, covering the line, request-line, to-purchase, list and detail routes: 401, 403 (20), 404, 409 and 422.
+- [ ] T013 [P] [US2] Write `tests/api/test_purchase_orders.py` first, covering the create, header update, cancel, line, request-line, to-purchase, list and detail routes: 401, 403 (20), 404, 409 and 422, including 422 for a line with no warehouse when the caller has no point of sale.
 - [ ] T014 [US2] Extend `app/services/purchase_order_service.py` (T004 created it with the state helpers):
   - the pure helpers of T011;
-  - create; header update (draft-only, refusing changes to fixed fields); line add, update and remove (draft-only), with the line warehouse defaulting to the caller's point-of-sale warehouse via `_pos_warehouse` (FR-021);
-  - `add_request_lines` per research R3: commit, lock the PO row, lock the request's line rows ascending, read the request header, then add the pending lines;
-  - `to_purchase_groups(facility)` and `create_from_group(supplier, facility)` per research R8, locking the group's line rows ascending before the re-check;
+  - create; header update (draft-only, refusing changes to fixed fields); line add, update and remove (draft-only), with the line warehouse defaulting to the caller's point-of-sale warehouse via `_pos_warehouse`, and 422 "A warehouse is required" when neither is given (FR-021);
+  - `add_request_lines` per research R3: pre-read the request's line ids, commit, lock the PO row, lock those line rows ascending, then read the request header and add the pending lines;
+  - `to_purchase_groups(facility)` and `create_from_group(supplier, facility)` per research R8: the group's line ids are read before the commit, then those rows are locked ascending, then the pending re-check runs (no ordinary read between the commit and the locks);
   - cancel: draft-only; lines are kept;
   - `attach` (status, supplier name, line counts, subtotal, tax and total, the lines' request links, `skipped` and `warnings`);
   - lists per research R11.
@@ -188,10 +189,12 @@ description: "Task list for purchase requests, purchase orders and average cost"
   - a confirmed receipt shows in the PO detail's `quantity_received` and `quantity_pending`;
   - spec 029's complementary receipt still covers the remainder;
   - moving a PO receipt's warehouse gives 409 (research R7), and a hand-made receipt can still move;
-  - a PO with only non-stockable lines confirms with no receipt.
+  - a PO with only non-stockable lines confirms with no receipt;
+  - a complementary receipt of a PO with a non-stockable line leaves that line out, and the PO shows no receiving progress for it.
 - [ ] T018 [P] [US3] Extend `tests/api/test_purchase_orders.py` first with confirm: 401, 403, 404, 409 (not a draft, no lines, a zero quantity, no supplier) and the `receipts` in the response. Extend `tests/api/test_inventory_receipts.py` with the warehouse-move 409.
 - [ ] T019 [US3] Implement `confirm` in `app/services/purchase_order_service.py` per research R4: commit, lock the PO row, check, read what non-cancelled receipts hold with one grouped query, create the draft receipts and lines ascending by warehouse, then set `completed`, the updater and the time.
-  - Add the per-line progress to `attach`, reusing the grouped query shape of `inventory_receipt_service._received_elsewhere`.
+  - Add the per-line progress to `attach`, reusing the grouped query shape of `inventory_receipt_service._received_elsewhere`; non-stockable lines get `quantity_received` and `quantity_pending` null.
+  - In `inventory_receipt_service.complementary_receipt`, leave non-stockable order lines out of the remaining lines, so its draft can be confirmed (it is refused 422 otherwise; mbe_dev has 53 such PO lines).
   - In `app/services/inventory_receipt_service.update`, refuse a warehouse change on a receipt with `purchase_order` with 409 "A purchase order's receipt keeps its warehouse"; the check runs against the locked row inside `inv.update_header` or right before it.
   - Add the confirm route. Make T016–T018 pass.
 
@@ -207,12 +210,12 @@ description: "Task list for purchase requests, purchase orders and average cost"
 
 - [ ] T020 [P] [US4] Write `tests/unit/test_purchase_cost.py` first, covering T023's pure helpers:
   - `unit_cost(price, discount)`, ignoring `tax_included`;
-  - `average(q, c, r, u)`: Q < 0 counts as 0, Q + R ≤ 0 gives U, rounding half up to 4 decimals;
+  - `average(q, c, r, u)`: Q < 0 counts as 0, rounding half up to 4 decimals (R > 0 always, so Q + R > 0);
   - `apply_lines(lines, on_hand, costs)`: lines in id order, two lines of one product averaged one after the other, U = 0 skipped with a warning, lines without a PO line ignored; it returns the changes and the final cost per product;
   - `restore_plan(receipt_changes, latest_change_by_product)` → `(restores, warnings)`: restore only when the latest change is this receipt's and not a restore, to the previous cost of the receipt's first change for that product.
 - [ ] T021 [P] [US4] Write `tests/integration/test_purchase_cost_flow.py` first, covering US4 scenarios 1–5 and SC-004:
   - the formula against seeded stock across two facilities and in transit;
-  - a receipt without a PO, and a hand-added line on a PO receipt, leave cost unchanged;
+  - a receipt without a PO, and a hand-added line on a PO receipt, leave cost unchanged (the hand-added product must not already be on the receipt, or `add_line` merges it into the linked line);
   - a product with no cost row gets one;
   - two lines of one product;
   - cancelling the latest receipt restores the cost and writes a restore row; cancelling an earlier one after a later receipt warns and keeps the cost;

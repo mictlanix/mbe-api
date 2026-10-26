@@ -122,7 +122,7 @@ app/
     ├── purchase_order_service.py                 # NEW: drafts, request lines, to-purchase, confirm, cancel, email, lists
     ├── purchase_cost_service.py                  # NEW: lock, average, restore, history
     ├── inventory_documents.py                    # confirm_simple / cancel call the cost step for receipts with a PO
-    ├── inventory_receipt_service.py              # warnings merge; warehouse refusal for receipts with a PO
+    ├── inventory_receipt_service.py              # warnings merge; warehouse refusal for receipts with a PO; complementary skips non-stockable lines
     └── print_contexts.py                         # + purchase_order_context
 tests/
 ├── unit/test_purchase_schemas.py                 # NEW

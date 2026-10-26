@@ -76,6 +76,6 @@ Object 20 is PurchasesOrders.
 | 403 | missing right; another facility's request (non-administrator) |
 | 404 | unknown request, PO, line, product, warehouse or supplier |
 | 409 | wrong state (an edit of a non-draft, approving a non-submitted request, a second confirm, cancelling a confirmed PO, cancelling a request with a line on a live PO, unmarking a line on a live PO), no lines, nothing left to add, busy lock, moving a numbered request to another facility, moving a PO receipt's warehouse |
-| 422 | validation: quantity, price, product not purchasable, warehouse in transit, blank reason, bad email, `supplier = null` on to-purchase |
+| 422 | validation: quantity, price, product not purchasable, warehouse in transit, blank reason, bad email, `supplier = null` on to-purchase, a PO line with no warehouse and no point of sale to default to |
 | 502 | the mail server refused the message |
 | 503 | mail is not configured (as spec 024) |

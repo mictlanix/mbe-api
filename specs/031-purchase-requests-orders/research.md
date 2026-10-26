@@ -34,9 +34,9 @@ The current system reads the same flags until cutover.
 ## R2. Request serial on submit
 
 **Decision**: submit runs the locking pattern, adapted because `purchase_request` has no facility column.
-1. **Pre-read:** the facility → transit-warehouse map (`inv._transit_map`), then commit.
+1. **Pre-read:** the facility → transit-warehouse map (`inv._transit_map`) and the warehouse → facility map (every warehouse; a few dozen rows), then commit. Both are fixed rows (spec 029 R4), so plain reads are current.
 2. **Lock the request row** `FOR UPDATE`, and re-read it (`populate_existing`).
-3. **Lock the transit warehouse** of the header warehouse's facility (`inv.lock_warehouses`).
+3. **Lock the transit warehouse** of the header warehouse's facility (`inv.lock_warehouses`). The facility comes from the pre-read map, looked up in memory with the locked row's warehouse: an ordinary read here would open the snapshot before the numbering lock, and `MAX(serial)` could miss a serial another submit just committed. Spec 029 avoids this because its documents carry `facility` on the locked row; `purchase_request` does not.
    - This is the same numbering lock receipts, issues, transfers and counts take for that facility, so every facility numbering step queues on one row.
    - A facility without a transit warehouse answers 422, as in spec 029.
 4. **Checks and serial:**
@@ -65,8 +65,12 @@ A refusal rolls back, so no number is used. Deadlocks and lock waits answer 409 
 | Create a PO from a to-purchase group (FR-025) | the group's line rows (the new PO doesn't exist yet) |
 | Remove a PO line linked to a request line | PO row (the line row is freed by the delete itself) |
 | Cancel a draft PO (FR-028) | PO row |
-| Unmark a request line (FR-008) | request line row |
+| Mark or unmark a request line (FR-008) | request row → that line row |
 | Cancel a request (FR-009) | request row → its line rows |
+
+**No ordinary read may run between the commit and the last lock** of a step: the first ordinary read opens the REPEATABLE READ snapshot. So:
+- the facility rule (`assert_facility`) and the request's facility use the warehouse → facility map pre-read before the commit (R2), looked up in memory;
+- the ids of the rows to lock (a request's lines, a to-purchase group's lines) are pre-read before the commit; after the locks, the pending check re-reads them, and rows that appeared in between are not added.
 
 The check that follows the locks is an ordinary read, so it sees every committed PO line:
 - **Pending:** no `purchase_order_detail` links the line from a PO that is not cancelled.
@@ -125,7 +129,6 @@ Spec 029's receipt already shows the ordered quantity live from the PO line (R7)
      - U = PO line `price × (1 − discount)`. The `tax_included` flag is ignored (FR-034).
      - When U = 0 the line is skipped with a warning (FR-035).
      - Otherwise the new cost is `(Q×C + R×U) / (Q + R)`, rounded half up to 4 decimals. A change row is staged, and the running Q and C for that product advance by R and to the new cost (FR-033).
-     - When Q + R ≤ 0 (R is never ≤ 0 on a confirmed line), cost is set to U.
    - **Write:** the cost row, at the product's final cost, is created with the default profits when missing, or updated.
 
 **Missing cost rows:** 50 products have none. Two concurrent first receipts of one of them can both find no row; the unique `(product, list)` key or a gap-lock deadlock then rolls one back, which answers 409 "busy, retry". That is rare and safe.
@@ -173,6 +176,7 @@ The warnings are returned on the receipt response's `warnings`.
   - The warnings are kept on `document.__dict__['cost_warnings']`.
 - **`inventory_documents.cancel`:** the same, with `lock_restore` and `restore`.
 - **`inventory_receipt_service.attach_derived`:** the over-receipt warnings and any `cost_warnings` together make up `warnings`.
+- **`inventory_receipt_service.complementary_receipt`:** non-stockable order lines are left out of the remaining lines, as on confirm (R4); otherwise its draft is refused 422 on confirm.
 - **`inventory_receipt_service.update`:** moving the warehouse of a receipt linked to a PO answers 409 "A purchase order's receipt keeps its warehouse".
   - Its lines are linked to that warehouse's PO lines, and the complementary receipt (R8 of spec 029) finds receipts by PO and warehouse.
   - Hand-added receipts have no PO and are unaffected.
@@ -191,7 +195,7 @@ The warnings are returned on the receipt response's `warnings`.
   - Each group shows: supplier (NULL for "no supplier"), facility, line count, estimated total (Σ quantity × cost, cost 0 when missing), and the lines.
   - Optional filter: `facility`.
 - **`POST /purchase-orders/to-purchase` `{supplier, facility}`:**
-  - locks the group's line rows, ascending (R3), re-reads what is still pending, and creates one draft PO for the supplier with one line per pending line;
+  - pre-reads the group's line ids before the commit, then locks those rows, ascending (R3), re-reads what is still pending, and creates one draft PO for the supplier with one line per pending line;
   - each line has the request line's product, quantity and warehouse, price = cost (0 with a warning when missing), the product's tax rate, and the fixed defaults (FR-021);
   - lines taken in the meantime are listed in `skipped`. 409 when none is left, and 422 for `supplier = null`.
 - **`POST /purchase-orders/{id}/request-lines` `{purchase_request}`:**

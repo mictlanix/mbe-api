@@ -229,7 +229,7 @@ The buyer downloads the confirmed PO as a PDF, or emails it to one of the suppli
   - add, change and remove lines (product, product name up to 250 characters, quantity above 0 with up to 2 decimals, destination warehouse);
   - change the header warehouse and comment. Once the request has a serial, the header warehouse MUST stay within the same facility; a change to another facility's warehouse is refused.
 
-  The product name defaults to the product's name and can be overwritten. The line warehouse defaults to the header's. A new line's quantity defaults to the product's minimum order quantity.
+  The product name defaults to the product's name and can be overwritten. The line warehouse defaults to the header's. A new line's quantity defaults to the product's minimum order quantity, or 1 when that minimum is 0.
 - **FR-003**: Saving a line below the product's minimum order quantity MUST be accepted with a warning naming the minimum.
 - **FR-004**: Submitting MUST:
   - be refused for a request that is not a draft, has no lines, or has a line with quantity 0;
