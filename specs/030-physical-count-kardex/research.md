@@ -123,7 +123,7 @@ Count-specific, in `inventory_count_service`:
   | Type | Table | Shown |
   |---|---|---|
   | 1 | `sales_order` | facility, serial |
-  | 2 | `customer_refund` | facility, serial. Legacy rows written by payment cancellation reference a sales order, not a refund. So a row resolves only when a refund with that id exists **and** the entry's product is on that refund's lines (`customer_refund_detail`). On mbe_dev that links 9,234 of 9,267 type-2 entries; the other 33, including the 31 payment-cancellation rows whose reference collides with a refund id, show raw (spec Assumptions). |
+  | 2 | `customer_refund` | facility, serial. Legacy rows written by payment cancellation reference a sales order, not a refund. So a row resolves only when a refund with that id exists **and** the entry's product is on that refund's lines (`customer_refund_detail`). The API's own refunds always resolve, because each entry posts its line's product under the refund id. On mbe_dev, 6,703 of the 9,267 type-2 entries link. The other 2,564 show raw: 2,513 legacy entries of quantity 0, 18 entries whose product is not on the referenced refund (payment-cancellation rows colliding with a refund id), and 33 with no refund. The zero-quantity rows showing raw is expected, not a regression (spec Assumptions). |
   | 3 | `inventory_issue` | facility, serial |
   | 4 | `inventory_receipt` | facility, serial |
   | 5 | `inventory_transfer` | facility, serial |

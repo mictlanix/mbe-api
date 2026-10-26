@@ -117,6 +117,7 @@ app/
 tests/
 ├── unit/test_inventory_count.py                  # NEW
 ├── unit/test_kardex.py                           # NEW
+├── unit/test_stock_queries.py                    # NEW
 ├── integration/test_inventory_count_flow.py      # NEW
 ├── integration/test_stock_queries.py             # NEW
 ├── integration/test_kardex_flow.py               # NEW

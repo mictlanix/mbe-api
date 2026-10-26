@@ -72,7 +72,7 @@ description: "Task list for the physical inventory count, stock queries and kard
   - `entry_rows(count_id, warehouse, differences, now)` signs each row (inbound when positive, outbound when negative, never zero) with source 12;
   - `uncounted_lines(on_hand_by_product, counted_products, stockable)` lists non-zero balances not on the count, including negative ones;
   - `negative_available(lines, reserved)`;
-  - `overlaps(this_products, other_counts)` keeps only other completed counts of the warehouse confirmed after this one was created.
+  - `overlaps(this_products, other_counts)` keeps only other completed counts of the warehouse confirmed at or after this one's creation time (`>=`, research R2).
 - [ ] T007 [P] [US1] Write `tests/integration/test_inventory_count_flow.py` first, covering US1 scenarios 1–6 and these edge cases:
   - **Confirm:** gives serial = max + 1 per facility; type-12 entries only for non-zero differences, reference = the count id; lines show on hand and difference; SC-001 (on hand equals counted, and entries sum to the differences).
   - **Blind:** a draft's lines and responses carry no on-hand or difference (FR-003a).
@@ -80,7 +80,8 @@ description: "Task list for the physical inventory count, stock queries and kard
   - **Uncounted as zero:** without it, other products are untouched; with it, they are added at 0 and adjusted. Negative balances are corrected up to 0.
   - **Repeats and cancel:** a second confirm gives 409 and posts nothing; cancelling a confirmed count gives 409; cancelling a draft posts nothing.
   - **Facility:** a non-administrator of another facility confirming or cancelling gets 403.
-  - **Warnings:** `negative_available` when the count is below what is reserved; `corrected_by_other_counts` when another count of the warehouse confirmed after this one was created (FR-010a).
+  - **Warnings:** `negative_available` when the count is below what is reserved; `corrected_by_other_counts` when another count of the warehouse confirmed at or after this one's creation time (FR-010a).
+  - **Discontinued product:** a product discontinued after it went on the draft still confirms.
   - **Validation:** an in-transit warehouse gives 422, and a non-stockable product 422.
   - **Empty with uncounted:** an empty count confirmed with `include_uncounted` on a warehouse with nothing non-zero gives 409 and uses no serial.
   - **List (FR-009):** the caller's point-of-sale warehouse plus their own counts by default; everything with the delete right on 74; the state and warehouse filters; newest first.
@@ -92,9 +93,9 @@ description: "Task list for the physical inventory count, stock queries and kard
   - `update_line` and `remove_line` with replace semantics;
   - `confirm(db, id, include_uncounted, current)` per research R2:
     1. `busy_as_conflict` and `begin_locked(stock=True)`;
-    2. facility check, then editable check, then the lines check;
+    2. facility check, then editable check;
     3. `next_serial`;
-    4. on hand by a grouped query, in chunks of 1,000 ids, or the whole warehouse with `include_uncounted`;
+    4. on hand by a grouped query, in chunks of 1,000 ids, or the whole warehouse with `include_uncounted` (adding the uncounted lines), **then** the lines check: no lines at this point gives 409 (research R2);
     5. bulk `insert(LotSerialTracking)` executemany in chunks of 1,000;
     6. bulk line update;
     7. the warnings;
@@ -151,7 +152,7 @@ description: "Task list for the physical inventory count, stock queries and kard
 - [ ] T016 [P] [US4] Write `tests/unit/test_kardex.py` first:
   - `kardex_rows(opening, entries)`: running balance, totals in and out, and closing;
   - `range_bounds(from, to)`: the end inclusive of its whole day; over 366 days, or `to` before `from`, gives 422;
-  - `resolve(entries, documents_by_type)`: every type of research R6's table, with type 8 reference 0 unresolved, and a type-2 entry dated before its refund's creation unresolved.
+  - `resolve(entries, documents_by_type)`: every type of research R6's table, with type 8 reference 0 unresolved, and a type-2 entry whose product is not on that refund's lines (`customer_refund_detail`) unresolved.
 - [ ] T017 [P] [US4] Write `tests/integration/test_kardex_flow.py` first, covering US4 scenarios 1–4 and SC-004:
   - movements from a receipt, an issue, a transfer (dispatch, receive, close, cancel), a count (type 12), a customer refund (type 2) and a counter pickup (type 13) each resolve with facility and serial;
   - an itinerary entry (type 10) resolves to the itinerary id;
