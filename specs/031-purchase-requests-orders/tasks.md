@@ -94,14 +94,14 @@ description: "Task list for purchase requests, purchase orders and average cost"
   - `submit_refusal(status, lines)`: not a draft, no lines, or a zero quantity;
   - `below_minimum_warning(code, quantity, min_order_qty)`: none when the minimum is 0 or 1, or when at or above it;
   - `facility_move_refusal(serial, old_facility, new_facility)`, for FR-002;
-  - `approve_refusal(status)`, `reject_refusal(status)`, `cancel_refusal(status, lines_on_live_po)`, `unmark_refusal(on_live_po)`.
+  - `approve_refusal(status)`, `reject_refusal(status)`, `cancel_refusal(status, lines_on_live_po)`, `mark_refusal(status, to_purchase, on_live_po)` (marking or unmarking is refused unless the request is submitted or approved, FR-008 and FR-009; unmarking a line on a live PO is refused).
 - [ ] T007 [P] [US1] Write `tests/integration/test_purchase_request_flow.py` first, covering US1 scenarios 1–8 and the matching edge cases:
   - **Submit:** serial = the facility's max + 1, across two warehouses of one facility; resubmitting after a reject keeps the serial; a refused submit takes no number.
   - **Facility:** after a serial, moving the header to another facility's warehouse gives 409, and to one of the same facility is allowed.
   - **Approve and reject:** approve stores the approver and time; reject writes a source-4 incidence with the reason, clears the approver, and returns the request to draft.
   - **Bulk approve:** reports each id approved or refused with its reason.
   - **Cancel:** refused when a line is on a non-cancelled PO; allowed when the PO line is on a cancelled PO.
-  - **Lines:** unmarking a line on a live PO is refused; FR-010's live PO fields are shown; the line warehouse defaults to the header's, the name to the product's, and the quantity to the minimum order quantity; a non-purchasable product gives 422; an in-transit warehouse gives 422.
+  - **Lines:** a new line is stored with `to_purchase = 1`, `customer = settings.default_customer_id` and `Accepted = 0` (FR-008, FR-013; the column default of `to_purchase` is 0); marking a line of a draft or cancelled request gives 409; unmarking a line on a live PO is refused; FR-010's live PO fields are shown; the line warehouse defaults to the header's, the name to the product's, and the quantity to the minimum order quantity; a non-purchasable product gives 422; an in-transit warehouse gives 422.
   - **Lists:** by default the caller's own, without cancelled; `all=true`; every filter; the queue is oldest first with the facility filter and line counts.
 - [ ] T008 [P] [US1] Write `tests/api/test_purchase_requests.py` first:
   - every route of the contract with 401, 403 (86, 96, or 20 for marking) and 404;
@@ -110,16 +110,16 @@ description: "Task list for purchase requests, purchase orders and average cost"
 - [ ] T009 [US1] Create `app/services/purchase_request_service.py`:
   - the pure helpers of T006;
   - create (warehouse defaulting to the caller's point-of-sale warehouse via `_pos_warehouse`, 422 if none);
-  - header update and line add, update and remove, all draft-only;
+  - header update and line add, update and remove, all draft-only. A new line writes `to_purchase = 1`, `customer = settings.default_customer_id` and `Accepted = 0` explicitly, never relying on the column defaults (FR-008, FR-013);
   - submit per research R2: pre-read `inv._transit_map`, commit, lock the request row with `populate_existing`, `inv.lock_warehouses([transit of facility])`, then the checks, then `MAX(serial)` over requests joined to the facility's warehouses;
   - approve and bulk approve (each id in its own locked transaction);
   - reject, with `incidences.record` source `PURCHASE_REQUEST`;
-  - marking per research R3: lock the line row `FOR UPDATE` before the live-PO check;
+  - marking per research R3: lock the line row `FOR UPDATE`, then refuse unless the request is submitted or approved, then run the live-PO check;
   - cancel per research R3: lock the request row, then its line rows ascending, then check;
   - `attach` (status, facility, line count, lines with product code and min order quantity, live PO line);
   - lists and the queue per research R11.
 
-  Every write runs inside `inv.busy_as_conflict`. The facility rule, `inv.assert_facility`, is checked once the row is locked, on edit, submit and cancel only.
+  Every write runs inside `inv.busy_as_conflict` and starts like spec 029's `begin_locked`: commit, lock the request row `FOR UPDATE` with `populate_existing`, then check its state (research R3). The facility rule, `inv.assert_facility`, is checked once the row is locked, on edit, submit and cancel only.
 - [ ] T010 [US1] Create `app/api/v1/endpoints/purchase_requests.py` with the 14 routes of the contract. Declare `/approval-queue` and `/approve` before `/{id}`. Register it in `app/api/v1/router.py` under `/purchase-requests`. Make T006–T008 pass.
 
 **Checkpoint:** requests work end to end and are usable on their own.
@@ -140,7 +140,7 @@ description: "Task list for purchase requests, purchase orders and average cost"
   - `supplier_mismatch_warning(...)`;
   - `split_taken(requested_ids, still_pending_ids)` → `(taken, skipped)`.
 - [ ] T012 [P] [US2] Write `tests/integration/test_purchase_order_lines_flow.py` first, covering US2 scenarios 1, 2, 4, 5 and 6, plus:
-  - PO create, update and line CRUD, all draft-only; a non-purchasable product gives 422; an in-transit warehouse gives 422; the price defaults to cost;
+  - PO create, update and line CRUD, all draft-only; a non-purchasable product gives 422; an in-transit warehouse gives 422; the price defaults to cost; the line warehouse defaults to the caller's point-of-sale warehouse (FR-021);
   - adding a request's lines: only its pending lines; a supplier mismatch warns; a request that is not approved gives 409;
   - to-purchase: draft, submitted and cancelled requests, unmarked lines and lines on a live PO are excluded; the no-supplier group is listed; creating for `supplier = null` gives 422; a second create for the same group gives 409 (nothing pending);
   - removing a linked PO line, or cancelling the draft PO, makes the request line pending again, and the cancelled PO keeps its lines;
@@ -150,14 +150,14 @@ description: "Task list for purchase requests, purchase orders and average cost"
 - [ ] T013 [P] [US2] Write `tests/api/test_purchase_orders.py` first, covering the line, request-line, to-purchase, list and detail routes: 401, 403 (20), 404, 409 and 422.
 - [ ] T014 [US2] Create `app/services/purchase_order_service.py` (the T004 state helpers already exist):
   - the pure helpers of T011;
-  - create; header update (draft-only, refusing changes to fixed fields); line add, update and remove (draft-only);
+  - create; header update (draft-only, refusing changes to fixed fields); line add, update and remove (draft-only), with the line warehouse defaulting to the caller's point-of-sale warehouse via `_pos_warehouse` (FR-021);
   - `add_request_lines` per research R3: commit, lock the PO row, lock the request's line rows ascending, read the request header, then add the pending lines;
   - `to_purchase_groups(facility)` and `create_from_group(supplier, facility)` per research R8, locking the group's line rows ascending before the re-check;
   - cancel: draft-only; lines are kept;
   - `attach` (status, supplier name, line counts, subtotal, tax and total, the lines' request links, `skipped` and `warnings`);
   - lists per research R11.
 
-  Every write runs inside `inv.busy_as_conflict`.
+  Every write runs inside `inv.busy_as_conflict` and starts by committing and locking the PO row `FOR UPDATE` with `populate_existing`, then checking it is a draft, so no edit can land after a concurrent confirm (research R3, R4).
 - [ ] T015 [US2] Create `app/api/v1/endpoints/purchase_orders.py` with these contract routes:
   - list, create, get, update;
   - line add, update and delete;

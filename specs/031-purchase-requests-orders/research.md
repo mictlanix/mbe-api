@@ -78,6 +78,8 @@ The adders read the request header after locking its lines. A concurrent request
 
 Removing or cancelling never makes a line "doubled", so those two steps need no request-line lock.
 
+Every write to a request or a PO, including hand edits of headers and lines, first commits and locks its document row `FOR UPDATE` (`populate_existing`), then checks the state. Without it a line added from a stale "draft" read could commit after a concurrent confirm and sit on a confirmed PO with no receipt.
+
 **Rationale**: a unique index can't express "on a non-cancelled PO", because `cancelled` is on the header. Row locks on the request lines are local: only steps on the same lines wait.
 
 **Alternatives considered**:
