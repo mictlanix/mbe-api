@@ -145,6 +145,9 @@ class TransactionType(IntEnum):
 
     The column is `source`, not `transaction_type` as the legacy spec claims;
     `lot_serial_tracking.reference` carries the source document's id.
+
+    10 is the delivery itinerary only (departure and settlement); a counter pickup is 13. 8 is the
+    current system's count adjustments only; this API's counts post 12 (spec 030, R7).
     """
 
     SALES_ORDER = 1
@@ -159,12 +162,18 @@ class TransactionType(IntEnum):
     SUPPLIER_RETURN = 7
     INVENTORY_ADJUSTMENT = 8
     PRODUCT_CONVERSION = 9
-    # First value beyond the legacy range
+    # First value beyond the legacy range. The delivery itinerary's departure and settlement only;
+    # a counter pickup is DELIVERY_PICKUP (spec 030, R7).
     DELIVERY_ORDER = 10
     # `lot_serial_rqmt.source`, not the ledger. The legacy application wrote 2,609 reservation
     # rows under SALES_ORDER before it stopped in January 2025; reusing that value would make
     # `reserved()` count them as ours and `release_reservations()` delete them (research A2).
     SALES_ORDER_RESERVATION = 11
+    # A physical count's difference, referencing `inventory_count`. Replaces 8 for new counts,
+    # which stays the current system's adjustments (spec 030).
+    PHYSICAL_COUNT = 12
+    # A counter pickup, referencing the delivery order, so 10 is the itinerary only (spec 030, R7).
+    DELIVERY_PICKUP = 13
 
 
 class SourceType(IntEnum):

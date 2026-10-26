@@ -20,9 +20,11 @@ from app.api.v1.endpoints import (
     facilities,
     fiscal_documents,
     health,
+    inventory_counts,
     inventory_issues,
     inventory_receipts,
     inventory_transfers,
+    kardex,
     labels,
     payment_method_options,
     points_of_sale,
@@ -32,6 +34,7 @@ from app.api.v1.endpoints import (
     sales_orders,
     sales_quotes,
     sat_catalogs,
+    stock,
     suppliers,
     taxpayer_certificates,
     taxpayer_issuers,
@@ -116,3 +119,8 @@ api_router.include_router(
 api_router.include_router(
     inventory_transfers.router, prefix='/inventory-transfers', tags=['inventory-transfers']
 )
+api_router.include_router(
+    inventory_counts.router, prefix='/inventory-counts', tags=['inventory-counts']
+)
+api_router.include_router(stock.router, prefix='/stock', tags=['stock'])
+api_router.include_router(kardex.router, prefix='/kardex', tags=['kardex'])

@@ -217,6 +217,13 @@ class TestCounterPickupInventory:
         assert 'release_reservation(' in source
         assert 'release_reservations(' not in source
 
+    def test_pickup_posts_type_13_not_the_itinerary_s_10(self) -> None:
+        """FR-034: 10 is the itinerary only; a counter pickup is 13 (spec 030, R7)."""
+        source = inspect.getsource(service.confirm_pickup)
+
+        assert 'source=TransactionType.DELIVERY_PICKUP' in source
+        assert 'TransactionType.DELIVERY_ORDER' not in source
+
 
 class TestEveryLineIsDeliverable:
     """The per-line `delivery` flag is not consulted, and that is deliberate.

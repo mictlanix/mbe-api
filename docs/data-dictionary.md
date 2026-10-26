@@ -882,6 +882,37 @@ Line items of a transfer.
 | `product_code` | varchar(25) | YES | Snapshot |
 | `product_name` | varchar(250) | YES | Snapshot |
 
+### `inventory_count`
+A physical count of one warehouse (spec 030). Confirming it posts each line's non-zero difference to `lot_serial_tracking` as source 12 (`PHYSICAL_COUNT`), referencing the count; a confirmed count cannot be cancelled. **API-only**, added by migration 027; the current system's count adjustments stay source 8 and never touch this table.
+
+| Column | Type | Null | Description |
+|--------|------|------|-------------|
+| `inventory_count_id` | int(11) | NO | PK |
+| `facility` | int(11) | NO | FK → `facility` — the warehouse's facility |
+| `warehouse` | int(11) | NO | FK → `warehouse` — the counted warehouse; never an in-transit one |
+| `serial` | int(11) | YES | Folio, set on confirm; `UNIQUE (facility, serial)` |
+| `creation_time` | datetime | NO | Created at |
+| `modification_time` | datetime | NO | Last updated; the confirm time once confirmed |
+| `creator` | int(11) | NO | FK → `employee` |
+| `updater` | int(11) | NO | FK → `employee` |
+| `completed` | tinyint(1) | NO | Confirmed and posted. Default 0 |
+| `cancelled` | tinyint(1) | NO | Cancelled; only a draft can be. Default 0 |
+| `comment` | varchar(500) | YES | Notes |
+
+### `inventory_count_detail`
+Line items of a physical count, one per product. **API-only**, added by migration 027 (spec 030).
+
+| Column | Type | Null | Description |
+|--------|------|------|-------------|
+| `count_detail_id` | int(11) | NO | PK |
+| `count` | int(11) | NO | FK → `inventory_count`; mapped to the ORM attribute `count_id`. `UNIQUE (count, product)` |
+| `product` | int(11) | NO | FK → `product` |
+| `product_code` | varchar(25) | YES | Snapshot |
+| `product_name` | varchar(250) | YES | Snapshot |
+| `quantity` | decimal(18,4) | NO | Counted quantity, ≥ 0 |
+| `quantity_on_hand` | decimal(18,4) | YES | On hand read at confirm. `NULL` while a draft, which is blind |
+| `difference` | decimal(18,4) | YES | `quantity − quantity_on_hand`, posted when non-zero. `NULL` while a draft |
+
 ### `lot_serial_tracking`
 Lot/serial number movement ledger (all inventory transactions).
 

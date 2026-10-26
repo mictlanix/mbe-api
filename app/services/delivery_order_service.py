@@ -883,7 +883,7 @@ async def confirm_pickup(
         if line.product in stocked:
             stock_ledger.post_movement(
                 db,
-                source=TransactionType.DELIVERY_ORDER,
+                source=TransactionType.DELIVERY_PICKUP,
                 reference=order.delivery_order_id,
                 product=line.product,
                 warehouse=line.warehouse,

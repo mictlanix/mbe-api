@@ -1,8 +1,8 @@
 # Inventory Specs
 
-Covers all physical stock movements: receipts (in), issues (out), transfers (between warehouses), adjustments, and lot/serial tracking.
+Covers all physical stock movements: receipts (in), issues (out), transfers (between warehouses), physical counts, and the stock and kardex queries.
 
-All inventory transactions post to `lot_serial_tracking` as entries with a `TransactionType` identifying the source document. The new MBE posts receipts, issues and transfers through `stock_ledger.post_movement`; the current system used `InventoryHelpers.ChangeNotification`.
+All inventory transactions post to `lot_serial_tracking` as entries with a `TransactionType` identifying the source document. The new MBE posts receipts, issues and transfers through `stock_ledger.post_movement`; the current system used `InventoryHelpers.ChangeNotification`. Physical counts (type 12) post through their own bulk path (section 5).
 
 ---
 
@@ -266,67 +266,73 @@ Requires the delete right and, for a non-administrator, the origin facility. A d
 
 ## 4. Inventory Adjustments
 
-**Route**: `GET /inventory/adjustments`  
 **SystemObject**: `InventoryAdjustments` (93)
 
-### Purpose
-Manual stock corrections after a physical count. Adds or removes stock without a linked purchase or sales document.
-
-### Features
-- Enter actual counted quantities per product per warehouse
-- System computes delta vs current ledger balance
-- Positive delta → issues a positive `lot_serial_tracking` entry
-- Negative delta → issues a negative entry
-
-### Key Tables
-- `lot_serial_tracking` (direct insert/update)
+Not built. The current system's manual adjustment form is dropped: a stock correction is made with a physical count (section 5), which posts only the difference against what the ledger holds.
 
 ---
 
-## 5. Physical Count Adjustment
+## 5. Physical Count
 
+**Route**: `/inventory-counts`  
 **SystemObject**: `PhysicalCountAdjustment` (74)
 
 ### Purpose
-Supervisor-level tool for bulk physical inventory count entry. Requires elevated privilege separate from normal adjustments.
+Correct a warehouse's stock after counting it. The user enters what was counted per product; confirming the count posts the difference between that and the ledger balance at that moment. Rights on object 74: Read to list and view, Create to create, Update to edit lines and confirm, Delete to cancel.
 
-### Distinction from Inventory Adjustments
-- `PhysicalCountAdjustment (74)` is the privilege gate for bulk count operations.
-- `InventoryAdjustments (93)` gates the standard adjustment form.
-- In practice, both post to `lot_serial_tracking`.
+### Draft and Lines
+- A count is a draft for one warehouse (never an in-transit one), with a comment. It follows the common draft rules: header and line edits on drafts only (409 otherwise), and the same warehouse scope for lists.
+- **Blind:** a draft shows only the counted quantity. `quantity_on_hand` and `difference` are null until confirm, and the count endpoints never expose the expected quantity.
+- **One line per product.** A line's quantity replaces the previous one and may be 0. It never adds, so sending a batch twice changes nothing.
+- **Batches:** `PUT /inventory-counts/{id}/lines` takes 1 to 2,000 items, each naming a product by id or by code, with a quantity of 0 or more (up to 4 decimals). The whole batch is checked first: an unknown or non-stockable product, or one repeated in the batch, answers 422 listing every bad entry, and nothing is applied. A count of 15,000 lines takes 8 requests.
+- A single line is edited or removed with `PUT` and `DELETE` on `/lines/{line_id}`.
+
+### Confirm Action (`/confirm`)
+- Body `include_uncounted` (default false). When true, every stockable product with a non-zero balance in the warehouse and no line is counted as 0.
+- Under the same locks as other documents (section "Serial Safety"), it assigns the facility's next serial, reads on hand at that moment, sets each line's `quantity_on_hand` and `difference` (counted minus on hand), and posts one type-12 entry per non-zero difference, with the count id as `reference`. Zero differences post nothing.
+- A count with no lines (after adding uncounted ones) answers 409 and uses no serial.
+- A non-administrator confirms only in the count's facility.
+- **Two warnings** are returned in the response and never block:
+  - `negative_available`: products whose counted quantity is below what is reserved, so available stock goes negative.
+  - `corrected_by_other_counts`: products also on another confirmed count of the same warehouse made since this count was started.
+
+### Cancel Action
+A draft is cancelled with nothing posted. **A confirmed count cannot be cancelled** (409): correct it with a new count.
+
+### Business Rules
+- A count of many lines holds the warehouse's lock while it confirms, and other movements of that warehouse wait. A large count, such as an opening count of 15,000 lines, must be confirmed with the warehouse idle. A day-to-day count holds the lock well under a second.
+- If another request holds the locks too long, the answer is 409 "The warehouse is busy, retry".
+
+### Key Tables
+- `inventory_count`, `inventory_count_detail` (migration 027)
+- `lot_serial_tracking` — type 12 entries, no lot, serial or expiry
 
 ---
 
-## 6. Lot / Serial Numbers
+## 6. Stock and Kardex
 
-**Route**: `GET /inventory/lot-serial-numbers`  
-**SystemObject**: `LotSerialNumbers` (42)
+Lots, serials, expiry and the lot/serial views (`LotSerialNumbers`, 42), FIFO picking and ZeroOut are dropped: stock is read per product and warehouse only. Entries are posted without lot, serial or expiry.
 
-### Purpose
-View and query the lot/serial tracking ledger. Shows current inventory by lot or serial number with full movement history.
+### Stock Queries
+**SystemObject**: `WarehouseStockReport` (67), Read for both routes. There is no facility scope.
+- `GET /stock?warehouse=`: one row per product, sorted by code, with `q` (code or name contains), `include_zero` (default false) and `skip`/`limit` (up to 500). An in-transit warehouse answers 422.
+- `GET /stock/products/{product}`: one row per warehouse where the product has any figure, plus `in_transit`, the product's balance in each facility's in-transit warehouse.
+- **Figures per row:**
+  - `on_hand`: the ledger sum.
+  - `reserved`: reservations of type 11 (sales) only.
+  - `available`: on hand minus reserved.
+  - `incoming`: the quantity still outstanding on transfers in transit to the warehouse.
 
-### Features
-
-#### Current Stock View
-- Filter by: warehouse, product, lot number, serial number, expiration date range
-- Columns: warehouse, product, lot/serial, expiration, qty on hand
-
-#### Movement History
-- Shows all `lot_serial_tracking` entries for selected filters
-- Columns: date, `TransactionType` (source document type), document ID, warehouse, quantity (±)
-
-#### Expiry Alerts
-- Highlight lots expiring within a configurable threshold
-- Export expiring-soon list
+### Kardex
+**Route**: `GET /kardex?product=&warehouse=&from=&to=`  
+**SystemObject**: `Kardex` (32), Read.
+- Returns the opening balance (the sum before `from`), one row per ledger entry in the range (`to` is inclusive), the totals in and out, and the closing balance. Each row has its date and time, source and its name, quantity in or out, and the running balance. The current system netted entries by day; the new MBE does not.
+- The range is at most 366 days, and `to` cannot be before `from` (422). It is not paged.
+- Each row's `document` gives `{type, id, facility, serial}` when the source document is found, for the client to link to. Otherwise it is null and `reference` is shown raw.
+- **Source types:** 1 sales order, 2 refund, 3 issue, 4 receipt, 5 transfer, 6 purchase order (legacy, id only), 8 the current system's adjustment (legacy; not resolved), 10 delivery itinerary (departure and settlement; id only), **12 physical count**, **13 delivery pickup** (counter pickups, which posted as 10 before; there is no data to convert).
+- Legacy refund entries that reference a sales order, or have quantity 0, show raw.
 
 ### Key Tables
-- `lot_serial_tracking` — full movement ledger (one row per document line)
-- `lot_serial_rqmt` — pending reservations (reserved but not yet fulfilled)
-
-### Quantity Calculation
-Stock on hand = `SUM(lst.quantity)` grouped by `(warehouse, product, lot_number, serial_number)` where sum > 0
-
-### Business Rules
-- A serial number should appear in exactly one location (quantity = 0 or 1 per location).
-- FIFO picking order: oldest lot (earliest `expiration_date`, then earliest tracking `date`) is consumed first.
-- Products with `perishable = false` and `seriable = false` still get tracking entries — the lot/serial fields are null.
+- `lot_serial_tracking` — the movement ledger; stock and the kardex are sums over it
+- `lot_serial_rqmt` — reservations
+- `inventory_transfer_detail` — outstanding quantities for `incoming`

@@ -105,6 +105,41 @@ class InventoryTransferDetail(Base):
     product_name: Mapped[str | None] = mapped_column(String(250))
 
 
+class InventoryCount(Base):
+    __tablename__ = 'inventory_count'
+
+    inventory_count_id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    facility: Mapped[int] = mapped_column(Integer, ForeignKey('facility.facility_id'))
+    warehouse: Mapped[int] = mapped_column(Integer, ForeignKey('warehouse.warehouse_id'))
+    serial: Mapped[int | None] = mapped_column(Integer)
+    creation_time: Mapped[datetime] = mapped_column(DateTime)
+    modification_time: Mapped[datetime] = mapped_column(DateTime)
+    creator: Mapped[int] = mapped_column(Integer, ForeignKey('employee.employee_id'))
+    updater: Mapped[int] = mapped_column(Integer, ForeignKey('employee.employee_id'))
+    completed: Mapped[bool] = mapped_column(Boolean)
+    cancelled: Mapped[bool] = mapped_column(Boolean)
+    comment: Mapped[str | None] = mapped_column(String(500))
+
+
+class InventoryCountDetail(Base):
+    __tablename__ = 'inventory_count_detail'
+
+    count_detail_id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    # The column is `count`, but a selected row's `.count` is the tuple method (research R1).
+    count_id: Mapped[int] = mapped_column(
+        'count', Integer, ForeignKey('inventory_count.inventory_count_id')
+    )
+    product: Mapped[int] = mapped_column(Integer, ForeignKey('product.product_id'))
+    product_code: Mapped[str | None] = mapped_column(String(25))
+    product_name: Mapped[str | None] = mapped_column(String(250))
+    #: Counted, ≥ 0.
+    quantity: Mapped[Decimal] = mapped_column(Numeric(18, 4))
+    #: Read at confirm; NULL while a draft, which is blind (R4).
+    quantity_on_hand: Mapped[Decimal | None] = mapped_column(Numeric(18, 4))
+    #: `quantity − quantity_on_hand`, posted when non-zero; NULL while a draft.
+    difference: Mapped[Decimal | None] = mapped_column(Numeric(18, 4))
+
+
 class LotSerialTracking(Base):
     __tablename__ = 'lot_serial_tracking'
 

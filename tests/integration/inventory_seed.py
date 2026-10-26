@@ -1,4 +1,4 @@
-"""Inventory-document fixtures on top of the integration baseline (spec 029).
+"""Inventory-document fixtures on top of the integration baseline (spec 029, extended by spec 030).
 
 ORM rows inserted directly, committed, in the style of `delivery_seed`. The baseline supplies
 facility 1 with warehouse 1 and its in-transit warehouse 2, product 1 and employee 1;
@@ -14,6 +14,7 @@ from datetime import datetime
 from decimal import Decimal
 from typing import NamedTuple
 
+from sqlalchemy import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.enums import (
@@ -24,8 +25,9 @@ from app.enums import (
     Priority,
     TransactionType,
 )
-from app.models.core import Facility, Warehouse
-from app.models.product import Product
+from app.models.core import Facility, Label, Warehouse
+from app.models.inventory import InventoryCount, InventoryCountDetail
+from app.models.product import Product, product_label
 from app.models.purchases import PurchaseOrder, PurchaseOrderDetail
 from app.models.sales import SalesOrder, SalesOrderDetail
 from app.services import stock_ledger
@@ -85,6 +87,18 @@ async def product(db: AsyncSession, *, code: str, stockable: bool = True) -> int
     db.add(row)
     await db.commit()
     return row.product_id
+
+
+async def labelled_product(db: AsyncSession, *, code: str, labels: int) -> int:
+    """A stockable product carrying `labels` labels, so a join on labels would multiply it."""
+    product_id = await product(db, code=code)
+    for n in range(labels):
+        label = Label(name=f'{code} {n + 1}')
+        db.add(label)
+        await db.flush()
+        await db.execute(insert(product_label).values(product=product_id, label=label.label_id))
+    await db.commit()
+    return product_id
 
 
 async def setup_inventory(db: AsyncSession) -> Inventory:
@@ -225,3 +239,35 @@ async def sales_order(
         )
     await db.commit()
     return order.sales_order_id
+
+
+async def count(
+    db: AsyncSession, warehouse: int, lines: list[tuple[int, str]], *, creator: int = 1
+) -> int:
+    """A draft count of `warehouse` with one line per `(product, quantity)`; returns its id."""
+    row = await db.get(Warehouse, warehouse)
+    document = InventoryCount(
+        facility=row.facility,
+        warehouse=warehouse,
+        creator=creator,
+        updater=creator,
+        creation_time=WHEN,
+        modification_time=WHEN,
+        completed=False,
+        cancelled=False,
+    )
+    db.add(document)
+    await db.flush()
+    for product_id, quantity in lines:
+        item = await db.get(Product, product_id)
+        db.add(
+            InventoryCountDetail(
+                count_id=document.inventory_count_id,
+                product=product_id,
+                product_code=item.code,
+                product_name=item.name,
+                quantity=Decimal(quantity),
+            )
+        )
+    await db.commit()
+    return document.inventory_count_id

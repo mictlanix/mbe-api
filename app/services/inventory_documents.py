@@ -1,4 +1,5 @@
-"""Mechanics shared by warehouse receipts, issues and transfers (spec 029, FR-001 to FR-013).
+"""Mechanics shared by warehouse receipts, issues, transfers (spec 029, FR-001 to FR-013) and counts
+(spec 030, research R1).
 
 The three documents have the same draft, line, numbering, cancel and list rules, so they are
 written once here and told apart by a `Kind`. What only one document has (purchase-order view,
@@ -31,6 +32,8 @@ from app.core.deps import CurrentUser, has_any_privilege
 from app.enums import AccessRight, SystemObject, TransactionType
 from app.models.core import Warehouse
 from app.models.inventory import (
+    InventoryCount,
+    InventoryCountDetail,
     InventoryIssue,
     InventoryIssueDetail,
     InventoryReceipt,
@@ -62,6 +65,8 @@ class Kind:
     transaction_type: TransactionType
     system_object: SystemObject
     label: str
+    #: False for counts: a confirmed count is final, and only its draft cancels (spec 030, R1).
+    cancellable_when_completed: bool = True
 
 
 RECEIPT = Kind(
@@ -99,6 +104,20 @@ TRANSFER = Kind(
     transaction_type=TransactionType.INVENTORY_TRANSFER,
     system_object=SystemObject.INVENTORY_TRANSFERS,
     label='Transfer',
+)
+COUNT = Kind(
+    header=InventoryCount,
+    line=InventoryCountDetail,
+    # The `count` column; a selected row's `.count` is the tuple method (spec 030, R1).
+    line_fk='count_id',
+    id_attr='inventory_count_id',
+    line_id_attr='count_detail_id',
+    warehouses=('warehouse',),
+    transit=False,
+    transaction_type=TransactionType.PHYSICAL_COUNT,
+    system_object=SystemObject.PHYSICAL_COUNT_ADJUSTMENT,
+    label='Count',
+    cancellable_when_completed=False,
 )
 
 # ── Pure helpers ──────────────────────────────────────────────────────────────
@@ -601,7 +620,8 @@ async def confirm_simple(
 
 
 async def cancel(db: AsyncSession, kind: Kind, document_id: int, *, current: CurrentUser) -> Any:
-    """Cancel a draft, or reverse everything a confirmed document posted (FR-008, R3).
+    """Cancel a draft, or reverse everything a confirmed document posted (FR-008, R3). A confirmed
+    document of a kind not cancellable once completed, a count, is refused (spec 030, R1).
 
     The ledger pre-read runs for a draft too: it can be confirmed between the pre-read and the
     document lock. Transfer lines keep `quantity_received`; the reversal is in the ledger.
@@ -609,6 +629,11 @@ async def cancel(db: AsyncSession, kind: Kind, document_id: int, *, current: Cur
     async with busy_as_conflict(db):
         document = await begin_locked(db, kind, document_id, stock=True, ledger=True)
         assert_facility(current, document.facility)
+        if document.completed and not kind.cancellable_when_completed:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail='A confirmed count cannot be cancelled',
+            )
         if document.cancelled:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,

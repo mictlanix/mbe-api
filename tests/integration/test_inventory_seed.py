@@ -12,6 +12,7 @@ from sqlalchemy import select
 
 from app.enums import TransactionType
 from app.models.inventory import LotSerialTracking
+from app.models.product import Product, product_label
 from app.models.purchases import PurchaseOrderDetail
 from app.models.sales import SalesOrder
 from app.services import inventory_documents as inv
@@ -122,3 +123,63 @@ async def test_transfer_draft_rules_and_draft_cancel(db, seeded, current_user):
         )
     ).first()
     assert posted is None
+
+
+# ── Counts (spec 030, T005) ───────────────────────────────────────────────────
+
+
+async def test_count_seed_writes_a_draft_the_count_kind_reads(db, seeded, current_user):
+    setup = await seed.setup_inventory(db)
+
+    count_id = await seed.count(
+        db, setup.b.warehouse, [(setup.stockable, '7'), (1, '0')], creator=1
+    )
+
+    count = await inv.get_document(db, inv.COUNT, count_id)
+    assert (count.facility, count.warehouse, count.serial) == (
+        setup.b.facility,
+        setup.b.warehouse,
+        None,
+    )
+    assert (count.completed, count.cancelled) == (False, False)
+    lines = (await inv.attach(db, inv.COUNT, count)).lines
+    assert [(ln.product, ln.product_code, ln.quantity) for ln in lines] == [
+        (setup.stockable, 'INV', Decimal(7)),
+        (1, (await db.get(Product, 1)).code, Decimal(0)),
+    ]
+    assert all(ln.quantity_on_hand is None and ln.difference is None for ln in lines)
+
+    cancelled = await inv.cancel(db, inv.COUNT, count_id, current=current_user)
+    assert cancelled.cancelled is True
+    posted = (
+        await db.execute(
+            select(LotSerialTracking).where(
+                LotSerialTracking.source == int(TransactionType.PHYSICAL_COUNT)
+            )
+        )
+    ).first()
+    assert posted is None
+
+
+async def test_a_confirmed_count_cannot_be_cancelled(db, seeded, current_user):
+    setup = await seed.setup_inventory(db)
+    count_id = await seed.count(db, 1, [(setup.stockable, '1')])
+    count = await inv.get_document(db, inv.COUNT, count_id)
+    count.completed, count.serial = True, 1
+    await db.commit()
+
+    with pytest.raises(HTTPException) as exc:
+        await inv.cancel(db, inv.COUNT, count_id, current=current_user)
+
+    assert exc.value.status_code == 409
+    assert (await inv.get_document(db, inv.COUNT, count_id)).cancelled is False
+
+
+async def test_a_product_with_several_labels(db, seeded):
+    product_id = await seed.labelled_product(db, code='LBL', labels=3)
+
+    labels = (
+        await db.execute(select(product_label.c.label).where(product_label.c.product == product_id))
+    ).scalars()
+    assert len(set(labels)) == 3
+    assert (await db.get(Product, product_id)).stockable is True
