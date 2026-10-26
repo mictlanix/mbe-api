@@ -127,7 +127,7 @@ No commit carries a Co-Authored-By line. Delegated work goes to agents with abso
   - **Refusals:** confirm with no lines → 409, and no serial is consumed (the next confirm gets the number).
   - **Cancel:** cancelling a confirmed receipt posts the −qty reversal and the balance returns. Cancelling after the stock was taken by an outbound entry → 409 naming the product and warehouse. Cancelling a draft writes no entries; cancelling twice → 409.
   - **Facility:** a non-administrator in another facility confirming → 403.
-  - **Repeats:** confirming the same receipt a second time → 409 with no new entries and no serial consumed, and the same for cancelling twice. This proves the state is re-read after `lock_document`; the concurrent pair runs in T033.
+  - **Repeats:** confirming the same receipt a second time → 409 with no new entries and no serial consumed, and the same for cancelling twice. This proves the state is re-read after `begin_locked`; the concurrent pair runs in T033.
   - **Product status:** a product discontinued after it was added still confirms; adding a discontinued but stockable product is accepted (R9).
 - [ ] T009 [P] [US1] Write `tests/api/test_inventory_receipts.py` first, covering the routes of contracts/inventory-documents.md except `/complementary`:
   - status codes 201 and 200;
