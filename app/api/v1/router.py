@@ -20,6 +20,9 @@ from app.api.v1.endpoints import (
     facilities,
     fiscal_documents,
     health,
+    inventory_issues,
+    inventory_receipts,
+    inventory_transfers,
     labels,
     payment_method_options,
     points_of_sale,
@@ -104,3 +107,12 @@ api_router.include_router(
     delivery_itineraries.router, prefix='/delivery-itineraries', tags=['delivery-itineraries']
 )
 api_router.include_router(commissions.router, prefix='/commissions', tags=['commissions'])
+api_router.include_router(
+    inventory_receipts.router, prefix='/inventory-receipts', tags=['inventory-receipts']
+)
+api_router.include_router(
+    inventory_issues.router, prefix='/inventory-issues', tags=['inventory-issues']
+)
+api_router.include_router(
+    inventory_transfers.router, prefix='/inventory-transfers', tags=['inventory-transfers']
+)
