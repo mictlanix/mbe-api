@@ -350,6 +350,54 @@ Clerks see the receipts, issues and transfers of their own warehouse and the one
 - **Serial safety.** As in spec 027, a parent row is locked before the highest serial is read, so the read sees the previous confirm's number. Neither the current system's unlocked `MAX+1` nor `assign_folio`'s read from a possibly older snapshot is used.
 - **Purchase-order links** are set only by the complementary receipt here. Creating receipts when a purchase order completes belongs to the Purchasing epic, which will set the same links.
 
+## Verification
+
+### Local suite (2026-10-25)
+
+4,642 tests pass and `ruff check` is clean. They include the unit, integration and API tests for the three documents (SC-001, SC-004, SC-005, SC-006 on SQLite).
+
+### Migration 026 and deployment (2026-10-25)
+
+- Migration 026 is applied to mbe_dev, with approval.
+  - `inventory_transfer.in_transit` is `tinyint(1) NOT NULL DEFAULT 0`, and `inventory_transfer_detail.quantity_received` is `decimal(18,4) NULL`.
+  - All 19,525 transfers read `in_transit = 0`, with no received quantity.
+- The branch is deployed to the test instance.
+- Legacy transfer 19728 reads `received`, with nothing outstanding.
+
+### SC-007: full cycle on the test deployment (2026-10-25)
+
+All steps ran through the API on mbe_dev data, with approval:
+- **Receipt 32023** (warehouse 8, facility 47): confirmed as serial 872 (+2), then cancelled. Its balance was restored.
+- **Issue 9808:** confirmed as serial 88 (−1), then cancelled. Its balance was restored.
+- **Transfer 19729**, 10 units of product 901 from warehouse 8 (facility 47) to warehouse 12 (facility 51):
+  - dispatched as facility 47's serial 1: −10 at the origin, +10 at transit 33;
+  - shown as 10 outstanding in facility 51's in-transit view;
+  - 4 received: transit −4, destination +4, still in transit;
+  - remainder closed: 6 back to the origin, received 4 of 10;
+  - cancelled: every entry reversed.
+
+The transfer serials start at 1: until now facility 47 had never numbered a transfer, and nor had facility 51 (transfer 19735).
+
+### SC-002 and SC-003: concurrency on the test deployment (2026-10-25)
+
+| Check | Result |
+|---|---|
+| 20 receipts of facility 47, across warehouses 8 and 14, confirmed at once | 20 × 200, serials 873–892, distinct and consecutive |
+| One draft confirmed by two requests at once | 200 and 409 |
+| Two issues of 38 on 75 available | 200 and 409 "Not enough stock of CLASTDCC4MS in CMCOAL01: 37.0000 available, 38.0000 required" |
+| Two receives of 8 on a line of 10 | 200 and 409; 8 received |
+| A receive racing a cancel | both 200, in that order; the transfer ends cancelled and its entries net to zero |
+| Two complementary requests for purchase order 10914 (receipt 31798) | 201 and 200, one draft (32045) |
+| Issues of product 901 in facilities 47 and 51 at once | 200 and 200 |
+| A dispatch while the destination receives the facility's previous transfer | 200 and 200 |
+| Two transfers dispatched in opposite directions at once | 200 and 200 |
+
+No request answered 5xx. Every document created (receipts 32023–32045, issues 9808–9812, transfers 19729–19735) ends cancelled, and its own entries net to zero per (warehouse, product). Warehouses 8, 14 and 12 hold the same balances of products 901 and 903 as before.
+
+**Not run:** a customer refund racing an issue. A refund confirmation needs an open cash session and pays money out on mbe_dev. That case is recorded as R2's known limit.
+
+**Cleanup:** the test documents stay in mbe_dev as cancelled, and the scratch script was removed from xolotl.
+
 ## Out of Scope
 
 - Supplier returns, and setting the issue's supplier-return link.

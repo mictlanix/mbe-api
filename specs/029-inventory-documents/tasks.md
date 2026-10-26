@@ -316,10 +316,10 @@ No commit carries a Co-Authored-By line. Delegated work goes to agents with abso
   - `documents.assign_folio`'s non-locking `MAX` (R1);
   - sales-order confirmation's unlocked availability check (R2).
 - [X] T029 Run `uv run ruff check app/ migrations/ tests/`, `uv run ruff format --check app/ tests/` and `uv run pytest -q`; everything must be green. Include `tests/integration/test_no_endpoint_returns_500.py` for the new routes, extending its route list if it enumerates them.
-- [ ] T030 **Ask the user first; DDL.** Apply migration 026 to mbe_dev (quickstart step 1). Check the columns, and that legacy transfers read as `received`. Record the result in spec.md under "Verification".
-- [ ] T031 **Ask the user first.** Deploy the branch to the test instance as mictlanix@, restarting `mbe-api-test` as root. **Only after T030**, because the model maps the new columns.
-- [ ] T032 **Ask the user first; writes to mbe_dev.** Run SC-007 (quickstart step 3): a receipt, an issue and an inter-facility transfer through dispatch, partial receive, close and cancel. Check the ledger sums per (warehouse, product) before and after, and record the ids and results.
-- [ ] T033 **Ask the user first; writes to mbe_dev.** Run SC-002 and SC-003 (quickstart step 4):
+- [X] T030 **Ask the user first; DDL.** Apply migration 026 to mbe_dev (quickstart step 1). Check the columns, and that legacy transfers read as `received`. Record the result in spec.md under "Verification".
+- [X] T031 **Ask the user first.** Deploy the branch to the test instance as mictlanix@, restarting `mbe-api-test` as root. **Only after T030**, because the model maps the new columns.
+- [X] T032 **Ask the user first; writes to mbe_dev.** Run SC-007 (quickstart step 3): a receipt, an issue and an inter-facility transfer through dispatch, partial receive, close and cancel. Check the ledger sums per (warehouse, product) before and after, and record the ids and results.
+- [X] T033 **Ask the user first; writes to mbe_dev.** Run SC-002 and SC-003 (quickstart step 4):
   - 20 concurrent confirms must give distinct, consecutive serials;
   - the same draft confirmed by two requests at once posts once: one succeeds and the other gets 409;
   - of two concurrent over-subscribing issues, exactly one may succeed;
