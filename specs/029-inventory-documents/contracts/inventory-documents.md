@@ -13,13 +13,13 @@ Receipt and issue status `completed` is the spec's "confirmed"; it reuses the AP
 
 | Method | Path | Right | Body | Success |
 |---|---|---|---|---|
-| GET | `` | Read | query: `status`, `warehouse`, `skip`, `limit` | 200 `ListResponse[InventoryReceiptSummary]` |
+| GET | `` | Read | query: `status` (`draft`, `completed` or `cancelled`; anything else is 422), `warehouse`, `skip`, `limit` | 200 `ListResponse[InventoryReceiptSummary]` |
 | POST | `` | Create | `{warehouse, comment?}` | 201 `InventoryReceiptResponse` |
 | GET | `/{id}` | Read | — | 200 `InventoryReceiptResponse` |
 | PUT | `/{id}` | Update | `{warehouse?, comment?}` | 200 |
-| POST | `/{id}/lines` | Update | `{product, quantity}` | 200 (merges into an existing line) |
-| PUT | `/{id}/lines/{line_id}` | Update | `{quantity}` | 200 |
-| DELETE | `/{id}/lines/{line_id}` | Update | — | 200 |
+| POST | `/{id}/lines` | Update | `{product, quantity}` | 200 `InventoryReceiptResponse`, with warnings (merges into an existing line) |
+| PUT | `/{id}/lines/{line_id}` | Update | `{quantity}` | 200 `InventoryReceiptResponse`, with warnings |
+| DELETE | `/{id}/lines/{line_id}` | Update | — | 200 `InventoryReceiptResponse` |
 | POST | `/{id}/confirm` | Update | — | 200 |
 | POST | `/{id}/cancel` | Delete | — | 200 |
 | POST | `/{id}/complementary` | Create | — | 200 (the existing draft) or 201 (a new draft) |
@@ -34,11 +34,13 @@ Receipt and issue status `completed` is the spec's "confirmed"; it reuses the AP
   - `quantity_received_elsewhere`, which is null for unlinked lines;
 - `warnings[]` (R7).
 
+Every route that changes a document returns that document's full response. In the default scope, `warehouse` narrows the list and never widens it.
+
 **Summary**: id, facility, warehouse, purchase_order, serial, status, creator and creation_time.
 
 ## Issues: `/inventory-issues` (object 16)
 
-These routes are the same as for receipts, without `/complementary`.
+These routes are the same as for receipts, without `/complementary` and without warnings. Every route that changes an issue returns `InventoryIssueResponse`.
 
 **`InventoryIssueResponse`**: the receipt header, with `supplier_return` in place of `purchase_order`, and no warnings. Lines have `issue_detail_id`, `product`, `product_code`, `product_name` and `quantity`.
 
@@ -46,7 +48,7 @@ These routes are the same as for receipts, without `/complementary`.
 
 | Method | Path | Right | Body | Success |
 |---|---|---|---|---|
-| GET | `` | Read | query: `status` (`draft`, `in_transit`, `received` or `cancelled`), `warehouse`, `skip`, `limit` | 200 `ListResponse[InventoryTransferSummary]` |
+| GET | `` | Read | query: `status` (`draft`, `in_transit`, `received` or `cancelled`), `warehouse` (matches the origin or the destination), `skip`, `limit` | 200 `ListResponse[InventoryTransferSummary]` |
 | GET | `/in-transit` | Read | query: `facility` (defaults to the caller's) | 200 `InTransitResponse` |
 | POST | `` | Create | `{warehouse, warehouse_to, comment?}` | 201 |
 | GET | `/{id}` | Read | — | 200 `InventoryTransferResponse` |
@@ -56,7 +58,7 @@ These routes are the same as for receipts, without `/complementary`.
 | DELETE | `/{id}/lines/{line_id}` | Update | — | 200 |
 | POST | `/{id}/sales-order-items` | Update | `{sales_order}` | 200 |
 | POST | `/{id}/dispatch` | Update | — | 200 |
-| POST | `/{id}/receive` | Update | `{lines?: [{line_id, quantity > 0}]}`; omitting it receives everything outstanding | 200 |
+| POST | `/{id}/receive` | Update | `{lines?: [{line_id, quantity > 0}]}`; omitting it receives everything outstanding. A line of another transfer is 404, the same line twice is 422, and more than outstanding (or a line with nothing outstanding) is 409 | 200 |
 | POST | `/{id}/close` | Delete | — | 200 |
 | POST | `/{id}/cancel` | Delete | — | 200 |
 

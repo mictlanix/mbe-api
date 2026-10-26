@@ -35,6 +35,11 @@ Each step needs the user's confirmation before it runs.
 4. **SC-002 and SC-003, concurrency:**
    - Fire 20 confirms of prepared drafts at once in one facility. The serials must be distinct and consecutive.
    - Fire two issues at once that together exceed the available stock. Exactly one must succeed.
+   - Confirm one draft from two requests at once: it posts once, and the other request gets 409.
+   - Fire two partial receives of 8 on a line of 10 at once. At most 10 may be received.
+   - Race a receive against a cancel on one transfer. Either way, the ledger nets to zero per (warehouse, product).
+   - Fire two complementary requests for one purchase order at once. There must be one draft.
+   - Confirm issues of the same product in two facilities at once. There must be no deadlock and no 500.
 5. **Clean-up:** the test documents stay in mbe_dev as cancelled, as with spec 028's refund check. Delete them only if the user asks.
 
 ## Expected results

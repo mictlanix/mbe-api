@@ -21,8 +21,8 @@ The three inventory documents get services and routes on the existing tables:
 
 Shared mechanics:
 - **Serial:** facility row lock, then a *locking* `MAX` read, as in spec 027 (R1).
-- **Locks:** every step that changes a document locks the document's row first and re-reads its state, so a repeated or concurrent request cannot post twice (R2).
-- **Stock checks:** available = on hand − reservations, summed per product. They run after the warehouse rows are locked, with locking reads (R2).
+- **Locks:** every step that changes a document ends the request's opening transaction, then locks the document, the facility and the warehouses it touches, in that order, before any ordinary read (R2). A repeated or concurrent request therefore cannot post twice, and every read after the locks is current.
+- **Stock checks:** available = on hand − reservations, summed per product, with `stock_ledger` unchanged (R2).
 - **Cancel:** posts the negation of every ledger entry the document wrote (R3).
 - **Rights and lists:** gated per FR-010 to FR-012 (R5, R6).
 
@@ -59,7 +59,6 @@ There is one migration, 026. It adds `inventory_transfer.in_transit` and the nul
 **Scale/Scope**:
 - **Routes:** 10 for receipts, 9 for issues, 13 for transfers.
 - **New services:** `inventory_documents.py` (shared), `inventory_receipt_service.py`, `inventory_transfer_service.py`.
-- **Extended:** `stock_ledger.py` (an optional locking read).
 - **Also:** 1 migration, 1 schema module and 3 endpoint modules.
 - **Docs:** `docs/specs/04-inventory.md`, `docs/data-dictionary.md` and the CHANGELOG.
 
@@ -71,9 +70,9 @@ There is one migration, 026. It adds `inventory_transfer.in_transit` and the nul
 |---|---|---|
 | I. Simplicity First | One shared module drives the three documents. The issue has no service of its own because it is the shared flow plus an outbound check. There are no supplier returns, lots or FIFO. Cancel is one generic negation of what was posted. The transfer state needs one flag and one line column. | PASS |
 | II. Think Before Coding | Four clarifications are recorded. The decisions on locking, state and reversal are argued in research R1–R4. The remaining sales-order race is named, not hidden (R2). | PASS |
-| III. Surgical Changes | `stock_ledger.on_hand`/`reserved`/`available` gain a keyword-only `lock=False`, and existing callers are unchanged. The models gain the two migrated columns. `assign_folio` is not touched. | PASS |
+| III. Surgical Changes | `stock_ledger.py` and `documents.assign_folio` are not touched. The models gain the two migrated columns. | PASS |
 | IV. Goal-Driven | SC-001 to SC-007 map to tests or to recorded runs on the test deployment (quickstart). | PASS |
-| V. Reuse Over Rebuild | Reused: `stock_ledger`, `warehouse_service.get_transit_warehouse`, `documents.assert_editable`, `DocumentStatus`, `require_privilege`, `has_any_privilege` and `ListResponse`. The new modules are justified below. | PASS, see Complexity Tracking |
+| V. Reuse Over Rebuild | Reused: `stock_ledger` (unchanged), `documents.assert_editable`, `DocumentStatus`, `require_privilege`, `has_any_privilege` and `ListResponse`. The new modules are justified below. | PASS, see Complexity Tracking |
 | VI. Async-First | Every route and service is `async`, on `AsyncSession`. | PASS |
 | VII. Security by Default | Every route has `require_privilege` on object 15, 16 or 17. The facility rule (FR-011) and the list scope (FR-012) are enforced in services. | PASS |
 | VIII. Ruff | The gate runs before each commit. | PASS |
@@ -113,15 +112,19 @@ app/
     ├── inventory_documents.py                    # NEW: kinds, drafts, lines, serial, confirm,
     │                                             #   locking stock check, reversal, list scope
     ├── inventory_receipt_service.py              # NEW: PO view, warnings, complementary receipt
-    ├── inventory_transfer_service.py             # NEW: dispatch, receive, close, in transit,
-    │                                             #   sales order items, transfer state
-    └── stock_ledger.py                           # lock= on on_hand / reserved / available
+    └── inventory_transfer_service.py             # NEW: dispatch, receive, close, in transit,
+                                                  #   sales order items, transfer state
 tests/
+├── unit/test_inventory_schemas.py                # NEW
+├── unit/test_inventory_locks.py                  # NEW
 ├── unit/test_inventory_documents.py              # NEW
+├── unit/test_inventory_receipt_service.py        # NEW
 ├── unit/test_inventory_transfer_state.py         # NEW
+├── integration/inventory_seed.py                 # NEW
 ├── integration/test_inventory_receipt_flow.py    # NEW
 ├── integration/test_inventory_issue_flow.py      # NEW
 ├── integration/test_inventory_transfer_flow.py   # NEW
+├── integration/test_inventory_scope.py           # NEW
 ├── api/test_inventory_receipts.py                # NEW
 ├── api/test_inventory_issues.py                  # NEW
 └── api/test_inventory_transfers.py               # NEW
@@ -139,4 +142,3 @@ CHANGELOG.md
 | Migration 026 (`in_transit`, `quantity_received`) | The clarified partial receipt needs a received quantity per line. "In transit" must also stay distinct from "received with a closed remainder" (R4). | Deriving state from ledger sums cannot tell a closed remainder from an outstanding one. A `status` column would need a backfill of 3,409 legacy rows. |
 | `inventory_documents.py` | It holds the shared mechanics of three documents (FR-001 to FR-013), written once. | Three copies would drift. Serial and stock locking have no database constraint behind them (R1, R2). |
 | `inventory_receipt_service.py`, `inventory_transfer_service.py` | Purchase-order and transit logic is specific to each document. | Putting it all in the shared module would mix concerns that only one document has. |
-| `lock=` on `stock_ledger` sums | A check under REPEATABLE READ needs a locking read to see the stock the previous lock holder committed (R2). | Copying the sums into the inventory service would duplicate the ledger's definition of on hand and available. |

@@ -4,14 +4,17 @@ The tables exist in mbe_dev and in `app/models/inventory.py`. Only migration 026
 
 ## Migration 026: `026_inventory_transfer_transit.sql`
 
+Same style and header as `migrations/025_fiscal_document_customer_payment.sql`: a comment block, idempotent, MariaDB 10.11.
+
 ```sql
-ALTER TABLE inventory_transfer
-  ADD COLUMN in_transit TINYINT(1) NOT NULL DEFAULT 0 AFTER cancelled;
-ALTER TABLE inventory_transfer_detail
-  ADD COLUMN quantity_received DECIMAL(18,4) NULL AFTER quantity;
+ALTER TABLE `inventory_transfer`
+    ADD COLUMN IF NOT EXISTS `in_transit` TINYINT(1) NOT NULL DEFAULT 0 AFTER `cancelled`;
+
+ALTER TABLE `inventory_transfer_detail`
+    ADD COLUMN IF NOT EXISTS `quantity_received` DECIMAL(18,4) NULL DEFAULT NULL AFTER `quantity`;
 ```
 
-The rollback drops both columns. Legacy rows need no backfill (research R4).
+The rollback (`026_inventory_transfer_transit_rollback.sql`) runs `DROP COLUMN IF EXISTS` on both. Legacy rows need no backfill (research R4). The current system's NHibernate mapping names its columns explicitly, so it neither reads nor writes these two.
 
 ## Headers
 
@@ -40,7 +43,7 @@ All three line tables share:
 
 | Table | Own fields |
 |---|---|
-| `inventory_receipt_detail` | `purchase_order_detail` (FK NULL), `quantity_ordered` DECIMAL NOT NULL (the order line's quantity; 0 for hand-added lines) |
+| `inventory_receipt_detail` | `purchase_order_detail` (FK NULL), `quantity_ordered` DECIMAL NOT NULL (written as the order line's quantity, or 0 for hand-added lines; the over-receipt check reads the order line itself, research R7) |
 | `inventory_issue_detail` | — |
 | `inventory_transfer_detail` | **`quantity_received`** DECIMAL NULL (new; 0 from dispatch, NULL on legacy rows) |
 
@@ -93,13 +96,16 @@ Every entry has `source` = TransactionType, `reference` = the document id, `date
 |---|---|
 | The product is unknown or not stockable | 422 |
 | A line quantity is ≤ 0 | 422 (schema) |
-| The warehouse is unknown, or is an in-transit warehouse | 404 or 422 |
+| The warehouse is unknown, or is an in-transit warehouse | 404 or 422 (warehouse status is not checked, research R9) |
 | A transfer's origin equals its destination | 422 |
 | Editing a document that isn't a draft | 409 (`documents.assert_editable`) |
 | Confirming or dispatching with no lines | 409 |
 | Available stock is short (issue, dispatch, cancel) | 409, naming the product code and the warehouse |
 | The origin facility has no transit warehouse | 422, naming the facility |
-| A receive exceeds the outstanding quantity of a line | 409 |
+| A receive exceeds the outstanding quantity of a line, or names a line with nothing outstanding | 409 |
+| A receive names a line of another transfer | 404 |
+| A receive names the same line twice | 422 |
+| The serial unique index fires (it should never, research R1) | 409 |
 | Receive or close on a transfer that isn't in transit | 409 |
 | Cancelling a cancelled document | 409 |
 | A non-administrator in the wrong facility (R6) | 403 |

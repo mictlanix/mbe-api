@@ -27,12 +27,12 @@ No commit carries a Co-Authored-By line. Delegated work goes to agents with abso
 
 ## Phase 1: Setup
 
-- [ ] T001 [P] Write `migrations/026_inventory_transfer_transit.sql` and `migrations/026_inventory_transfer_transit_rollback.sql` exactly as in data-model.md, in the style and header of `migrations/025_fiscal_document_customer_payment.sql`. **Do not apply them to mbe_dev**; T040 does that, after confirmation.
-- [ ] T002 [P] In `app/models/inventory.py`:
+- [ ] T001 Write `migrations/026_inventory_transfer_transit.sql` and `migrations/026_inventory_transfer_transit_rollback.sql`, using the SQL in data-model.md and the comment header, idempotence and backtick style of `migrations/025_fiscal_document_customer_payment.sql`. **Do not apply them to mbe_dev**; T030 does that, after confirmation.
+- [ ] T002 After T001 (its schema tests read the migration files), in `app/models/inventory.py`:
   - add `InventoryTransfer.in_transit: Mapped[bool]` (`Boolean`, `default=False`, `server_default='0'`) after `cancelled`;
   - add `InventoryTransferDetail.quantity_received: Mapped[Decimal | None]` (`Numeric(18, 4)`) after `quantity`.
 
-  Run `uv run pytest tests/unit/test_model_schema.py tests/unit/test_data_dictionary.py tests/unit/test_migrate.py -q`. Add both columns to `docs/data-dictionary.md` if those tests require it, or if the tables are documented there.
+  Add both columns to `docs/data-dictionary.md`, under `inventory_transfer` and `inventory_transfer_detail`. Then run `uv run pytest tests/unit/test_model_schema.py tests/unit/test_data_dictionary.py tests/unit/test_migrate.py -q`.
 - [ ] T003 [P] Create `app/schemas/inventory.py` per contracts/inventory-documents.md:
   - **status:** `TransferStatus` (StrEnum `draft`, `in_transit`, `received`, `cancelled`) and its `derive_transfer_status(*, completed, cancelled, in_transit)`. Receipts and issues reuse `DocumentStatus`/`derive_status` from `app/schemas/sales_order.py`.
   - **requests:** `ReceiptCreate {warehouse, comment?}`, `ReceiptUpdate {warehouse?, comment?}`, `IssueCreate`/`IssueUpdate` (the same fields), `TransferCreate {warehouse, warehouse_to, comment?}`, `TransferUpdate {warehouse?, warehouse_to?, comment?}`, `LineAdd {product, quantity > 0}`, `LineUpdate {quantity > 0}`, `SalesOrderItemsAdd {sales_order}`, `TransferReceive {lines: list[{line_id, quantity > 0}] | None}`.
@@ -45,48 +45,62 @@ No commit carries a Co-Authored-By line. Delegated work goes to agents with abso
 
 ## Phase 2: Foundational (blocks every story)
 
-- [ ] T004 Extend `app/services/stock_ledger.py`: `on_hand`, `reserved` and `available` gain a keyword-only `lock: bool = False`. When it is true, the `SUM` select gets `.with_for_update(read=True)` (R2). The default leaves existing callers byte-for-byte unchanged.
-
-  First add a unit test in `tests/unit/test_stock_ledger.py`, or the existing ledger test file, asserting the compiled statement carries the locking clause only when `lock=True`. Use the MySQL dialect, as existing statement tests do; if none do, compile with `sqlalchemy.dialects.mysql`.
+- [ ] T004 Write `tests/unit/test_inventory_locks.py` first, so it fails. It covers T006's lock helpers without a database, through a fake session that records each executed statement compiled with `sqlalchemy.dialects.mysql`:
+  - `lock_document` issues `SELECT … FOR UPDATE` on the header row;
+  - `lock_facility` issues `FOR UPDATE` on the facility row;
+  - `lock_warehouses` issues a single `FOR UPDATE` select, ordered by `warehouse_id`, matching the given ids plus, when a transit facility is given, `facility = :f AND in_transit`;
+  - `begin_locked(db, kind, document, *, facility=False, warehouses=())` commits the opening transaction first, then locks in the order document, facility, warehouses; no other statement runs before the last lock (R2).
 - [ ] T005 Write `tests/unit/test_inventory_documents.py` first, so it fails. It covers the pure helpers of T006:
   - `merge_line_quantity` (existing line + added quantity);
   - `per_product_totals(lines)`, which sums repeated products;
   - `shortages(required: dict[product, qty], available: dict[product, qty]) -> list`, which is empty when everything fits;
   - `reversal_entries(entries)`, which negates each entry, and `net_outbound(entries) -> {(warehouse, product): qty}` over the reversal;
-  - `transfer_line_figures(quantity, quantity_received, completed, in_transit) -> (received, outstanding)`, covering the legacy NULL.
+  - `serial_conflict(exc)`: an `IntegrityError` naming one of the `*_facility_serial_idx` indexes becomes 409 "Serial already taken, retry" (R1); any other `IntegrityError` is re-raised.
 - [ ] T006 Create `app/services/inventory_documents.py`, the shared mechanics (FR-001 to FR-013). It contains:
   - **The pure helpers of T005.**
   - **`Kind`:** a frozen dataclass (header model, line model, line FK attribute name, id attribute names, `TransactionType`, `SystemObject`, and the label used in messages). Constants `RECEIPT`, `ISSUE` and `TRANSFER`.
   - **Lookups:** `get_document(db, kind, id)` and `get_line(db, kind, document, line_id)`; each returns `None` when not found.
+  - **Locks (R2), tested by T004:**
+    - `lock_document(db, kind, document)`: `SELECT` the header row `FOR UPDATE` with `populate_existing`, so the caller sees the committed state;
+    - `lock_facility(db, facility)`: `FOR UPDATE`, or 404 if missing;
+    - `lock_warehouses(db, ids, *, transit_of=None)`: one `SELECT … FOR UPDATE` ordered by id over the given ids, plus the transit warehouse of facility `transit_of` when given. Returns the rows (the transit row is how the transfer finds its transit warehouse, research R4);
+    - `begin_locked(db, kind, document, *, facility=False, warehouses=(), transit_of=None)`: `await db.commit()` to end the opening transaction, then the locks in order document, facility, warehouses, then re-check that the document still exists.
+
+    **Every state-changing function below starts with `begin_locked` and makes no ordinary read before it.** That covers confirm, cancel, header and line edits, and in T019 dispatch, receive, close and sales-order items. Edits lock the document only; confirm, dispatch, receive, close and cancel lock all three levels. Ordinary reads after the locks are current (R2), so `stock_ledger` is used unchanged.
   - **`create_draft(db, kind, *, warehouse, warehouse_to=None, comment, current)`:**
-    - validate each warehouse: unknown → 404; `in_transit` → 422; origin equal to destination → 422;
+    - validate each warehouse: unknown → 404; `in_transit` → 422; origin equal to destination → 422; warehouse status is not checked (R9);
     - facility = the warehouse's (the origin's for a transfer);
     - set the audit fields (`local_now()`, `current.employee_id`) and `completed = cancelled = False`;
     - commit and refresh.
-  - **`update_header(...)`:** the same checks. Changing the warehouse updates `facility`. Uses `documents.assert_editable`.
+  - **`update_header(...)`:** `begin_locked` (document only), `documents.assert_editable`, then the same checks. Changing the warehouse updates `facility`.
   - **Lines:**
     - `add_line(...)`: the product must exist (404) and be stockable (422); its status is not checked (R9). Add to the existing line of that product (the lowest id if a legacy draft repeats it), or create one with `product_code` and `product_name` snapshots. Receipt lines get `quantity_ordered = 0`.
     - `update_line(...)` and `remove_line(...)`: drafts only.
-    - All three bump `updater` and `modification_time`.
+    - All three start with `begin_locked` (document only) and bump `updater` and `modification_time`.
   - **`assert_facility(current, *facilities)`:** non-administrators whose `facility_id` is not among the facilities get 403 "Document belongs to another facility" (R6).
-  - **`next_serial(db, model, facility)`:** lock the `Facility` row `FOR UPDATE` (404 if missing), then `MAX(model.serial)` for that facility with `.with_for_update(read=True)`, returning max + 1 (R1). The docstring cites mbe#45 and spec 027.
-  - **`lock_document(db, kind, document)`:** `SELECT` the header row `FOR UPDATE`, `populate_existing`, so the caller sees the committed state. Every state-changing function below calls it first and re-checks the state after it (R2): confirm, cancel, header and line edits, and in T019 dispatch, receive, close and sales-order items. Lock order: document, then facility, then warehouses.
-  - **`lock_warehouses(db, ids)`:** `SELECT … FOR UPDATE` in ascending id order.
-  - **`assert_available(db, required: dict[product, qty], warehouse)`:** uses `stock_ledger.available(lock=True)` per product. 409 names the product code and the warehouse code: "Not enough stock of {code} in {warehouse}: {available} available, {required} required".
+  - **`next_serial(db, model, facility)`:** called after `begin_locked` has locked the facility. `MAX(model.serial)` for that facility with `.with_for_update(read=True)` (R1), returning max + 1. The docstring cites mbe#45 and spec 027. The commit that writes the serial goes through `serial_conflict`.
+  - **`assert_available(db, required: dict[product, qty], warehouse)`:** uses `stock_ledger.available` per product. 409 names the product code and the warehouse code: "Not enough stock of {code} in {warehouse}: {available} available, {required} required".
   - **`confirm_simple(db, kind, document, *, current)`** (receipt and issue):
-    1. `lock_document`, then `assert_editable`; no lines → 409; any line with quantity ≤ 0 or a non-stockable product → 422;
-    2. `assert_facility(document.facility)`;
-    3. `next_serial`;
-    4. for an issue, `lock_warehouses` then `assert_available`;
-    5. post one entry per line (inbound for a receipt, outbound for an issue);
-    6. set `completed`, `serial`, `updater` and `modification_time`, then commit.
+    1. `begin_locked(facility=True, warehouses=[document.warehouse])`;
+    2. `assert_editable`; no lines → 409; any line with quantity ≤ 0 or a non-stockable product → 422;
+    3. `assert_facility(document.facility)`;
+    4. `next_serial`;
+    5. for an issue, `assert_available`;
+    6. post one entry per line (inbound for a receipt, outbound for an issue);
+    7. set `completed`, `serial`, `updater` and `modification_time`, then commit.
 
     Every failure rolls back, so no serial is consumed.
-  - **`cancel(db, kind, document, *, current)`:**
-    - cancelled → 409;
-    - draft → set `cancelled` and commit, with no ledger work;
-    - confirmed → `assert_facility(document.facility)`, then lock the facility row as `next_serial` does (without reading `MAX`), so cancels and confirms in that facility queue. Read the entries with this source and reference, compute `net_outbound` of the reversal, `lock_warehouses` and `assert_available` per warehouse, post the reversal, set `cancelled`, and commit (R3).
-  - **`list_documents(db, kind, *, current, status, warehouse, skip, limit, status_clause)`:** the default scope or the wider view (administrator or `has_any_privilege(…, [(kind.system_object, AccessRight.DELETE)])`), the filters, newest first, returning `(items, total)` (R5). The POS warehouse is looked up from `PointSale.warehouse`; reuse `delivery_itinerary_service._pos_warehouse` by importing it, or move it to `point_sale_service` if importing a private helper across services is against the codebase's habit.
+  - **`cancel(db, kind, document, *, current, warehouses, transit_of=None)`:**
+    1. `begin_locked(facility=True, warehouses=…)`. Receipts and issues pass their warehouse; T019 passes a transfer's origin and destination, with `transit_of=document.facility`;
+    2. cancelled → 409; `assert_facility(document.facility)` for every cancel, draft or confirmed (FR-011);
+    3. draft → set `cancelled` and commit, with no ledger work;
+    4. confirmed → read the entries with this source and reference, compute `net_outbound` of the reversal, `assert_available` per warehouse, post the reversal, set `cancelled`, and commit (R3).
+  - **`list_documents(db, kind, *, current, status, warehouse, skip, limit, status_clause)`:** per R5.
+    - The default scope or the wider view (administrator or `has_any_privilege(db, current.user_id, [(kind.system_object, AccessRight.DELETE)])`).
+    - The `status` values allowed per document (anything else is 422).
+    - `warehouse` matches the origin or the destination for transfers, and narrows the default scope without widening it.
+    - Newest first, returning `(items, total)`.
+    - The POS warehouse is looked up from `PointSale.warehouse`. Reuse `delivery_itinerary_service._pos_warehouse` by importing it, or move it to `point_sale_service` if importing a private helper across services is against the codebase's habit.
 - [ ] T007 Write `tests/integration/inventory_seed.py`, the helpers shared by the story tests:
   - two facilities, each with a regular warehouse and its transit warehouse;
   - a stockable product and a non-stockable one;
@@ -97,7 +111,7 @@ No commit carries a Co-Authored-By line. Delegated work goes to agents with abso
 
   Follow `tests/integration/delivery_seed.py`.
 
-**Checkpoint:** the shared helpers pass their unit tests, and the ledger has a locking read.
+**Checkpoint:** the shared helpers and the lock order pass their unit tests; `stock_ledger.py` is unchanged.
 
 ---
 
@@ -158,9 +172,8 @@ No commit carries a Co-Authored-By line. Delegated work goes to agents with abso
 **Independent Test**: spec US3. Dispatch from facility A to facility B: stock leaves A and appears in transit, and both see the transfer. Receive 8 of 10: 2 stay in transit. Close the remainder: the 2 return to A.
 
 - [ ] T016 [P] [US3] Write `tests/unit/test_inventory_transfer_state.py` first:
-  - every `derive_transfer_status` branch;
-  - received and outstanding figures for new and legacy (NULL) lines, in each state;
-  - `apply_receipt(lines, requested)`, which refuses a quantity over the outstanding one and refuses unknown line ids;
+  - `transfer_line_figures(quantity, quantity_received, completed, in_transit) -> (received, outstanding)` for new and legacy (NULL) lines, in each state. The status branches are tested once, in T003's schema tests;
+  - `apply_receipt(lines, requested)`: a line id not on this transfer → 404; the same line id twice → 422; a quantity over the outstanding one, or on a line with nothing outstanding → 409;
   - `sales_order_additions(order_lines, existing_products)`, which sums per product, skips existing products, and drops non-stockable products.
 - [ ] T017 [P] [US3] Write `tests/integration/test_inventory_transfer_flow.py` first. It covers US3 scenarios 1–11:
   - **Origin and destination:** the same warehouse → 422; an in-transit warehouse as either → 422.
@@ -172,7 +185,8 @@ No commit carries a Co-Authored-By line. Delegated work goes to agents with abso
     - a full receive (no body) posts transit −qty and destination +qty, status `received`, and the entries net to zero (SC-001);
     - a partial receive of 8 of 10 stays `in_transit` with 2 outstanding, and a second receive of 2 completes it;
     - receiving 3 when 2 are outstanding → 409;
-    - receiving the remaining 2 a second time after it completed → 409, with no new entries (the state is re-read after `lock_document`).
+    - receiving the remaining 2 a second time after it completed → 409, with no new entries (the state is re-read after `begin_locked`).
+  - **Transit warehouse:** after dispatch, moving the origin warehouse to another facility does not change which transit receive and cancel use (research R4).
   - **Close the remainder:** 2 return to the origin, status `received`, and the line shows 8 of 10.
   - **Cancel:**
     - in transit → transit back to the origin;
@@ -188,22 +202,23 @@ No commit carries a Co-Authored-By line. Delegated work goes to agents with abso
 - [ ] T019 [US3] Create `app/services/inventory_transfer_service.py`:
   - the pure helpers of T016;
   - `attach_derived`;
-  - **Every step below starts with `inventory_documents.lock_document`** and re-checks the state after it.
+  - **Every step below starts with `inventory_documents.begin_locked`, with no ordinary read before it** (R2). Dispatch, receive, close and cancel pass `facility=True`, `warehouses=[origin, destination]` and `transit_of=document.facility`; the transit warehouse is the row that call returns (research R4). Sales-order items lock the document only.
   - **`dispatch`:**
-    1. `assert_editable`, lines, stockable and `assert_facility(document.facility)`;
-    2. `next_serial`;
-    3. `warehouse_service.get_transit_warehouse(origin facility)`, which gives 422 "Facility {id} has no in-transit location" when it returns None;
-    4. `lock_warehouses([origin])` and `assert_available`;
+    1. `begin_locked`; the transit row is missing → 422 "Facility {id} has no in-transit location", with nothing posted and no serial consumed;
+    2. `assert_editable`, lines, stockable and `assert_facility(document.facility)`;
+    3. `next_serial`;
+    4. `assert_available` at the origin;
     5. post out at the origin and in at transit;
     6. set `completed`, `in_transit`, `serial`, and `quantity_received = 0` on each line, then commit.
   - **`receive(document, requested | None, current)`:**
-    1. `in_transit` is required (409);
-    2. `assert_facility(destination facility)`;
-    3. post transit out and destination in per received quantity;
-    4. update `quantity_received`, and clear `in_transit` when nothing is outstanding.
-  - **`close_remainder`:** `assert_facility(origin, destination)`; post transit out and origin in for the outstanding quantities; clear `in_transit`.
-  - **`cancel`:** delegate to `inventory_documents.cancel`, which nets the reversal across the transit, origin and destination entries. Also clear `in_transit`.
-  - **`add_sales_order_items`:** the order must exist (404) and be completed and not cancelled (409).
+    1. `begin_locked`; `in_transit` is required (409);
+    2. `assert_facility` for the destination warehouse's facility;
+    3. `apply_receipt` (404, 422 or 409 per T016);
+    4. post transit out and destination in per received quantity;
+    5. update `quantity_received`, and clear `in_transit` when nothing is outstanding.
+  - **`close_remainder`:** `begin_locked`; `in_transit` required (409); `assert_facility(origin, destination)`; post transit out and origin in for the outstanding quantities; clear `in_transit`.
+  - **`cancel`:** delegate to `inventory_documents.cancel` with the same warehouses and `transit_of`. It nets the reversal across the transit, origin and destination entries. Also clear `in_transit`.
+  - **`add_sales_order_items`:** `begin_locked` (document only), `assert_editable`; the order must exist (404) and be completed and not cancelled (409).
   - **`in_transit_view(db, facility)`:** per R10.
 - [ ] T020 [US3] Create `app/api/v1/endpoints/inventory_transfers.py` and register it under `/inventory-transfers`.
   - `/in-transit` is declared **before** `/{id}`.
@@ -220,18 +235,28 @@ No commit carries a Co-Authored-By line. Delegated work goes to agents with abso
 
 **Independent Test**: spec US4. A short-received completed purchase order gives a complementary draft holding only the remaining line; asking again returns the same draft.
 
-- [ ] T021 [P] [US4] Extend `tests/integration/test_inventory_receipt_flow.py` first, for US4 scenarios 1–5:
+- [ ] T021 [P] [US4] Write the US4 tests first.
+
+  `tests/unit/test_inventory_receipt_service.py` (constitution: branching services get unit tests) covers the pure helpers:
+  - `over_receipt_warnings(lines, ordered_by_po_line, received_elsewhere)`: sums this receipt's lines per order line, compares against the order line's own quantity, and gives one message per order line over it;
+  - `remaining_lines(order_lines, received)`: skips lines with nothing remaining;
+  - `complementary_refusal(order, remaining)`: no order, not completed, cancelled, fully received, each with its reason.
+
+  Then extend `tests/integration/test_inventory_receipt_flow.py` for US4 scenarios 1–5:
   - **Received elsewhere:** `quantity_received_elsewhere` counts only other completed, non-cancelled receipts.
+  - **Legacy complementary receipts:** a draft whose stored `quantity_ordered` holds the remaining quantity gets no false warning, because the check reads the order line (research R7).
   - **Warnings:** an over-receipt warning appears on save, read and confirm, and confirm still succeeds (FR-022). A hand-added line on a linked receipt has no link and no warning (FR-024).
   - **Complementary receipt, the success cases:**
     - it creates a draft (201) with only the under-received lines of that warehouse, `quantity = remaining` and `quantity_ordered` = the order line's quantity;
-    - a second call returns the same draft (200).
+    - a second call returns the same draft (200);
+    - called on that open draft itself, it returns the draft (200).
   - **Complementary receipt, the refusals (409 with the reason):** the order is not completed, cancelled, or fully received, or the receipt has no purchase order.
 - [ ] T022 [P] [US4] Extend `tests/api/test_inventory_receipts.py` for `/complementary`: 200, 201, 403 without Create, 404 and 409.
 - [ ] T023 [US4] In `app/services/inventory_receipt_service.py`, add:
+  - the pure helpers of T021;
   - `_received_elsewhere(db, purchase_order_details, exclude_receipt)`, one grouped query;
-  - warnings in `attach_derived`, per R7;
-  - `complementary_receipt(db, receipt, *, current) -> (receipt, created: bool)`, per R8.
+  - warnings in `attach_derived`, per R7, against the purchase-order lines' own quantities;
+  - `complementary_receipt(db, receipt, *, current) -> (receipt, created: bool)`, per R8. It ends the opening transaction and locks the `purchase_order` row `FOR UPDATE` before any ordinary read.
 
   Add the route to `inventory_receipts.py`, setting 200 or 201 from `created`. Make T021 and T022 pass.
 
@@ -275,7 +300,11 @@ No commit carries a Co-Authored-By line. Delegated work goes to agents with abso
 - [ ] T033 **Ask the user first; writes to mbe_dev.** Run SC-002 and SC-003 (quickstart step 4):
   - 20 concurrent confirms must give distinct, consecutive serials;
   - the same draft confirmed by two requests at once posts once: one succeeds and the other gets 409;
-  - of two concurrent over-subscribing issues, exactly one may succeed.
+  - of two concurrent over-subscribing issues, exactly one may succeed;
+  - two concurrent partial receives of 8 on a line of 10: one succeeds and the other gets 409, with no more than 10 received;
+  - a receive racing a cancel on one transfer: the ledger nets to zero per (warehouse, product) whichever wins;
+  - two concurrent complementary requests for one order give a single draft;
+  - issues confirmed at once in two facilities on the same product end without a deadlock or a 500.
 
   Record the results. List any cleanup and get it approved before it runs. Remove scratch scripts from xolotl.
 
@@ -283,8 +312,8 @@ No commit carries a Co-Authored-By line. Delegated work goes to agents with abso
 
 ## Dependencies & Execution Order
 
-- **Setup** (T001–T003) runs in parallel and comes first.
-- **Foundational:** T004 ∥ T005 → T006 (it needs T004's `lock=` and T005's tests) → T007. Phase 2 blocks every story.
+- **Setup:** T001 → T002 (its schema tests read the migration files); T003 in parallel with both.
+- **Foundational:** T004 ∥ T005 → T006 (it needs both sets of tests) → T007. Phase 2 blocks every story.
 - **US1** (T008–T011) needs Phase 2.
 - **US2** (T012–T015) needs Phase 2, and is independent of US1 (separate endpoint files).
 - **US3** (T016–T020) needs Phase 2, and is independent of US1 and US2.
@@ -294,7 +323,7 @@ No commit carries a Co-Authored-By line. Delegated work goes to agents with abso
 
 ### Parallel opportunities
 
-- T001 ∥ T002 ∥ T003
+- T001 ∥ T003, then T002
 - T004 ∥ T005
 - T008 ∥ T009; T012 ∥ T013; T016 ∥ T017 ∥ T018; T021 ∥ T022
 - After Phase 2: US1, US2 and US3 in parallel. They touch separate service and endpoint files and share only `router.py` (one line each, so serialise those edits).

@@ -4,61 +4,70 @@ All measurements are from mbe_dev on 2026-10-25, over the last 24 months unless 
 
 ## R1. Serial per facility under concurrent confirms
 
-**Decision**: the confirm (or dispatch) runs as one transaction:
-1. lock the document's `facility` row `FOR UPDATE`;
-2. read `MAX(serial)` for that model and facility with a **locking read** (`with_for_update(read=True)`);
-3. take max + 1.
+**Decision**: the confirm (or dispatch) takes its locks as in R2, which includes the document's `facility` row `FOR UPDATE`. It then reads `MAX(serial)` for that model and facility and takes max + 1.
+- The serial is written in the same transaction as the ledger entries. Any refusal rolls back, so no number is consumed.
+- The helper is `next_serial(db, model, facility)` in `inventory_documents.py`.
+- It keeps spec 027's locking read (`with_for_update(read=True)`) on the `MAX` as a second guard. Under R2's ordering a plain read would already be current, but the locking read costs nothing here, because the unique index makes it a short range read.
 
-The serial is written in the same transaction as the ledger entries. Any refusal after step 1 rolls back, so no number is consumed. The helper lives in `inventory_documents.py` as `_next_serial(db, model, facility)`.
+**Backstop**: all three tables already have `UNIQUE (facility, serial)` (`inventory_receipt_facility_serial_idx` and the same on issue and transfer; checked on mbe_dev). Legacy NULL serials are allowed by it. If it ever fires, the `IntegrityError` maps to 409 "Serial already taken, retry", never a 500.
 
-**Rationale**:
-- This is spec 027's `invoice_service._next_serial`. Under REPEATABLE READ, a plain `SELECT MAX` reads the snapshot this transaction opened before it waited on the lock, so it misses the serial the previous holder committed (mictlanix/mbe#45).
-- No facility repeats a serial today, and there is no unique index to fall back on.
+**Rationale**: under REPEATABLE READ, the snapshot is fixed at a transaction's first ordinary read. Any `MAX` taken from a snapshot older than the lock misses the serial the previous holder committed (mictlanix/mbe#45, spec 027).
 
 **Alternatives considered**:
 - **The current system's unlocked `MAX+1`:** this is the race itself.
-- **`documents.assign_folio`:** it locks but reads `MAX` without a locking read, so it has the same race. The spec keeps it out of scope. Its fix (one `.with_for_update(read=True)`) is a follow-up for sales orders, deliveries, quotes, refunds and itineraries.
-- **A unique index on `(facility, serial)`:** legacy rows with a NULL serial are allowed, but the index would need DDL on three tables, and the lock already prevents duplicates.
+- **`documents.assign_folio`:** it locks the facility, but the caller's snapshot may predate the lock and its `MAX` is not a locking read, so it has the same race. The spec keeps it out of scope; its fix is a follow-up for sales orders, deliveries, quotes, refunds and itineraries.
+- **Relying on the unique index alone:** concurrent confirms would fail with errors instead of queueing.
 
-## R2. Available-stock checks that concurrent confirms cannot both pass
+## R2. Locking: every lock before any ordinary read
 
-**Decision**: after the facility lock (R1), lock the affected `warehouse` rows `FOR UPDATE`, in ascending id order. Then compute per product `on_hand − reserved` with locking reads, and compare it with the quantity summed over the document's lines.
-- `stock_ledger.on_hand`, `reserved` and `available` gain a keyword-only `lock: bool = False`. It adds `with_for_update(read=True)` to their `SUM`. Existing callers are unchanged.
-- The checks are:
-  - issue confirm: the issue's warehouse;
-  - transfer dispatch: the origin;
-  - cancel: every warehouse whose net reversal is outbound (R3);
-  - receive and close the remainder: none, because they only move what is already in transit.
-- Lock order is always facility, then warehouses by id, so two of these transactions cannot deadlock.
+**Decision**: every step that changes a document runs one transaction in this order:
+
+1. **End the request's opening transaction** (`await db.commit()`; nothing is pending). `require_privilege` and the route's 404 lookup have already made ordinary reads, so without this the snapshot would predate the locks.
+2. **Lock the document's header row** `FOR UPDATE` (`populate_existing`), and re-check its state.
+3. **For steps that number or move stock:**
+   - lock the `facility` row `FOR UPDATE`;
+   - then lock every warehouse the step can touch, in ascending id order, with one `SELECT … FOR UPDATE`:
+     - receipt and issue: the warehouse;
+     - transfer: the origin, the destination, and the origin facility's transit warehouse, found by `facility = document.facility AND in_transit`.
+4. **Only then make ordinary reads:** lines, products, `quantity_received`, ledger sums (`stock_ledger.available`, unchanged) and the ledger entries to reverse. The snapshot opens at the first of these, after every lock, so it includes everything the previous holders committed.
+
+The steps are:
+- confirm, dispatch, receive, close the remainder and cancel take all three levels;
+- header and line edits and the sales-order items take only the document lock.
+
+**Lock order** is document, then facility, then warehouses by id. Each step locks one document, so no cycle is possible.
+
+**Stock checks**:
+- issue confirm: the issue's warehouse;
+- transfer dispatch: the origin;
+- cancel: every warehouse whose net reversal is outbound (R3);
+- receive and close the remainder: none, because they move only what is already in transit.
 
 **Rationale**:
-- The warehouse lock queues every issue, transfer and cancel that spends the same warehouse's stock (SC-003).
-- The locking read is needed for the same REPEATABLE READ reason as R1.
-- Warehouses are shared across facilities (14% of 2026 sales lines sell from another facility's warehouse). Locking only the facility would not serialise two facilities spending one warehouse.
+- **Locking the document** stops two requests on one document from both acting: two confirms, two partial receives that each see 10 outstanding, a cancel that waited behind a receive, or two line additions.
+- **Locking the warehouses** queues every issue, transfer and cancel that spends the same warehouse, including from another facility (14% of 2026 sales lines sell from another facility's warehouse).
+- **Taking locks before reads** makes ordinary reads current. The ledger therefore needs no locking reads, which matters on mbe_dev: `SUM` over `(warehouse, product)` is planned as a merge of the single-column warehouse and product indexes, and a share lock there would lock every warehouse's entries for that product and could deadlock two facilities. Reservations have only single-column indexes too. `stock_ledger.py` is not changed.
 
-**The document row comes first.** Every step that changes a document locks its own header row with `SELECT … FOR UPDATE` and then re-reads its state:
-- confirm, dispatch, receive, close and cancel;
-- header and line edits.
-
-Without it, two requests on one draft both pass the draft check. The second waits on the facility lock, then posts the ledger entries again under a new serial, and two receives can take the same outstanding units twice. Lock order is document, then facility, then warehouses by id. Each step locks only one document, so this order cannot deadlock.
-
-**Known limit**: sales-order confirmation (spec 012) checks availability with a plain read and takes no warehouse lock. An issue and a sales order confirmed at the same instant can still promise the same unit. Closing that means changing the sales-order confirm, which is outside this spec. It is recorded as a follow-up.
+**Known limit**: sales-order confirmation (spec 012) takes no warehouse lock. An issue and a sales order confirmed at the same instant can still promise the same unit. Fixing that means changing the sales-order confirm, which is outside this spec; it is recorded as a follow-up.
 
 **Alternatives considered**:
-- **Facility lock only:** it misses cross-facility warehouses.
-- **Locking `lot_serial_tracking` rows directly:** it is the same effect with an uglier lock footprint and more deadlock potential.
+- **Locking only the document, as last revised:** reads after it still come from the snapshot opened by the privilege check.
+- **Locking reads on the ledger sums:** wide share locks and deadlocks, as above.
 - **A stock-balance table with a row lock:** there is none (spec 012 R4), and adding one is a redesign.
 
 ## R3. Cancelling a confirmed document
 
-**Decision**: read every ledger entry with `source = <document type>` and `reference = <document id>`, then post one entry per row with the opposite sign, through `stock_ledger.post_movement`.
-- Before posting, net the reversal per (warehouse, product). Wherever it is outbound, require `available(lock=True) − outbound ≥ 0`, or answer 409 naming the product and warehouse.
-- A draft is cancelled with no ledger reads or writes.
+**Decision**: after R2's locks, read every ledger entry with `source = <document type>` and `reference = <document id>`, and post one entry per row with the opposite sign through `stock_ledger.post_movement`.
+- Before posting, net the reversal per (warehouse, product). Wherever it is outbound, require `available − outbound ≥ 0`, or answer 409 naming the product and warehouse.
+- A draft is cancelled with no ledger reads or writes, but under the same document lock and facility rule (FR-011).
 - A cancelled document answers 409.
 
 **Rationale**:
-- "The opposite of each entry it posted" (FR-008), read from what was actually posted. It is therefore exact for receipts, issues, partly received transfers, closed remainders, and legacy one-step transfers, including the 241 whose entries don't net to zero.
+- "The opposite of each entry it posted" (FR-008), read from what was actually posted. It is exact for receipts, issues, partly received transfers, closed remainders and legacy one-step transfers, including the 241 whose entries don't net to zero.
+- Types 3, 4 and 5 are written only by these three documents (deliveries use 10), so a reversal cannot pick up another document's entries.
 - One function serves all three documents.
+
+**Cost**: `lot_serial_tracking` has no index on `(source, reference)`, so the read scans about 1.38M rows. At about 10 cancels a month this is acceptable, and it is a plain read with no locks; an index is a later optimisation.
 
 **Alternatives considered**:
 - **Recomputing from the lines:** it is wrong for partial receipts and for legacy transfers whose entries differ from their lines.
@@ -78,7 +87,7 @@ Without it, two requests on one draft both pass the draft check. The second wait
 - **Receive** adds to `quantity_received`, which may not exceed `quantity`. It clears `in_transit` when no line is outstanding.
 - **Close the remainder** posts the outstanding quantities from transit to the origin and clears `in_transit`.
 - A NULL `quantity_received` (legacy) reads as `quantity` once the transfer is completed.
-- The transit warehouse is the origin facility's, looked up with `warehouse_service.get_transit_warehouse`. Spec 013 forbids editing or deleting it, so dispatch and receive see the same one.
+- The transit warehouse is that of the transfer's own `facility` (set from the origin when the draft was made, and fixed once dispatched), found by R2's warehouse lock query. It is never derived from the origin warehouse's *current* facility, which a warehouse edit could change. Spec 013 forbids editing or deleting transit warehouses, so dispatch, receive, close and cancel all see the same one.
 
 **Rationale**:
 - Legacy rows need no backfill: 3,318 confirmed transfers default to `in_transit = 0` with NULL received quantities, and read as received in full (FR-044a).
@@ -95,13 +104,15 @@ Without it, two requests on one draft both pass the draft check. The second wait
 - **Wider view:** the caller is an administrator, or `has_any_privilege(db, user, [(object, DELETE)])` holds for the document's object. They see all documents, optionally filtered by `warehouse`.
 - **Default:** `warehouse == pos_warehouse OR creator == current.employee_id`. For transfers, the warehouse condition is `warehouse == pos OR warehouse_to == pos`. The point-of-sale warehouse comes from `PointSale.warehouse` for `current.point_sale_id`. Without a point of sale, only the caller's own documents are listed.
 - **Filters:** `status`, `warehouse`, `skip` and `limit`, newest first.
+  - `status` accepts only that document's values: `draft`, `completed` or `cancelled` for receipts and issues (not `DocumentStatus.PAID`, which is refused with 422), and `draft`, `in_transit`, `received` or `cancelled` for transfers.
+  - `warehouse` matches the document's warehouse; for transfers it matches the origin or the destination. In the default scope it narrows the scope further and never widens it.
 
 **Rationale**: clarification Q3, and the current system's scope (spec Findings). The numeric search that ignored scope is not carried over.
 
 ## R6. Facility rule on confirming steps
 
 **Decision**: a non-administrator's `current.facility_id` must equal:
-- the document's `facility` for confirm and cancel (origin facility for transfers);
+- the document's `facility` for confirm and for every cancel, draft or confirmed (origin facility for transfers);
 - the destination warehouse's facility for receive;
 - either one for close the remainder.
 
@@ -113,9 +124,9 @@ Otherwise the answer is 403 "Document belongs to another facility". Header and l
 
 **Decision**:
 - For each line with `purchase_order_detail`, the response carries:
-  - `quantity_ordered` (stored snapshot);
+  - `quantity_ordered`: the purchase-order line's own `quantity`, read live. The stored column is not used for this, because the current system's complementary receipts stored the *remaining* quantity in it;
   - `quantity_received_elsewhere`: the sum of linked lines on other receipts that are completed and not cancelled.
-- Each line whose `quantity_received_elsewhere + quantity > quantity_ordered` adds a message to the response's `warnings`, naming the product code and the excess.
+- Per purchase-order line, sum this receipt's linked lines (legacy receipts may link one order line twice). If `quantity_received_elsewhere + that sum > ordered`, add one message to `warnings`, naming the product code and the excess.
 - Warnings are computed on every read, line save and confirm. They never block.
 - Lines added by hand store `quantity_ordered = 0` (the column is NOT NULL) and no link.
 
@@ -124,6 +135,8 @@ Otherwise the answer is 403 "Document belongs to another facility". Header and l
 ## R8. Complementary receipt
 
 **Decision**: `POST /inventory-receipts/{id}/complementary`, with the create right.
+- **Locking:** following R2, the request ends its opening transaction, then locks the `purchase_order` row `FOR UPDATE` before any ordinary read. Two simultaneous requests for the same order therefore queue, and the second finds the draft the first created.
+- **The source** is any non-cancelled receipt linked to the order, confirmed or draft. If the source is itself the open draft for that order and warehouse, it is the one returned.
 - The source receipt must have a purchase order that is completed and not cancelled (otherwise 409, with the reason).
 - Remaining per order line of that warehouse = `PurchaseOrderDetail.quantity` − linked quantities on completed, non-cancelled receipts. Lines with nothing remaining are skipped; if none remain, 409 "fully received".
 - If an open draft exists for the same order and warehouse (oldest first), answer 200 with it.
@@ -138,6 +151,7 @@ Otherwise the answer is 403 "Document belongs to another facility". Header and l
   - The product must exist (404) and be stockable (422), and the quantity must be > 0.
   - The product's status is not checked, when adding or at confirm. A product discontinued after it went on a draft still confirms (spec Edge Cases), and adding a discontinued product is not refused either: the warehouse may still hold or receive it.
 - `PUT /{id}/lines/{line_id} {quantity > 0}` and `DELETE` work on drafts only.
+- **Warehouse status** (active, inactive, archived) is not checked when a warehouse is set on a document, matching every other service in the API, sales included. Only in-transit warehouses are refused (FR-009).
 - `POST /inventory-transfers/{id}/sales-order-items {sales_order}` requires an order that is completed and not cancelled (otherwise 409). It sums the order's stockable lines per product, skips products already on the transfer, and adds the rest.
 
 **Rationale**: FR-003 and FR-046, with clarification Q2. The 469 legacy receipts with repeated products show why lines merge.
