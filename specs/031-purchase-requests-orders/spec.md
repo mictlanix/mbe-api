@@ -81,6 +81,11 @@ It builds on spec 029: receipts, their PO links, the complementary receipt, and 
 
 - Q: Are the cost list and PO prices as typed with or without IVA? → A: Both without IVA. PO prices are net, and averaging uses them as typed. The "tax included" flag on existing PO lines is a copy of the product's sales flag and is ignored; new PO lines store it off and tax is added on top (FR-021, FR-034, FR-040).
 - Q: What does cancelling a confirmed PO-linked receipt do to cost? → A: It restores the cost from before the receipt when no later change touched that product's cost; otherwise cost stays and the cancel warns (FR-037).
+- Q: How does "to purchase by supplier" group pending lines? → A: By supplier and destination facility (the facility of the line's warehouse): one draft PO per supplier per facility. Only 1 of 1,797 live request-fed POs in 24 months mixed facilities (FR-024, FR-025).
+- Q: May a requester approve their own request? → A: Yes. Anyone holding PurchaseRequestApproval (96) update may approve or reject any submitted request, their own included (FR-005).
+- Q: Which requests does the approval queue show? → A: Submitted requests from all facilities, filterable by facility; there are 4 approvers for 7 facilities (FR-007).
+- Q: Do facility limits apply to requests and POs? → A: Requests follow spec 029's rule: a non-administrator edits, submits and cancels only requests whose header warehouse is in their facility. Approving, rejecting and marking lines are not limited by facility, and POs have no facility limit (FR-011, FR-029).
+- Q: Can a rejected request's header warehouse move to another facility? → A: No. Once a request has a serial, its header warehouse may change only to another warehouse of the same facility (FR-002).
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -111,18 +116,18 @@ Store staff open a purchase request, add the products they need with quantities 
 
 ### User Story 2 - Purchasing turns approved requests into purchase orders (Priority: P1)
 
-The purchasing agent reviews approved requests and marks the lines to buy. They then either let the system build one draft PO per supplier from all pending marked lines, or add request lines to a PO they opened. Each request line can be on only one live PO.
+The purchasing agent reviews approved requests and marks the lines to buy. They then either let the system build one draft PO per supplier and destination facility from the pending marked lines, or add request lines to a PO they opened. Each request line can be on only one live PO.
 
 **Why this priority**: 1,809 POs in two years came from requests, and 109 request lines were ordered twice.
 
-**Independent Test**: Two approved requests have marked lines whose products come from suppliers A and B, plus one unmarked line. "To purchase by supplier" lists A and B with their pending lines and estimated totals at cost. Creating both gives two draft POs priced from the cost list. The unmarked line is on neither. Creating again adds nothing.
+**Independent Test**: Two approved requests have marked lines whose products come from suppliers A and B, plus one unmarked line; supplier A's lines go to warehouses in two facilities. "To purchase by supplier" lists A twice (once per facility) and B once, with their pending lines and estimated totals at cost. Creating all three gives three draft POs priced from the cost list. The unmarked line is on neither. Creating again adds nothing.
 
 **Acceptance Scenarios**:
 
 1. **Given** approved requests with marked lines not on a live PO, **When** "to purchase by supplier" is read, **Then**:
-   - those lines are grouped by their product's supplier, with line count and estimated total at cost;
+   - those lines are grouped by their product's supplier and destination facility, with line count and estimated total at cost;
    - lines of draft, submitted or cancelled requests, unmarked lines, and lines already on a live PO are excluded.
-2. **Given** that list, **When** a PO is created for a supplier, **Then** a draft PO for that supplier holds one line per pending line, with:
+2. **Given** that list, **When** a PO is created for a supplier and facility, **Then** a draft PO for that supplier holds one line per pending line of that group, with:
    - the line's product, quantity and destination warehouse;
    - the price from the cost list, or 0 with a warning when the product has no cost.
 3. **Given** two agents creating POs from the same request lines at the same moment, **When** both finish, **Then** each line is on exactly one live PO.
@@ -198,7 +203,7 @@ The buyer downloads the confirmed PO as a PDF, or emails it to one of the suppli
 
 - **Concurrency.** Submitting, approving, confirming and cancelling are each applied once, including two at the same moment. Request serials are never repeated within a facility, and a failed submit consumes no number.
 - **One live PO per request line.** This holds under concurrent "create by supplier", "add from request" and line moves. A request line on a cancelled PO is pending again.
-- **Resubmitting** a rejected request keeps its serial.
+- **Resubmitting** a rejected request keeps its serial; its header warehouse cannot have moved to another facility (FR-002).
 - **Cross-facility lines.** A request line or a PO line may go to a warehouse of another facility. The request's serial follows the header warehouse's facility.
 - **Products.** Requests and POs accept only purchasable products. Non-stockable PO lines get no receipt line. A warehouse with only non-stockable lines gets no receipt.
 - **Warehouses.** In-transit warehouses cannot be a request or PO destination.
@@ -222,7 +227,7 @@ The buyer downloads the confirmed PO as a PDF, or emails it to one of the suppli
   - its date, creator, updater and times.
 - **FR-002**: While a request is a draft, users MUST be able to:
   - add, change and remove lines (product, product name up to 250 characters, quantity above 0 with up to 2 decimals, destination warehouse);
-  - change the header warehouse and comment.
+  - change the header warehouse and comment. Once the request has a serial, the header warehouse MUST stay within the same facility; a change to another facility's warehouse is refused.
 
   The product name defaults to the product's name and can be overwritten. The line warehouse defaults to the header's. A new line's quantity defaults to the product's minimum order quantity.
 - **FR-003**: Saving a line below the product's minimum order quantity MUST be accepted with a warning naming the minimum.
@@ -232,6 +237,7 @@ The buyer downloads the confirmed PO as a PDF, or emails it to one of the suppli
   - make it submitted.
 - **FR-005**: Approving MUST:
   - be refused unless the request is submitted;
+  - be allowed to any holder of the approval right, including the request's creator;
   - make it approved, recording the approving employee and the time.
 
   Several requests MAY be approved in one call, each reported as approved or refused with its reason.
@@ -239,14 +245,15 @@ The buyer downloads the confirmed PO as a PDF, or emails it to one of the suppli
   - be refused unless the request is submitted, and require a reason of up to 500 characters;
   - record the reason as an incidence of the request;
   - return the request to draft, keeping its serial.
-- **FR-007**: The approval queue MUST list submitted requests, oldest first, with requester, facility, serial, date and line count, and the detail of each.
+- **FR-007**: The approval queue MUST list submitted requests of every facility, oldest first, filterable by facility, with requester, facility, serial, date and line count, and the detail of each.
 - **FR-008**: Each request line MUST carry a "to purchase" mark, set on new lines. The purchasing agent MUST be able to mark or unmark lines of submitted and approved requests. Unmarking a line on a live PO MUST be refused.
 - **FR-009**: Cancelling MUST be possible from draft, submitted or approved, and MUST be refused once any of the request's lines is on a live PO. A cancelled request is read-only.
 - **FR-010**: Each request line MUST show the live PO line it is on, if any, and that PO's state.
 - **FR-011**: The rights:
   - **PurchaseRequest (86):** read to list and view, create to create, update to edit and submit, delete to cancel;
   - **PurchaseRequestApproval (96):** read for the queue, update to approve or reject;
-  - **PurchasesOrders (20) update:** to mark lines to purchase.
+  - **PurchasesOrders (20) update:** to mark lines to purchase;
+  - **Facility:** a non-administrator MUST be refused (403) editing, submitting or cancelling a request whose header warehouse belongs to another facility, as in spec 029. Approving, rejecting and marking lines are not limited by facility.
 - **FR-012**: Request lists MUST show, by default, the requests the caller created or updated, excluding cancelled. They MUST be filterable by state, warehouse, facility, creator, serial or id and date range, newest first, and readers MAY list all.
 - **FR-013**: The per-line customer and the `Accepted` flag MUST NOT be offered. New lines store the default customer and `Accepted` = false.
 
@@ -263,8 +270,8 @@ The buyer downloads the confirmed PO as a PDF, or emails it to one of the suppli
   Currency, exchange rate and discount MUST be stored as MXN, 1 and 0, "tax included" as off, and the invoice number left empty, with no way to edit them.
 - **FR-022**: Every change to a PO's header or lines MUST be refused unless the PO is a draft.
 - **FR-023**: Users MUST be able to add to a draft PO the pending lines of a given approved request. Pending lines are marked and not on a live PO. Each becomes a PO line linked to the request line, with its quantity and warehouse, priced from cost. A line whose product's supplier differs from the PO's is added with a warning.
-- **FR-024**: "To purchase by supplier" MUST list the pending lines of approved, non-cancelled requests, grouped by their product's supplier, with line count and estimated total at cost. Lines whose product has no supplier MUST be listed in a separate group.
-- **FR-025**: Users MUST be able to create a draft PO for one supplier from all its pending lines. It MAY be limited to one destination warehouse. Each line is priced from the cost list; a product with no cost gets 0 and a warning.
+- **FR-024**: "To purchase by supplier" MUST list the pending lines of approved, non-cancelled requests, grouped by their product's supplier and destination facility (the facility of the line's warehouse), with line count and estimated total at cost. The list MAY be filtered by facility. Lines whose product has no supplier MUST be listed in a separate group per facility.
+- **FR-025**: Users MUST be able to create a draft PO for one supplier and facility from all pending lines of that group. A PO created this way never mixes facilities. Each line is priced from the cost list; a product with no cost gets 0 and a warning.
 - **FR-026**: A request line MUST be on at most one PO line of a non-cancelled PO, safely under concurrent PO creation and line additions. A request line that loses that race is left out and reported, not doubled.
 - **FR-027**: Confirming a PO MUST:
   - be refused unless it is a draft with a supplier, at least one line, and every quantity above 0;
@@ -273,7 +280,7 @@ The buyer downloads the confirmed PO as a PDF, or emails it to one of the suppli
   - make the PO confirmed;
   - be all or nothing, and run once: a second or concurrent confirm is refused and creates no receipt.
 - **FR-028**: Cancelling MUST be possible only for a draft PO. Its lines stay on it, and its request lines become pending again.
-- **FR-029**: The rights on PurchasesOrders (20): read to list and view, print and to-purchase; create to create; update to edit and confirm, and to email; delete to cancel. PO approval (95) MUST NOT be built.
+- **FR-029**: The rights on PurchasesOrders (20): read to list and view, print and to-purchase; create to create; update to edit and confirm, and to email; delete to cancel. PO approval (95) MUST NOT be built. POs are not limited by facility.
 - **FR-030**: PO lists MUST show, by default, the POs the caller created or updated, excluding cancelled. They MUST be filterable by state, supplier, creator, id and date range, newest first, and readers MAY list all. Each PO shows its receiving progress per line: ordered, received on confirmed receipts, and pending.
 
 **Average cost (#70)**
