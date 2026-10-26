@@ -5,7 +5,7 @@ All measurements are from mbe_dev on 2026-10-26 (see spec, Findings).
 ## R1. The count document on spec 029's module
 
 **Decision**: add a `COUNT` kind to `inventory_documents`:
-- header `InventoryCount`, line `InventoryCountDetail`, `line_fk='count'`;
+- header `InventoryCount`, line `InventoryCountDetail`, `line_fk='count_id'`. The column is `count`, mapped to the attribute `count_id`, because a selected row's `.count` is a tuple method;
 - `warehouses=('warehouse',)` and `transit=False`;
 - `transaction_type=PHYSICAL_COUNT` (12);
 - `system_object=PHYSICAL_COUNT_ADJUSTMENT` (74);
@@ -34,7 +34,7 @@ Count-specific, in `inventory_count_service`:
 
 **Decision**: one transaction inside `busy_as_conflict`:
 1. **Lock:** `begin_locked(COUNT, id, stock=True)`. That locks the count row, then the warehouse and the facility's transit warehouse by primary key. The transit warehouse is the numbering lock (spec 029 R1). Any other movement of the warehouse by an inventory document queues behind it.
-2. **Checks:** `assert_facility(document.facility)`, then `assert_editable`. A count with no lines, and without "include uncounted as zero", answers 409.
+2. **Checks:** `assert_facility(document.facility)`, then `assert_editable`. The "no lines" check (409) runs after step 4 has added any uncounted lines, so an empty count confirmed with "include uncounted as zero" on a warehouse with nothing non-zero is refused and uses no serial.
 3. **Serial:** `next_serial(InventoryCount, facility)`.
 4. **On hand:** read with one grouped query, `SELECT product, SUM(quantity) FROM lot_serial_tracking WHERE warehouse = :w [AND product IN (chunk)] GROUP BY product`.
    - With "include uncounted as zero", it reads the whole warehouse, adds a line counted at 0 for each stockable product with a non-zero balance and no line, and snapshots its code and name.
@@ -43,13 +43,14 @@ Count-specific, in `inventory_count_service`:
 6. **Lines:** each line gets `quantity_on_hand` and `difference`, through a bulk `UPDATE` executemany.
 7. **Warnings,** read before commit:
    - **negative available:** `stock_ledger.reserved_by_warehouse` for the counted products, and every product where `counted − reserved < 0` (FR-010);
-   - **overlap:** products on this count that also appear on another completed count of the same warehouse whose `modification_time` (its confirm time; confirmed counts are read-only) is after this count's `creation_time` (FR-010a).
+   - **overlap:** products on this count that also appear on another completed count of the same warehouse whose `modification_time` (its confirm time; confirmed counts are read-only) is at or after this count's `creation_time` (FR-010a). Times are stored to the second, so `>=` catches a confirm in the same second, at the cost of a rare extra warning.
 8. **Finish:** set the serial last, then `completed`, `updater` and `modification_time`, and commit.
 
 **Rationale**:
 - **Locks:** after them, the reads are current (spec 029 R2). Reading on hand at confirm, under the warehouse lock, is "on hand at that moment" (FR-004).
 - **Speed:** ORM `add()` of 15,000 entries, plus 15,000 attribute updates, flushes row by row. A core `insert()` and `update()` executemany sends batches, so 15,000 lines stay well inside 60 s (SC-003).
 - **Chunks:** 1,000 keeps `IN` lists and packets small.
+- **Idle warehouse for the opening count:** while confirm runs, the count holds the warehouse's lock. Every ledger or reservation insert into that warehouse (a sale's reservation, a pickup, a departure, a refund) takes a foreign-key lock on the same row and waits. MariaDB's lock wait timeout (50 s) is shorter than SC-003's 60 s budget, so a large count must be confirmed with the warehouse idle. The migration runbook (mictlanix/mbe-roadmap#145) must say so. Day-to-day counts of about 30 lines hold the lock for well under a second.
 
 **Alternatives considered**:
 - **On hand at the physical count's time (the current system's):** the request asks for on hand at confirm.
@@ -81,7 +82,7 @@ Count-specific, in `inventory_count_service`:
 - The count endpoints expose no expected quantity.
 - The stock query (FR-020) stays available to anyone with right 67.
 
-**Rationale**: clarification Q5 (FR-003a).
+**Rationale**: clarification Q4 (FR-003a).
 
 ## R5. Stock queries
 
@@ -98,7 +99,7 @@ Count-specific, in `inventory_count_service`:
 - **`GET /stock/products/{product}`:**
   - one row per warehouse with any non-zero figure, with on hand, reserved, available and incoming;
   - plus `in_transit`: one row per facility whose transit warehouse holds a non-zero balance of the product.
-  - Built from `stock_ledger.on_hand_by_warehouse` and `reserved_by_warehouse`.
+  - Built from three queries: `stock_ledger.on_hand_by_warehouse`, `reserved_by_warehouse`, and the product's lines on transfers in transit, grouped by `warehouse_to` (incoming).
 - **Rights:** Read on WarehouseStockReport (67) for both, with no facility scope (the current report has none).
 - **Not offered:** the in-transit warehouses themselves as a `/stock?warehouse=` target. Spec 013 forbids listing them, so that answers 422.
 
@@ -122,7 +123,7 @@ Count-specific, in `inventory_count_service`:
   | Type | Table | Shown |
   |---|---|---|
   | 1 | `sales_order` | facility, serial |
-  | 2 | `customer_refund` | facility, serial. Legacy rows written by payment cancellation reference a sales order, not a refund, so a row resolves only when a refund with that id exists and was created no later than the entry's date. A refund's entries are posted at or after its creation. Otherwise the row is raw (spec Assumptions). |
+  | 2 | `customer_refund` | facility, serial. Legacy rows written by payment cancellation reference a sales order, not a refund. So a row resolves only when a refund with that id exists **and** the entry's product is on that refund's lines (`customer_refund_detail`). On mbe_dev that links 9,234 of 9,267 type-2 entries; the other 33, including the 31 payment-cancellation rows whose reference collides with a refund id, show raw (spec Assumptions). |
   | 3 | `inventory_issue` | facility, serial |
   | 4 | `inventory_receipt` | facility, serial |
   | 5 | `inventory_transfer` | facility, serial |
@@ -168,7 +169,7 @@ Count-specific, in `inventory_count_service`:
   - `comment` VARCHAR(500) NULL.
 - `inventory_count_detail`:
   - `count_detail_id` PK;
-  - `count` FK, `product` FK;
+  - `count` FK (ORM attribute `count_id`), `product` FK;
   - `product_code` VARCHAR(25) NULL and `product_name` VARCHAR(250) NULL;
   - `quantity` DECIMAL(18,4) NOT NULL (counted);
   - `quantity_on_hand` DECIMAL(18,4) NULL and `difference` DECIMAL(18,4) NULL;

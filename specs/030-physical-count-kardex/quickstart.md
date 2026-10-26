@@ -32,7 +32,7 @@ Each step needs the user's confirmation first.
    - check the balances, then record the ids.
 
    A count cannot be cancelled. To restore the balances, either count again at the original quantities (a second count) or leave the change recorded, whichever the user chooses.
-6. **SC-003, the opening count at scale,** on a warehouse the user designates: enter 15,000 lines in batches of 2,000, then confirm, and time it. The balances it changes have to be restored afterwards with a second count, so the user must agree to the choice of warehouse and the restoration first.
+6. **SC-003, the opening count at scale,** on a warehouse the user designates, kept idle while the confirm runs (research R2): enter 15,000 lines in batches of 2,000, then confirm, and time it. The balances it changes have to be restored afterwards with a second count, so the user must agree to the choice of warehouse and the restoration first.
 
 ## Follow-ups
 

@@ -49,7 +49,7 @@ description: "Task list for the physical inventory count, stock queries and kard
 
 - [ ] T004 Extend `app/services/inventory_documents.py`:
   - add a `cancellable_when_completed: bool = True` field to `Kind`, with RECEIPT, ISSUE and TRANSFER unchanged;
-  - add a `COUNT` kind: header `InventoryCount`, line `InventoryCountDetail`, `line_fk='count'`, `id_attr='inventory_count_id'`, `line_id_attr='count_detail_id'`, `warehouses=('warehouse',)`, `transit=False`, `transaction_type=PHYSICAL_COUNT`, `system_object=PHYSICAL_COUNT_ADJUSTMENT`, `label='Count'`, `cancellable_when_completed=False`;
+  - add a `COUNT` kind: header `InventoryCount`, line `InventoryCountDetail`, `line_fk='count_id'` (the `count` column is mapped to the attribute `count_id`; research R1), `id_attr='inventory_count_id'`, `line_id_attr='count_detail_id'`, `warehouses=('warehouse',)`, `transit=False`, `transaction_type=PHYSICAL_COUNT`, `system_object=PHYSICAL_COUNT_ADJUSTMENT`, `label='Count'`, `cancellable_when_completed=False`;
   - in `cancel`, after the facility check, a completed document whose kind is not cancellable gives 409 "A confirmed count cannot be cancelled".
 
   Write the tests first: in `tests/unit/test_inventory_documents.py`, the 409 for a completed COUNT; in `tests/unit/test_inventory_locks.py`, that it comes after the locks and the facility check. Spec 029's tests must stay green.
@@ -82,6 +82,8 @@ description: "Task list for the physical inventory count, stock queries and kard
   - **Facility:** a non-administrator of another facility confirming or cancelling gets 403.
   - **Warnings:** `negative_available` when the count is below what is reserved; `corrected_by_other_counts` when another count of the warehouse confirmed after this one was created (FR-010a).
   - **Validation:** an in-transit warehouse gives 422, and a non-stockable product 422.
+  - **Empty with uncounted:** an empty count confirmed with `include_uncounted` on a warehouse with nothing non-zero gives 409 and uses no serial.
+  - **List (FR-009):** the caller's point-of-sale warehouse plus their own counts by default; everything with the delete right on 74; the state and warehouse filters; newest first.
 - [ ] T008 [P] [US1] Write `tests/api/test_inventory_counts.py` first: the 9 routes of the contract, with 401, 403 (each right on object 74), 404, 409 and 422, and services patched as in `tests/api/test_inventory_receipts.py`.
 - [ ] T009 [US1] Create `app/services/inventory_count_service.py`:
   - the pure helpers of T006 and `attach_derived` (blind for drafts);
@@ -127,14 +129,14 @@ description: "Task list for the physical inventory count, stock queries and kard
 
 **Independent Test**: spec US3. With 10 on hand, 3 reserved and 2 incoming, the query shows 10, 3, 7 and 2.
 
-- [ ] T013 [P] [US3] Write `tests/integration/test_stock_queries.py` first, covering US3 scenarios 1–3:
+- [ ] T013 [P] [US3] Write `tests/unit/test_stock_queries.py` first (constitution: a branching service needs unit tests), for T015's pure helpers: `merge_stock(on_hand, reserved, incoming)` per product with available, `keep_row(row, include_zero)`, `split_transit(rows, transit_warehouses)` for the product view, and sorting and paging. Then write `tests/integration/test_stock_queries.py`, covering US3 scenarios 1–3:
   - **Figures:** on hand, reserved (type 11 only; stale types are ignored), available and incoming (outstanding lines of transfers in transit to the warehouse);
   - **Filters:** `q` on code and name, `include_zero`, and paging sorted by code;
   - **Product view:** every warehouse with a non-zero figure, plus `in_transit` per facility transit warehouse;
   - **Labels:** a product with several labels counts once (FR-022);
   - **Errors:** an in-transit warehouse as the `/stock` target gives 422, and an unknown warehouse or product 404.
 - [ ] T014 [P] [US3] Write `tests/api/test_stock.py` first: both routes, with 401, 403 (Read on 67), 404 and 422, and `limit` ≤ 500.
-- [ ] T015 [US3] Create `app/services/stock_query_service.py` per research R5 (grouped queries, merged by product), and `app/api/v1/endpoints/stock.py`. Register it under `/stock`. Make T013 and T014 pass.
+- [ ] T015 [US3] Create `app/services/stock_query_service.py` per research R5 (the pure helpers of T013, then grouped queries merged by product, with the product view's third query for incoming), and `app/api/v1/endpoints/stock.py`. Register it under `/stock`. Make T013 and T014 pass.
 
 **Checkpoint:** stock is visible with reservations and incoming transfers.
 

@@ -20,7 +20,7 @@
 | Column | Type | Null | Notes |
 |---|---|---|---|
 | `count_detail_id` | INT AUTO_INCREMENT | NO | PK |
-| `count` | INT | NO | FK inventory_count |
+| `count` | INT | NO | FK inventory_count; ORM attribute `count_id` |
 | `product` | INT | NO | FK product; UNIQUE `(count, product)` |
 | `product_code`, `product_name` | VARCHAR(25) / VARCHAR(250) | YES | snapshots |
 | `quantity` | DECIMAL(18,4) | NO | counted, ≥ 0 |

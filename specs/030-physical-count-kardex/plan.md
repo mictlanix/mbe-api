@@ -8,7 +8,7 @@
 
 - **Physical count** (#64): a new count document (`inventory_count` and `inventory_count_detail`, migration 027), built on spec 029's shared module.
   - Drafts take counted quantities one at a time or as batches of up to 2,000. Entering a product again replaces its quantity.
-  - Drafts are blind (clarification Q5).
+  - Drafts are blind (clarification Q4).
   - Confirm locks the document, then the warehouse and the facility's transit warehouse (the numbering lock), as spec 029 does. It then reads on hand for every counted product in one grouped query and posts each non-zero difference as the new type **12 (physical count)**, inserted in bulk.
   - Confirm can add uncounted products as zero. It warns about products whose available stock goes negative, and about products another count corrected since this one was created (FR-010a).
   - A confirmed count cannot be cancelled.
@@ -68,7 +68,7 @@
 | Principle | Check | Status |
 |---|---|---|
 | I. Simplicity First | The count reuses spec 029's draft, lock, serial, list and cancel mechanics. Stock and kardex are read-only queries over the existing ledger. There are no lots, costs, labels or file upload. One migration. | PASS |
-| II. Think Before Coding | Five clarifications are recorded. Performance was measured on mbe_dev before deciding against an index. The bulk-insert and chunking choices are argued in research R3. | PASS |
+| II. Think Before Coding | Four clarifications are recorded. Performance was measured on mbe_dev before deciding against an index. The bulk-insert and chunking choices are argued in research R2. | PASS |
 | III. Surgical Changes | Spec 012's pickup changes one constant (FR-034, clarified). `inventory_documents` gains a kind and a refusal hook, and its existing behaviour is unchanged. `stock_ledger` is unchanged. | PASS |
 | IV. Goal-Driven | SC-001 to SC-006 map to tests or to recorded runs on the test deployment (quickstart). | PASS |
 | V. Reuse Over Rebuild | Reused: `inventory_documents` (begin_locked, next_serial, busy_as_conflict, list_documents, cancel), `stock_ledger` batched sums, and the transfer service's outstanding figures. New services are justified below. | PASS, see Complexity Tracking |
