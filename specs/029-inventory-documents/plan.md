@@ -20,8 +20,8 @@ The three inventory documents get services and routes on the existing tables:
   - adding a sales order's stockable lines, skipping products already on the transfer.
 
 Shared mechanics:
-- **Serial:** facility row lock, then a *locking* `MAX` read, as in spec 027 (R1).
-- **Locks:** every step that changes a document ends the request's opening transaction, then locks the document, the facility and the warehouses it touches, in that order, before any ordinary read (R2). A repeated or concurrent request therefore cannot post twice, and every read after the locks is current.
+- **Serial:** a locking `MAX(serial)` on the document's own `(facility, serial)` index, taken last (R1).
+- **Locks:** every step that changes a document ends the request's opening transaction, then locks the document, the warehouses it touches (by primary key, in id order) and, for confirm and dispatch, its serial range, in that order, before any ordinary read (R1, R2). The facility row is never locked. A repeated or concurrent request therefore cannot post twice, and every read after the locks is current. A deadlock or lock timeout answers 409 "busy, retry".
 - **Stock checks:** available = on hand − reservations, summed per product, with `stock_ledger` unchanged (R2).
 - **Cancel:** posts the negation of every ledger entry the document wrote (R3).
 - **Rights and lists:** gated per FR-010 to FR-012 (R5, R6).
@@ -48,7 +48,7 @@ There is one migration, 026. It adds `inventory_transfer.in_transit` and the nul
 
 **Project Type**: web service (REST API under `/api/v1`)
 
-**Performance Goals**: about 460 receipts, 100 issues and 140 transfers a month, with 4 lines on average. A confirm takes 3 or 4 row locks (the document, the facility and its warehouses) and one sum per product.
+**Performance Goals**: about 460 receipts, 100 issues and 140 transfers a month, with 4 lines on average. A confirm locks the document, 1 to 3 warehouses and the serial range, and reads one sum per product.
 
 **Constraints**:
 - **Ledger:** append-only (spec 012 FR-062); lot, serial and expiry stay NULL.
@@ -109,8 +109,8 @@ app/
 ├── models/inventory.py                           # + in_transit, quantity_received
 ├── schemas/inventory.py                          # NEW
 └── services/
-    ├── inventory_documents.py                    # NEW: kinds, drafts, lines, serial, confirm,
-    │                                             #   locking stock check, reversal, list scope
+    ├── inventory_documents.py                    # NEW: kinds, drafts, lines, locks and serial,
+    │                                             #   confirm, stock check, reversal, list scope
     ├── inventory_receipt_service.py              # NEW: PO view, warnings, complementary receipt
     └── inventory_transfer_service.py             # NEW: dispatch, receive, close, in transit,
                                                   #   sales order items, transfer state

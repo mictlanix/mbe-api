@@ -65,6 +65,7 @@ A product appears at most once per document for lines this API writes (FR-003). 
 Line figures for a transfer:
 - **received** = `quantity_received`. If that is NULL, it is `quantity` once the transfer is completed, otherwise 0.
 - **outstanding** = `quantity − received` while the transfer is in transit, otherwise 0.
+- A cancelled transfer keeps `quantity_received` as it was before the cancel. The response shows what had been received, and the ledger holds the reversal (research R3).
 
 ## State transitions
 
@@ -104,10 +105,11 @@ Every entry has `source` = TransactionType, `reference` = the document id, `date
 | The origin facility has no transit warehouse | 422, naming the facility |
 | A receive exceeds the outstanding quantity of a line, or names a line with nothing outstanding | 409 |
 | A receive names a line of another transfer | 404 |
-| A receive names the same line twice | 422 |
+| A receive names the same line twice, or sends an empty `lines: []` | 422 |
+| Another request holds the locks too long, or InnoDB picks this step as a deadlock victim (MariaDB 1205 / 1213) | 409 "The warehouse is busy, retry" (research R2) |
 | The serial unique index fires (it should never, research R1) | 409 |
 | Receive or close on a transfer that isn't in transit | 409 |
 | Cancelling a cancelled document | 409 |
 | A non-administrator in the wrong facility (R6) | 403 |
-| The complementary receipt's order is missing, incomplete, cancelled or fully received | 409 with the reason |
+| The receipt has no purchase order, or the order is incomplete, cancelled or fully received (complementary receipt) | 409 with the reason; an unknown receipt is 404 |
 | The sales order for the items is not completed, or is cancelled | 409 |

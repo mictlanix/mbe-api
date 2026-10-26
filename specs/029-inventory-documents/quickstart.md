@@ -4,9 +4,12 @@
 
 ```bash
 uv run ruff check . && uv run ruff format --check .
-uv run pytest tests/unit/test_inventory_documents.py tests/unit/test_inventory_transfer_state.py
+uv run pytest tests/unit/test_inventory_schemas.py tests/unit/test_inventory_locks.py \
+  tests/unit/test_inventory_documents.py tests/unit/test_inventory_receipt_service.py \
+  tests/unit/test_inventory_transfer_state.py
 uv run pytest tests/integration/test_inventory_receipt_flow.py \
-  tests/integration/test_inventory_issue_flow.py tests/integration/test_inventory_transfer_flow.py
+  tests/integration/test_inventory_issue_flow.py tests/integration/test_inventory_transfer_flow.py \
+  tests/integration/test_inventory_scope.py
 uv run pytest tests/api/test_inventory_receipts.py tests/api/test_inventory_issues.py \
   tests/api/test_inventory_transfers.py
 uv run pytest            # whole suite
@@ -40,6 +43,8 @@ Each step needs the user's confirmation before it runs.
    - Race a receive against a cancel on one transfer. Either way, the ledger nets to zero per (warehouse, product).
    - Fire two complementary requests for one purchase order at once. There must be one draft.
    - Confirm issues of the same product in two facilities at once. There must be no deadlock and no 500.
+   - Dispatch two transfers at once in opposite directions between the same two facilities. Both succeed, or one gets 409 "busy"; never a 500.
+   - Confirm a customer refund and an issue from the same warehouse at the same moment. The issue never answers 500; record what the refund answered.
 5. **Clean-up:** the test documents stay in mbe_dev as cancelled, as with spec 028's refund check. Delete them only if the user asks.
 
 ## Expected results

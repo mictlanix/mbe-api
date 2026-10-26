@@ -58,7 +58,7 @@ These routes are the same as for receipts, without `/complementary` and without 
 | DELETE | `/{id}/lines/{line_id}` | Update | — | 200 |
 | POST | `/{id}/sales-order-items` | Update | `{sales_order}` | 200 |
 | POST | `/{id}/dispatch` | Update | — | 200 |
-| POST | `/{id}/receive` | Update | `{lines?: [{line_id, quantity > 0}]}`; omitting it receives everything outstanding. A line of another transfer is 404, the same line twice is 422, and more than outstanding (or a line with nothing outstanding) is 409 | 200 |
+| POST | `/{id}/receive` | Update | `{lines?: [{line_id, quantity > 0}]}`; omitting it receives everything outstanding, and an empty list is 422. A line of another transfer is 404, the same line twice is 422, and more than outstanding (or a line with nothing outstanding) is 409 | 200 |
 | POST | `/{id}/close` | Delete | — | 200 |
 | POST | `/{id}/cancel` | Delete | — | 200 |
 
@@ -79,6 +79,6 @@ These routes are the same as for receipts, without `/complementary` and without 
 |---|---|
 | 401 | No token, or an invalid one |
 | 403 | The right is missing, or a non-administrator acts in another facility (FR-011) |
-| 404 | Unknown document, line, warehouse, product, purchase order or sales order |
-| 409 | Wrong state (not a draft, not in transit, already cancelled); no lines; short stock (names the product code and warehouse); receive over the outstanding quantity; complementary receipt not possible (the reason); sales order not confirmed |
+| 404 | Unknown document, line, warehouse, product or sales order |
+| 409 | Wrong state (not a draft, not in transit, already cancelled); no lines; short stock (names the product code and warehouse); receive over the outstanding quantity; complementary receipt not possible, including a receipt with no purchase order (the reason); sales order not confirmed; the warehouse is busy (lock timeout or deadlock victim, retry) |
 | 422 | Validation: quantity ≤ 0, product not stockable, origin equal to destination, in-transit warehouse used, facility without a transit warehouse |
