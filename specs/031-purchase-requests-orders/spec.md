@@ -303,7 +303,7 @@ The buyer downloads the confirmed PO as a PDF, or emails it to one of the suppli
 
   Sales and other movements do not change average cost, so restoring is exact in the first case.
 - **FR-038**: Cost MUST be written only through FR-031 and FR-037. The cost list stays read-only to every other API write (spec 004 FR-005a). No stored sale price is recalculated when cost changes; sale lists stay as stored, as today (Assumptions).
-- **FR-039**: Cost MUST be stored with up to 7 decimals and rounded half up, like the PO line price.
+- **FR-039**: Cost MUST be rounded half up to 4 decimals, the precision of the cost list and of the cost snapshot on sales lines. The cost history keeps the unit cost U at the PO line's 7 decimals.
 
 **PDF and email (#70)**
 
@@ -339,7 +339,7 @@ The buyer downloads the confirmed PO as a PDF, or emails it to one of the suppli
 - **SC-001**: No request line is on more than one live PO line, including after 20 concurrent attempts to order the same lines.
 - **SC-002**: Request serials are unique within each facility after 20 concurrent submits, with no gaps from failed submits.
 - **SC-003**: Every confirmed PO with stockable lines has exactly one generated receipt per destination warehouse, including after two simultaneous confirms.
-- **SC-004**: After any PO-linked receipt is confirmed, each affected product's cost equals the formula in FR-031 to 7 decimals, and the cost history reproduces every change from its recorded inputs.
+- **SC-004**: After any PO-linked receipt is confirmed, each affected product's cost equals the formula in FR-031 rounded to 4 decimals (FR-039), and the cost history reproduces every change from its recorded inputs.
 - **SC-005**: A 212-line PO (the largest measured) confirms, generating its receipts, in under 5 seconds on the test deployment. A 212-line receipt confirms with its cost updates in under 5 seconds.
 - **SC-006**: A confirmed PO prints, and emails to a supplier contact, with the PDF attached and the send recorded.
 - **SC-007**: Every action is refused to users without the matching right, every edit of a non-draft is refused, and unknown ids answer "not found". None of them errors.
