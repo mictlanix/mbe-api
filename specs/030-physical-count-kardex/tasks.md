@@ -180,9 +180,9 @@ description: "Task list for the physical inventory count, stock queries and kard
   - **Added:** counts, stock and kardex, and migration 027;
   - **Changed:** counter pickups post type 13.
 - [X] T023 Run `uv run ruff check app/ migrations/ tests/`, `uv run ruff format --check` on the changed files, and `uv run pytest -q`; everything must be green.
-- [ ] T024 **Ask the user first; DDL.** Apply migration 027 to mbe_dev with `uv run --env-file ../mbe-api/.env python -m app.db.migrate`, check both tables, and record the result in spec.md under "Verification".
-- [ ] T025 **Ask the user first.** Deploy to the test instance (`/var/www/mbe-api-test`, `mbe-api-test`) as mictlanix@, restarting as root. Only after T024.
-- [ ] T026 **Ask the user first; writes to mbe_dev.**
+- [X] T024 **Ask the user first; DDL.** Apply migration 027 to mbe_dev with `uv run --env-file ../mbe-api/.env python -m app.db.migrate`, check both tables, and record the result in spec.md under "Verification".
+- [X] T025 **Ask the user first.** Deploy to the test instance (`/var/www/mbe-api-test`, `mbe-api-test`) as mictlanix@, restarting as root. Only after T024.
+- [X] T026 **Ask the user first; writes to mbe_dev.**
   - Run quickstart steps 3–5: SC-005 stock against the ledger (read only), SC-004 kardex (read only), and a small count with a concurrent double confirm (SC-001, SC-002).
   - Run step 6, SC-003 at 15,000 lines, only on a warehouse the user names, with the restoration agreed first.
 

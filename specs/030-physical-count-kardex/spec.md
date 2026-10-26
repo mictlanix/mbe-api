@@ -246,6 +246,43 @@ A user opens the kardex of a product in a warehouse for a date range and sees th
 - **Stale reservations.** Only type-11 reservations count as reserved; the current system's stale `lot_serial_rqmt` rows stay as they are and are ignored.
 - **Legacy references.** The kardex shows legacy entries with their raw reference when their document cannot be resolved with confidence, for example type 2 entries written by payment cancellation.
 
+## Verification
+
+### Local suite (2026-10-26)
+
+4,866 tests pass and `ruff check` is clean. On SQLite, a 15,000-line count confirms in 1.3 s, and a failure injected mid-posting rolls back everything.
+
+### Migration 027 and deployment (2026-10-26)
+
+- Migration 027 is applied to mbe_dev, with approval. `inventory_count` and `inventory_count_detail` exist with `UNIQUE (facility, serial)` and `UNIQUE (count, product)`.
+- The branch is deployed to the test instance. The new routes answer 401 without a token.
+
+### SC-005 and SC-004: stock and kardex against the ledger (read only, 2026-10-26)
+
+- **Stock:** 62 products across warehouses 8, 12 and 11 were compared, including products with several labels in warehouses 12 and 11. On hand and reserved match the ledger and type-11 reservations exactly, in both `/stock/products/{id}` and `/stock`. The `/stock` lists hold 434, 273 and 10,709 products.
+- **Kardex:** 5 heavily moved products were read over 365 days, with up to 1,764 rows. For each, opening plus movements equals closing, and closing equals the ledger sum up to the range end.
+  - The only unresolved rows are legacy ones, as research R6 expects.
+
+### SC-001 and SC-002: a small count (2026-10-26)
+
+Count 1, in warehouse 8:
+- 3 products: one counted equal to on hand, one +1, one −1;
+- the draft was blind;
+- two simultaneous confirms got 200 and 409, with serial 1 assigned once;
+- type-12 entries were posted only for the two differing products (+1 and −1), and each product's on hand equals its count;
+- cancelling the confirmed count answered 409 "A confirmed count cannot be cancelled".
+
+Count 2 (serial 2) counted the products back to their original balances, and the balances were restored.
+
+### SC-003: 15,000 lines (2026-10-26)
+
+Warehouse 19 (CMCOAL05, facility 54) was empty and idle, with approval.
+- **Count 3:** 15,000 stockable products at 1. Entry took 2.6 s in 8 batches, confirm took **2.2 s**, and it posted 15,000 entries.
+- **Count 4:** the same products back to 0. Entry took 2.5 s, confirm took **2.8 s**, and it posted 15,000 entries.
+- Warehouse 19 nets to zero for every product.
+
+No request answered 5xx. Counts 1–4 stay in mbe_dev as confirmed documents, and the scratch script was removed from xolotl.
+
 ## Out of Scope
 
 - Lots, serials, expiry, FIFO and expiry alerts.
