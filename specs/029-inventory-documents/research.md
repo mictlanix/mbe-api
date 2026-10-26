@@ -36,6 +36,12 @@ The serial is written in the same transaction as the ledger entries. Any refusal
 - The locking read is needed for the same REPEATABLE READ reason as R1.
 - Warehouses are shared across facilities (14% of 2026 sales lines sell from another facility's warehouse). Locking only the facility would not serialise two facilities spending one warehouse.
 
+**The document row comes first.** Every step that changes a document locks its own header row with `SELECT … FOR UPDATE` and then re-reads its state:
+- confirm, dispatch, receive, close and cancel;
+- header and line edits.
+
+Without it, two requests on one draft both pass the draft check. The second waits on the facility lock, then posts the ledger entries again under a new serial, and two receives can take the same outstanding units twice. Lock order is document, then facility, then warehouses by id. Each step locks only one document, so this order cannot deadlock.
+
 **Known limit**: sales-order confirmation (spec 012) checks availability with a plain read and takes no warehouse lock. An issue and a sales order confirmed at the same instant can still promise the same unit. Closing that means changing the sales-order confirm, which is outside this spec. It is recorded as a follow-up.
 
 **Alternatives considered**:
@@ -128,7 +134,9 @@ Otherwise the answer is 403 "Document belongs to another facility". Header and l
 ## R9. Lines and the sales-order items
 
 **Decision**:
-- `POST /{id}/lines {product, quantity}` adds to an existing line of that product, or creates one with snapshots. The product must exist and be stockable (otherwise 422), and the quantity must be > 0.
+- `POST /{id}/lines {product, quantity}` adds to the existing line of that product, or creates one with snapshots. When a legacy draft repeats the product, it adds to the oldest of those lines (the lowest id).
+  - The product must exist (404) and be stockable (422), and the quantity must be > 0.
+  - The product's status is not checked, when adding or at confirm. A product discontinued after it went on a draft still confirms (spec Edge Cases), and adding a discontinued product is not refused either: the warehouse may still hold or receive it.
 - `PUT /{id}/lines/{line_id} {quantity > 0}` and `DELETE` work on drafts only.
 - `POST /inventory-transfers/{id}/sales-order-items {sales_order}` requires an order that is completed and not cancelled (otherwise 409). It sums the order's stockable lines per product, skips products already on the transfer, and adds the rest.
 

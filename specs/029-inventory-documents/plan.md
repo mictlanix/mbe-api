@@ -21,6 +21,7 @@ The three inventory documents get services and routes on the existing tables:
 
 Shared mechanics:
 - **Serial:** facility row lock, then a *locking* `MAX` read, as in spec 027 (R1).
+- **Locks:** every step that changes a document locks the document's row first and re-reads its state, so a repeated or concurrent request cannot post twice (R2).
 - **Stock checks:** available = on hand − reservations, summed per product. They run after the warehouse rows are locked, with locking reads (R2).
 - **Cancel:** posts the negation of every ledger entry the document wrote (R3).
 - **Rights and lists:** gated per FR-010 to FR-012 (R5, R6).
@@ -47,7 +48,7 @@ There is one migration, 026. It adds `inventory_transfer.in_transit` and the nul
 
 **Project Type**: web service (REST API under `/api/v1`)
 
-**Performance Goals**: about 460 receipts, 100 issues and 140 transfers a month, with 4 lines on average. A confirm takes 2 or 3 row locks and one sum per product.
+**Performance Goals**: about 460 receipts, 100 issues and 140 transfers a month, with 4 lines on average. A confirm takes 3 or 4 row locks (the document, the facility and its warehouses) and one sum per product.
 
 **Constraints**:
 - **Ledger:** append-only (spec 012 FR-062); lot, serial and expiry stay NULL.
@@ -56,7 +57,7 @@ There is one migration, 026. It adds `inventory_transfer.in_transit` and the nul
 - **Out of scope:** `documents.assign_folio` is not changed.
 
 **Scale/Scope**:
-- **Routes:** 10 for receipts, 9 for issues, 14 for transfers.
+- **Routes:** 10 for receipts, 9 for issues, 13 for transfers.
 - **New services:** `inventory_documents.py` (shared), `inventory_receipt_service.py`, `inventory_transfer_service.py`.
 - **Extended:** `stock_ledger.py` (an optional locking read).
 - **Also:** 1 migration, 1 schema module and 3 endpoint modules.

@@ -7,6 +7,8 @@ Base path: `/api/v1`. All routes require a bearer token. **Right** names the Acc
 
 Administrators bypass these checks. Errors use the API's usual `{"detail": "..."}` shape.
 
+Receipt and issue status `completed` is the spec's "confirmed"; it reuses the API's existing `DocumentStatus` values.
+
 ## Receipts: `/inventory-receipts` (object 15)
 
 | Method | Path | Right | Body | Success |

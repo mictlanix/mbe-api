@@ -65,15 +65,16 @@ No commit carries a Co-Authored-By line. Delegated work goes to agents with abso
     - commit and refresh.
   - **`update_header(...)`:** the same checks. Changing the warehouse updates `facility`. Uses `documents.assert_editable`.
   - **Lines:**
-    - `add_line(...)`: the product must exist (404) and be stockable (422). Add to the existing line of that product, or create one with `product_code` and `product_name` snapshots; receipt lines get `quantity_ordered = 0`.
+    - `add_line(...)`: the product must exist (404) and be stockable (422); its status is not checked (R9). Add to the existing line of that product (the lowest id if a legacy draft repeats it), or create one with `product_code` and `product_name` snapshots. Receipt lines get `quantity_ordered = 0`.
     - `update_line(...)` and `remove_line(...)`: drafts only.
     - All three bump `updater` and `modification_time`.
   - **`assert_facility(current, *facilities)`:** non-administrators whose `facility_id` is not among the facilities get 403 "Document belongs to another facility" (R6).
   - **`next_serial(db, model, facility)`:** lock the `Facility` row `FOR UPDATE` (404 if missing), then `MAX(model.serial)` for that facility with `.with_for_update(read=True)`, returning max + 1 (R1). The docstring cites mbe#45 and spec 027.
+  - **`lock_document(db, kind, document)`:** `SELECT` the header row `FOR UPDATE`, `populate_existing`, so the caller sees the committed state. Every state-changing function below calls it first and re-checks the state after it (R2): confirm, cancel, header and line edits, and in T019 dispatch, receive, close and sales-order items. Lock order: document, then facility, then warehouses.
   - **`lock_warehouses(db, ids)`:** `SELECT … FOR UPDATE` in ascending id order.
   - **`assert_available(db, required: dict[product, qty], warehouse)`:** uses `stock_ledger.available(lock=True)` per product. 409 names the product code and the warehouse code: "Not enough stock of {code} in {warehouse}: {available} available, {required} required".
   - **`confirm_simple(db, kind, document, *, current)`** (receipt and issue):
-    1. `assert_editable`; no lines → 409; any line with quantity ≤ 0 or a non-stockable product → 422;
+    1. `lock_document`, then `assert_editable`; no lines → 409; any line with quantity ≤ 0 or a non-stockable product → 422;
     2. `assert_facility(document.facility)`;
     3. `next_serial`;
     4. for an issue, `lock_warehouses` then `assert_available`;
@@ -112,6 +113,8 @@ No commit carries a Co-Authored-By line. Delegated work goes to agents with abso
   - **Refusals:** confirm with no lines → 409, and no serial is consumed (the next confirm gets the number).
   - **Cancel:** cancelling a confirmed receipt posts the −qty reversal and the balance returns. Cancelling after the stock was taken by an outbound entry → 409 naming the product and warehouse. Cancelling a draft writes no entries; cancelling twice → 409.
   - **Facility:** a non-administrator in another facility confirming → 403.
+  - **Repeats:** confirming the same receipt a second time → 409 with no new entries and no serial consumed, and the same for cancelling twice. This proves the state is re-read after `lock_document`; the concurrent pair runs in T033.
+  - **Product status:** a product discontinued after it was added still confirms; adding a discontinued but stockable product is accepted (R9).
 - [ ] T009 [P] [US1] Write `tests/api/test_inventory_receipts.py` first, covering the routes of contracts/inventory-documents.md except `/complementary`:
   - status codes 201 and 200;
   - 401 without a token, and 403 without the right: Create, Update, Delete and Read on object 15;
@@ -141,7 +144,7 @@ No commit carries a Co-Authored-By line. Delegated work goes to agents with abso
   - **Unknown id:** confirm and cancel → 404 at the route; at the service, `get_document` returns None.
   - **Supplier return:** a legacy issue with `supplier_return` set shows it, and no request field can change it (FR-031).
 - [ ] T013 [P] [US2] Write `tests/api/test_inventory_issues.py` first: the same coverage as T009, on object 16.
-- [ ] T014 [US2] Create the issue wrappers. Add `app/services/inventory_issue_service.py` only if the wrappers do not fit in `inventory_documents` callers directly. Otherwise the endpoint calls `inventory_documents` with `ISSUE`; record which in the commit message.
+- [ ] T014 [US2] Add `attach_issue(document)` (status and lines) to `app/services/inventory_documents.py`. There is no `inventory_issue_service.py`: the issue routes call `inventory_documents` with `ISSUE` directly (plan structure).
 - [ ] T015 [US2] Create `app/api/v1/endpoints/inventory_issues.py` and register it under `/inventory-issues`. The response includes `supplier_return`. Make T012 and T013 pass.
 
 **Checkpoint:** stock can be written off and never goes below what sales orders hold.
@@ -168,7 +171,8 @@ No commit carries a Co-Authored-By line. Delegated work goes to agents with abso
   - **Receive:**
     - a full receive (no body) posts transit −qty and destination +qty, status `received`, and the entries net to zero (SC-001);
     - a partial receive of 8 of 10 stays `in_transit` with 2 outstanding, and a second receive of 2 completes it;
-    - receiving 3 when 2 are outstanding → 409.
+    - receiving 3 when 2 are outstanding → 409;
+    - receiving the remaining 2 a second time after it completed → 409, with no new entries (the state is re-read after `lock_document`).
   - **Close the remainder:** 2 return to the origin, status `received`, and the line shows 8 of 10.
   - **Cancel:**
     - in transit → transit back to the origin;
@@ -180,10 +184,11 @@ No commit carries a Co-Authored-By line. Delegated work goes to agents with abso
     - a completed order adds its stockable lines summed per product, skipping products already on the transfer; repeating changes nothing;
     - a draft or cancelled order → 409.
   - **Legacy:** a legacy completed transfer (`in_transit` 0, `quantity_received` NULL) reads `received` with outstanding 0. Cancelling it reverses its recorded entries.
-- [ ] T018 [P] [US3] Write `tests/api/test_inventory_transfers.py` first: all 14 routes of the contract, with 401, 403 (each right on object 17, including Delete for `/close` and `/cancel`), 404 and 422.
+- [ ] T018 [P] [US3] Write `tests/api/test_inventory_transfers.py` first: all 13 routes of the contract, with 401, 403 (each right on object 17, including Delete for `/close` and `/cancel`), 404 and 422.
 - [ ] T019 [US3] Create `app/services/inventory_transfer_service.py`:
   - the pure helpers of T016;
   - `attach_derived`;
+  - **Every step below starts with `inventory_documents.lock_document`** and re-checks the state after it.
   - **`dispatch`:**
     1. `assert_editable`, lines, stockable and `assert_facility(document.facility)`;
     2. `next_serial`;
@@ -269,6 +274,7 @@ No commit carries a Co-Authored-By line. Delegated work goes to agents with abso
 - [ ] T032 **Ask the user first; writes to mbe_dev.** Run SC-007 (quickstart step 3): a receipt, an issue and an inter-facility transfer through dispatch, partial receive, close and cancel. Check the ledger sums per (warehouse, product) before and after, and record the ids and results.
 - [ ] T033 **Ask the user first; writes to mbe_dev.** Run SC-002 and SC-003 (quickstart step 4):
   - 20 concurrent confirms must give distinct, consecutive serials;
+  - the same draft confirmed by two requests at once posts once: one succeeds and the other gets 409;
   - of two concurrent over-subscribing issues, exactly one may succeed.
 
   Record the results. List any cleanup and get it approved before it runs. Remove scratch scripts from xolotl.
