@@ -169,17 +169,17 @@ description: "Task list for the physical inventory count, stock queries and kard
 
 ## Phase 7: Polish & Cross-Cutting Concerns
 
-- [ ] T021 [P] Update `docs/specs/04-inventory.md` §4–6 to describe what the new MBE does:
+- [x] T021 [P] Update `docs/specs/04-inventory.md` §4–6 to describe what the new MBE does:
   - the count document, blind, with batches, uncounted-as-zero, type 12, the warnings and no cancel after confirm;
   - stock queries;
   - the kardex;
   - types 12 and 13.
 
   Drop InventoryAdjustments (93), ZeroOut and the lot, serial and expiry views, which are out of scope. Keep the document's structure.
-- [ ] T022 [P] Update `CHANGELOG.md` `[Unreleased]` in the style of spec 029's entries:
+- [x] T022 [P] Update `CHANGELOG.md` `[Unreleased]` in the style of spec 029's entries:
   - **Added:** counts, stock and kardex, and migration 027;
   - **Changed:** counter pickups post type 13.
-- [ ] T023 Run `uv run ruff check app/ migrations/ tests/`, `uv run ruff format --check` on the changed files, and `uv run pytest -q`; everything must be green.
+- [X] T023 Run `uv run ruff check app/ migrations/ tests/`, `uv run ruff format --check` on the changed files, and `uv run pytest -q`; everything must be green.
 - [ ] T024 **Ask the user first; DDL.** Apply migration 027 to mbe_dev with `uv run --env-file ../mbe-api/.env python -m app.db.migrate`, check both tables, and record the result in spec.md under "Verification".
 - [ ] T025 **Ask the user first.** Deploy to the test instance (`/var/www/mbe-api-test`, `mbe-api-test`) as mictlanix@, restarting as root. Only after T024.
 - [ ] T026 **Ask the user first; writes to mbe_dev.**

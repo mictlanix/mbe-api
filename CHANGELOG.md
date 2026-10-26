@@ -7,6 +7,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Changed
+- **Counter pickups post as type 13** (mictlanix/mbe-roadmap#66, spec 030). `TransactionType.DELIVERY_PICKUP` (13) now marks the stock a counter pickup removes. It posted as type 10 (`DELIVERY_ORDER`), which now means only the delivery itinerary's departure and settlement. The kardex can therefore link each to its own document. mbe_dev has no type-10 entries, so nothing is converted.
 - **Refunds of invoiced goods are refused** (mictlanix/mbe-roadmap#55, spec 028). A refund can no longer return units that sit on a live invoice (sealed or stamped, not cancelled). Opening, editing or confirming such a refund returns 409 naming the invoice, and the invoice must be cancelled first. Refunds never create fiscal credit notes.
   - **Volume:** in the last 12 months, 75 of 1,540 refunds would have been refused.
   - **Refundable quantity:** each order line's `refundable_quantity` now excludes invoiced units.
@@ -44,6 +45,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **The `PaymentOnDelivery` model** (#248). The current system dropped `payment_on_delivery` in mictlanix/mbe#84, and nothing in this API read or wrote it. The model, its data-dictionary section and its schema-dump block are gone. The receipt's "Contraentrega" label, for payments collected without a cash session, is unaffected.
 
 ### Added
+- **Physical counts** (mictlanix/mbe-roadmap#64, spec 030). `/inventory-counts` takes a warehouse count from draft to confirmed and posts the difference to the ledger as type 12. It requires Read, Create, Update and Delete on PhysicalCountAdjustment (74).
+  - **Blind drafts:** a draft shows only the counted quantities. `quantity_on_hand` and `difference` stay null until confirm.
+  - **Batches:** `PUT /inventory-counts/{id}/lines` replaces the quantities of up to 2,000 products, by id or code, in one request. A bad entry gives a 422 listing every one, and nothing is applied. Sending a batch twice changes nothing, so 15,000 lines take 8 requests.
+  - **Confirm** (`/confirm`) reads on hand at that moment, under the same warehouse locks and serial as spec 029's documents, and posts one entry per non-zero difference. With `include_uncounted`, products with stock and no line are counted as 0.
+    - **Warnings,** returned and never blocking: counted quantities below what is reserved, and products also on another confirmed count of the warehouse made since this one was started.
+    - **No cancel after confirm:** a confirmed count answers 409. A draft cancels with nothing posted.
+    - **Large counts:** one holds the warehouse's lock while it confirms, so an opening count of 15,000 lines needs the warehouse idle.
+  - The current system's manual adjustment (`InventoryAdjustments`, 93) is not built.
+- **Stock queries** (mictlanix/mbe-roadmap#64, spec 030). `GET /stock?warehouse=` and `GET /stock/products/{id}` return on hand, reserved, available and incoming per product and warehouse, plus each facility's in-transit balance for a product. They require Read on WarehouseStockReport (67).
+  - **Reserved** counts type-11 reservations only, and available is on hand minus reserved.
+  - **Incoming** is what is still outstanding on transfers in transit to the warehouse.
+  - Lot, serial and expiry views and ZeroOut are out of scope.
+- **The kardex** (mictlanix/mbe-roadmap#66, spec 030). `GET /kardex?product=&warehouse=&from=&to=` returns the opening and closing balances and one row per ledger entry, each with its resolved document (type, id, facility, serial) for the client to link. It requires Read on Kardex (32). The range is at most 366 days. The current system netted entries by day.
+  - **Types:** 8 is the current system's adjustment, 10 the itinerary, 12 a count and 13 a pickup.
+  - **Raw rows:** legacy entries that cannot be resolved show their reference as is, about 2,500 of the 9,267 refund entries, nearly all of quantity 0.
+- **Migration 027** (spec 030) creates `inventory_count` and `inventory_count_detail`. No backfill. The rollback drops the detail table first.
 - **Warehouse receipts, issues and transfers** (mictlanix/mbe-roadmap#58, mictlanix/mbe-roadmap#60, mictlanix/mbe-roadmap#62, spec 029). `/inventory-receipts`, `/inventory-issues` and `/inventory-transfers` take a document from draft to confirmed and post it to the stock ledger (types 4, 3 and 5). They require Read, Create, Update and Delete on InventoryReceipts, InventoryIssues and InventoryTransfers.
   - **Editor:** create a draft, change its warehouse and comment, and add, edit or remove lines. Adding a product already on the document adds to its line. Products must be stockable and quantities above 0. No document can use an in-transit warehouse.
   - **Confirm** (`/confirm`; `/dispatch` for a transfer) assigns the facility's next serial and posts one entry per line. A confirm that fails consumes no serial.
