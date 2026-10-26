@@ -8,12 +8,14 @@ from sqlalchemy import select
 
 from app.core.deps import CurrentUser
 from app.enums import TransactionType
+from app.models.core import Warehouse
 from app.models.inventory import (
     InventoryReceipt,
     InventoryReceiptDetail,
     LotSerialTracking,
 )
 from app.models.product import Product
+from app.models.purchases import PurchaseOrderDetail
 from app.services import inventory_documents as inv
 from app.services import stock_ledger
 from tests.integration import inventory_seed as seed
@@ -326,3 +328,274 @@ async def test_list_filters_by_status_and_warehouse(client, db, seeded):
     at_b = (await client.get(URL, params={'warehouse': setup.b.warehouse})).json()
     assert [item['inventory_receipt_id'] for item in at_b['items']] == [draft]
     assert (await client.get(URL, params={'status': 'paid'})).status_code == 422
+
+
+# ── Purchase-order view and over-receipt warnings (US4, R7) ───────────────────
+
+
+async def _linked(
+    db,
+    order: int,
+    lines: list[tuple[int, str]],
+    *,
+    warehouse: int = 1,
+    completed: bool = False,
+    cancelled: bool = False,
+    stored_ordered: str | None = None,
+) -> int:
+    """A receipt of `order` with one linked line per `(order line, quantity)`; returns its id.
+
+    Its `quantity_ordered` holds the order line's quantity, unless `stored_ordered` gives the
+    current system's complementary value instead.
+    """
+    receipt = InventoryReceipt(
+        facility=(await db.get(Warehouse, warehouse)).facility,
+        warehouse=warehouse,
+        purchase_order=order,
+        serial=None,
+        creator=1,
+        updater=1,
+        creation_time=seed.WHEN,
+        modification_time=seed.WHEN,
+        completed=completed,
+        cancelled=cancelled,
+    )
+    db.add(receipt)
+    await db.flush()
+    for order_line, quantity in lines:
+        detail = await db.get(PurchaseOrderDetail, order_line)
+        db.add(
+            InventoryReceiptDetail(
+                receipt=receipt.inventory_receipt_id,
+                product=detail.product,
+                purchase_order_detail=order_line,
+                quantity=Decimal(quantity),
+                product_code=detail.product_code,
+                product_name=detail.product_name,
+                quantity_ordered=Decimal(stored_ordered or detail.quantity),
+            )
+        )
+    await db.commit()
+    return receipt.inventory_receipt_id
+
+
+async def test_received_elsewhere_counts_only_other_completed_receipts(client, db, seeded):
+    setup = await seed.setup_inventory(db)
+    order, (po_line,) = await seed.purchase_order(db, lines=[(setup.stockable, '10', 1)])
+    await _linked(db, order, [(po_line, '3')], completed=True)
+    await _linked(db, order, [(po_line, '2')])
+    await _linked(db, order, [(po_line, '4')], completed=True, cancelled=True)
+    receipt = await _linked(db, order, [(po_line, '1')])
+
+    body = (await client.get(f'{URL}/{receipt}')).json()
+    line = body['lines'][0]
+    assert (line['purchase_order_detail'], line['quantity']) == (po_line, '1.0000')
+    assert line['quantity_ordered'] == '10.0000'
+    assert Decimal(line['quantity_received_elsewhere']) == Decimal(3)
+    assert body['warnings'] == []
+
+
+async def test_a_completed_receipt_does_not_count_itself_as_elsewhere(client, db, seeded):
+    setup = await seed.setup_inventory(db)
+    order, (po_line,) = await seed.purchase_order(db, lines=[(setup.stockable, '10', 1)])
+    receipt = await _linked(db, order, [(po_line, '6')], completed=True)
+
+    line = (await client.get(f'{URL}/{receipt}')).json()['lines'][0]
+    assert Decimal(line['quantity_received_elsewhere']) == Decimal(0)
+
+
+async def test_a_legacy_complementary_draft_gets_no_false_warning(client, db, seeded):
+    """The current system stored the remaining 4 as ordered; the check reads the order's 10."""
+    setup = await seed.setup_inventory(db)
+    order, (po_line,) = await seed.purchase_order(db, lines=[(setup.stockable, '10', 1)])
+    await _linked(db, order, [(po_line, '6')], completed=True)
+    legacy = await _linked(db, order, [(po_line, '4')], stored_ordered='4')
+
+    body = (await client.get(f'{URL}/{legacy}')).json()
+    assert body['lines'][0]['quantity_ordered'] == '10.0000'
+    assert body['warnings'] == []
+    # The stored column is only read past, never rewritten.
+    stored = await db.get(InventoryReceiptDetail, body['lines'][0]['receipt_detail_id'])
+    await db.refresh(stored)
+    assert stored.quantity_ordered == Decimal(4)
+
+
+async def test_an_over_receipt_warns_on_save_read_and_confirm_and_still_confirms(
+    client, db, seeded
+):
+    setup = await seed.setup_inventory(db)
+    order, (po_line,) = await seed.purchase_order(db, lines=[(setup.stockable, '10', 1)])
+    await _linked(db, order, [(po_line, '6')], completed=True)
+    receipt = await _linked(db, order, [(po_line, '4')])
+    line = (await client.get(f'{URL}/{receipt}')).json()['lines'][0]['receipt_detail_id']
+
+    saved = await client.put(f'{URL}/{receipt}/lines/{line}', json={'quantity': '7'})
+    assert saved.status_code == 200, saved.text
+    assert len(saved.json()['warnings']) == 1
+    assert 'INV' in saved.json()['warnings'][0] and 'by 3' in saved.json()['warnings'][0]
+
+    # Adding the same product merges into the linked line, and warns too.
+    merged = await _add(client, receipt, setup.stockable, '1')
+    assert 'by 4' in merged.json()['warnings'][0]
+
+    read = (await client.get(f'{URL}/{receipt}')).json()
+    assert read['warnings'] == merged.json()['warnings']
+
+    confirmed = await client.post(f'{URL}/{receipt}/confirm')
+    assert confirmed.status_code == 200, confirmed.text
+    assert confirmed.json()['status'] == 'completed'
+    assert confirmed.json()['warnings'] == read['warnings']
+
+
+async def test_a_hand_added_line_on_a_linked_receipt_has_no_link_and_no_warning(client, db, seeded):
+    setup = await seed.setup_inventory(db)
+    other = await seed.product(db, code='INV2')
+    order, (po_line,) = await seed.purchase_order(db, lines=[(setup.stockable, '10', 1)])
+    receipt = await _linked(db, order, [(po_line, '4')])
+
+    response = await _add(client, receipt, other, '50')
+    assert response.status_code == 200, response.text
+    body = response.json()
+    hand = next(line for line in body['lines'] if line['product'] == other)
+    assert hand['purchase_order_detail'] is None
+    assert hand['quantity_ordered'] == '0.0000'
+    assert hand['quantity_received_elsewhere'] is None
+    assert body['warnings'] == []
+
+
+# ── Complementary receipt (US4, R8) ───────────────────────────────────────────
+
+
+async def test_complementary_creates_a_draft_of_the_under_received_lines(client, db, seeded):
+    setup = await seed.setup_inventory(db)
+    full = await seed.product(db, code='FULL')
+    order, (short, received, elsewhere) = await seed.purchase_order(
+        db,
+        lines=[
+            (setup.stockable, '10', 1),
+            (full, '5', 1),
+            (setup.stockable, '8', setup.b.warehouse),
+        ],
+    )
+    source = await _linked(db, order, [(short, '6'), (received, '5')], completed=True)
+
+    response = await client.post(f'{URL}/{source}/complementary')
+    assert response.status_code == 201, response.text
+    body = response.json()
+    assert body['inventory_receipt_id'] != source
+    assert (body['status'], body['purchase_order']) == ('draft', order)
+    assert (body['warehouse'], body['facility']) == (1, 1)
+    # Only the under-received line of the receipt's warehouse, at the remaining quantity.
+    assert [
+        (line['purchase_order_detail'], line['quantity'], line['quantity_ordered'])
+        for line in body['lines']
+    ] == [(short, '4.0000', '10.0000')]
+    assert (body['lines'][0]['product_code'], body['lines'][0]['product_name']) == (
+        'INV',
+        'Producto INV',
+    )
+    assert Decimal(body['lines'][0]['quantity_received_elsewhere']) == Decimal(6)
+    assert body['warnings'] == []
+
+    stored = await db.get(InventoryReceiptDetail, body['lines'][0]['receipt_detail_id'])
+    await db.refresh(stored)
+    assert stored.quantity_ordered == Decimal(10)
+    assert elsewhere not in {line['purchase_order_detail'] for line in body['lines']}
+
+
+async def test_complementary_returns_the_open_draft_when_asked_again(client, db, seeded):
+    setup = await seed.setup_inventory(db)
+    order, (po_line,) = await seed.purchase_order(db, lines=[(setup.stockable, '10', 1)])
+    source = await _linked(db, order, [(po_line, '6')], completed=True)
+
+    created = await client.post(f'{URL}/{source}/complementary')
+    assert created.status_code == 201, created.text
+    draft = created.json()['inventory_receipt_id']
+
+    again = await client.post(f'{URL}/{source}/complementary')
+    assert again.status_code == 200, again.text
+    assert again.json()['inventory_receipt_id'] == draft
+
+    # Asked on the open draft itself, it is the one returned.
+    itself = await client.post(f'{URL}/{draft}/complementary')
+    assert itself.status_code == 200, itself.text
+    assert itself.json()['inventory_receipt_id'] == draft
+
+    drafts = (
+        (
+            await db.execute(
+                select(InventoryReceipt).where(
+                    InventoryReceipt.purchase_order == order,
+                    InventoryReceipt.completed.is_(False),
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert len(drafts) == 1
+
+
+async def test_complementary_returns_the_oldest_open_draft(client, db, seeded):
+    setup = await seed.setup_inventory(db)
+    order, (po_line,) = await seed.purchase_order(db, lines=[(setup.stockable, '10', 1)])
+    source = await _linked(db, order, [(po_line, '6')], completed=True)
+    oldest = await _linked(db, order, [(po_line, '1')])
+    await _linked(db, order, [(po_line, '2')])
+
+    response = await client.post(f'{URL}/{source}/complementary')
+    assert response.status_code == 200, response.text
+    assert response.json()['inventory_receipt_id'] == oldest
+
+
+@pytest.mark.parametrize(
+    ('completed', 'cancelled', 'reason'),
+    [
+        (False, False, 'not completed'),
+        (True, True, 'cancelled'),
+    ],
+)
+async def test_complementary_refuses_an_order_not_completed_or_cancelled(
+    client, db, seeded, completed, cancelled, reason
+):
+    setup = await seed.setup_inventory(db)
+    order, (po_line,) = await seed.purchase_order(
+        db, lines=[(setup.stockable, '10', 1)], completed=completed, cancelled=cancelled
+    )
+    source = await _linked(db, order, [(po_line, '6')], completed=True)
+
+    response = await client.post(f'{URL}/{source}/complementary')
+    assert response.status_code == 409
+    assert reason in response.json()['detail']
+
+
+async def test_complementary_refuses_a_fully_received_order(client, db, seeded):
+    setup = await seed.setup_inventory(db)
+    order, (po_line,) = await seed.purchase_order(db, lines=[(setup.stockable, '10', 1)])
+    await _linked(db, order, [(po_line, '4')], completed=True)
+    source = await _linked(db, order, [(po_line, '6')], completed=True)
+
+    response = await client.post(f'{URL}/{source}/complementary')
+    assert response.status_code == 409
+    assert 'fully received' in response.json()['detail']
+
+
+async def test_complementary_refuses_a_receipt_without_a_purchase_order(client, db, seeded):
+    await seed.setup_inventory(db)
+    receipt = await _draft(client)
+
+    response = await client.post(f'{URL}/{receipt}/complementary')
+    assert response.status_code == 409
+    assert 'no purchase order' in response.json()['detail']
+    assert (await client.post(f'{URL}/9999/complementary')).status_code == 404
+
+
+async def test_complementary_refuses_a_cancelled_source(client, db, seeded):
+    """The source is any non-cancelled receipt linked to the order (R8)."""
+    setup = await seed.setup_inventory(db)
+    order, (po_line,) = await seed.purchase_order(db, lines=[(setup.stockable, '10', 1)])
+    source = await _linked(db, order, [(po_line, '6')], completed=True, cancelled=True)
+
+    response = await client.post(f'{URL}/{source}/complementary')
+    assert response.status_code == 409
+    assert 'cancelled' in response.json()['detail']

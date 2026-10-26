@@ -101,6 +101,7 @@ ROUTES = [
     ('delete', '/1/lines/1', AccessRight.UPDATE),
     ('post', '/1/confirm', AccessRight.UPDATE),
     ('post', '/1/cancel', AccessRight.DELETE),
+    ('post', '/1/complementary', AccessRight.CREATE),
 ]
 BODIES = {
     ('post', ''): {'warehouse': 1},
@@ -313,3 +314,63 @@ async def test_service_refusals_pass_through(action: str, code: int) -> None:
 
     assert response.status_code == code
     assert response.json() == {'detail': 'refused'}
+
+
+# ── Complementary receipt (US4, R8) ───────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(('created', 'code'), [(True, 201), (False, 200)])
+async def test_complementary_is_201_for_a_new_draft_and_200_for_the_open_one(
+    created: bool, code: int
+) -> None:
+    _auth()
+    source = _receipt(purchase_order=4, status='completed', completed=True, serial=1)
+    draft = _receipt(
+        inventory_receipt_id=2,
+        purchase_order=4,
+        lines=[_line(purchase_order_detail=8, quantity_ordered=Decimal('10'))],
+    )
+    with (
+        patch(f'{SHARED}.get_document', AsyncMock(return_value=source)),
+        patch(
+            f'{SERVICE}.complementary_receipt', AsyncMock(return_value=(draft, created))
+        ) as complementary,
+    ):
+        async with _client() as client:
+            response = await client.post(f'{BASE}/1/complementary')
+
+    assert response.status_code == code, response.text
+    body = response.json()
+    assert (body['inventory_receipt_id'], body['purchase_order']) == (2, 4)
+    assert body['lines'][0]['quantity_ordered'] == '10'
+    assert complementary.await_args.args[1] is source
+
+
+@pytest.mark.asyncio
+async def test_complementary_of_an_unknown_receipt_is_404() -> None:
+    _auth()
+    with (
+        patch(f'{SHARED}.get_document', AsyncMock(return_value=None)),
+        patch(f'{SERVICE}.complementary_receipt', AsyncMock()) as complementary,
+    ):
+        async with _client() as client:
+            response = await client.post(f'{BASE}/9/complementary')
+
+    assert response.status_code == status.HTTP_404_NOT_FOUND
+    complementary.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_complementary_refusal_is_409_with_the_reason() -> None:
+    _auth()
+    refusal = HTTPException(status_code=409, detail='Purchase order is fully received')
+    with (
+        patch(f'{SHARED}.get_document', AsyncMock(return_value=_receipt(purchase_order=4))),
+        patch(f'{SERVICE}.complementary_receipt', AsyncMock(side_effect=refusal)),
+    ):
+        async with _client() as client:
+            response = await client.post(f'{BASE}/1/complementary')
+
+    assert response.status_code == status.HTTP_409_CONFLICT
+    assert response.json() == {'detail': 'Purchase order is fully received'}

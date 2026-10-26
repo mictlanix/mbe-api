@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.deps import CurrentUser, require_privilege
@@ -148,3 +148,24 @@ async def cancel_inventory_receipt(
     await _receipt_or_404(db, receipt_id)
     receipt = await inventory_receipt_service.cancel(db, receipt_id, current=current)
     return InventoryReceiptResponse.model_validate(receipt)
+
+
+@router.post(
+    '/{receipt_id}/complementary',
+    response_model=InventoryReceiptResponse,
+    responses={status.HTTP_201_CREATED: {'model': InventoryReceiptResponse}},
+)
+async def complementary_inventory_receipt(
+    receipt_id: int,
+    response: Response,
+    current: CurrentUser = Depends(_CREATE),
+    db: AsyncSession = Depends(get_db),
+) -> InventoryReceiptResponse:
+    """The open draft of the order and warehouse (200), or a new draft of what is left (201)."""
+    receipt = await _receipt_or_404(db, receipt_id)
+    draft, created = await inventory_receipt_service.complementary_receipt(
+        db, receipt, current=current
+    )
+    if created:
+        response.status_code = status.HTTP_201_CREATED
+    return InventoryReceiptResponse.model_validate(draft)
