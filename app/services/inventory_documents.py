@@ -40,6 +40,7 @@ from app.models.inventory import (
     LotSerialTracking,
 )
 from app.models.product import Product
+from app.schemas.sales_order import derive_status
 from app.services import documents, stock_ledger, warehouse_service
 from app.services.delivery_itinerary_service import _pos_warehouse
 
@@ -655,6 +656,28 @@ async def cancel(db: AsyncSession, kind: Kind, document_id: int, *, current: Cur
         await db.commit()
     await db.refresh(document)
     return document
+
+
+# ── Responses ─────────────────────────────────────────────────────────────────
+
+
+def attach_status(document: Any) -> Any:
+    """The derived `status` of a receipt or an issue, on the object the response is built from."""
+    document.__dict__['status'] = derive_status(
+        completed=document.completed, cancelled=document.cancelled
+    )
+    return document
+
+
+async def attach(db: AsyncSession, kind: Kind, document: Any) -> Any:
+    """The document's `status` and its `lines`, oldest first, for the response."""
+    attach_status(document)
+    document.__dict__['lines'] = await _lines(db, kind, getattr(document, kind.id_attr))
+    return document
+
+
+async def attach_issue(db: AsyncSession, document: Any) -> Any:
+    return await attach(db, ISSUE, document)
 
 
 # ── Lists (R5) ────────────────────────────────────────────────────────────────
