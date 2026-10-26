@@ -1,0 +1,23 @@
+{
+  "workflow": "speckit",
+  "specName": "Purchase Requests, Purchase Orders and Average Cost",
+  "branch": "031-purchase-requests-orders",
+  "currentStep": "specify",
+  "status": "specified",
+  "history": [
+    {
+      "step": "specify",
+      "substep": null,
+      "kind": "start",
+      "by": "extension",
+      "at": "2026-10-26T16:27:32.000Z"
+    },
+    {
+      "step": "specify",
+      "substep": null,
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-10-26T16:55:19.737Z"
+    }
+  ]
+}
