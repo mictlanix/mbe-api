@@ -347,7 +347,7 @@ Clerks see the receipts, issues and transfers of their own warehouse and the one
 - **Transfers within one facility** (1 in 24 months) also go through dispatch and receipt, using that facility's transit warehouse.
 - **Transit stock.** The transit warehouse also holds delivery-dispatch stock (spec 012). In-transit quantities for transfers are therefore read from the transfers in transit, not from the transit warehouse's balance.
 - **Cutover.** The current system's documents stay as they are, including the 2 receipts that are both confirmed and cancelled while their stock stays booked. Correcting their stock is not part of this feature.
-- **Serial safety.** Serials follow spec 027's pattern: lock, then a locking read. Neither the current system's unlocked `MAX+1` nor `assign_folio`'s non-locking read is used.
+- **Serial safety.** As in spec 027, a parent row is locked before the highest serial is read, so the read sees the previous confirm's number. Neither the current system's unlocked `MAX+1` nor `assign_folio`'s read from a possibly older snapshot is used.
 - **Purchase-order links** are set only by the complementary receipt here. Creating receipts when a purchase order completes belongs to the Purchasing epic, which will set the same links.
 
 ## Out of Scope

@@ -45,23 +45,23 @@ No commit carries a Co-Authored-By line. Delegated work goes to agents with abso
 
 ## Phase 2: Foundational (blocks every story)
 
-- [ ] T004 Write `tests/unit/test_inventory_locks.py` first, so it fails. It covers T006's lock helpers without a database, through a fake session that records each executed statement compiled with `sqlalchemy.dialects.mysql`:
+- [ ] T004 [P] Write `tests/unit/test_inventory_locks.py` first, so it fails. It covers T006's lock helpers without a database, through a fake session that records each executed statement compiled with `sqlalchemy.dialects.mysql`:
   - `lock_document` issues `SELECT … FOR UPDATE` on the header row's primary key;
   - `lock_warehouses(ids)` issues one select `WHERE warehouse_id IN (…) ORDER BY warehouse_id FOR UPDATE` with the ids de-duplicated and sorted, and no `facility` condition;
-  - `lock_serial(model, facility)` issues `SELECT max(serial) … WHERE facility = :f FOR UPDATE`;
-  - `begin_locked(...)` makes its pre-reads, commits, then runs `lock_document`, `lock_warehouses` and (when asked) `lock_serial` in that order, with no other statement after the commit and before the last lock (R2). The warehouse ids are taken from the locked row, not from the object passed in: a fake that returns a changed row after the lock makes the warehouse lock follow the changed row;
+  - `next_serial(model, facility)` issues a plain `SELECT max(serial) … WHERE facility = :f` with no locking clause, and is only called after `begin_locked` (R1);
+  - `begin_locked(...)` makes its pre-reads, commits, then runs `lock_document` and (when asked) `lock_warehouses` in that order, with no other statement after the commit and before the last lock (R2). The warehouse ids are taken from the locked row, not from the object passed in: a fake that returns a changed row after the lock makes the warehouse lock follow the changed row;
   - `busy_as_conflict` turns a DBAPI error with code 1213 or 1205 into 409 "The warehouse is busy, retry", after a rollback, and re-raises anything else.
-- [ ] T005 Write `tests/unit/test_inventory_documents.py` first, so it fails. It covers the pure helpers of T006:
+- [ ] T005 [P] Write `tests/unit/test_inventory_documents.py` first, so it fails. It covers the pure helpers of T006:
   - `merge_line_quantity` (existing line + added quantity);
   - `per_product_totals(lines)`, which sums repeated products;
   - `shortages(required: dict[product, qty], available: dict[product, qty]) -> list`, which is empty when everything fits;
   - `reversal_entries(entries)`, which negates each entry, and `net_outbound(entries) -> {(warehouse, product): qty}` over the reversal;
-  - `warehouses_to_lock(kind, document, transit_map, ledger_warehouses)`: the header warehouses, the transit of the document's own facility for a transfer, and the ledger warehouses, de-duplicated and sorted. A transfer whose facility is missing from the map gives 422 "Facility {id} has no in-transit location".
+  - `warehouses_to_lock(kind, document, transit_map, ledger_warehouses)`: the transit of the document's own facility (every kind; it is also the numbering lock, R1), the header warehouses and the ledger warehouses, de-duplicated and sorted. A facility missing from the map gives 422 "Facility {id} has no in-transit location".
 - [ ] T006 Create `app/services/inventory_documents.py`, the shared mechanics (FR-001 to FR-013). It contains:
   - **The pure helpers of T005.**
   - **`Kind`:** a frozen dataclass:
     - header model, line model, line FK attribute name and id attribute names;
-    - the names of the header's warehouse attributes (`('warehouse',)`, or `('warehouse', 'warehouse_to')` for a transfer) and `transit: bool`;
+    - the names of the header's warehouse attributes (`('warehouse',)`, or `('warehouse', 'warehouse_to')` for a transfer) and `transit: bool` (true for transfers: the `in_transit` flag and transit postings);
     - `TransactionType`, `SystemObject`, and the label used in messages.
 
     Constants `RECEIPT`, `ISSUE` and `TRANSFER`.
@@ -69,19 +69,19 @@ No commit carries a Co-Authored-By line. Delegated work goes to agents with abso
   - **Locks (R1, R2), tested by T004:**
     - `lock_document(db, kind, document_id)`: `SELECT` the header row `FOR UPDATE` with `populate_existing`, returning the locked row (or 404);
     - `lock_warehouses(db, ids)`: one `SELECT … WHERE warehouse_id IN (:ids) ORDER BY warehouse_id FOR UPDATE`, primary key only;
-    - `lock_serial(db, model, facility) -> int`: `SELECT MAX(serial) … WHERE facility = :f FOR UPDATE` on the document's own table, returning max + 1. It is always the last lock. The docstring cites mbe#45 and spec 027, and says why the facility row is not locked (R1);
-    - `begin_locked(db, kind, document_id, *, stock=False, serial=False, ledger=False) -> document`:
-      1. pre-reads: the facility → transit map when `kind.transit`, and the distinct warehouses of the document's ledger entries when `ledger`;
+    - `begin_locked(db, kind, document_id, *, stock=False, ledger=False) -> document`:
+      1. pre-reads: the facility → transit map when `stock`, and the distinct warehouses of the document's ledger entries when `ledger`;
       2. `await db.commit()`;
       3. `lock_document`;
-      4. when `stock`, `lock_warehouses(warehouses_to_lock(...))`, worked out from the locked row;
-      5. returns the locked row and, when `serial`, the next serial from `lock_serial`.
+      4. when `stock`, `lock_warehouses(warehouses_to_lock(...))`, worked out from the locked row. This includes the facility's transit warehouse, the numbering lock (R1);
+      5. returns the locked row.
+    - `next_serial(db, model, facility) -> int`: an ordinary `SELECT MAX(serial) … WHERE facility = :f` on the document's own table, returning max + 1. It is called only after `begin_locked(stock=True)`, whose transit lock queues every numbering step of the facility. The docstring cites mbe#45 and research R1, and says why there is no locking read and no facility row lock;
     - `busy_as_conflict()`: an async context manager around each locking step. MariaDB errors 1213 and 1205 roll back and become 409 "The warehouse is busy, retry" (R2's known limit).
 
     **Every state-changing function below runs inside `busy_as_conflict`, starts with `begin_locked`, and makes no ordinary read before it.** That covers confirm, cancel, header and line edits, and in T019 dispatch, receive, close and sales-order items.
     - Edits and sales-order items lock the document only.
     - Receive and close the remainder also lock the warehouses (`stock=True`).
-    - Confirm and dispatch add the serial; cancel adds the ledger pre-read.
+    - Confirm and dispatch then call `next_serial`; cancel adds the ledger pre-read.
 
     Ordinary reads after the locks are current (R2), so `stock_ledger` is used unchanged. The facility row is never locked.
   - **`create_draft(db, kind, *, warehouse, warehouse_to=None, comment, current)`:**
@@ -97,16 +97,16 @@ No commit carries a Co-Authored-By line. Delegated work goes to agents with abso
   - **`assert_facility(current, *facilities)`:** non-administrators whose `facility_id` is not among the facilities get 403 "Document belongs to another facility" (R6).
   - **`assert_available(db, required: dict[product, qty], warehouse)`:** uses `stock_ledger.available` per product. 409 names the product code and the warehouse code: "Not enough stock of {code} in {warehouse}: {available} available, {required} required".
   - **`confirm_simple(db, kind, document_id, *, current)`** (receipt and issue):
-    1. `begin_locked(stock=True, serial=True)`;
+    1. `begin_locked(stock=True)`;
     2. `assert_editable`; no lines → 409; any line with quantity ≤ 0 or a non-stockable product → 422;
     3. `assert_facility(document.facility)`;
-    4. for an issue, `assert_available`;
+    4. `next_serial`; for an issue, `assert_available`;
     5. post one entry per line (inbound for a receipt, outbound for an issue);
     6. set `serial` (last, after every read, so autoflush cannot write it early), `completed`, `updater` and `modification_time`, then commit.
 
     Every failure rolls back, so no serial is consumed. A unique-index violation is left to the global `IntegrityError` handler (409).
   - **`cancel(db, kind, document_id, *, current)`:**
-    1. `begin_locked(stock=True, ledger=True)`, which locks every header warehouse, the transfer's transit, and every warehouse of the document's own entries (R2, R3);
+    1. `begin_locked(stock=True, ledger=True)`, which locks the facility's transit, every header warehouse, and every warehouse of the document's own entries (R2, R3). The ledger pre-read runs for drafts too, because a draft can be confirmed before the lock;
     2. cancelled → 409; `assert_facility(document.facility)` for every cancel, draft or confirmed (FR-011);
     3. draft → set `cancelled` and commit, with no ledger work;
     4. confirmed → read the entries with this source and reference, compute `net_outbound` of the reversal, `assert_available` per warehouse, post the reversal, set `cancelled`, and when `kind.transit` clear `in_transit`. Lines keep `quantity_received`. Then commit (R3).
@@ -141,7 +141,9 @@ No commit carries a Co-Authored-By line. Delegated work goes to agents with abso
   - **Lines:** adding the same product twice merges; adding a non-stockable product → 422; editing or adding after confirm → 409.
   - **Refusals:** confirm with no lines → 409, and no serial is consumed (the next confirm gets the number).
   - **Cancel:** cancelling a confirmed receipt posts the −qty reversal and the balance returns. Cancelling after the stock was taken by an outbound entry → 409 naming the product and warehouse. Cancelling a draft writes no entries; cancelling twice → 409.
-  - **Facility:** a non-administrator in another facility confirming → 403.
+  - **Facility:** a non-administrator in another facility confirming → 403, and cancelling → 403 (FR-011). Creating the receipt sets its facility from the warehouse, and changing a draft's warehouse to one of another facility moves the receipt to that facility (FR-001).
+  - **In-transit warehouse:** creating a receipt, or changing a draft's warehouse, to an in-transit warehouse → 422 (FR-009).
+  - **Legacy lines:** a legacy draft holding a line with quantity 0 or a non-stockable product (seeded directly) cannot be confirmed: 422 naming the line (FR-004).
   - **Repeats:** confirming the same receipt a second time → 409 with no new entries and no serial consumed, and the same for cancelling twice. This proves the state is re-read after `begin_locked`; the concurrent pair runs in T033.
   - **Product status:** a product discontinued after it was added still confirms; adding a discontinued but stockable product is accepted (R9).
   - **Legacy entries outside the header:** a confirmed receipt whose ledger entries are in a warehouse other than its current header warehouse (seeded directly, as the current system's post-confirm edits left 813 of them) is reversed in that warehouse too, and its stock check covers it.
@@ -168,6 +170,7 @@ No commit carries a Co-Authored-By line. Delegated work goes to agents with abso
 
 - [ ] T012 [P] [US2] Write `tests/integration/test_inventory_issue_flow.py` first. It covers US2 scenarios 1–4:
   - **Available stock:** an issue over available (on hand − reserved) → 409 naming the product and warehouse.
+  - **In-transit warehouse:** an issue on an in-transit warehouse → 422 (FR-009).
   - **Repeated products:** two lines of the same product together exceeding stock → 409. Lines added through the service merge, so seed this case with two detail rows written directly, as legacy drafts do.
   - **Confirm:** one −qty entry per line with source 3.
   - **Cancel:** posts +qty.
@@ -220,13 +223,13 @@ No commit carries a Co-Authored-By line. Delegated work goes to agents with abso
   - the pure helpers of T016;
   - `attach_derived`;
   - **Every step below runs inside `busy_as_conflict` and starts with `inventory_documents.begin_locked`, with no ordinary read before it** (R2).
-    - Dispatch, receive and close pass `stock=True`; dispatch also passes `serial=True`. The warehouses (origin, destination, and the transit of the transfer's own facility) are worked out from the locked row.
+    - Dispatch, receive and close pass `stock=True`; dispatch then calls `next_serial`. The warehouses (origin, destination, and the transit of the transfer's own facility) are worked out from the locked row.
     - The transit warehouse comes from the pre-read map (research R4).
     - Sales-order items lock the document only.
   - **`dispatch`:**
-    1. `begin_locked(stock=True, serial=True)`. A facility with no transit warehouse → 422 "Facility {id} has no in-transit location", with nothing posted and no serial consumed;
+    1. `begin_locked(stock=True)`. A facility with no transit warehouse → 422 "Facility {id} has no in-transit location", with nothing posted and no serial consumed;
     2. `assert_editable`, lines, stockable and `assert_facility(document.facility)`;
-    3. `assert_available` at the origin;
+    3. `next_serial`; `assert_available` at the origin;
     4. post out at the origin and in at transit;
     5. set `serial` last, then `completed`, `in_transit` and `quantity_received = 0` on each line, then commit.
   - **`receive(document, requested | None, current)`:**
@@ -293,7 +296,7 @@ No commit carries a Co-Authored-By line. Delegated work goes to agents with abso
   - **Default scope:** the caller sees their POS warehouse's documents plus their own, and nothing else. For transfers the POS warehouse may be the origin or the destination. A caller without a point of sale sees only their own.
   - **Wider view:** with Delete on the object, or as an administrator, they see all, and the `warehouse` filter applies.
   - **Filters:** the `status` filter works, and the order is newest first.
-  - **Facility rule:** confirm by a non-administrator of another facility → 403 for all three documents (FR-011).
+  - **Facility rule:** confirm and cancel by a non-administrator of another facility → 403 for all three documents (FR-011).
 - [ ] T025 [US5] Fix whatever T024 exposes in `app/services/inventory_documents.py` `list_documents` or `assert_facility`. If it passes first time, record that in the commit message: the scope was built in T006.
 
 **Checkpoint:** every story is done.
@@ -324,6 +327,8 @@ No commit carries a Co-Authored-By line. Delegated work goes to agents with abso
   - a receive racing a cancel on one transfer: the ledger nets to zero per (warehouse, product) whichever wins;
   - two concurrent complementary requests for one order give a single draft;
   - issues confirmed at once in two facilities on the same product end without a deadlock or a 500;
+  - two receipts of one facility, on different warehouses, confirmed at once: both succeed with consecutive serials, and neither gets 409 (research R1);
+  - a transfer dispatched while the destination receives the facility's previous transfer: both succeed;
   - two transfers dispatched at once in opposite directions between the same two facilities both succeed, or one gets 409 "busy", never a 500;
   - a customer refund confirmed at the same moment as an issue from the same warehouse: the issue never answers 500 (R2's known limit). Record what the refund side answered.
 

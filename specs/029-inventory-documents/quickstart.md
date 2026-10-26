@@ -43,6 +43,8 @@ Each step needs the user's confirmation before it runs.
    - Race a receive against a cancel on one transfer. Either way, the ledger nets to zero per (warehouse, product).
    - Fire two complementary requests for one purchase order at once. There must be one draft.
    - Confirm issues of the same product in two facilities at once. There must be no deadlock and no 500.
+   - Confirm two receipts of one facility, on different warehouses, at once. Both succeed with consecutive serials.
+   - Dispatch a transfer while the destination receives the facility's previous transfer. Both succeed.
    - Dispatch two transfers at once in opposite directions between the same two facilities. Both succeed, or one gets 409 "busy"; never a 500.
    - Confirm a customer refund and an issue from the same warehouse at the same moment. The issue never answers 500; record what the refund answered.
 5. **Clean-up:** the test documents stay in mbe_dev as cancelled, as with spec 028's refund check. Delete them only if the user asks.

@@ -4,18 +4,24 @@ All measurements are from mbe_dev on 2026-10-25, over the last 24 months unless 
 
 ## R1. Serial per facility under concurrent confirms
 
-**Decision**: after R2's locks, the confirm (or dispatch) reads `SELECT MAX(serial) … WHERE facility = :f FOR UPDATE` on the document's own table, and takes max + 1.
-- This is the last lock the step takes. It locks the top of that facility's range in the `(facility, serial)` unique index (`inventory_receipt_facility_serial_idx` and the same on issue and transfer; checked on mbe_dev). Two confirms of the same document type in one facility therefore queue on it, and the second reads the serial the first committed.
-- Only inventory code locks these rows. A wait here can never be part of a cycle with sales, delivery or refund code, which is why the facility row is **not** locked (R2).
+**Decision**: the facility's transit warehouse row is the per-facility lock for numbering.
+- Every confirm and dispatch includes the transit warehouse of the document's facility in R2's warehouse lock. That row is fixed by spec 013, and every facility has exactly one.
+- After all locks, the step reads `MAX(serial) … WHERE facility = :f` on the document's own table with an **ordinary** read, and takes max + 1. R2 makes that read current: its snapshot opens after the lock, so it sees the serial the previous holder committed.
+- Two confirms in one facility therefore queue on the transit row, whatever warehouses they use and whatever the document type.
 - The serial is assigned to the document just before the commit, after every read, so autoflush cannot write it early. Any refusal rolls back, so no number is consumed.
-- If the unique index still fired, the API's global `IntegrityError` handler answers 409. No inventory-specific handling is added.
+- The `(facility, serial)` unique index on each table (`inventory_receipt_facility_serial_idx` and the same on issue and transfer; checked on mbe_dev) is the backstop. If it fired, the API's global `IntegrityError` handler would answer 409.
 
-**Rationale**: under REPEATABLE READ, a `MAX` from a snapshot older than the lock misses the serial the previous holder committed (mictlanix/mbe#45, spec 027). A locking read always reads the latest committed rows.
+**Rationale**:
+- Under REPEATABLE READ, a `MAX` from a snapshot older than the lock misses the serial the previous holder committed (mictlanix/mbe#45). Like spec 027, which locks the series row before reading the highest serial, this locks a parent row first. Here the parent is one already in the warehouse lock set.
+- No new lock kind is needed; it is one more row, in the same id order, in a lock the step already takes.
 
 **Alternatives considered**:
 - **The current system's unlocked `MAX+1`:** this is the race itself.
-- **Locking the facility row, as `documents.assign_folio` and spec 027 do:** refund confirmation and delivery stop closing take warehouse share locks (ledger inserts, through the foreign key) before they lock the facility. An inventory step locking the facility and then warehouses could deadlock with them.
-- **`documents.assign_folio`:** besides the facility lock, its `MAX` is not a locking read, so it has the mbe#45 race. It stays out of scope; its fix is a follow-up.
+- **A locking `MAX(serial) … FOR UPDATE` on the unique index:** a backward index scan takes a next-key lock on the top entry, a gap lock after it and an X lock on the top document's row. Reproduced on a scratch MariaDB with mbe_dev's isolation settings, it deadlocks in two ways:
+  - two confirms of one facility from different warehouses (facilities 47, 51 and 52 have 2–3 regular warehouses);
+  - a confirm against a step on the facility's newest document, such as receiving the previous transfer or cancelling the newest receipt.
+- **Locking the facility row, as `documents.assign_folio` does:** refund confirmation and delivery stop closing take warehouse share locks (ledger inserts, through the foreign key) before they lock the facility. An inventory step locking the facility and then warehouses could deadlock with them.
+- **`documents.assign_folio`:** besides the facility lock, its `MAX` is not a locking read and can come from an older snapshot, so it has the mbe#45 race. It stays out of scope; its fix is a follow-up.
 
 ## R2. Locking: every lock before any ordinary read
 
@@ -27,17 +33,17 @@ All measurements are from mbe_dev on 2026-10-25, over the last 24 months unless 
 2. **End the opening transaction** (`await db.commit()`; nothing is pending). `require_privilege` and the route's 404 lookup have already read, so without this the snapshot would predate the locks.
 3. **Lock the document's header row** `FOR UPDATE`, with `populate_existing`, and re-check its state. Everything after this is worked out from the locked row, never from the copy loaded before the commit.
 4. **For steps that move stock, lock the warehouses** with one `SELECT … WHERE warehouse_id IN (:ids) ORDER BY warehouse_id FOR UPDATE`. That is a primary-key range, locked in ascending order. The set is:
-   - receipt and issue: the warehouse;
-   - transfer: the origin, the destination, and the transit warehouse of the document's facility (from the map);
+   - every document: the transit warehouse of the document's facility (from the map). For confirm and dispatch it is also the numbering lock (R1);
+   - receipt and issue: their warehouse;
+   - transfer: the origin and the destination;
    - cancel: also the warehouses from the pre-read.
-5. **For confirm and dispatch, take the serial lock** (R1), last.
-6. **Only then make ordinary reads**: lines, products, `quantity_received`, ledger sums (`stock_ledger.available`, unchanged) and the ledger entries to reverse. The snapshot opens at the first of these, after every lock, so it includes everything the previous holders committed.
+5. **Only then make ordinary reads**: lines, products, `quantity_received`, ledger sums (`stock_ledger.available`, unchanged), the ledger entries to reverse, and for confirm and dispatch `MAX(serial)` (R1). The snapshot opens at the first of these, after every lock, so it includes everything the previous holders committed.
 
 **Which locks each step takes**:
-- confirm, dispatch, receive, close the remainder and cancel: document and warehouses; confirm and dispatch also take the serial lock;
+- confirm, dispatch, receive, close the remainder and cancel: the document, then the warehouses including the facility's transit;
 - header and line edits, and the sales-order items: the document only.
 
-**No cycles among inventory steps**: each step locks one document, then warehouses in ascending id order, then one serial range that nothing else locks.
+**No cycles among inventory steps**: each step locks one document, then warehouses in ascending id order, and nothing else. Two steps that lock different documents can only wait on warehouse rows, all taken in one statement in the same order.
 
 **Stock checks**:
 - issue confirm: the issue's warehouse;
@@ -55,6 +61,8 @@ All measurements are from mbe_dev on 2026-10-25, over the last 24 months unless 
 - **Other code's ledger inserts.** Every ledger and reservation insert takes a share lock on its warehouse row through the foreign key. A delivery departure or a refund that inserts into two warehouses in the opposite order to an inventory step's locks can deadlock with it. InnoDB then rolls one back.
   - The inventory steps map MariaDB errors 1213 (deadlock) and 1205 (lock wait timeout) to 409 "The warehouse is busy, retry".
   - The other side's handling is unchanged, and out of scope. The window is the few milliseconds of an inventory step; T033 races a refund against an issue.
+- **A facility with no transit warehouse** (a broken state under spec 013 FR-009a; all 15 facilities have one) cannot confirm, dispatch or cancel any of these documents. Those steps answer 422 "Facility {id} has no in-transit location".
+- **Waits on transit.** Delivery departures and stop closings post to the transit warehouse, so they and inventory confirms in the same facility briefly wait on each other. A deadlock between them falls under the first limit above.
 - **Sales-order confirmation** (spec 012) checks availability without a warehouse lock. An issue and a sales order confirmed at the same instant can still promise the same unit. This is a follow-up.
 
 **Alternatives considered**:
@@ -67,7 +75,7 @@ All measurements are from mbe_dev on 2026-10-25, over the last 24 months unless 
 
 **Decision**: after R2's locks, which include every warehouse of the document's entries, read every ledger entry with `source = <document type>` and `reference = <document id>`. Post one entry per row with the opposite sign, through `stock_ledger.post_movement`.
 - Before posting, net the reversal per (warehouse, product). Wherever it is outbound, require `available − outbound ≥ 0`, or answer 409 naming the product and warehouse.
-- A draft is cancelled with no ledger reads or writes, but under the same document lock and facility rule (FR-011).
+- A draft is cancelled with no ledger writes, under the same locks and facility rule (FR-011). The ledger pre-read still runs, because a draft can be confirmed between the pre-read and the document lock.
 - A cancelled document answers 409.
 - Cancelling a transfer also clears `in_transit`, in the same transaction. Its lines keep `quantity_received` as it was before the cancel, so the response shows what had been received; the reversal is in the ledger.
 
