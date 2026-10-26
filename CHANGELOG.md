@@ -44,6 +44,30 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **The `PaymentOnDelivery` model** (#248). The current system dropped `payment_on_delivery` in mictlanix/mbe#84, and nothing in this API read or wrote it. The model, its data-dictionary section and its schema-dump block are gone. The receipt's "Contraentrega" label, for payments collected without a cash session, is unaffected.
 
 ### Added
+- **Warehouse receipts, issues and transfers** (mictlanix/mbe-roadmap#58, mictlanix/mbe-roadmap#60, mictlanix/mbe-roadmap#62, spec 029). `/inventory-receipts`, `/inventory-issues` and `/inventory-transfers` take a document from draft to confirmed and post it to the stock ledger (types 4, 3 and 5). They require Read, Create, Update and Delete on InventoryReceipts, InventoryIssues and InventoryTransfers.
+  - **Editor:** create a draft, change its warehouse and comment, and add, edit or remove lines. Adding a product already on the document adds to its line. Products must be stockable and quantities above 0. No document can use an in-transit warehouse.
+  - **Confirm** (`/confirm`; `/dispatch` for a transfer) assigns the facility's next serial and posts one entry per line. A confirm that fails consumes no serial.
+    - **Serial safety:** the facility's transit warehouse row is locked, together with the document's warehouses, before `MAX(serial)` is read. Concurrent confirms never share a number (the mictlanix/mbe#45 race).
+    - **Available stock:** issue confirm and transfer dispatch check on hand minus reservations, summed per product across the lines. The current system checked each line alone, on hand only, and a transfer's quantity edit checked the old quantity.
+  - **Cancel** (`/cancel`) is refused for a cancelled document and needs Delete.
+    - **Draft:** cancelled with nothing posted.
+    - **Confirmed:** every ledger entry the document posted is reversed with the opposite sign, and it is refused (409, naming the product and warehouse) when that would leave available stock negative.
+    - The current system set the flag on any document and left the stock booked.
+  - **State guards:** header and line edits, confirm and cancel refuse any document that is not in the right state. The current system let closed documents be edited.
+  - **Facility rule:** a non-administrator confirms, dispatches or cancels only in the document's facility, receives only in the destination's, and closes a remainder in either. The current system's check was commented out.
+  - **Lists:** by default the caller's point-of-sale warehouse plus their own documents, filtered by `status` and `warehouse`. Administrators and users with Delete on the document's object see everything. That wider view was receipts-only in the current system, and its numeric search ignored the scope.
+  - **Transfers go through transit:**
+    - **Dispatch** posts each line out of the origin and into the origin facility's in-transit warehouse, in the origin facility's serial.
+    - **Receive** (`/receive`) moves what the destination receives, in full or per line, in as many goes as needed. The transfer stays `in_transit` while anything is outstanding. Receiving more than the outstanding quantity returns 409.
+    - **Close the remainder** (`/close`, Delete) returns the outstanding units to the origin and leaves the transfer `received`, with each line showing what was received.
+    - **Cancel** at any point reverses everything posted, and is refused if the destination no longer has the stock.
+    - The current system moved stock between facilities in one step, which covered 3,407 of 3,409 transfers in 24 months. The transfers it confirmed read as `received`.
+  - **Sales-order items:** `/sales-order-items` adds a completed order's stockable lines to a draft transfer, skipping products already on it, so repeating it changes nothing. The current system accepted draft and cancelled orders and duplicated the lines.
+  - **Over-receipt warning:** a receipt line linked to a purchase order shows the ordered quantity and what other confirmed receipts hold. Taking the total over the order returns a warning and never blocks.
+  - **Supplier returns** are not built, and lots, serials, expiry and FIFO are out of scope: every entry is posted without them.
+- **The in-transit view** (mictlanix/mbe-roadmap#62, spec 029). `GET /inventory-transfers/in-transit?facility=` lists the transfers on their way to or from a facility's warehouses, with the quantity outstanding per line and per product. It reads the transfers, not the transit warehouse's balance, which also holds stock dispatched for delivery.
+- **The complementary receipt** (mictlanix/mbe-roadmap#58, spec 029). `POST /inventory-receipts/{id}/complementary` returns the open draft for the receipt's purchase order and warehouse, or creates one with the remaining quantities, linked to the order's lines. It is refused when the order is not completed, is cancelled or is fully received. It stores the order line's true ordered quantity, where the current system stored the remaining quantity there.
+- **Migration 026** (spec 029) adds `inventory_transfer.in_transit` and `inventory_transfer_detail.quantity_received`. No backfill: the 3,318 confirmed transfers get 0 and NULL, which read as received in full. The current system's mapping neither reads nor writes the two columns. The rollback drops them.
 - **CFDI payment receipts up to a sealed document** (mictlanix/mbe-roadmap#53, spec 028). Pagos 2.0 receipts for PPD invoices, created by hand or from a customer payment (`POST /fiscal-documents/payment-receipts`, `/{id}/paid-invoices`).
   - **Installments and balances:** each invoice's installment and previous balance are computed from its earlier receipts and credit notes, including the current system's, and recomputed under a row lock at confirm. The current system had them typed by hand.
   - **Taxes:** they follow each invoice's own rates. The current system assumed 16 % and dropped `Totales` for untaxed invoices.

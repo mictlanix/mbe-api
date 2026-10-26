@@ -292,12 +292,12 @@ No commit carries a Co-Authored-By line. Delegated work goes to agents with abso
 
 **Independent Test**: spec US5. A clerk lists only their warehouse's documents and their own; a user with Delete sees all; a user with no rights gets 403 everywhere.
 
-- [ ] T024 [P] [US5] Write `tests/integration/test_inventory_scope.py` first, parametrised over receipts, issues and transfers:
+- [X] T024 [P] [US5] Write `tests/integration/test_inventory_scope.py` first, parametrised over receipts, issues and transfers:
   - **Default scope:** the caller sees their POS warehouse's documents plus their own, and nothing else. For transfers the POS warehouse may be the origin or the destination. A caller without a point of sale sees only their own.
   - **Wider view:** with Delete on the object, or as an administrator, they see all, and the `warehouse` filter applies.
   - **Filters:** the `status` filter works, and the order is newest first.
   - **Facility rule:** confirm and cancel by a non-administrator of another facility → 403 for all three documents (FR-011).
-- [ ] T025 [US5] Fix whatever T024 exposes in `app/services/inventory_documents.py` `list_documents` or `assert_facility`. If it passes first time, record that in the commit message: the scope was built in T006.
+- [X] T025 [US5] Fix whatever T024 exposes in `app/services/inventory_documents.py` `list_documents` or `assert_facility`. If it passes first time, record that in the commit message: the scope was built in T006.
 
 **Checkpoint:** every story is done.
 
@@ -305,17 +305,17 @@ No commit carries a Co-Authored-By line. Delegated work goes to agents with abso
 
 ## Phase 8: Polish & Cross-Cutting Concerns
 
-- [ ] T026 [P] Update `docs/specs/04-inventory.md` §1–3 to match the spec:
+- [x] T026 [P] Update `docs/specs/04-inventory.md` §1–3 to match the spec:
   - the corrections (state guards, cancel reversal, available stock, serial safety, the facility rule);
   - the two-step transfer with partial receipt and closing the remainder, replacing "same facility only" and "use Issue + Receipt between facilities";
   - the complementary receipt's true ordered quantity;
   - supplier returns not built;
   - lots, serials and FIFO out of scope.
-- [ ] T027 [P] Update `CHANGELOG.md` `[Unreleased]`, under **Added**: receipts, issues and transfers (with the transit cycle), the in-transit view, the complementary receipt, and migration 026.
-- [ ] T028 [P] Add a "Follow-ups" section to `specs/029-inventory-documents/quickstart.md`, for the PR description (no code):
+- [x] T027 [P] Update `CHANGELOG.md` `[Unreleased]`, under **Added**: receipts, issues and transfers (with the transit cycle), the in-transit view, the complementary receipt, and migration 026.
+- [x] T028 [P] Add a "Follow-ups" section to `specs/029-inventory-documents/quickstart.md`, for the PR description (no code):
   - `documents.assign_folio`'s non-locking `MAX` (R1);
   - sales-order confirmation's unlocked availability check (R2).
-- [ ] T029 Run `uv run ruff check app/ migrations/ tests/`, `uv run ruff format --check app/ tests/` and `uv run pytest -q`; everything must be green. Include `tests/integration/test_no_endpoint_returns_500.py` for the new routes, extending its route list if it enumerates them.
+- [X] T029 Run `uv run ruff check app/ migrations/ tests/`, `uv run ruff format --check app/ tests/` and `uv run pytest -q`; everything must be green. Include `tests/integration/test_no_endpoint_returns_500.py` for the new routes, extending its route list if it enumerates them.
 - [ ] T030 **Ask the user first; DDL.** Apply migration 026 to mbe_dev (quickstart step 1). Check the columns, and that legacy transfers read as `received`. Record the result in spec.md under "Verification".
 - [ ] T031 **Ask the user first.** Deploy the branch to the test instance as mictlanix@, restarting `mbe-api-test` as root. **Only after T030**, because the model maps the new columns.
 - [ ] T032 **Ask the user first; writes to mbe_dev.** Run SC-007 (quickstart step 3): a receipt, an issue and an inter-facility transfer through dispatch, partial receive, close and cancel. Check the ledger sums per (warehouse, product) before and after, and record the ids and results.

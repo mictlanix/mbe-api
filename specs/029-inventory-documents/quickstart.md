@@ -54,3 +54,11 @@ Each step needs the user's confirmation before it runs.
 - Serials: no duplicates and no gaps; a refused confirm leaves no gap.
 - Ledger: no entry with a lot, serial or expiry. Every cancelled document nets to zero per (warehouse, product).
 - Legacy transfers read as `received`; legacy receipts and issues read with their stored state.
+
+## Follow-ups
+
+For the PR description. Each is outside this feature and has no code here.
+
+- **`documents.assign_folio`** (used by sales orders and deliveries; research R1). It locks the facility row, but reads `MAX(serial)` without a locking read, so the value can come from a snapshot older than the lock and miss the serial the previous holder committed (mictlanix/mbe#45). The inventory documents avoid it by locking the facility's transit warehouse before the read. Its fix would also have to avoid the deadlock between a facility lock and the warehouse locks that refunds and delivery stop closing take first.
+- **Sales-order confirmation's availability check** (spec 012; research R2, known limits). It checks available stock without a warehouse lock, so an inventory issue and a sales order confirmed at the same instant can still promise the same unit. The inventory steps lock the warehouses, but the sales-order step does not join that queue.
+- **No index on `lot_serial_tracking (source, reference)`** (research R3, cost). Cancelling a confirmed document reads its ledger entries twice by those two columns, and each read scans the table (639,854 rows on 2026-10-25). At about 10 cancels a month this is acceptable, and both reads take no locks; an index is a later optimisation.
