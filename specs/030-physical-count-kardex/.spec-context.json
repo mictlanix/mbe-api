@@ -2,8 +2,8 @@
   "workflow": "speckit",
   "specName": "Physical Inventory Count, Stock and Kardex",
   "branch": "030-physical-count-kardex",
-  "currentStep": "specify",
-  "status": "specified",
+  "currentStep": "plan",
+  "status": "planned",
   "history": [
     {
       "step": "specify",
@@ -18,6 +18,20 @@
       "kind": "complete",
       "by": "extension",
       "at": "2026-10-26T04:51:14.589Z"
+    },
+    {
+      "step": "plan",
+      "substep": null,
+      "kind": "start",
+      "by": "extension",
+      "at": "2026-10-26T04:59:23.618Z"
+    },
+    {
+      "step": "plan",
+      "substep": null,
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-10-26T05:01:34.066Z"
     }
   ]
 }
