@@ -2,8 +2,8 @@
   "workflow": "speckit",
   "specName": "Warehouse Receipts, Issues and Transfers",
   "branch": "029-inventory-documents",
-  "currentStep": "tasks",
-  "status": "ready-to-implement",
+  "currentStep": "implement",
+  "status": "implementing",
   "history": [
     {
       "step": "specify",
@@ -46,6 +46,13 @@
       "kind": "complete",
       "by": "extension",
       "at": "2026-10-26T01:21:48.699Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "kind": "start",
+      "by": "extension",
+      "at": "2026-10-26T03:39:36.046Z"
     }
   ]
 }

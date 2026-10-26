@@ -866,6 +866,7 @@ Stock movement between two warehouses.
 | `warehouse_to` | int(11) | NO | FK → `warehouse` — destination |
 | `completed` | tinyint(1) | NO | Posted |
 | `cancelled` | tinyint(1) | NO | Cancelled |
+| `in_transit` | tinyint(1) | NO | Default 0. Set when the API dispatches the transfer into the origin facility's in-transit warehouse; cleared when nothing is outstanding, when the remainder is closed back to the origin, or on cancel. **API-only**, added by migration 026 (spec 029); the current system confirms in one step and never writes it, so its transfers read as received |
 | `comment` | varchar(500) | YES | Notes |
 
 ### `inventory_transfer_detail`
@@ -877,6 +878,7 @@ Line items of a transfer.
 | `transfer` | int(11) | NO | FK → `inventory_transfer` |
 | `product` | int(11) | NO | FK → `product` |
 | `quantity` | decimal(18,4) | NO | Transferred quantity |
+| `quantity_received` | decimal(18,4) | YES | Quantity received at the destination so far: 0 from dispatch, raised by each receipt. **API-only**, added by migration 026 (spec 029). `NULL` on rows the current system wrote, which reads as `quantity` once the transfer is completed |
 | `product_code` | varchar(25) | YES | Snapshot |
 | `product_name` | varchar(250) | YES | Snapshot |
 

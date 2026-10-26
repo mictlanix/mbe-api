@@ -27,13 +27,13 @@ No commit carries a Co-Authored-By line. Delegated work goes to agents with abso
 
 ## Phase 1: Setup
 
-- [ ] T001 Write `migrations/026_inventory_transfer_transit.sql` and `migrations/026_inventory_transfer_transit_rollback.sql`, using the SQL in data-model.md and the comment header, idempotence and backtick style of `migrations/025_fiscal_document_customer_payment.sql`. **Do not apply them to mbe_dev**; T030 does that, after confirmation.
-- [ ] T002 After T001 (its schema tests read the migration files), in `app/models/inventory.py`:
+- [X] T001 Write `migrations/026_inventory_transfer_transit.sql` and `migrations/026_inventory_transfer_transit_rollback.sql`, using the SQL in data-model.md and the comment header, idempotence and backtick style of `migrations/025_fiscal_document_customer_payment.sql`. **Do not apply them to mbe_dev**; T030 does that, after confirmation.
+- [X] T002 After T001 (its schema tests read the migration files), in `app/models/inventory.py`:
   - add `InventoryTransfer.in_transit: Mapped[bool]` (`Boolean`, `default=False`, `server_default='0'`) after `cancelled`;
   - add `InventoryTransferDetail.quantity_received: Mapped[Decimal | None]` (`Numeric(18, 4)`) after `quantity`.
 
   Add both columns to `docs/data-dictionary.md`, under `inventory_transfer` and `inventory_transfer_detail`. Then run `uv run pytest tests/unit/test_model_schema.py tests/unit/test_data_dictionary.py tests/unit/test_migrate.py -q`.
-- [ ] T003 [P] Create `app/schemas/inventory.py` per contracts/inventory-documents.md:
+- [X] T003 [P] Create `app/schemas/inventory.py` per contracts/inventory-documents.md:
   - **status:** `TransferStatus` (StrEnum `draft`, `in_transit`, `received`, `cancelled`) and its `derive_transfer_status(*, completed, cancelled, in_transit)`. Receipts and issues reuse `DocumentStatus`/`derive_status` from `app/schemas/sales_order.py`.
   - **requests:** `ReceiptCreate {warehouse, comment?}`, `ReceiptUpdate {warehouse?, comment?}`, `IssueCreate`/`IssueUpdate` (the same fields), `TransferCreate {warehouse, warehouse_to, comment?}`, `TransferUpdate {warehouse?, warehouse_to?, comment?}`, `LineAdd {product, quantity > 0}`, `LineUpdate {quantity > 0}`, `SalesOrderItemsAdd {sales_order}`, `TransferReceive {lines: list[{line_id, quantity > 0}] | None}`.
     - `comment` is at most 500 characters and `quantity` has at most 4 decimal places.
@@ -45,19 +45,19 @@ No commit carries a Co-Authored-By line. Delegated work goes to agents with abso
 
 ## Phase 2: Foundational (blocks every story)
 
-- [ ] T004 [P] Write `tests/unit/test_inventory_locks.py` first, so it fails. It covers T006's lock helpers without a database, through a fake session that records each executed statement compiled with `sqlalchemy.dialects.mysql`:
+- [X] T004 [P] Write `tests/unit/test_inventory_locks.py` first, so it fails. It covers T006's lock helpers without a database, through a fake session that records each executed statement compiled with `sqlalchemy.dialects.mysql`:
   - `lock_document` issues `SELECT … FOR UPDATE` on the header row's primary key;
   - `lock_warehouses(ids)` issues one select `WHERE warehouse_id IN (…) ORDER BY warehouse_id FOR UPDATE` with the ids de-duplicated and sorted, and no `facility` condition;
   - `next_serial(model, facility)` issues a plain `SELECT max(serial) … WHERE facility = :f` with no locking clause, and is only called after `begin_locked` (R1);
   - `begin_locked(...)` makes its pre-reads, commits, then runs `lock_document` and (when asked) `lock_warehouses` in that order, with no other statement after the commit and before the last lock (R2). The warehouse ids are taken from the locked row, not from the object passed in: a fake that returns a changed row after the lock makes the warehouse lock follow the changed row;
   - `busy_as_conflict` turns a DBAPI error with code 1213 or 1205 into 409 "The warehouse is busy, retry", after a rollback, and re-raises anything else.
-- [ ] T005 [P] Write `tests/unit/test_inventory_documents.py` first, so it fails. It covers the pure helpers of T006:
+- [X] T005 [P] Write `tests/unit/test_inventory_documents.py` first, so it fails. It covers the pure helpers of T006:
   - `merge_line_quantity` (existing line + added quantity);
   - `per_product_totals(lines)`, which sums repeated products;
   - `shortages(required: dict[product, qty], available: dict[product, qty]) -> list`, which is empty when everything fits;
   - `reversal_entries(entries)`, which negates each entry, and `net_outbound(entries) -> {(warehouse, product): qty}` over the reversal;
   - `warehouses_to_lock(kind, document, transit_map, ledger_warehouses)`: the transit of the document's own facility (every kind; it is also the numbering lock, R1), the header warehouses and the ledger warehouses, de-duplicated and sorted. A facility missing from the map gives 422 "Facility {id} has no in-transit location".
-- [ ] T006 Create `app/services/inventory_documents.py`, the shared mechanics (FR-001 to FR-013). It contains:
+- [X] T006 Create `app/services/inventory_documents.py`, the shared mechanics (FR-001 to FR-013). It contains:
   - **The pure helpers of T005.**
   - **`Kind`:** a frozen dataclass:
     - header model, line model, line FK attribute name and id attribute names;
@@ -116,7 +116,7 @@ No commit carries a Co-Authored-By line. Delegated work goes to agents with abso
     - `warehouse` matches the origin or the destination for transfers, and narrows the default scope without widening it.
     - Newest first, returning `(items, total)`.
     - The POS warehouse is looked up from `PointSale.warehouse`. Reuse `delivery_itinerary_service._pos_warehouse` by importing it, or move it to `point_sale_service` if importing a private helper across services is against the codebase's habit.
-- [ ] T007 Write `tests/integration/inventory_seed.py`, the helpers shared by the story tests:
+- [X] T007 Write `tests/integration/inventory_seed.py`, the helpers shared by the story tests:
   - two facilities, each with a regular warehouse and its transit warehouse;
   - a stockable product and a non-stockable one;
   - `stock(db, product, warehouse, qty)`, which posts a ledger entry;

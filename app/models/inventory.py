@@ -87,6 +87,7 @@ class InventoryTransfer(Base):
     warehouse_to: Mapped[int] = mapped_column(Integer, ForeignKey('warehouse.warehouse_id'))
     completed: Mapped[bool] = mapped_column(Boolean)
     cancelled: Mapped[bool] = mapped_column(Boolean)
+    in_transit: Mapped[bool] = mapped_column(Boolean, default=False, server_default='0')
     comment: Mapped[str | None] = mapped_column(String(500))
 
 
@@ -99,6 +100,7 @@ class InventoryTransferDetail(Base):
     )
     product: Mapped[int] = mapped_column(Integer, ForeignKey('product.product_id'))
     quantity: Mapped[Decimal] = mapped_column(Numeric(18, 4))
+    quantity_received: Mapped[Decimal | None] = mapped_column(Numeric(18, 4))
     product_code: Mapped[str | None] = mapped_column(String(25))
     product_name: Mapped[str | None] = mapped_column(String(250))
 
