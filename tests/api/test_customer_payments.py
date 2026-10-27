@@ -552,3 +552,95 @@ async def test_another_facilitys_payment_ticket_is_not_found_without_the_editor_
             response = await client.get('/api/v1/customer-payments/1/ticket')
 
     assert response.status_code == status.HTTP_404_NOT_FOUND
+
+
+# ── Facility scope on writes (spec 034, FR-010) ───────────────────────────────
+
+
+def _writing_clerk(*, editor: bool):  # noqa: ANN202
+    """`_clerk`, holding every payment write and verification right as well."""
+    from app.api.v1.endpoints import customer_payments
+
+    clerk = CurrentUser(
+        user_id='clerk', session_version=1, administrator=False, facility_id=1, employee_id=7
+    )
+    for dependency in (
+        customer_payments._CREATE,
+        customer_payments._UPDATE,
+        customer_payments._VERIFY_UPDATE,
+    ):
+        app.dependency_overrides[dependency] = lambda: clerk
+
+    async def _noop_db():
+        yield None
+
+    app.dependency_overrides[get_db] = _noop_db
+    return patch('app.core.deps.has_any_privilege', AsyncMock(return_value=editor))
+
+
+_REACHED = HTTPException(status_code=status.HTTP_418_IM_A_TEAPOT, detail='reached the service')
+
+
+async def _write(path: str, body: dict | None) -> int:
+    async with await _client() as client:
+        return (await client.post(path, json=body)).status_code
+
+
+_WRITES = [
+    (
+        '/api/v1/customer-payments/1/applications',
+        {'sales_order': 1, 'amount': '5'},
+        'apply_payment',
+    ),
+    (
+        '/api/v1/customer-payments/1/applications/4/reverse',
+        {'reason': 'Duplicado'},
+        'reverse_application',
+    ),
+]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(('path', 'body', 'service'), _WRITES)
+@pytest.mark.parametrize('editor', [False, True])
+async def test_another_facilitys_payment_is_not_written_without_the_editor_right(
+    path: str, body: dict, service: str, editor: bool
+) -> None:
+    with (
+        _writing_clerk(editor=editor),
+        patch(
+            'app.services.customer_payment_service.get_payment',
+            AsyncMock(return_value=_payment(facility=51)),
+        ),
+        patch(
+            'app.services.customer_payment_service.get_application',
+            AsyncMock(return_value=SimpleNamespace(sales_order_payment_id=4)),
+        ),
+        patch(f'app.services.customer_payment_service.{service}', AsyncMock(side_effect=_REACHED)),
+    ):
+        code = await _write(path, body)
+
+    assert code == (status.HTTP_418_IM_A_TEAPOT if editor else status.HTTP_404_NOT_FOUND)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ('path', 'body', 'service'),
+    [
+        ('/api/v1/customer-payments/1/verify', None, 'verify_payment'),
+        ('/api/v1/customer-payments/1/reject', {'reason': 'Revisar'}, 'reject_payment'),
+    ],
+)
+async def test_verification_reaches_any_facilitys_payment(path: str, body, service: str) -> None:  # noqa: ANN001
+    """Company-wide for PaymentsVerification, as the current system's screen (clarified)."""
+    with (
+        _writing_clerk(editor=False),
+        patch(
+            'app.services.customer_payment_service.get_payment',
+            AsyncMock(return_value=_payment(facility=51)),
+        ),
+        patch(f'app.services.customer_payment_service.{service}', AsyncMock(side_effect=_REACHED)),
+    ):
+        code = await _write(path, body)
+
+    assert code == status.HTTP_418_IM_A_TEAPOT

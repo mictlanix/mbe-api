@@ -135,7 +135,7 @@ No setup: no dependency, setting, enum or migration is added (research R9).
 
 ### Tests
 
-- [ ] T013 [P] [US3] Write `tests/integration/test_facility_rule.py`, overriding `current_user` with a non-administrator of facility 1 who holds `access_privilege` rows for CustomerPayments (8), PaymentsVerification (108) and SalesOrders (7) with full rights, and neither 100 nor 101. Use `seed_facility` for facility 2.
+- [X] T013 [P] [US3] Write `tests/integration/test_facility_rule.py`, overriding `current_user` with a non-administrator of facility 1 who holds `access_privilege` rows for CustomerPayments (8), PaymentsVerification (108) and SalesOrders (7) with full rights, and neither 100 nor 101. Use `seed_facility` for facility 2.
   - **Payments:**
     - `POST /customer-payments/{facility-2 payment}/applications` → 404, no application written;
     - `…/reverse` on a facility-2 payment's application → 404, still live;
@@ -146,13 +146,13 @@ No setup: no dependency, setting, enum or migration is added (research R9).
     - `GET /{id}` and `GET /{id}/payments` → 200 (scenario 5).
   - **The same caller with 100 and 101 rows added:** the apply and the `PUT` proceed.
   - **An administrator** (the fixture's default): every call proceeds.
-- [ ] T014 [P] [US3] Extend `tests/api/test_customer_payments.py`: apply and reverse on a payment whose `facility` differs from the caller's answer 404 when `has_any_privilege` is patched to False, and reach the service when it's True. Verify and reject reach the service for any facility.
-- [ ] T015 [P] [US3] Extend `tests/api/test_sales_orders.py`: each of the six write routes answers 404 for an order of another facility without 101, and reaches the service with it or as an administrator; `GET /{id}` reaches the service for any facility.
+- [X] T014 [P] [US3] Extend `tests/api/test_customer_payments.py`: apply and reverse on a payment whose `facility` differs from the caller's answer 404 when `has_any_privilege` is patched to False, and reach the service when it's True. Verify and reject reach the service for any facility.
+- [X] T015 [P] [US3] Extend `tests/api/test_sales_orders.py`: each of the six write routes answers 404 for an order of another facility without 101, and reaches the service with it or as an administrator; `GET /{id}` reaches the service for any facility.
 
 ### Implementation
 
-- [ ] T016 [US3] In `app/api/v1/endpoints/customer_payments.py`, `apply_customer_payment` and `reverse_customer_payment_application` fetch the payment with `_visible_payment_or_404(db, current, customer_payment_id)` instead of `_payment_or_404`. Leave verify and reject on `_payment_or_404`, with a one-line comment that verification is company-wide (spec 034 FR-010, clarified).
-- [ ] T017 [US3] In `app/api/v1/endpoints/sales_orders.py`:
+- [X] T016 [US3] In `app/api/v1/endpoints/customer_payments.py`, `apply_customer_payment` and `reverse_customer_payment_application` fetch the payment with `_visible_payment_or_404(db, current, customer_payment_id)` instead of `_payment_or_404`. Leave verify and reject on `_payment_or_404`, with a one-line comment that verification is company-wide (spec 034 FR-010, clarified).
+- [X] T017 [US3] In `app/api/v1/endpoints/sales_orders.py`:
   - add `_writable_order_or_404(db, current, sales_order_id)`: fetch through `_order_or_404`, then answer 404 "Sales order not found" when `order.facility != current.facility_id` and `not await can_see_every_facility(db, current, SystemObject.SEARCH_CREDITS_FROM_ALL_STORES)`;
   - use it in `update_sales_order`, `confirm_sales_order`, `cancel_sales_order`, `add_sales_order_line`, `update_sales_order_line` and `remove_sales_order_line`;
   - the read routes keep `_order_or_404`.

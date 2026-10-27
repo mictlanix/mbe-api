@@ -798,3 +798,79 @@ async def test_a_utc_list_filter_is_converted_before_it_reaches_the_query() -> N
     date_from = listing.await_args.kwargs['date_from']
     assert date_from == datetime(2026, 9, 27, 0, 0)
     assert date_from.tzinfo is None
+
+
+# ── Facility scope (spec 034, FR-011) ─────────────────────────────────────────
+
+
+def _clerk(*, all_stores: bool):  # noqa: ANN202
+    """A non-administrator at facility 1 with sales-order read and update, and
+    SearchCreditsFromAllStores (101) read only when `all_stores`."""
+    from app.api.v1.endpoints import sales_orders
+
+    clerk = CurrentUser(
+        user_id='clerk', session_version=1, administrator=False, facility_id=1, employee_id=7
+    )
+    for dependency in (sales_orders._READ, sales_orders._UPDATE):
+        app.dependency_overrides[dependency] = lambda: clerk
+
+    async def _noop_db():
+        yield None
+
+    app.dependency_overrides[get_db] = _noop_db
+    return patch('app.core.deps.has_any_privilege', AsyncMock(return_value=all_stores))
+
+
+_REACHED = HTTPException(status_code=status.HTTP_418_IM_A_TEAPOT, detail='reached the service')
+
+_ORDER_WRITES = [
+    ('put', '/api/v1/sales-orders/1', {}, 'update_order'),
+    ('post', '/api/v1/sales-orders/1/lines', {'product': 1, 'quantity': '1'}, 'add_line'),
+    ('put', '/api/v1/sales-orders/1/lines/5', {'quantity': '2'}, 'update_line'),
+    ('delete', '/api/v1/sales-orders/1/lines/5', None, 'remove_line'),
+    ('post', '/api/v1/sales-orders/1/confirm', None, 'confirm_order'),
+    ('post', '/api/v1/sales-orders/1/cancel', None, 'cancel_order'),
+]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(('method', 'path', 'body', 'service'), _ORDER_WRITES)
+@pytest.mark.parametrize('all_stores', [False, True])
+async def test_another_facilitys_order_is_not_written_without_101(
+    method: str, path: str, body: dict | None, service: str, all_stores: bool
+) -> None:
+    with (
+        _clerk(all_stores=all_stores),
+        patch(
+            'app.services.sales_order_service.get_order',
+            AsyncMock(return_value=_order(facility=51)),
+        ),
+        patch(
+            'app.services.sales_order_service.get_line',
+            AsyncMock(return_value=SimpleNamespace(sales_order_detail_id=5)),
+        ),
+        patch(f'app.services.sales_order_service.{service}', AsyncMock(side_effect=_REACHED)),
+    ):
+        async with await _client() as client:
+            kwargs = {} if body is None else {'json': body}
+            response = await client.request(method.upper(), path, **kwargs)
+
+    expected = status.HTTP_418_IM_A_TEAPOT if all_stores else status.HTTP_404_NOT_FOUND
+    assert response.status_code == expected, response.text
+
+
+@pytest.mark.asyncio
+async def test_another_facilitys_order_is_still_read_without_101() -> None:
+    """Reads stay open by id, as in the current system (clarified)."""
+    with (
+        _clerk(all_stores=False),
+        patch(
+            'app.services.sales_order_service.get_order',
+            AsyncMock(return_value=_order(facility=51)),
+        ),
+        patch('app.services.sales_order_service.attach_derived', AsyncMock(side_effect=_REACHED)),
+    ):
+        async with await _client() as client:
+            response = await client.get('/api/v1/sales-orders/1')
+
+    assert response.status_code == status.HTTP_418_IM_A_TEAPOT
