@@ -88,8 +88,8 @@ A cashier pays a small expense out of the drawer: fuel, sand for a delivery, off
 3. **Given** a caller with no open session, **When** they create or confirm a voucher, **Then** it is refused.
 4. **Given** a draft totalling 0 or with no lines, **When** it is confirmed, **Then** it is refused.
 5. **Given** a draft created in a session that has since closed, **When** its cashier confirms it in their new session, **Then** it belongs to the new session.
-7. **Given** another user's draft, **When** a user edits or confirms it, **Then** it is refused.
-6. **Given** a line with an amount of 0 or less, **When** it is added or changed, **Then** it is refused with a message (not silently ignored).
+6. **Given** another user's draft, **When** a user edits or confirms it, **Then** it is refused.
+7. **Given** a line with an amount of 0 or less, **When** it is added or changed, **Then** it is refused with a message (not silently ignored).
 
 ---
 
@@ -216,7 +216,7 @@ Staff see, for a supplier, each open PO with its total, applied amount and balan
 - **FR-019**: Users with read on 21 MUST be able to see a PO's balance and its applications; list payments filtered by supplier, facility, date range, method and state; and see a supplier's summary: the POs with a balance, the payments with credit, and the totals owed and credit. Which POs count is set by FR-020.
 - **FR-020**: Only POs confirmed on or after the balance cutoff date MUST count: they have a balance and accept applications. The cutoff is one company-wide date, written by a numbered migration at go-live; no route sets or changes it. Older POs show no balance, are left out of supplier summaries, and refuse applications. Until that migration runs, no PO accepts applications, and payments are all credit.
 - **FR-021**: A payment MUST NOT be edited. A wrong payment is cancelled and recorded again.
-- **FR-022**: Supplier payments have no facility limit on reading or applying, as POs have none (spec 031). Recording and cancelling a cash payment follow its session.
+- **FR-022**: Supplier payments have no facility limit on reading or applying, as POs have none (spec 031). A cash payment is recorded in the caller's open session, and its cancel is refused once that session is closed; any user with delete on 21 may cancel it.
 
 ### Key Entities
 
@@ -236,7 +236,7 @@ Staff see, for a supplier, each open PO with its total, applied amount and balan
 - **SC-003**: 20 applications made at the same moment against one payment and one PO never take either below 0.
 - **SC-004**: 20 payments recorded at the same moment in one facility get 20 distinct, consecutive serials.
 - **SC-005**: For any PO and payment, balance and credit equal total or amount minus live applications, after any sequence of applications, reversals and cancels.
-- **SC-006**: A cashier records a one-line voucher, from opening it to confirming it, in under 30 seconds of API time per step.
+- **SC-006**: A cashier records a one-line voucher, from opening it to confirming it, in under 1 second of API time per step.
 
 ## Assumptions
 

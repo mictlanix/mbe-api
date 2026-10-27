@@ -66,7 +66,8 @@
   - `cash_cut.html`: the new row;
   - `purchase_orders.py` endpoint: `/payments`;
   - `enums.py`: incidence sources 14 and 15;
-  - `models/purchases.py`: the 3 new models.
+  - `models/supplier.py`: the new `SupplierPayment` columns;
+  - `models/purchases.py`: `PurchaseOrderPayment` and `SupplierBalanceCutoff`.
 - **Docs:** `05-purchases.md` §5–6, the data dictionary and the CHANGELOG.
 
 ## Constitution Check
@@ -114,7 +115,8 @@ app/
 ├── api/v1/endpoints/expense_vouchers.py          # NEW
 ├── api/v1/endpoints/supplier_payments.py         # NEW
 ├── api/v1/endpoints/purchase_orders.py           # + GET /{id}/payments
-├── models/purchases.py                           # + SupplierPayment, PurchaseOrderPayment, SupplierBalanceCutoff
+├── models/supplier.py                            # SupplierPayment: + facility, serial, cash_session, cancelled, audit
+├── models/purchases.py                           # + PurchaseOrderPayment, SupplierBalanceCutoff
 ├── schemas/expense_vouchers.py                   # NEW
 ├── schemas/supplier_payments.py                  # NEW
 ├── rendering/templates/expense_voucher_ticket.html # NEW

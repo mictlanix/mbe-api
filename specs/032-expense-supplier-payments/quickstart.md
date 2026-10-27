@@ -40,6 +40,7 @@ Each step needs the user's confirmation first.
 3. **SC-001 (read only):** for 50 closed sessions, compare the cut's expected cash with an independent SQL sum:
    - opening plus cash sales net of change;
    - minus confirmed, non-cancelled vouchers;
+   - minus cash supplier payments;
    - minus cash refunds.
 
    It must match to the cent.
@@ -52,7 +53,9 @@ Each step needs the user's confirmation first.
    - record 20 payments at the same moment in one facility: the serials are distinct and consecutive;
    - make 20 applications at the same moment against one payment and one PO: neither goes below 0;
    - record a cash payment and check the cut subtracts it;
-   - reverse an application and cancel a payment, and check the balances.
+   - reverse an application and cancel a payment, and check the balances;
+   - in a test session, run 20 cash payment creates and cancels at the same moment as the session's close: the closed cut equals what the close reported, and each operation either landed before the close or answered 409.
+   - **SC-006 and the plan's goals:** time voucher create, add a line and confirm (each under 1 s), and `GET /supplier-payments/suppliers/{id}/balance` for the supplier with the most counting POs (under 2 s). Record the times.
 6. **Cleanup**, agreed with the user before running:
    - cancel the test payments and void the test vouchers;
    - reset the cutoff to NULL.

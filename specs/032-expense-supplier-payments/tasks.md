@@ -82,8 +82,8 @@ description: "Task list for expense vouchers and supplier payments (spec 032)"
 ### Tests for User Story 1
 
 - [ ] T009 [P] [US1] Unit tests in `tests/unit/test_expense_vouchers.py`:
-  - **State** (research R1): (0,0) is draft, (1,0) completed, (any,1) cancelled, and NULL flags count as false.
-  - **Create:** without an open session the answer is 409 "An open cash session is required". The draft takes the session, the session's drawer's facility, `creator = updater =` the caller, and `date = creation_time = now`.
+  - **State** (research R1): (0,0) is draft, (1,0) completed, (any,1) cancelled, and NULL flags count as false. `voided` is true only for (1,1).
+  - **Create:** without an open session the answer is 409 "An open cash session is required". The draft takes the session, the session's drawer's facility, `creator = updater =` the caller, and `date = creation_time = now`. A cashier with two open sessions gets the newest.
   - **Edits and lines:**
     - a non-creator gets 403 "Only the voucher's cashier can change it";
     - a voucher that isn't a draft answers 409;
@@ -95,7 +95,7 @@ description: "Task list for expense vouchers and supplier payments (spec 032)"
     - with no open session the answer is 409;
     - a non-creator gets 403;
     - on success the voucher moves to the caller's then-open session and that session's drawer's facility, `date` becomes now, `completed` is set, and `updater` and `modification_time` are written.
-  - **Cancelling a draft:** the creator only; a voucher that isn't a draft answers 409; `cancelled` is set.
+  - **Cancelling a draft:** the creator only; a voucher that isn't a draft answers 409; `cancelled` is set and `voided` is false.
 - [ ] T010 [P] [US1] Integration test in `tests/integration/test_expense_voucher_flow.py`, on SQLite:
   - open a session, create a voucher, add 2 lines, confirm;
   - `cut_figures` `expenses` equals the total, and `expected_cash` drops by it;
@@ -105,6 +105,7 @@ description: "Task list for expense vouchers and supplier payments (spec 032)"
   - 401 without a token, 403 without the right on 82 (Read, Create or Update as contract/payments.md says), 404 for an unknown voucher or line;
   - 409 and 422 as the contract says;
   - 403 for a non-administrator reading another facility's voucher (FR-008);
+  - the list: a non-administrator's is scoped to their facility, a non-administrator naming another facility gets 403, and an administrator's is unscoped unless `facility` is given;
   - list filters: `status`, `facility`, `cash_session`, `creator`, `from`, `to`, and `skip`/`limit`, newest first.
 
 ### Implementation for User Story 1
@@ -112,7 +113,7 @@ description: "Task list for expense vouchers and supplier payments (spec 032)"
 - [ ] T012 [P] [US1] Write the schemas in `app/schemas/expense_vouchers.py`, following `app/schemas/` conventions (see contract/payments.md):
   - `ExpenseVoucherCreate` and `ExpenseVoucherUpdate`, each with `comment` up to 500 characters;
   - `ExpenseVoucherLineCreate` (`expense`, `amount`, `comment`) and `ExpenseVoucherLineUpdate` (each field optional). `amount` is above 0, has at most 2 decimals and is at most 99,999,999.99 (research R12);
-  - `ExpenseVoucherLine`, `ExpenseVoucherSummary` and `ExpenseVoucherResponse`.
+  - `ExpenseVoucherLine`, `ExpenseVoucherSummary` (with `voided: bool`) and `ExpenseVoucherResponse`.
 - [ ] T013 [US1] Write `app/services/expense_voucher_service.py`:
   - `voucher_state(voucher)` (research R1);
   - `create_voucher`, using `cash_session_service.open_session_for_cashier`; it takes no lock (research R3);
@@ -125,7 +126,7 @@ description: "Task list for expense vouchers and supplier payments (spec 032)"
     5. set `cash_session`, `facility` (from the session's drawer), `date`, `completed`, `updater` and `modification_time`.
   - `cancel_draft`;
   - `get_voucher` with its lines, total and names (category, creator), and `list_vouchers` with the contract's filters;
-  - the facility rule for non-administrators, as `customer_refunds` applies it.
+  - the facility rule (contract/payments.md): `list_vouchers` scopes a non-administrator to their facility and answers 403 when they name another; an administrator is unscoped unless `facility` is given. Get, void and ticket answer 403 to a non-administrator for another facility's voucher. Follow `customer_payment_service.list_payments`, not `list_refunds`, which shows nothing to an administrator without a facility.
 
   Wrap the locking paths in `inventory_documents.busy_as_conflict`.
 - [ ] T014 [US1] Write the endpoints in `app/api/v1/endpoints/expense_vouchers.py`: GET list, POST, GET `/{id}`, PUT `/{id}`, POST, PUT and DELETE `/{id}/lines[/{line_id}]`, POST `/{id}/confirm` and POST `/{id}/cancel`. Gate each on `require_privilege(SystemObject.EXPENSE_TICKET, ...)`, as the contract says.
@@ -145,10 +146,11 @@ description: "Task list for expense vouchers and supplier payments (spec 032)"
 
 - [ ] T016 [P] [US2] Unit tests in `tests/unit/test_expense_vouchers.py`:
   - voiding a draft or a cancelled voucher answers 409;
+  - a caller with no open session of their own can void a voucher in another cashier's open session;
   - voiding when the voucher's session is closed answers 409 "The cash session is closed";
   - a voucher of another facility gets 403 for a non-administrator;
   - a missing reason, or one over 500 characters, answers 422;
-  - on success `completed` stays 1, `cancelled` becomes 1, and one incidence is written with source 14, the voucher id, the reason, and "Expense voucher voided".
+  - on success `completed` stays 1, `cancelled` becomes 1, and one incidence is written with source 14, the voucher id, the reason, and "Expense voucher voided"; `voided` is true.
 - [ ] T017 [P] [US2] Integration test in `tests/integration/test_expense_voucher_flow.py`:
   - void a confirmed voucher, and the cut's `expenses` drops by its total;
   - close the session, and a later void and a later confirm both answer 409;
@@ -190,7 +192,7 @@ description: "Task list for expense vouchers and supplier payments (spec 032)"
     - a cash payment without an open session answers 409;
     - a cash payment takes the session and the session's drawer's facility;
     - a non-cash payment takes the caller's facility and no session;
-    - `facility` in the body from a non-administrator answers 422; an administrator without a facility uses it (research R5);
+    - `facility` in the body from a non-administrator, or on a cash payment, answers 422; an administrator without a facility uses it for a non-cash payment (research R5);
     - the serial is the facility's MAX + 1, numbered independently per facility;
     - an unknown supplier answers 404.
   - **Application refusals** (409; one refusal refuses the whole call):
@@ -320,10 +322,10 @@ description: "Task list for expense vouchers and supplier payments (spec 032)"
 
 - [ ] T040 [US5] Add `reverse_application` to `app/services/supplier_payment_service.py`. It locks the payment row, then that application's PO row (research R4), sets `cancelled`, writes the incidence, and uses `busy_as_conflict`.
 - [ ] T041 [US5] Add `cancel_payment` to `app/services/supplier_payment_service.py`, using `busy_as_conflict`:
-  1. pre-read the payment's `cash_session` and its live applications' POs; commit;
+  1. pre-read the payment's `cash_session`; commit;
   2. `lock_open_session` (cash only);
-  3. lock the payment row and re-check it;
-  4. lock the live applications' PO rows ascending;
+  3. lock the payment row and re-check it (not cancelled, same session);
+  4. read its live applications (no application can be added past the payment lock), then lock their PO rows ascending;
   5. reverse every live application, set `cancelled`, `updater` and `modification_time`, and write the incidence.
 - [ ] T042 [US5] Add `POST /{id}/applications/{application_id}/reverse` and `POST /{id}/cancel` to `app/api/v1/endpoints/supplier_payments.py`, gated on 21 Delete, with the reason schema of T019 (or a shared one).
 

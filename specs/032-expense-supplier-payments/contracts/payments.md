@@ -8,7 +8,7 @@ Object 82 is ExpenseTicket.
 
 | Method | Path | Right | Body / query | Success |
 |---|---|---|---|---|
-| GET | `` | 82 Read | `status` (`draft`, `completed`, `cancelled`), `facility`, `cash_session`, `creator`, `from`, `to`, `skip`, `limit` | 200 `ListResponse[ExpenseVoucherSummary]`, newest first |
+| GET | `` | 82 Read | `status` (`draft`, `completed`, `cancelled`), `facility`, `cash_session`, `creator`, `from`, `to`, `skip`, `limit` | 200 `ListResponse[ExpenseVoucherSummary]`, newest first. A non-administrator sees only their own facility, and a `facility` naming another one answers 403. An administrator sees every facility unless `facility` is given. |
 | POST | `` | 82 Create | `{comment?}` | 201 `ExpenseVoucherResponse` |
 | GET | `/{id}` | 82 Read, facility | — | 200 |
 | PUT | `/{id}` | 82 Update, creator | `{comment?}` | 200 |
@@ -22,7 +22,9 @@ Object 82 is ExpenseTicket.
 
 **Rules:**
 - **Creator:** a caller other than the voucher's creator gets 403 "Only the voucher's cashier can change it".
-- **Session** (on create, confirm and void): with no open session, or a closed one, the answer is 409 "An open cash session is required" or "The cash session is closed".
+- **Session:**
+  - create and confirm need the caller's open session (409 "An open cash session is required");
+  - void needs the voucher's own session to be open (409 "The cash session is closed"). The caller needs no session of their own, so a supervisor can void.
 - **409 refusals:**
   - a voucher that isn't a draft, for edits, confirm and cancel;
   - a total of 0 on confirm;
@@ -33,7 +35,8 @@ Object 82 is ExpenseTicket.
 **`ExpenseVoucherSummary`:**
 - `expense_voucher_id`, `status`, `facility`, `cash_session`;
 - `creator` and `creator_name`, `date`, `comment`;
-- `total`, `line_count`.
+- `total`, `line_count`;
+- `voided`: true when the voucher was confirmed and then voided (`completed` and `cancelled`), false for a cancelled draft.
 
 **`ExpenseVoucherResponse`:** the summary plus `lines[]`, each `{expense_voucher_detail_id, expense, expense_name, amount, comment}`.
 
@@ -62,7 +65,7 @@ On the PO router:
   - need the caller's open session (409 without one);
   - their `date` is set to now, and a body `date` is refused with 422;
   - can be cancelled only while their session is open (409 "The cash session is closed").
-- **`facility` in the body:** only an administrator without a facility sends it. Anyone else gets 422 (research R5).
+- **`facility` in the body:** only an administrator without a facility sends it, and only for a non-cash payment. Anyone else, or a cash payment, gets 422 (research R5).
 - **Each application is refused with 409 when:**
   - the PO isn't confirmed, or is cancelled;
   - it's another supplier's PO;

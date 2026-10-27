@@ -16,7 +16,7 @@ All measurements are from mbe_dev (see spec, Findings). "Locking pattern" means 
 | `completed` (confirmed) | 1 | 0 |
 | `cancelled` (a cancelled draft, or a voided voucher) | any | 1 |
 
-The wire values are `draft`, `completed` and `cancelled`, as for receipts and POs (`derive_status`). A void keeps `completed = 1` and sets `cancelled = 1`, so a voided voucher is told apart from a cancelled draft by `completed`, and the void's incidence holds the reason.
+The wire values are `draft`, `completed` and `cancelled`, as for receipts and POs (`derive_status`). A void keeps `completed = 1` and sets `cancelled = 1`, so a voided voucher is told apart from a cancelled draft by `completed`, and the void's incidence holds the reason. The API exposes `voided` so a void reads differently from a cancelled draft.
 
 **Rationale**: no row has both flags set today; `cut_figures` already reads `completed AND NOT cancelled`, so it needs no change for vouchers.
 
@@ -94,7 +94,7 @@ So a closed session's figures never change (FR-005, SC-002). The lock is the ses
 
 **Decision**:
 - **Cash payment:** the facility of the session's drawer.
-- **Other methods:** the caller's facility (the token's `facility_id`). An administrator without one sends `facility` in the body; a body `facility` from a non-administrator is refused with 422.
+- **Other methods:** the caller's facility (the token's `facility_id`). An administrator without one sends `facility` in the body; a body `facility` from a non-administrator, or on a cash payment, is refused with 422.
 
 **Rationale**: the serial is per facility (FR-013), and POs carry no facility to borrow.
 
