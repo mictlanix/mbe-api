@@ -111,7 +111,7 @@ description: "Task list for purchase requests, purchase orders and average cost"
 - [ ] T009 [US1] Extend `app/services/purchase_request_service.py` (T004 created it with the state helpers):
   - the pure helpers of T006;
   - create (warehouse defaulting to the caller's point-of-sale warehouse via `_pos_warehouse`, 422 if none);
-  - header update and line add, update and remove, all draft-only. A new line writes `to_purchase = 1`, `customer = settings.default_customer_id` and `Accepted = 0` explicitly, never relying on the column defaults (FR-008, FR-013);
+  - header update and line add, update and remove, all draft-only. A header update takes only the request-row lock, so after it the current and the new warehouse's facilities are read with plain reads (the facility rule and FR-002); the pre-read map is for submit and cancel, which take later locks. A new line writes `to_purchase = 1`, `customer = settings.default_customer_id` and `Accepted = 0` explicitly, never relying on the column defaults (FR-008, FR-013);
   - submit per research R2: pre-read `inv._transit_map` and the warehouse → facility map, commit, lock the request row with `populate_existing`, look up its facility in the map (no ordinary read before the next lock), `inv.lock_warehouses([transit of facility])`, then re-read the header warehouse's facility and answer 409 "retry" if it differs from the map, then the checks, then `MAX(serial)` over requests joined to the facility's warehouses;
   - approve and bulk approve (each id in its own locked transaction);
   - reject, with `incidences.record` source `PURCHASE_REQUEST`;
@@ -120,7 +120,7 @@ description: "Task list for purchase requests, purchase orders and average cost"
   - `attach` (status, facility, line count, lines with product code and min order quantity, live PO line);
   - lists and the queue per research R11.
 
-  Every write runs inside `inv.busy_as_conflict` and starts like spec 029's `begin_locked`: commit, lock the request row `FOR UPDATE` with `populate_existing`, then check its state (research R3). The facility rule, `inv.assert_facility`, is checked once the row is locked, on edit, submit and cancel only, with the facility looked up in the warehouse → facility map pre-read before the commit, never with a query between locks; after the last lock the header warehouse's facility is re-read, and a mismatch with the map answers 409 "retry" (research R2, R3).
+  Every write runs inside `inv.busy_as_conflict` and starts like spec 029's `begin_locked`: commit, lock the request row `FOR UPDATE` with `populate_existing`, then check its state (research R3). The facility rule, `inv.assert_facility`, is checked once the row is locked, on edit, submit and cancel only. On submit and cancel the facility is looked up in the warehouse → facility map pre-read before the commit, never with a query between locks; after the last lock the header warehouse's facility is re-read, and a mismatch with the map answers 409 "retry" (research R2, R3). A header edit reads the facilities after its one lock.
 - [ ] T010 [US1] Create `app/api/v1/endpoints/purchase_requests.py` with the 14 routes of the contract. Declare `/approval-queue` and `/approve` before `/{id}`. Register it in `app/api/v1/router.py` under `/purchase-requests`. Make T006–T008 pass.
 
 **Checkpoint:** requests work end to end and are usable on their own.
@@ -280,7 +280,7 @@ description: "Task list for purchase requests, purchase orders and average cost"
   Drop PO approval (95), currency, discount and invoice editing, and repricing, which are out of scope.
 - [ ] T030 [P] Update `CHANGELOG.md` `[Unreleased]` in the style of spec 030's entries:
   - **Added:** requests, POs, to-purchase, average cost and its history, the PO PDF and email, migration 028;
-  - **Changed:** receipt confirm and cancel update cost for receipts with a PO; receipts with a PO keep their warehouse.
+  - **Changed:** receipt confirm and cancel update cost for receipts with a PO; receipts with a PO keep their warehouse; complementary receipts leave non-stockable PO lines out.
 - [ ] T031 Check that `tests/integration/test_no_endpoint_returns_500.py` (and any route inventory test) covers the 29 new routes, and extend it if it lists routes by hand.
 - [ ] T032 Run `uv run ruff check app/ migrations/ tests/`, `uv run ruff format --check` on the changed files, and `uv run pytest -q`. Everything must be green.
 - [ ] T033 **Ask the user first; DDL.** Apply migration 028 to mbe_dev with `uv run python -m app.db.migrate`. Check the two columns, the index and FK, and the new table. Record the result in spec.md under "Verification".

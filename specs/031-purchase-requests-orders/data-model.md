@@ -43,7 +43,7 @@ Indexes:
 
 ## Existing tables written
 
-- **`purchase_request`, `purchase_request_detail`:** lines take `product`, `product_name`, `quantity` (18,2) and `warehouse`, plus `to_purchase`, which defaults to 1. `customer` is the default customer and `Accepted` is 0 (FR-013).
+- **`purchase_request`, `purchase_request_detail`:** lines take `product`, `product_name`, `quantity` (18,2) and `warehouse`, plus `to_purchase`, written as 1 on new lines (the column default is 0). `customer` is the default customer and `Accepted` is 0 (FR-013).
 - **`purchase_order`:**
   - `supplier`, `estimated_receipt_date`, `comment`, the state flags, creator, updater and times;
   - `approved` = 0, `approver` = NULL and `invoice_number` = NULL.

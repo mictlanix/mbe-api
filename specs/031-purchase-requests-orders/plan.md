@@ -49,7 +49,7 @@
 
 **Constraints**:
 - Cost is written only by receipt confirm and cancel (FR-038).
-- Lock order: document → warehouses (ascending) → cost rows (ascending). Request-line rows are locked ascending, after the PO row.
+- Lock order: document → warehouses (ascending) → cost rows (ascending). Request-line rows are locked ascending, in the orders of research R3's table.
 - Single cutover: no design for two writers.
 
 **Scale/Scope**:
@@ -79,14 +79,14 @@
 |---|---|---|
 | I. Simplicity First | States come from the existing flags. Locking reuses spec 029's helpers. The cost step is two `if`s in the shared confirm and cancel, not a hook registry. There is no PO approval, currency, discount or invoice editing, no repricing, and no request PDF. | PASS |
 | II. Think Before Coding | Seven clarifications are recorded. The data was measured before deciding: grouping, approvers, no orphans, query timing, column precision. The FR-039 precision conflict is surfaced and resolved in research R5 and in the spec. | PASS |
-| III. Surgical Changes | Spec 029 code changes in three places: confirm and cancel call the cost step only for receipts with a PO; the receipt update refuses a warehouse move only for receipts with a PO; `attach_derived` merges warnings. Behaviour of other kinds is unchanged. | PASS |
+| III. Surgical Changes | Spec 029 code changes in four places: confirm and cancel call the cost step only for receipts with a PO; the receipt update refuses a warehouse move only for receipts with a PO; `attach_derived` merges warnings; the complementary receipt leaves non-stockable PO lines out, which its confirm would refuse anyway. Behaviour of other kinds is unchanged. | PASS |
 | IV. Goal-Driven | SC-001 to SC-007 map to tests or to recorded runs on the test deployment (quickstart). | PASS |
 | V. Reuse Over Rebuild | Reused: `begin_locked` pieces (`lock_warehouses`, `_transit_map`, `busy_as_conflict`, `assert_facility`), receipt models and `attach_derived`, `incidences.record`, `rendering`, `mail`, `QuoteEmailRequest`, `header_context`, `derive_status`, `require_privilege`. New services and the table are justified below. | PASS, see Complexity Tracking |
 | VI. Async-First | Every route and service is async. | PASS |
 | VII. Security by Default | Every route is gated on 86, 96 or 20 (FR-011, FR-029). The facility rule applies to request edit, submit and cancel. | PASS |
 | VIII. Ruff | The gate runs before each commit. | PASS |
 | Testing | Tests are written first for every service branch and route. | PASS |
-| Changelog | `[Unreleased]` gets Added (requests, POs, to-purchase, average cost, PO PDF and email, migration 028) and Changed (receipt confirm and cancel update cost; receipts with a PO keep their warehouse). | PASS |
+| Changelog | `[Unreleased]` gets Added (requests, POs, to-purchase, average cost, PO PDF and email, migration 028) and Changed (receipt confirm and cancel update cost; receipts with a PO keep their warehouse; complementary receipts leave non-stockable PO lines out). | PASS |
 
 Post-design: no new violations.
 

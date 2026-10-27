@@ -101,7 +101,7 @@ Store staff open a purchase request, add the products they need with quantities 
 
 1. **Given** a draft request with lines, **When** it is submitted, **Then**:
    - it gets the next request serial of its warehouse's facility, unless it already has one;
-   - it becomes submitted, and only marking lines (FR-008) can change it.
+   - it becomes submitted; its header and lines can no longer be edited, and only the to-purchase mark (FR-008) can change.
 2. **Given** a draft with no lines, or a line with quantity 0, **When** it is submitted, **Then** it is refused.
 3. **Given** a line below the product's minimum order quantity, **When** it is saved, **Then** it is accepted with a warning.
 4. **Given** a submitted request, **When** a supervisor approves it, **Then** it is approved, with the approver and the time recorded.
@@ -211,6 +211,7 @@ The buyer downloads the confirmed PO as a PDF, or emails it to one of the suppli
 - **No cost.** A product with no cost row is priced at 0 with a warning when ordered from requests.
 - **Zero price.** A PO line with unit price 0 may be confirmed, with a warning. Its received quantity does not change cost (FR-035).
 - **Over-receipt.** Receiving more than ordered is a warning (spec 029). The whole received quantity is averaged in.
+- **First cost row.** When two receipts of a product that has no cost yet are confirmed at the same moment, one may be asked to retry; the retry averages on top of the other (FR-033).
 - **Empty PO.** A PO with no lines, or a line with quantity 0, cannot be confirmed.
 - **Supplier mismatch.** Adding request lines whose product's supplier differs from the PO's supplier is allowed, with a warning.
 - **Generated receipts** follow spec 029. They can be edited, confirmed or cancelled there; cancelling a draft receipt does not touch the PO. A later complementary receipt covers what is still pending.

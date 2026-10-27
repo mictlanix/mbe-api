@@ -24,7 +24,7 @@ All measurements are from mbe_dev on 2026-10-26 (see spec, Findings). "Locking p
 - **`purchase_order.approved`** is written 0 and never read. Since 2025-04, every PO has `approved = 0`.
 
 **Rationale**: the data already has these shapes:
-- requests: 63 drafts, 48 submitted, 2,123 approved, and 38 cancelled;
+- requests, all time: 63 drafts, 48 submitted, 2,123 approved, and 38 cancelled (the spec's 18 submitted and 31 cancelled are the last 24 months);
 - POs since 2025-04: 191 drafts, 2,893 confirmed and 114 cancelled.
 
 The current system reads the same flags until cutover.
@@ -70,7 +70,7 @@ A refusal rolls back, so no number is used. Deadlocks and lock waits answer 409 
 | Cancel a request (FR-009) | request row → its line rows |
 
 **No ordinary read may run between the commit and the last lock** of a step: the first ordinary read opens the REPEATABLE READ snapshot. So:
-- the facility rule (`assert_facility`) and the request's facility use the warehouse → facility map pre-read before the commit (R2), looked up in memory. After the last lock, the header warehouse's facility is re-read; a mismatch with the map answers 409 "retry" (a warehouse moved facility in between);
+- the facility rule (`assert_facility`) and the request's facility use the warehouse → facility map pre-read before the commit (R2), looked up in memory. After the last lock, the header warehouse's facility is re-read; a mismatch with the map answers 409 "retry" (a warehouse moved facility in between). A header edit takes no lock after the request row, so it reads the current and the new warehouse's facilities after that lock with plain reads instead;
 - the ids of the rows to lock (a request's lines, a to-purchase group's lines, the request of a line being marked) are pre-read before the commit; after the locks, the pending check re-reads them, and rows that appeared in between are not added.
 
 The check that follows the locks is an ordinary read, so it sees every committed PO line:
