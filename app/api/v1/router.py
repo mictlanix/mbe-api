@@ -31,6 +31,7 @@ from app.api.v1.endpoints import (
     price_lists,
     product_prices,
     products,
+    purchase_requests,
     sales_orders,
     sales_quotes,
     sat_catalogs,
@@ -50,9 +51,7 @@ api_router = APIRouter()
 api_router.include_router(health.router, prefix='/health', tags=['health'])
 api_router.include_router(auth.router, prefix='/auth', tags=['auth'])
 api_router.include_router(users.router, prefix='/users', tags=['users'])
-api_router.include_router(
-    user_profiles.router, prefix='/user-profiles', tags=['user-profiles']
-)
+api_router.include_router(user_profiles.router, prefix='/user-profiles', tags=['user-profiles'])
 api_router.include_router(products.router, prefix='/products', tags=['products'])
 api_router.include_router(price_lists.router, prefix='/price-lists', tags=['price-lists'])
 api_router.include_router(product_prices.router, prefix='/product-prices', tags=['product-prices'])
@@ -83,9 +82,7 @@ api_router.include_router(suppliers.router, prefix='/suppliers', tags=['supplier
 api_router.include_router(employees.router, prefix='/employees', tags=['employees'])
 api_router.include_router(addresses.router, prefix='/addresses', tags=['addresses'])
 api_router.include_router(contacts.router, prefix='/contacts', tags=['contacts'])
-api_router.include_router(
-    bank_accounts.router, prefix='/bank-accounts', tags=['bank-accounts']
-)
+api_router.include_router(bank_accounts.router, prefix='/bank-accounts', tags=['bank-accounts'])
 api_router.include_router(facilities.router, prefix='/facilities', tags=['facilities'])
 api_router.include_router(warehouses.router, prefix='/warehouses', tags=['warehouses'])
 api_router.include_router(points_of_sale.router, prefix='/points-of-sale', tags=['points-of-sale'])
@@ -124,3 +121,6 @@ api_router.include_router(
 )
 api_router.include_router(stock.router, prefix='/stock', tags=['stock'])
 api_router.include_router(kardex.router, prefix='/kardex', tags=['kardex'])
+api_router.include_router(
+    purchase_requests.router, prefix='/purchase-requests', tags=['purchase-requests']
+)

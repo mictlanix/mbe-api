@@ -89,14 +89,14 @@ description: "Task list for purchase requests, purchase orders and average cost"
 
 **Independent Test**: spec US1. Create, add two lines, submit (the facility's next serial), approve (approver and time); another request is rejected with a reason and is a draft again with an incidence.
 
-- [ ] T006 [P] [US1] Write `tests/unit/test_purchase_requests.py` first, covering T009's pure helpers:
+- [X] T006 [P] [US1] Write `tests/unit/test_purchase_requests.py` first, covering T009's pure helpers:
   - `next_request_serial(highest)`;
   - `submit_refusal(status, lines)`: not a draft, no lines, or a zero quantity;
   - `below_minimum_warning(code, quantity, min_order_qty)`: none when the minimum is 0 or 1, or when at or above it;
   - `default_quantity(min_order_qty)`: the minimum when it is at least 1, otherwise 1 (259 purchasable products have a minimum of 0; FR-002);
   - `facility_move_refusal(serial, old_facility, new_facility)`, for FR-002;
   - `approve_refusal(status)`, `reject_refusal(status)`, `cancel_refusal(status, lines_on_live_po)`, `mark_refusal(status, to_purchase, on_live_po)` (marking or unmarking is refused unless the request is submitted or approved, FR-008 and FR-009; unmarking a line on a live PO is refused).
-- [ ] T007 [P] [US1] Write `tests/integration/test_purchase_request_flow.py` first, covering US1 scenarios 1–8 and the matching edge cases:
+- [X] T007 [P] [US1] Write `tests/integration/test_purchase_request_flow.py` first, covering US1 scenarios 1–8 and the matching edge cases:
   - **Submit:** serial = the facility's max + 1, across two warehouses of one facility; resubmitting after a reject keeps the serial; a refused submit takes no number.
   - **Facility:** after a serial, moving the header to another facility's warehouse gives 409, and to one of the same facility is allowed.
   - **Approve and reject:** approve stores the approver and time; reject writes a source-4 incidence with the reason, clears the approver, and returns the request to draft.
@@ -108,7 +108,7 @@ description: "Task list for purchase requests, purchase orders and average cost"
   - every route of the contract with 401, 403 (86, 96, or 20 for marking) and 404;
   - 409 and 422 cases;
   - 403 for a non-administrator editing, submitting or cancelling another facility's request, while approving, rejecting and marking are allowed (FR-011).
-- [ ] T009 [US1] Extend `app/services/purchase_request_service.py` (T004 created it with the state helpers):
+- [X] T009 [US1] Extend `app/services/purchase_request_service.py` (T004 created it with the state helpers):
   - the pure helpers of T006;
   - create (warehouse defaulting to the caller's point-of-sale warehouse via `_pos_warehouse`, 422 if none);
   - header update and line add, update and remove, all draft-only. A header update takes only the request-row lock, so after it the current and the new warehouse's facilities are read with plain reads (the facility rule and FR-002); the pre-read map is for submit and cancel, which take later locks. A new line writes `to_purchase = 1`, `customer = settings.default_customer_id` and `Accepted = 0` explicitly, never relying on the column defaults (FR-008, FR-013);
@@ -121,7 +121,7 @@ description: "Task list for purchase requests, purchase orders and average cost"
   - lists and the queue per research R11.
 
   Every write runs inside `inv.busy_as_conflict` and starts like spec 029's `begin_locked`: commit, lock the request row `FOR UPDATE` with `populate_existing`, then check its state (research R3). The facility rule, `inv.assert_facility`, is checked once the row is locked, on edit, submit and cancel only. On submit and cancel the facility is looked up in the warehouse → facility map pre-read before the commit, never with a query between locks; after the last lock the header warehouse's facility is re-read, and a mismatch with the map answers 409 "retry" (research R2, R3). A header edit reads the facilities after its one lock.
-- [ ] T010 [US1] Create `app/api/v1/endpoints/purchase_requests.py` with the 14 routes of the contract. Declare `/approval-queue` and `/approve` before `/{id}`. Register it in `app/api/v1/router.py` under `/purchase-requests`. Make T006–T008 pass.
+- [X] T010 [US1] Create `app/api/v1/endpoints/purchase_requests.py` with the 14 routes of the contract. Declare `/approval-queue` and `/approve` before `/{id}`. Register it in `app/api/v1/router.py` under `/purchase-requests`. Make T006–T008 pass.
 
 **Checkpoint:** requests work end to end and are usable on their own.
 
