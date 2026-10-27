@@ -48,9 +48,12 @@ def _note(**overrides) -> SimpleNamespace:
         sales_order=5,
         customer_refund=3,
         customer_payment=9,
-        refunded=Decimal('116.00'),
+        facility=1,
+        amount=Decimal('116.00'),
         remaining=Decimal('116.00'),
-        cash_session=4,
+        refunded=Decimal('0.00'),
+        refunded_to_customer=False,
+        cash_session=None,
         date=datetime(2026, 7, 25),
     )
     base.update(overrides)
@@ -78,8 +81,12 @@ async def test_list_reports_issued_and_remaining_and_its_origin() -> None:
 
     assert response.status_code == status.HTTP_200_OK
     row = response.json()['items'][0]
-    assert row['refunded'] == '116.00'
+    assert row['amount'] == '116.00'
     assert row['remaining'] == '116.00'
+    # Spec 034: `refunded` is what was handed back in cash, the column's meaning; none here.
+    assert row['refunded'] == '0.00'
+    assert row['refunded_to_customer'] is False
+    assert row['facility'] == 1
     assert row['customer_refund'] == 3
     assert row['sales_order'] == 5
 
@@ -96,7 +103,7 @@ async def test_partially_redeemed_note_shows_the_reduced_remainder() -> None:
             response = await client.get('/api/v1/credit-notes')
 
     row = response.json()['items'][0]
-    assert row['refunded'] == '116.00'
+    assert row['amount'] == '116.00'
     assert row['remaining'] == '16.00'
 
 
@@ -116,8 +123,6 @@ async def test_get_a_single_note() -> None:
     _auth()
     with patch(
         'app.services.credit_note_service.get_credit_note', AsyncMock(return_value=_note())
-    ), patch(
-        'app.services.credit_note_service.attach_remaining', AsyncMock(return_value=_note())
     ):
         async with await _client() as client:
             response = await client.get('/api/v1/credit-notes/1')
@@ -153,3 +158,28 @@ async def test_no_redemption_route_exists() -> None:
     }
 
     assert credit_note_paths == {'/api/v1/credit-notes', '/api/v1/credit-notes/{credit_note_id}'}
+
+
+@pytest.mark.asyncio
+async def test_a_note_paid_back_in_cash_says_so() -> None:
+    """Spec 034 FR-003: note 158's shape."""
+    _auth()
+    paid_back = _note(
+        amount=Decimal('1025.00'),
+        remaining=Decimal('0'),
+        refunded=Decimal('1025.00'),
+        refunded_to_customer=True,
+        cash_session=7916,
+    )
+    with patch(
+        'app.services.credit_note_service.get_credit_note', AsyncMock(return_value=paid_back)
+    ):
+        async with await _client() as client:
+            response = await client.get('/api/v1/credit-notes/158')
+
+    body = response.json()
+    assert (body['refunded_to_customer'], body['refunded'], body['remaining']) == (
+        True,
+        '1025.00',
+        '0',
+    )

@@ -13,9 +13,9 @@ from httpx import AsyncClient
 from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.enums import CurrencyCode, EntityStatus, PaymentMethod
+from app.enums import CurrencyCode, EntityStatus, PaymentMethod, PaymentType
 from app.models.customer import Customer
-from app.models.sales import CustomerPayment, SalesOrder, SalesOrderPayment
+from app.models.sales import CreditNote, CustomerPayment, SalesOrder, SalesOrderPayment
 from tests.integration.seed import seed_facility, seed_sales_order
 
 
@@ -343,6 +343,20 @@ async def test_a_paid_sale_is_refunded_as_a_credit_note(
     # Nothing drawn against it yet, so the whole refund is available. Compared numerically: the
     # credit note carries its column's scale, which is wider than the money the order reports.
     assert Decimal(notes.json()['items'][0]['remaining']) == Decimal(total)
+
+    # Spec 034 FR-005: written as the current system writes one, so both can spend it. The note
+    # has no amount and no cash session; both live on its backing payment.
+    note_row = notes.json()['items'][0]
+    db.expire_all()
+    note = await db.get(CreditNote, note_row['credit_note_id'])
+    backing = await db.get(CustomerPayment, note.customer_payment)
+    assert (note.refunded, note.cash_session) == (0, None)
+    assert backing.cash_session is not None
+    assert backing.payment_type == PaymentType.CREDIT_NOTE
+    detail = await client.get(f'/api/v1/credit-notes/{note_row["credit_note_id"]}')
+    assert Decimal(detail.json()['amount']) == Decimal(total)
+    assert Decimal(detail.json()['remaining']) == Decimal(total)
+    assert detail.json()['refunded_to_customer'] is False
 
 
 async def _payment_with_change(client: AsyncClient, db: AsyncSession) -> tuple[int, int]:

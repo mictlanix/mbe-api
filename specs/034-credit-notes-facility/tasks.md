@@ -63,25 +63,25 @@ No setup: no dependency, setting, enum or migration is added (research R9).
 
 ### Tests
 
-- [ ] T003 [P] [US1] Rewrite `tests/unit/test_credit_note_service.py` for the new pure rule `remaining_balance(unapplied: Decimal, *, refunded_to_customer: bool) -> Decimal`:
+- [X] T003 [P] [US1] Rewrite `tests/unit/test_credit_note_service.py` for the new pure rule `remaining_balance(unapplied: Decimal, *, refunded_to_customer: bool) -> Decimal`:
   - unapplied passes through;
   - negative floors at 0;
   - paid back in cash → 0, whatever the payment holds.
 
   Keep the existing cases that still describe the rule (reversal restores, a zero note has nothing to spend); drop those about `refunded` being the issued amount.
-- [ ] T004 [P] [US1] Write `tests/integration/test_credit_notes_flow.py`, through the `client` fixture as an administrator, on notes seeded the current system's way: a type-4 payment with method 0 and a cash session (any id, or NULL in SQLite), and a `credit_note` with `refunded = 0` and `cash_session` NULL.
+- [X] T004 [P] [US1] Write `tests/integration/test_credit_notes_flow.py`, through the `client` fixture as an administrator, on notes seeded the current system's way: a type-4 payment with method 0 and a cash session (any id, or NULL in SQLite), and a `credit_note` with `refunded = 0` and `cash_session` NULL.
   - Note 990's shape: payment 27.00 with 24.00 applied reads `amount` 27.00 and `remaining` 3.00 (US1 scenario 1).
   - An application with change: change counts as used (scenario 2).
   - A note paid back in cash (`cash_session` set, `refunded` = what was left): `remaining` 0, `refunded_to_customer` true, `refunded` the amount handed back (scenario 3).
   - A reversed application restores the remaining.
   - Each note reports `facility` = its payment's facility (FR-006).
   - Detail and list agree.
-- [ ] T005 [P] [US1] Extend `tests/integration/test_payment_flow.py`, beside `test_a_paid_sale_is_refunded_as_a_credit_note`: confirming a refund with `payout: credit_note` writes the note with `refunded == 0` and `cash_session is None`, the backing payment keeps the session, and `GET /credit-notes/{id}` reads `amount` = `remaining` = the refund total (US1 scenario 5, SC-003).
-- [ ] T006 [P] [US1] Update `tests/api/test_credit_notes.py` for the new fields: `_note()` gains `amount`, `facility` and `refunded_to_customer`; `refunded` is the cash handed back. The list and detail routes return them.
+- [X] T005 [P] [US1] Extend `tests/integration/test_payment_flow.py`, beside `test_a_paid_sale_is_refunded_as_a_credit_note`: confirming a refund with `payout: credit_note` writes the note with `refunded == 0` and `cash_session is None`, the backing payment keeps the session, and `GET /credit-notes/{id}` reads `amount` = `remaining` = the refund total (US1 scenario 5, SC-003).
+- [X] T006 [P] [US1] Update `tests/api/test_credit_notes.py` for the new fields: `_note()` gains `amount`, `facility` and `refunded_to_customer`; `refunded` is the cash handed back. The list and detail routes return them.
 
 ### Implementation
 
-- [ ] T007 [US1] Rewrite `app/services/credit_note_service.py` (research R1, R3):
+- [X] T007 [US1] Rewrite `app/services/credit_note_service.py` (research R1, R3):
   - `remaining_balance(unapplied, *, refunded_to_customer)` per T003;
   - a private `_notes_query()` returning a select of `CreditNote`, its payment's `amount` and `facility`, and the remaining expression. The used amount is an outer-joined aggregate subquery: `Σ(SalesOrderPayment.amount + amount_change)` per `customer_payment`, non-cancelled only. The expression is a SQLAlchemy `case`: 0 when `cash_session` is not NULL, 0 when `payment.amount − COALESCE(used, 0)` is below 0, otherwise that difference. Use `case` for the floor, not `GREATEST`, which SQLite lacks;
   - `_attach(note, amount, facility, remaining)` setting `__dict__` keys `amount`, `facility`, `remaining`, `refunded_to_customer`;
@@ -90,8 +90,8 @@ No setup: no dependency, setting, enum or migration is added (research R9).
   - drop `attach_remaining`, `attach_summary_remaining` and `_applied_against`, and update the module docstring: the note is a view over its payment, `refunded` is cash handed back.
 
   T003 and T004 must pass.
-- [ ] T008 [US1] Update `app/schemas/credit_note.py`, `CreditNoteResponse`: add `amount: Decimal`, `facility: int`, `refunded_to_customer: bool`; rewrite the docstring (spec 034 FR-001 to FR-006, `refunded` = cash handed back). In `app/api/v1/endpoints/credit_notes.py`, the detail route stops calling `attach_remaining`. T006 must pass.
-- [ ] T009 [US1] In `app/services/customer_refund_service.py`, `_pay_customer_back`, write the note with `refunded=Decimal(0)` and `cash_session=None` (explicitly: the column defaults to 0), with a comment citing the current system's `CustomerRefundsController.cs:353-378` and FR-005. T005 must pass, and so must the existing refund tests; update any that assert `refunded == total`.
+- [X] T008 [US1] Update `app/schemas/credit_note.py`, `CreditNoteResponse`: add `amount: Decimal`, `facility: int`, `refunded_to_customer: bool`; rewrite the docstring (spec 034 FR-001 to FR-006, `refunded` = cash handed back). In `app/api/v1/endpoints/credit_notes.py`, the detail route stops calling `attach_remaining`. T006 must pass.
+- [X] T009 [US1] In `app/services/customer_refund_service.py`, `_pay_customer_back`, write the note with `refunded=Decimal(0)` and `cash_session=None` (explicitly: the column defaults to 0), with a comment citing the current system's `CustomerRefundsController.cs:353-378` and FR-005. T005 must pass, and so must the existing refund tests; update any that assert `refunded == total`.
 
 **Checkpoint**: US1 works alone. `uv run pytest -q` is green.
 

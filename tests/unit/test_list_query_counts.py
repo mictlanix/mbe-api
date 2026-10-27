@@ -15,7 +15,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from app.services.cash_session_service import attach_relations, attach_summary_amounts
-from app.services.credit_note_service import attach_summary_remaining
+from app.services.credit_note_service import list_credit_notes
 from app.services.customer_payment_service import attach_customer_names, attach_summary_unapplied
 from app.services.customer_refund_service import (
     attach_summary_totals as refund_summary_totals,
@@ -200,29 +200,36 @@ class TestCustomerRefunds:
 
 
 class TestCreditNotes:
+    """Spec 034: the page and its count, each one query; balances come with the page's rows."""
+
+    @staticmethod
+    def _current() -> SimpleNamespace:
+        return SimpleNamespace(facility_id=1, administrator=True, user_id='tester')
+
     @pytest.mark.asyncio
     @pytest.mark.parametrize('size', PAGE_SIZES)
-    async def test_one_query_regardless_of_page_size(self, size: int) -> None:
-        notes = [
-            SimpleNamespace(credit_note_id=i, customer_payment=i, refunded=Decimal('100'))
+    async def test_two_queries_regardless_of_page_size(self, size: int) -> None:
+        rows = [
+            (SimpleNamespace(credit_note_id=i, cash_session=None), Decimal('100'), 1, Decimal('40'))
             for i in range(1, size + 1)
         ]
-        db = _db(_rows([]))
+        db = _db(SimpleNamespace(scalar_one=lambda: size), _rows(rows))
 
-        await attach_summary_remaining(db, notes)
+        notes, total = await list_credit_notes(db, current=self._current(), open_only=True)
 
-        assert db.execute.await_count == 1
+        assert db.execute.await_count == 2
+        assert total == size and len(notes) == size
 
     @pytest.mark.asyncio
-    async def test_remaining_reflects_the_batched_aggregate(self) -> None:
-        notes = [
-            SimpleNamespace(credit_note_id=1, customer_payment=9, refunded=Decimal('116')),
-        ]
-        db = _db(_rows([(9, Decimal('16'))]))
+    async def test_remaining_comes_from_the_rows_unapplied_amount(self) -> None:
+        note = SimpleNamespace(credit_note_id=1, cash_session=None)
+        row = (note, Decimal('116'), 1, Decimal('100'))
+        db = _db(SimpleNamespace(scalar_one=lambda: 1), _rows([row]))
 
-        await attach_summary_remaining(db, notes)
+        (listed,), _ = await list_credit_notes(db, current=self._current())
 
-        assert notes[0].__dict__['remaining'] == Decimal('100')
+        assert listed.__dict__['remaining'] == Decimal('100')
+        assert listed.__dict__['amount'] == Decimal('116')
 
 
 class TestCashSessions:

@@ -6,10 +6,11 @@ from app.schemas import LocalDateTime
 
 
 class CreditNoteResponse(BaseModel):
-    """A credit note is a view over its backing payment (FR-070).
+    """A credit note is a view over its backing payment (FR-070, spec 034).
 
-    `refunded` is the amount *issued* and is never decremented; `remaining` is derived from the
-    backing payment's non-cancelled applications, so there is no second balance to drift.
+    `amount` is what was issued, the payment's amount. `remaining` is the payment's unapplied
+    amount, change handed back included, and 0 once the note was paid back in cash. `refunded` is
+    what was handed back in cash then, the column's meaning in the current system: 0 otherwise.
     """
 
     model_config = ConfigDict(from_attributes=True)
@@ -19,7 +20,12 @@ class CreditNoteResponse(BaseModel):
     sales_order: int
     customer_refund: int
     customer_payment: int
-    refunded: Decimal
+    #: The backing payment's facility (FR-006).
+    facility: int
+    amount: Decimal
     remaining: Decimal
+    refunded: Decimal
+    #: Paid back to the customer in cash: the current system's `IsRefundedToCustomer`.
+    refunded_to_customer: bool
     cash_session: int | None
     date: LocalDateTime | None

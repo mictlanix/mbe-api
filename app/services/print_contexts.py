@@ -58,7 +58,6 @@ from app.models.sat_catalog import SatCfdiUsage, SatTaxRegime
 from app.models.supplier import Supplier, supplier_address
 from app.rendering import formatting, words
 from app.services import (
-    accounts_service,
     cash_session_service,
     cfdi,
     customer_payment_service,
@@ -1354,14 +1353,20 @@ _BUCKET_LABELS = {
 
 
 async def account_statement_context(
-    db: AsyncSession, side: 'accounts_service.Side', party_id: int, *, facility: int
+    db: AsyncSession, side: object, party_id: int, *, facility: int
 ) -> tuple[str, dict]:
     """A customer's or supplier's account statement (FR-023), one template for both sides.
+
+    `side` is an `accounts_service.Side`: `CUSTOMERS` or `SUPPLIERS`.
 
     It goes to the party, so it covers every facility whatever the caller's scope, and its figures
     are the view's for the same party seen across all facilities. `facility` only chooses whose
     letterhead it prints on. 404 when the party doesn't exist.
     """
+    # Imported here: accounts_service reaches purchase_order_service, which imports
+    # sales_quote_service, which imports this module, so a module-level import is a cycle.
+    from app.services import accounts_service
+
     money = formatting.money
     detail = await accounts_service.detail(db, side, party_id, facility=None)
     summary = detail['summary']

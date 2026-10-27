@@ -42,5 +42,4 @@ async def get_credit_note(
     note = await credit_note_service.get_credit_note(db, credit_note_id)
     if note is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Credit note not found')
-    await credit_note_service.attach_remaining(db, note)
     return CreditNoteResponse.model_validate(note)
