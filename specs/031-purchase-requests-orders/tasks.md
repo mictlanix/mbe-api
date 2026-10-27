@@ -104,7 +104,7 @@ description: "Task list for purchase requests, purchase orders and average cost"
   - **Cancel:** refused when a line is on a non-cancelled PO; allowed when the PO line is on a cancelled PO.
   - **Lines:** a new line is stored with `to_purchase = 1`, `customer = settings.default_customer_id` and `Accepted = 0` (FR-008, FR-013; the column default of `to_purchase` is 0); marking a line of a draft or cancelled request gives 409; unmarking a line on a live PO is refused; FR-010's live PO fields are shown; the line warehouse defaults to the header's, the name to the product's, and the quantity to the minimum order quantity, or 1 when that minimum is 0; a non-purchasable product gives 422; an in-transit warehouse gives 422.
   - **Lists:** by default the caller's own, without cancelled; `all=true`; every filter; the queue is oldest first with the facility filter and line counts.
-- [ ] T008 [P] [US1] Write `tests/api/test_purchase_requests.py` first:
+- [X] T008 [P] [US1] Write `tests/api/test_purchase_requests.py` first:
   - every route of the contract with 401, 403 (86, 96, or 20 for marking) and 404;
   - 409 and 422 cases;
   - 403 for a non-administrator editing, submitting or cancelling another facility's request, while approving, rejecting and marking are allowed (FR-011).
