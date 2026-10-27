@@ -413,12 +413,15 @@ async def apply_payment(
     """Apply part of a payment to an order, under locks (spec 033, FR-021, FR-022; research R4).
 
     The payment, then the order, are locked before anything is read, so two applications can't
-    together take either below zero. A credit note's confirmation locks invoices, then orders, and
-    never a payment, so the two can't deadlock each other.
+    together take either below zero. The request's earlier reads are committed away first, as spec
+    032 does: under REPEATABLE READ they would pin a snapshot older than the locks, and the balance
+    read after them would miss what the previous lock holder applied. A credit note's confirmation
+    locks invoices, then orders, and never a payment, so the two can't deadlock each other.
     """
     employee = current.employee_id
 
     async with inv.busy_as_conflict(db, 'The order is busy, retry'):
+        await db.commit()
         payment = await _lock_payment(db, payment.customer_payment_id)
         order = await _lock_order(db, data.sales_order)
         if order is None:
@@ -468,6 +471,7 @@ async def reverse_application(
     employee = current.employee_id
 
     async with inv.busy_as_conflict(db, 'The order is busy, retry'):
+        await db.commit()
         await _lock_payment(db, payment.customer_payment_id)
         await db.refresh(application)
         if application.cancelled:
