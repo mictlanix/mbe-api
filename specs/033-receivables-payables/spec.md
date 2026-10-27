@@ -143,6 +143,8 @@ Each concept exists once and is read from the side's own data. A view, action or
 ### Session 2026-10-27
 
 - Q: Does a `paid` flag close an order whatever its computed balance? (16,405 legacy paid orders compute $120.2M.) → A: Yes. The flag closes an order. Among orders not flagged paid, the balance alone decides what's open and overdue, and from now on the flag follows the balance (FR-007, FR-011).
+- Q: When may the `paid` flag be cleared? → A: Only when an event moves the balance from 0.01 or less to above 0.01. A paid order whose balance was already above 0.01 stays paid, so a legacy paid order never reopens (FR-011).
+- Q: What does a customer statement cover for a user scoped to one facility? → A: Every facility's open orders of the customer, always. Read on 18 is enough to print or email it; the view stays scoped (FR-023, FR-025).
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -227,7 +229,7 @@ The user prints a party's account statement: open documents with aging, payments
 
 **Acceptance Scenarios**:
 
-1. **Given** a customer with open orders, **When** the statement is printed, **Then** its owed, overdue, buckets, credit and net equal the view's for the same scope.
+1. **Given** a customer with open orders, **When** the statement is printed, **Then** its owed, overdue, buckets, credit and net equal the view's figures across all facilities, even when the user who prints it is scoped to one facility.
 2. **Given** the statement is emailed to two of the customer's contacts and one typed address, **When** the send succeeds, **Then** one incidence records the party, the sender and the three recipients.
 3. **Given** no mailer is configured, **When** the user emails a statement, **Then** it's refused, as quotes and CFDIs are today, and nothing is recorded.
 4. **Given** a supplier, **When** the statement is printed, **Then** it uses the same template with supplier wording, receipts in place of invoices, and no sales agent.
@@ -254,7 +256,8 @@ The orders that are paid off but still flagged unpaid are corrected once. Each g
 - **Credit note on an invoice that covers several orders:**
   - lines that keep an order line count for that order;
   - the rest of the note is shared out by each order's share of the invoice's total.
-- **Cancelled credit note or reversed application:** the order's balance rises again, and if it rises above 0.01 the paid flag is cleared.
+- **Cancelled credit note, cancelled refund or reversed application:** the order's balance rises again. The paid flag is cleared only if the balance was 0.01 or less before and is above 0.01 after.
+- **Legacy paid order that still computes a balance:** a refund or credit note on it that is later cancelled leaves it paid and out of AR.
 - **Orders in another currency:** owed, buckets and the party's figures are in base currency at each order's exchange rate. The drill-down also shows each document in its own currency.
 - **Walk-in customer:** listed like any customer. It has no credit limit, and it stays exempt from the hold and the limit check, as today.
 - **Customer whose only open orders are in other facilities:** absent from the view of a user without 101. The credit check still counts those orders.
@@ -304,7 +307,7 @@ The orders that are paid off but still flagged unpaid are corrected once. Each g
 
 - **FR-011**: After any event that changes an order's balance, the order's `paid` flag MUST be updated. The events are an application or its reversal, a refund's completion or cancellation, and a credit note's issue or cancellation.
   - **Set:** when the balance is 0.01 or less. The zero time is stamped the first time and never cleared, as today.
-  - **Clear:** only when an event raises the balance above 0.01. An event that lowers the balance never clears it.
+  - **Clear:** only when an event moves the balance from 0.01 or less to above 0.01. A paid order whose balance was already above 0.01 before the event stays paid, so a legacy paid order never reopens. An event that lowers the balance never clears it.
 - **FR-012**: The orders that are open by FR-007, flagged unpaid and have a balance of 0.01 or less (257 on mbe_dev) MUST be corrected once:
   - flagged paid, with one incidence per order;
   - the zero time set to the moment the balance reached zero for orders dated 2026 or later;
@@ -354,16 +357,16 @@ The orders that are paid off but still flagged unpaid are corrected once. Each g
 - **FR-023**: A party's statement MUST render as a PDF with spec 019's printing, from one template with the side as its variable. It shows:
   - the party and the date;
   - the credit limit, credit days and available credit;
-  - the open documents in scope, with due date, days past due and balance;
+  - all the party's open documents, in every facility, with due date, days past due and balance;
   - the aging buckets;
   - the payments received in the last 90 days (date, serial, method, amount, applied, unapplied);
   - owed, credit and net.
 
-  Its figures MUST equal the view's for the same party and scope.
+  A statement goes to the party, so it MUST be complete whatever the caller's facility scope. Its figures MUST equal the view's for the same party seen across all facilities.
 - **FR-024**: A statement MUST be emailable through spec 024's mailer, with the PDF attached. Recipients are any of the party's contacts that have an email address and up to 10 typed addresses, at most 10 in total.
   - Each successful send MUST record one incidence on the party with the recipients.
   - With no mailer configured, the send is refused and nothing is recorded.
-- **FR-025**: Printing and emailing a statement MUST require read on the side's privilege (18 or 19).
+- **FR-025**: Printing and emailing a statement MUST require read on the side's privilege (18 or 19). SearchCreditsFromAllStores (101) isn't needed, even though the statement covers every facility.
 
 ### Key Entities
 
@@ -386,7 +389,7 @@ The orders that are paid off but still flagged unpaid are corrected once. Each g
 - **SC-003**: With a test cutoff on mbe_dev, every supplier's owed, credit and net in the AP view equal spec 032's supplier balance to the cent. The cutoff is NULL again afterwards.
 - **SC-004**: For every party on both sides, the aging buckets add up to owed, with 0 cent difference.
 - **SC-005**: 100% of applications with another party's payment, or above a document's balance, are refused. 20 simultaneous applications against one order never apply more than its balance.
-- **SC-006**: For a sample of 20 customers and 5 suppliers, the statement's totals equal the view's. Each email send leaves exactly one incidence.
+- **SC-006**: For a sample of 20 customers and 5 suppliers, the statement's totals equal the view's figures across all facilities, including statements printed by a user scoped to one facility. Each email send leaves exactly one incidence.
 - **SC-007**: After the one-time correction:
   - 0 open orders flagged unpaid have a balance of 0.01 or less;
   - 0 orders dated before 2026 gain a zero time;
