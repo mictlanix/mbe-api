@@ -3,7 +3,7 @@
   "specName": "Credit Note Balances and the Facility Rule",
   "branch": "034-credit-notes-facility",
   "currentStep": "implement",
-  "status": "implemented",
+  "status": "completed",
   "history": [
     {
       "step": "specify",
@@ -332,5 +332,5 @@
       "result": "test customer T034, paid order (product 921, facility 51), session 10443 on free drawer 14 as admin; refund confirmed with payout credit_note: the note reads amount 100.00, remaining 100.00, refunded 0, refunded_to_customer false, facility 51, open; in SQL refunded 0 and cash_session NULL on the note, session 10443 on the type-4 payment, so the current system pool takes it. Every test row deleted, 0 left; the refund folio leaves one gap in facility 51 numbering"
     }
   ],
-  "currentTask": "T028"
+  "currentTask": null
 }
