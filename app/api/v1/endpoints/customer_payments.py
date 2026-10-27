@@ -3,7 +3,7 @@ from decimal import Decimal
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.deps import CurrentUser, require_privilege
+from app.core.deps import CurrentUser, has_any_privilege, require_privilege
 from app.db.session import get_db
 from app.enums import AccessRight, SystemObject
 from app.schemas import ListResponse, LocalDateTime
@@ -35,6 +35,23 @@ async def _payment_or_404(db: AsyncSession, customer_payment_id: int):  # noqa: 
     return payment
 
 
+async def _sees_every_facility(db: AsyncSession, current: CurrentUser) -> bool:
+    """Another facility's payments are PaymentsEditor (100) territory, as on `/search` (#271)."""
+    return current.administrator or await has_any_privilege(
+        db, current.user_id, [(SystemObject.PAYMENTS_EDITOR, AccessRight.READ)]
+    )
+
+
+async def _visible_payment_or_404(  # noqa: ANN202
+    db: AsyncSession, current: CurrentUser, customer_payment_id: int
+):
+    """404 rather than 403 for another facility's payment, so the id's existence is not revealed."""
+    payment = await _payment_or_404(db, customer_payment_id)
+    if payment.facility != current.facility_id and not await _sees_every_facility(db, current):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Payment not found')
+    return payment
+
+
 @router.get('', response_model=ListResponse[CustomerPaymentResponse])
 async def list_customer_payments(
     customer: int | None = Query(None),
@@ -49,6 +66,15 @@ async def list_customer_payments(
     current: CurrentUser = Depends(_READ),
     db: AsyncSession = Depends(get_db),
 ) -> ListResponse[CustomerPaymentResponse]:
+    if (
+        facility is not None
+        and facility != current.facility_id
+        and not await _sees_every_facility(db, current)
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Another facility's payments require PaymentsEditor read",
+        )
     items, total = await customer_payment_service.list_payments(
         db,
         current=current,
@@ -156,10 +182,10 @@ async def create_customer_payment(
 @router.get('/{customer_payment_id}', response_model=CustomerPaymentResponse)
 async def get_customer_payment(
     customer_payment_id: int,
-    _: CurrentUser = Depends(_READ),
+    current: CurrentUser = Depends(_READ),
     db: AsyncSession = Depends(get_db),
 ) -> CustomerPaymentResponse:
-    payment = await _payment_or_404(db, customer_payment_id)
+    payment = await _visible_payment_or_404(db, current, customer_payment_id)
     await customer_payment_service.attach_unapplied(db, payment)
     return CustomerPaymentResponse.model_validate(payment)
 
@@ -167,11 +193,11 @@ async def get_customer_payment(
 @router.get('/{customer_payment_id}/applications', response_model=list[ApplicationResponse])
 async def list_payment_applications(
     customer_payment_id: int,
-    _: CurrentUser = Depends(_READ),
+    current: CurrentUser = Depends(_READ),
     db: AsyncSession = Depends(get_db),
 ) -> list[ApplicationResponse]:
     """Includes cancelled applications — reversals stay visible (FR-045, FR-073)."""
-    payment = await _payment_or_404(db, customer_payment_id)
+    payment = await _visible_payment_or_404(db, current, customer_payment_id)
     rows = await customer_payment_service.list_applications(db, payment.customer_payment_id)
     return [ApplicationResponse.model_validate(r) for r in rows]
 

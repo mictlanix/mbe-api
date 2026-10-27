@@ -418,3 +418,104 @@ async def test_a_utc_date_filter_is_converted_to_business_wall_clock_time() -> N
     date_to = listing.await_args.kwargs['date_to']
     assert date_to == datetime(2026, 9, 27, 0, 0)
     assert date_to.tzinfo is None
+
+
+# ── Facility scope (#271) ─────────────────────────────────────────────────────
+
+
+def _clerk(*, editor: bool):  # noqa: ANN202
+    """A non-administrator at facility 1 who holds CustomerPayments read, and PaymentsEditor read
+    only when `editor`."""
+    from app.api.v1.endpoints import customer_payments
+
+    clerk = CurrentUser(
+        user_id='clerk', session_version=1, administrator=False, facility_id=1, employee_id=7
+    )
+    app.dependency_overrides[customer_payments._READ] = lambda: clerk
+
+    async def _noop_db():
+        yield None
+
+    app.dependency_overrides[get_db] = _noop_db
+    return patch(
+        'app.api.v1.endpoints.customer_payments.has_any_privilege', AsyncMock(return_value=editor)
+    )
+
+
+_BY_ID = ['/api/v1/customer-payments/1', '/api/v1/customer-payments/1/applications']
+
+
+def _by_id_patches(payment: SimpleNamespace):  # noqa: ANN202
+    return (
+        patch('app.services.customer_payment_service.get_payment', AsyncMock(return_value=payment)),
+        patch('app.services.customer_payment_service.attach_unapplied', AsyncMock()),
+        patch(
+            'app.services.customer_payment_service.list_applications', AsyncMock(return_value=[])
+        ),
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('path', _BY_ID)
+async def test_another_facilitys_payment_is_not_found_without_the_editor_right(path) -> None:
+    get, attach, apps = _by_id_patches(_payment(facility=51))
+    with _clerk(editor=False), get, attach, apps:
+        async with await _client() as client:
+            response = await client.get(path)
+
+    # 404, not 403: a refusal would confirm the id exists at another facility.
+    assert response.status_code == status.HTTP_404_NOT_FOUND
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('path', _BY_ID)
+async def test_the_editor_right_reads_another_facilitys_payment(path) -> None:
+    get, attach, apps = _by_id_patches(_payment(facility=51))
+    with _clerk(editor=True), get, attach, apps:
+        async with await _client() as client:
+            response = await client.get(path)
+
+    assert response.status_code == status.HTTP_200_OK
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('path', _BY_ID)
+async def test_an_own_facility_payment_needs_no_editor_right(path) -> None:
+    get, attach, apps = _by_id_patches(_payment(facility=1))
+    with _clerk(editor=False) as editor_check, get, attach, apps:
+        async with await _client() as client:
+            response = await client.get(path)
+
+    assert response.status_code == status.HTTP_200_OK
+    editor_check.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_listing_another_facility_is_forbidden_without_the_editor_right() -> None:
+    listing = AsyncMock(return_value=([], 0))
+    with (
+        _clerk(editor=False),
+        patch('app.services.customer_payment_service.list_payments', listing),
+    ):
+        async with await _client() as client:
+            response = await client.get('/api/v1/customer-payments?facility=51')
+
+    assert response.status_code == status.HTTP_403_FORBIDDEN
+    listing.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ('query', 'editor'), [('?facility=51', True), ('?facility=1', False), ('', False)]
+)
+async def test_listing_is_allowed_for_own_facility_or_with_the_editor_right(query, editor) -> None:
+    listing = AsyncMock(return_value=([], 0))
+    with (
+        _clerk(editor=editor),
+        patch('app.services.customer_payment_service.list_payments', listing),
+    ):
+        async with await _client() as client:
+            response = await client.get(f'/api/v1/customer-payments{query}')
+
+    assert response.status_code == status.HTTP_200_OK
+    listing.assert_awaited_once()
