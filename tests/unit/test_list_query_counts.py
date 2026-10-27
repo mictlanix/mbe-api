@@ -16,7 +16,7 @@ import pytest
 
 from app.services.cash_session_service import attach_relations, attach_summary_amounts
 from app.services.credit_note_service import attach_summary_remaining
-from app.services.customer_payment_service import attach_summary_unapplied
+from app.services.customer_payment_service import attach_customer_names, attach_summary_unapplied
 from app.services.customer_refund_service import (
     attach_summary_totals as refund_summary_totals,
 )
@@ -367,3 +367,19 @@ class TestDeliveryListsAreFlat:
 
         assert db.execute.await_count == 1
         assert len(grouped['later']) == page_size
+
+
+class TestPaymentCustomerNames:
+    """#270 — one query for the page's customers, however many rows share them."""
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize('size', PAGE_SIZES)
+    async def test_one_query_regardless_of_page_size(self, size: int) -> None:
+        payments = [SimpleNamespace(customer_payment_id=i, customer=i % 3) for i in range(size)]
+        db = _db(_rows([(0, 'A'), (1, 'B'), (2, 'C')]))
+
+        await attach_customer_names(db, payments)
+
+        assert db.execute.await_count == 1
+        names = [p.__dict__['customer_display_name'] for p in payments]
+        assert names == ['ABC'[i % 3] for i in range(size)]

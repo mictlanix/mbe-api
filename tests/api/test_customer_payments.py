@@ -111,7 +111,7 @@ async def test_record_a_payment() -> None:
     with patch(
         'app.services.customer_payment_service.create_payment',
         AsyncMock(return_value=_payment()),
-    ):
+    ), patch('app.services.customer_payment_service.attach_customer_names', AsyncMock()):
         async with await _client() as client:
             response = await client.post(
                 '/api/v1/customer-payments',
@@ -356,7 +356,7 @@ async def test_verify_records_the_supervisor() -> None:
     ), patch(
         'app.services.customer_payment_service.verify_payment',
         AsyncMock(return_value=_payment(verifier=7)),
-    ):
+    ), patch('app.services.customer_payment_service.attach_customer_names', AsyncMock()):
         async with await _client() as client:
             response = await client.post('/api/v1/customer-payments/1/verify')
 
