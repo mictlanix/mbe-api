@@ -532,7 +532,7 @@ Supplier commercial agreement date range.
 | `comment` | varchar(500) | YES | Notes |
 
 ### `supplier_payment`
-Payment made to a supplier.
+Payment made to a supplier. The API applies it to purchase orders through `purchase_order_payment`; what is left unapplied is the supplier's credit (spec 032).
 
 | Column | Type | Null | Description |
 |--------|------|------|-------------|
@@ -544,6 +544,21 @@ Payment made to a supplier.
 | `reference` | varchar(50) | YES | Transfer/check reference |
 | `comment` | varchar(500) | YES | Notes |
 | `creator` | int(11) | NO | FK → `employee` |
+| `facility` | int(11) | YES | FK → `facility` — the cash session's drawer facility for a cash payment, otherwise the caller's. **API-only**, added by migration 029 (spec 032); `NULL` on the legacy rows, which is what marks them legacy: they carry no credit |
+| `serial` | int(11) | YES | Sequential folio within facility; `UNIQUE (facility, serial)`. **API-only**, migration 029; `NULL` on legacy rows |
+| `cash_session` | int(11) | YES | FK → `cash_session` — the caller's open session for a cash payment, `NULL` otherwise. **API-only**, migration 029 |
+| `cancelled` | tinyint(1) | NO | Default 0. Set when the payment is cancelled; its credit is then 0. **API-only**, migration 029 |
+| `creation_time` | datetime | YES | Created at. **API-only**, migration 029; backfilled from `date` on legacy rows |
+| `updater` | int(11) | YES | FK → `employee`. **API-only**, migration 029; backfilled from `creator` on legacy rows |
+| `modification_time` | datetime | YES | Last updated. **API-only**, migration 029; backfilled from `date` on legacy rows |
+
+### `supplier_balance_cutoff`
+Date from which purchase orders count toward a supplier's balance (spec 032). **API-only**, added by migration 029. Always one row, id 1.
+
+| Column | Type | Null | Description |
+|--------|------|------|-------------|
+| `supplier_balance_cutoff_id` | int(11) | NO | PK; always 1 |
+| `cutoff` | datetime | YES | A purchase order counts when its `modification_time >= cutoff`. `NULL` until the go-live migration sets it, and while it is `NULL` no order counts |
 
 ### `supplier_return`
 Return of goods to supplier, linked to a purchase order.
@@ -1018,6 +1033,19 @@ Line items of a purchase order.
 | `currency` | int(11) | NO | Currency |
 | `tax_included` | tinyint(1) | NO | Price includes tax |
 | `purchase_request_detail` | int(11) | YES | FK → `purchase_request_detail` — originating request line; indexed with its key since migration 028 |
+
+### `purchase_order_payment`
+Application of a supplier payment to a purchase order (many-to-many), shaped like `sales_order_payment` (spec 032). **API-only**, added by migration 029.
+
+| Column | Type | Null | Description |
+|--------|------|------|-------------|
+| `purchase_order_payment_id` | int(11) | NO | PK |
+| `supplier_payment` | int(11) | NO | FK → `supplier_payment` |
+| `purchase_order` | int(11) | NO | FK → `purchase_order` |
+| `amount` | decimal(18,2) | NO | Amount applied to this order |
+| `applier` | int(11) | NO | FK → `employee` — who applied it |
+| `date` | datetime | NO | Application date |
+| `cancelled` | tinyint(1) | NO | Default 0. Application reversed and no longer counted against the order; never deleted |
 
 ### `product_cost_change`
 One average-cost step on the confirm of a receipt linked to a purchase order, or the restore of one when that receipt is cancelled (spec 031, FR-036, FR-037). **API-only**, added by migration 028.
