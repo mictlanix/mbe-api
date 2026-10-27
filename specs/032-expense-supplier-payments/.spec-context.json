@@ -2,8 +2,8 @@
   "workflow": "speckit",
   "specName": "Expense Vouchers and Supplier Payments",
   "branch": "032-expense-supplier-payments",
-  "currentStep": "plan",
-  "status": "planned",
+  "currentStep": "tasks",
+  "status": "ready-to-implement",
   "history": [
     {
       "step": "specify",
@@ -32,6 +32,20 @@
       "kind": "complete",
       "by": "extension",
       "at": "2026-10-27T04:18:29.694Z"
+    },
+    {
+      "step": "tasks",
+      "substep": null,
+      "kind": "start",
+      "by": "extension",
+      "at": "2026-10-27T06:48:41.749Z"
+    },
+    {
+      "step": "tasks",
+      "substep": null,
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-10-27T06:50:41.725Z"
     }
   ]
 }
