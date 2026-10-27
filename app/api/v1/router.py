@@ -1,6 +1,7 @@
 from fastapi import APIRouter
 
 from app.api.v1.endpoints import (
+    accounts_payable,
     accounts_receivable,
     addresses,
     auth,
@@ -139,4 +140,7 @@ api_router.include_router(
 )
 api_router.include_router(
     supplier_payments.router, prefix='/supplier-payments', tags=['supplier-payments']
+)
+api_router.include_router(
+    accounts_payable.router, prefix='/accounts-payable', tags=['accounts-payable']
 )

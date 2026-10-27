@@ -24,7 +24,7 @@ from app.models.core import Employee
 from app.models.customer import Customer
 from app.models.sales import CustomerPayment, SalesOrder, SalesOrderPayment
 from app.schemas.customer_payment import ApplicationCreate, CustomerPaymentCreate
-from app.services import incidences, sales_order_service
+from app.services import incidences, sales_order_service, totals
 
 # ── Decision rules (pure) ─────────────────────────────────────────────────────
 
@@ -83,7 +83,7 @@ def settle(order: object, balance: Decimal) -> None:
     reversal does not move the month an order was first settled in. `0001-01-01` is a legacy
     sentinel for "unset".
     """
-    if order.paid or balance > sales_order_service.SETTLED:
+    if order.paid or balance > totals.SETTLED:
         return
     order.paid = True
     if order.balance_zeroed_time is None or order.balance_zeroed_time.year < 1900:
@@ -98,7 +98,7 @@ def reopen(order: object, before: Decimal, after: Decimal) -> None:
     to draft. A paid order that already owed before the event stays paid, so a legacy paid order
     never reopens. The zero time stays: it dates the first settlement.
     """
-    if before <= sales_order_service.SETTLED < after:
+    if before <= totals.SETTLED < after:
         order.paid = False
 
 
@@ -560,9 +560,7 @@ async def search_outstanding(
     )
     balances = await sales_order_service.order_balances(db, candidates)
     owing = [
-        order
-        for order in candidates
-        if balances[order.sales_order_id].balance > sales_order_service.SETTLED
+        order for order in candidates if balances[order.sales_order_id].balance > totals.SETTLED
     ]
     page = owing[skip : skip + limit]
     display_names = await _customer_names(db, page)
@@ -611,7 +609,7 @@ async def payments_with_credit(
         )
         .where(CustomerPayment.customer.in_(list(customers)))
         .group_by(CustomerPayment.customer_payment_id)
-        .having(unapplied > sales_order_service.SETTLED)
+        .having(unapplied > totals.SETTLED)
         .order_by(CustomerPayment.date, CustomerPayment.customer_payment_id)
     )
     if facility is not None:

@@ -4,7 +4,14 @@ from datetime import date, datetime
 from decimal import Decimal
 
 from app.enums import CurrencyCode
-from app.services.accounts_service import BUCKETS, Document, bucket, days_past_due, summarize
+from app.services.accounts_service import (
+    BUCKETS,
+    Document,
+    bucket,
+    days_past_due,
+    po_due_date,
+    summarize,
+)
 
 TODAY = date(2026, 11, 15)
 
@@ -134,3 +141,22 @@ def test_nothing_open_is_a_zero_summary() -> None:
     assert figures['owed'] == 0 and figures['overdue'] == 0
     assert all(value == 0 for value in figures['buckets'].values())
     assert figures['oldest'] is None
+
+
+def test_a_po_is_due_its_first_receipt_plus_the_suppliers_credit_days() -> None:
+    """US3 scenario 1: received 1 October, 30 days, due 31 October."""
+    received = datetime(2026, 10, 1, 9, 30)
+
+    assert po_due_date(received, 30) == datetime(2026, 10, 31, 9, 30)
+    assert days_past_due(po_due_date(received, 30), date(2026, 11, 15)) == 15
+
+
+def test_a_po_without_a_receipt_is_not_due() -> None:
+    assert po_due_date(None, 30) is None
+
+
+def test_no_credit_days_is_due_on_receipt() -> None:
+    received = datetime(2026, 10, 1)
+
+    assert po_due_date(received, None) == received
+    assert po_due_date(received, 0) == received

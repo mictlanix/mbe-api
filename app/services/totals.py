@@ -18,6 +18,9 @@ from dataclasses import dataclass
 from decimal import ROUND_HALF_UP, Decimal
 
 CENTS = Decimal('0.01')
+#: A balance at or below this is settled, the current system's rule for setting `paid`; both sides
+#: of accounts receivable and payable count a document open only above it (spec 033).
+SETTLED = Decimal('0.01')
 
 
 @dataclass(frozen=True)

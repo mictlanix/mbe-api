@@ -7,7 +7,7 @@ written once here, and each side supplies its own documents, credit and party da
 
 from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 from typing import Any
 
@@ -22,10 +22,12 @@ from app.models.core import Employee, Facility
 from app.models.customer import Customer
 from app.models.fiscal import FiscalDocument, FiscalDocumentDetail
 from app.models.sales import SalesOrderDetail
+from app.models.supplier import Supplier
 from app.services import (
     customer_payment_service,
     fiscal_document_service,
     sales_order_service,
+    supplier_payment_service,
     totals,
 )
 
@@ -75,6 +77,14 @@ def bucket(days: int) -> str:
     if days <= 90:
         return '61-90'
     return '90+'
+
+
+def po_due_date(first_receipt: datetime | None, credit_days: int | None) -> datetime | None:
+    """A PO is due its first confirmed receipt plus the supplier's credit days; with no receipt
+    it isn't due yet (FR-006, research R6)."""
+    if first_receipt is None:
+        return None
+    return first_receipt + timedelta(days=credit_days or 0)
 
 
 def summarize(
@@ -239,6 +249,70 @@ CUSTOMERS = Side(
     documents=_customer_documents,
     credit=_customer_credit,
     parties=_customer_parties,
+)
+
+
+async def _supplier_documents(
+    db: AsyncSession, *, facility: int | None, party: int | None = None
+) -> list[Document]:
+    """Open POs (FR-008). POs have no facility, so the supplier side is company-wide (FR-019)."""
+    rows = await supplier_payment_service.open_purchase_orders(db, supplier=party)
+    suppliers = {row['order'].supplier for row in rows}
+    credit_days: dict[int, int] = {}
+    if suppliers:
+        query = select(Supplier.supplier_id, Supplier.credit_days).where(
+            Supplier.supplier_id.in_(suppliers)
+        )
+        credit_days = dict((await db.execute(query)).all())
+    return [
+        Document(
+            id=row['order'].purchase_order_id,
+            party=row['order'].supplier,
+            serial=None,
+            date=row['order'].modification_time,
+            due_date=po_due_date(row['first_receipt'], credit_days.get(row['order'].supplier)),
+            facility=None,
+            facility_code=None,
+            salesperson=None,
+            linked=tuple({'id': r['id'], 'label': r['label']} for r in row['receipts']),
+            currency=CurrencyCode.MXN,
+            exchange_rate=Decimal(1),
+            total=row['total'],
+            # Supplier returns aren't modelled; they'd come off here, as refunds do on orders.
+            deductions=Decimal('0.00'),
+            applied=row['applied'],
+            balance=row['balance'],
+        )
+        for row in rows
+    ]
+
+
+async def _supplier_credit(db: AsyncSession, supplier_ids: Sequence[int]) -> dict[int, Decimal]:
+    credit = await supplier_payment_service.credit_by_supplier(db, supplier_ids)
+    return {supplier: amount.quantize(totals.CENTS) for supplier, amount in credit.items()}
+
+
+async def _supplier_parties(db: AsyncSession, supplier_ids: Sequence[int]) -> dict[int, Party]:
+    if not supplier_ids:
+        return {}
+    rows = await db.execute(select(Supplier).where(Supplier.supplier_id.in_(list(supplier_ids))))
+    return {
+        supplier.supplier_id: Party(
+            id=supplier.supplier_id,
+            name=supplier.name,
+            credit_limit=supplier.credit_limit,
+            credit_days=supplier.credit_days,
+        )
+        for supplier in rows.scalars()
+    }
+
+
+SUPPLIERS = Side(
+    party_label='Supplier',
+    source=SourceType.SUPPLIER,
+    documents=_supplier_documents,
+    credit=_supplier_credit,
+    parties=_supplier_parties,
 )
 
 

@@ -366,10 +366,6 @@ async def refunded_by_order(db: AsyncSession, order_ids: Sequence[int]) -> dict[
     return refunded
 
 
-#: A balance at or below this is settled, the current system's rule for setting `paid` (spec 033).
-SETTLED = Decimal('0.01')
-
-
 def credit_note_shares(amount: Decimal, parts: dict[int, Decimal]) -> dict[int, Decimal]:
     """`amount` shared out in proportion to `parts`, in cents (spec 033, research R2).
 
@@ -619,11 +615,11 @@ async def open_credit_orders(
     due_before: datetime | None = None,
 ) -> list[tuple[SalesOrder, OrderBalance]]:
     """The customer side's open documents: credit orders not flagged paid that still owe more than
-    `SETTLED` (spec 033, FR-007). The credit check, the AR view and statements read them."""
+    `totals.SETTLED` (spec 033, FR-007). The credit check, the AR view and statements read them."""
     candidates = await _credit_candidates(
         db, customer=customer, facility=facility, due_before=due_before
     )
-    return [(order, balance) for order, balance in candidates if balance.balance > SETTLED]
+    return [(order, balance) for order, balance in candidates if balance.balance > totals.SETTLED]
 
 
 async def attach_summary_totals(db: AsyncSession, orders: Sequence[SalesOrder]) -> None:

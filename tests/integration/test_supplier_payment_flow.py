@@ -6,12 +6,14 @@ Concurrent applications (SC-003) and serials (SC-004) are checked on the dev dep
 """
 
 import io
+from datetime import datetime
 from decimal import Decimal
 
 from pypdf import PdfReader
 from sqlalchemy import update
 
 from app.models.core import Expense
+from app.models.inventory import InventoryReceipt
 from app.models.purchases import (
     ExpenseVoucher,
     ExpenseVoucherDetail,
@@ -19,6 +21,7 @@ from app.models.purchases import (
     SupplierBalanceCutoff,
 )
 from app.models.supplier import SupplierPayment
+from app.services import supplier_payment_service as svc
 from tests.integration import inventory_seed as seed
 
 URL = '/api/v1/supplier-payments'
@@ -255,3 +258,69 @@ async def test_list_filters(client, db, seeded):  # noqa: ANN001
     assert await ids(to='2026-10-01') == [everything[0]]
     assert await ids(skip=1, limit=1) == [gone['supplier_payment_id']]
     assert (await client.get(URL, params={'status': 'draft'})).status_code == 422
+
+
+# ── Open POs and their due dates (spec 033, US3) ────────────────────────────────
+
+
+async def _receipt(db, order: int, at: datetime, *, completed=True, cancelled=False) -> int:  # noqa: ANN001
+    receipt = InventoryReceipt(
+        facility=1, warehouse=1, purchase_order=order, creator=1, updater=1, creation_time=at,
+        modification_time=at, completed=completed, cancelled=cancelled, serial=12,
+    )  # fmt: skip
+    db.add(receipt)
+    await db.commit()
+    return receipt.inventory_receipt_id
+
+
+async def test_nothing_is_open_while_the_cutoff_is_null(db, seeded):  # noqa: ANN001
+    vendor, product = await _setup(db, cutoff=None)
+    await _po(db, vendor, product, '1000')
+
+    assert await svc.open_purchase_orders(db) == []
+
+
+async def test_an_open_po_is_dated_by_its_first_confirmed_receipt(db, seeded):  # noqa: ANN001
+    vendor, product = await _setup(db)
+    order = await _po(db, vendor, product, '1000')
+    first = datetime(2026, 10, 2, 9, 0)
+    await _receipt(db, order, datetime(2026, 10, 1, 9, 0), cancelled=True)
+    await _receipt(db, order, datetime(2026, 9, 30, 9, 0), completed=False)
+    await _receipt(db, order, first)
+    await _receipt(db, order, datetime(2026, 10, 5, 9, 0))
+
+    (row,) = await svc.open_purchase_orders(db, supplier=vendor)
+
+    assert row['order'].purchase_order_id == order
+    assert (row['total'], row['applied'], row['balance']) == (1000, 0, 1000)
+    assert row['first_receipt'] == first, 'the cancelled and the draft receipt do not date it'
+    assert [r['label'] for r in row['receipts']] == ['F1-12', 'F1-12']
+
+
+async def test_a_po_without_a_receipt_is_open_and_undated(db, seeded):  # noqa: ANN001
+    vendor, product = await _setup(db)
+    await _po(db, vendor, product, '1000')
+
+    (row,) = await svc.open_purchase_orders(db)
+
+    assert row['first_receipt'] is None
+    assert row['receipts'] == []
+
+
+async def test_the_supplier_balance_reads_the_same_open_pos(client, db, seeded):  # noqa: ANN001
+    vendor, product = await _setup(db)
+    paid = await _po(db, vendor, product, '1000')
+    owing = await _po(db, vendor, product, '2500')
+    payment = await _pay(client, vendor, '1200')
+    await client.post(
+        f'{URL}/{payment["supplier_payment_id"]}/applications',
+        json={'applications': [{'purchase_order': paid, 'amount': '1000'}]},
+    )
+
+    open_ = await svc.open_purchase_orders(db, supplier=vendor)
+    balance = (await client.get(f'{URL}/suppliers/{vendor}/balance')).json()
+
+    assert [row['order'].purchase_order_id for row in open_] == [owing]
+    assert [o['purchase_order_id'] for o in balance['orders']] == [owing]
+    assert Decimal(balance['owed']) == sum(row['balance'] for row in open_)
+    assert (await svc.credit_by_supplier(db, [vendor]))[vendor] == Decimal(balance['credit'])

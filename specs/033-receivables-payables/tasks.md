@@ -309,21 +309,21 @@ description: "Task list for accounts receivable and accounts payable (spec 033)"
 
 ### Tests
 
-- [ ] T033 [P] [US3] Extend `tests/unit/test_accounts.py` with the PO due date: a pure `po_due_date(first_receipt: datetime | None, credit_days: int | None) -> datetime | None`. A receipt on 1 October with 30 days is due 31 October; with no receipt it's None; with null days it's the receipt date (US3 scenario 1, edge cases).
-- [ ] T034 [P] [US3] Extend `tests/integration/test_supplier_payment_flow.py` for `open_purchase_orders`:
+- [X] T033 [P] [US3] Extend `tests/unit/test_accounts.py` with the PO due date: a pure `po_due_date(first_receipt: datetime | None, credit_days: int | None) -> datetime | None`. A receipt on 1 October with 30 days is due 31 October; with no receipt it's None; with null days it's the receipt date (US3 scenario 1, edge cases).
+- [X] T034 [P] [US3] Extend `tests/integration/test_supplier_payment_flow.py` for `open_purchase_orders`:
   - with the cutoff NULL there are none;
   - under a cutoff, a PO with a balance is open;
   - its due date is its first completed, non-cancelled receipt's `modification_time` plus credit days;
   - if that receipt is cancelled, the next one dates it;
   - with no receipt the due date is None, and the PO is still open;
   - `supplier_balance` gives the same owed.
-- [ ] T035 [P] [US3] Write the route contract in `tests/api/test_accounts_payable.py`, with `accounts_service` patched:
+- [X] T035 [P] [US3] Write the route contract in `tests/api/test_accounts_payable.py`, with `accounts_service` patched:
   - `GET /accounts-payable`: 200 with the patched rows in the `PartySummary` shape, with no sales agent, and `cutoff`;
   - `GET /accounts-payable/{supplier_id}`: 200 in the AP `PartyDetail` shape (`serial` null, no `facility` or `salesperson`);
   - 401, and 403 without read on 19;
   - a caller of any facility with 19 reaches the service with no facility filter, and a `facility` parameter isn't accepted (FR-019, US3 scenario 4);
   - 404 for an unknown supplier when the service raises it.
-- [ ] T036 [P] [US3] Write `tests/integration/test_accounts_payable_flow.py`, through the `client` fixture:
+- [X] T036 [P] [US3] Write `tests/integration/test_accounts_payable_flow.py`, through the `client` fixture:
   - with the cutoff NULL, an empty list and `cutoff: null` (US3 scenario 3);
   - under a test cutoff, each row's `owed`, `credit` and `net` equal `GET /supplier-payments/suppliers/{id}/balance` (SC-003);
   - the buckets sum to owed;
@@ -332,8 +332,8 @@ description: "Task list for accounts receivable and accounts payable (spec 033)"
 
 ### Implementation
 
-- [ ] T037 [US3] Add `po_due_date` to `app/services/accounts_service.py`, so T033 passes.
-- [ ] T038 [US3] Add `open_purchase_orders(db, *, supplier: int | None = None)` to `app/services/supplier_payment_service.py`:
+- [X] T037 [US3] Add `po_due_date` to `app/services/accounts_service.py`, so T033 passes.
+- [X] T038 [US3] Add `open_purchase_orders(db, *, supplier: int | None = None)` to `app/services/supplier_payment_service.py`:
   - the counting POs (`po_counts`'s filters in SQL, as `supplier_balance` writes them);
   - batched `_po_totals` and `po_applied`;
   - the confirmed receipts per PO in one query (`InventoryReceipt.purchase_order`, completed, not cancelled), with facility code, serial and `modification_time`;
@@ -341,15 +341,15 @@ description: "Task list for accounts receivable and accounts payable (spec 033)"
   - return each with its receipts and its first receipt time.
 
   Make `supplier_balance` build its `orders` list from it. Then T034 passes.
-- [ ] T039 [US3] Add `credit_by_supplier(db, supplier_ids) -> dict[int, Decimal]` to `app/services/supplier_payment_service.py`:
-  - batched over `payment_applied` and `payment_credit`, with the same filters as `supplier_balance`'s candidates;
+- [X] T039 [US3] Add `credit_by_supplier(db, supplier_ids) -> dict[int, Decimal]` to `app/services/supplier_payment_service.py`:
+  - batched over a shared `payments_with_credit(db, *, suppliers)`, which `supplier_balance` and the AP drill-down read too;
   - `supplier_balance`'s credit total must equal it for one supplier.
-- [ ] T040 [US3] Add the supplier side to `app/services/accounts_service.py`:
+- [X] T040 [US3] Add the supplier side to `app/services/accounts_service.py`:
   - `_supplier_documents`: from `open_purchase_orders`. `date` is the confirmation time, `due_date` comes from `po_due_date`, the currency is MXN at 1, and `deductions` is 0;
   - `_supplier_credit`: `credit_by_supplier`;
   - `_supplier_parties`;
   - a `SUPPLIERS` `Side`.
-- [ ] T041 [US3] Create `app/api/v1/endpoints/accounts_payable.py`, with `require_privilege(SystemObject.ACCOUNTS_PAYABLE, AccessRight.READ)`:
+- [X] T041 [US3] Create `app/api/v1/endpoints/accounts_payable.py`, with `require_privilege(SystemObject.ACCOUNTS_PAYABLE, AccessRight.READ)`:
   - `GET ''` is company-wide, with no `facility` or `sales_agent` parameter, and adds `cutoff` from `get_cutoff`;
   - `GET '/{supplier_id}'` adds `payments` from spec 032's payment credit.
 
