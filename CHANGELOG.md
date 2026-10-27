@@ -7,6 +7,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Changed
+- **Receipts of purchase orders update average cost** (mictlanix/mbe-roadmap#70, spec 031). Confirming a receipt linked to a purchase order now averages each linked product's cost (list 0) with company-wide stock, in the same transaction, and records the change. Cancelling it restores that cost when no later change touched it, and warns otherwise. The warnings come back in the receipt's `warnings`. Receipts without a purchase order are unchanged.
+- **A purchase order's receipt keeps its warehouse** (spec 031). `PUT /inventory-receipts/{id}` that moves a receipt linked to a purchase order to another warehouse answers 409. Hand-made receipts still move.
+- **Complementary receipts leave non-stockable order lines out** (spec 031), as confirm does. Before, the draft included them and its confirm was refused 422; mbe_dev has 53 such order lines.
 - **Counter pickups post as type 13** (mictlanix/mbe-roadmap#66, spec 030). `TransactionType.DELIVERY_PICKUP` (13) now marks the stock a counter pickup removes. It posted as type 10 (`DELIVERY_ORDER`), which now means only the delivery itinerary's departure and settlement. The kardex can therefore link each to its own document. mbe_dev has no type-10 entries, so nothing is converted.
 - **Refunds of invoiced goods are refused** (mictlanix/mbe-roadmap#55, spec 028). A refund can no longer return units that sit on a live invoice (sealed or stamped, not cancelled). Opening, editing or confirming such a refund returns 409 naming the invoice, and the invoice must be cancelled first. Refunds never create fiscal credit notes.
   - **Volume:** in the last 12 months, 75 of 1,540 refunds would have been refused.
@@ -45,6 +48,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **The `PaymentOnDelivery` model** (#248). The current system dropped `payment_on_delivery` in mictlanix/mbe#84, and nothing in this API read or wrote it. The model, its data-dictionary section and its schema-dump block are gone. The receipt's "Contraentrega" label, for payments collected without a cash session, is unaffected.
 
 ### Added
+- **Purchase requests and their approval** (mictlanix/mbe-roadmap#68, spec 031). `/purchase-requests` takes a request from draft to submitted to approved, on PurchaseRequest (86) and PurchaseRequestApproval (96).
+  - **Serial:** a request is numbered on its first submit, per facility of its header warehouse, under the same lock as spec 029's numbering, so concurrent submits never repeat a serial. A numbered request keeps its facility.
+  - **Approval:** `/approval-queue` lists submitted requests of every facility, oldest first. Approve records the approver and the time; bulk approve reports each id. Reject records the reason as an incidence and returns the request to draft, keeping its serial.
+  - **Marking:** the purchasing agent marks lines to purchase with PurchasesOrders (20) Update. A line on a live purchase order cannot be unmarked, and its request cannot be cancelled.
+  - **Facility rule:** a non-administrator edits, submits and cancels only their own facility's requests.
+  - A quantity below the product's minimum order quantity is saved with a warning.
+- **Purchase orders** (mictlanix/mbe-roadmap#70, spec 031). `/purchase-orders` takes an order from draft to confirmed, on PurchasesOrders (20). There is no purchase-order approval (95).
+  - **Lines:** by hand, from an approved request's marked lines, or from `GET`/`POST /to-purchase`, which groups pending lines by supplier and destination facility and creates one draft per group, priced from cost.
+  - **One live order per request line:** request-line rows are locked while they are ordered, so a line is on at most one non-cancelled order; a line taken meanwhile is listed in `skipped`.
+  - **Confirm** creates one draft receipt per destination warehouse, with the quantity still pending on each stockable line, once: a second confirm answers 409. Every edit needs a draft, and only drafts cancel, freeing their request lines.
+  - **PDF and email:** `GET /{id}/document` prints a confirmed order, and `POST /{id}/email` sends it to 1 to 10 addresses, recording each send as an incidence. Mail failures answer 502, and mail not configured 503.
+  - **Cost history:** `GET /purchase-orders/cost-changes?product=` lists a product's cost changes, newest first.
+- **Migration 028** (spec 031): `purchase_request.approver` and `approval_time`; an index and foreign key on `purchase_order_detail.purchase_request_detail`; the new `product_cost_change` table.
 - **Physical counts** (mictlanix/mbe-roadmap#64, spec 030). `/inventory-counts` takes a warehouse count from draft to confirmed and posts the difference to the ledger as type 12. It requires Read, Create, Update and Delete on PhysicalCountAdjustment (74).
   - **Blind drafts:** a draft shows only the counted quantities. `quantity_on_hand` and `difference` stay null until confirm.
   - **Batches:** `PUT /inventory-counts/{id}/lines` replaces the quantities of up to 2,000 products, by id or code, in one request. A bad entry gives a 422 listing every one, and nothing is applied. Sending a batch twice changes nothing, so 15,000 lines take 8 requests.

@@ -271,17 +271,17 @@ description: "Task list for purchase requests, purchase orders and average cost"
 
 ## Phase 8: Polish & Cross-Cutting Concerns
 
-- [ ] T029 [P] Update `docs/specs/05-purchases.md` §1–4 to describe what the new MBE does, keeping the document's structure:
+- [X] T029 [P] Update `docs/specs/05-purchases.md` §1–4 to describe what the new MBE does, keeping the document's structure:
   - request states, the serial on submit, approval with approver, reject as an incidence, marking, the facility rule;
   - PO states, draft-only edits, to-purchase per supplier and facility, one live PO per request line, receipts on confirm;
   - average cost with restore on cancel, and the history;
   - the PDF and email.
 
   Drop PO approval (95), currency, discount and invoice editing, and repricing, which are out of scope.
-- [ ] T030 [P] Update `CHANGELOG.md` `[Unreleased]` in the style of spec 030's entries:
+- [X] T030 [P] Update `CHANGELOG.md` `[Unreleased]` in the style of spec 030's entries:
   - **Added:** requests, POs, to-purchase, average cost and its history, the PO PDF and email, migration 028;
   - **Changed:** receipt confirm and cancel update cost for receipts with a PO; receipts with a PO keep their warehouse; complementary receipts leave non-stockable PO lines out.
-- [ ] T031 Check that `tests/integration/test_no_endpoint_returns_500.py` (and any route inventory test) covers the 29 new routes, and extend it if it lists routes by hand.
+- [X] T031 Check that `tests/integration/test_no_endpoint_returns_500.py` (and any route inventory test) covers the 29 new routes, and extend it if it lists routes by hand.
 - [ ] T032 Run `uv run ruff check app/ migrations/ tests/`, `uv run ruff format --check` on the changed files, and `uv run pytest -q`. Everything must be green.
 - [ ] T033 **Ask the user first; DDL.** Apply migration 028 to mbe_dev with `uv run python -m app.db.migrate`. Check the two columns, the index and FK, and the new table. Record the result in spec.md under "Verification".
 - [ ] T034 **Ask the user first.** Deploy to the test instance (`/var/www/mbe-api-test`, `mbe-api-test`) as mictlanix@, restarting as root. Only after T033.
