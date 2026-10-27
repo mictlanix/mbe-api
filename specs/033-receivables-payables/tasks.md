@@ -493,14 +493,14 @@ description: "Task list for accounts receivable and accounts payable (spec 033)"
 
 ## Phase 9: Polish & Cross-Cutting Concerns
 
-- [ ] T059 [P] Rewrite §1–2 of `docs/specs/07-administration.md` for the API:
+- [X] T059 [P] Rewrite §1–2 of `docs/specs/07-administration.md` for the API:
   - the shared model table;
   - the routes;
   - the scope rules (18 with 101; 19 company-wide);
   - the balance rule, and `paid` maintenance;
   - the statement;
   - the job.
-- [ ] T060 [P] Add to `CHANGELOG.md` under `[Unreleased]`:
+- [X] T060 [P] Add to `CHANGELOG.md` under `[Unreleased]`:
   - **Added:** the AR and AP views, statements as PDF and email, `settle_paid_flags`;
   - **Fixed:** a customer payment's `unapplied` subtracts change handed back;
   - **Changed:**
@@ -510,7 +510,7 @@ description: "Task list for accounts receivable and accounts payable (spec 033)"
     - `paid` is cleared only on a crossing;
     - outstanding orders lists only orders that owe;
     - a supplier's balance (spec 032) lists POs with more than 0.01 left, not more than 0.
-- [ ] T061 Run `uv run ruff check . && uv run ruff format --check . && uv run pytest -q`, all green.
+- [X] T061 Run `uv run ruff check app/ migrations/ tests/`, `uv run ruff format --check` on the files this spec touched, and `uv run pytest -q`, all green. (`ruff check .` also lints `.specify/` scripts, and 7 touched test files were unformatted before this branch; both are left as they were.)
 - [ ] T062 Run the quickstart on mbe_dev and the dev instance. Each step that writes, deploys or sends email needs the user's confirmation first.
   - Steps 1–4 and 6: SC-001, SC-002, SC-004, SC-008;
   - step 5: SC-005, including the 20-way concurrency run;

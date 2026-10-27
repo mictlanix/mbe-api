@@ -58,9 +58,14 @@ async def _applied(db: AsyncSession, order_id: int, amount: str) -> None:
     await db.flush()
     db.add(
         SalesOrderPayment(
-            sales_order=order_id, customer_payment=payment.customer_payment_id,
-            amount=Decimal(amount), amount_change=Decimal(0), applier=1, date=NOW,
-            confirmed=True, cancelled=False,
+            sales_order=order_id,
+            customer_payment=payment.customer_payment_id,
+            amount=Decimal(amount),
+            amount_change=Decimal(0),
+            applier=1,
+            date=NOW,
+            confirmed=True,
+            cancelled=False,
         )  # fmt: skip
     )
     await db.commit()
