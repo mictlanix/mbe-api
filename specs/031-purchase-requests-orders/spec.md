@@ -375,9 +375,11 @@ The buyer downloads the confirmed PO as a PDF, or emails it to one of the suppli
 
 5,362 tests pass, and `ruff check` and `ruff format --check` are clean.
 
-### Migration 028 (2026-10-26)
+### Migration 028 and deployment (2026-10-26)
 
 Migration 028 is applied to mbe_dev, with approval, and a second run is a no-op.
 - `purchase_request` has `approver` (FK to employee) and `approval_time`.
 - `purchase_order_detail.purchase_request_detail` has its index and FK.
 - `product_cost_change` exists with its five FKs and is empty.
+
+The branch is deployed to the dev instance (xolotl, port 8765). `/purchase-requests`, `/purchase-orders` and `/purchase-orders/to-purchase` answer 401 without a token.
