@@ -24,7 +24,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app import rendering
 from app.core.config import settings
 from app.enums import CashCountType, CurrencyCode, PaymentMethod, PaymentTerms, PaymentType
-from app.models.core import Address, CashCount, CashSession, Expense, Facility
+from app.models.core import Address, CashCount, CashSession, Employee, Expense, Facility
 from app.models.fiscal import TaxpayerBatch
 from app.models.purchases import ExpenseVoucher, ExpenseVoucherDetail
 from app.models.sales import (
@@ -976,3 +976,93 @@ async def test_renders_do_not_block_event_loop(client: AsyncClient, db: AsyncSes
     )
     assert all(pdf.startswith(b'%PDF') for pdf in pdfs)
     assert _p95(loaded) - _p95(idle) < 0.100
+
+
+# ── Payment tickets (#272) ────────────────────────────────────────────────────
+
+
+async def _payment_ticket(client: AsyncClient, payment_id: int) -> str:
+    response = await client.get(f'/api/v1/customer-payments/{payment_id}/ticket')
+    assert response.status_code == 200, response.text
+    assert response.headers['content-type'] == 'application/pdf'
+    pages = PdfReader(io.BytesIO(response.content)).pages
+    assert len(pages) == 1
+    assert float(pages[0].mediabox.width) == pytest.approx(204.09, abs=0.1)
+    return pages[0].extract_text()
+
+
+@pytest.mark.usefixtures('seeded')
+async def test_credit_payment_ticket_renders_after_legacy(
+    client: AsyncClient, db: AsyncSession
+) -> None:
+    order_id = await seed_sales_order(db, completed=True, paid=True)
+    session = await _cash_session(db)
+    payment_id = await _pay(
+        db,
+        order_id,
+        amount='1200',
+        applied='1160',
+        change='40',
+        payment_type=PaymentType.CREDIT_PAYMENT,
+        cash_session=session,
+    )
+    await _set(db, CustomerPayment, payment_id, reference='TR-778')
+    # A reversed application is not printed, nor counted against the balance.
+    db.add(
+        SalesOrderPayment(
+            sales_order=order_id,
+            customer_payment=payment_id,
+            amount=Decimal('500'),
+            amount_change=Decimal(0),
+            applier=1,
+            date=_NOW,
+            cancelled=True,
+        )
+    )
+    await db.commit()
+    cashier = (await db.get(Employee, 1)).nickname
+
+    text = await _payment_ticket(client, payment_id)
+
+    assert 'Pago' in text and 'Anticipado' not in text
+    assert '00000001' in text  # the payment's serial
+    assert cashier in text
+    assert 'Efectivo' in text
+    assert 'TR-778' in text
+    assert f'Pedido {order_id:08d}' in ' '.join(text.split())
+    assert '$1,160.00' in text
+    assert '$500.00' not in text
+    # Legacy's balance deducts the change handed back: 1,200 - (1,160 + 40).
+    assert re.search(r'Saldo\s*\$0\.00', text), text
+    assert re.search(r'Total\s*\$1,200\.00', text), text
+    assert f'{payment_id:08d}' in text
+
+
+@pytest.mark.usefixtures('seeded')
+async def test_payment_in_advance_ticket_renders(client: AsyncClient, db: AsyncSession) -> None:
+    order_id = await seed_sales_order(db, completed=True)
+    payment_id = await _pay(
+        db, order_id, amount='2000', applied='1160', payment_type=PaymentType.PAYMENT_IN_ADVANCE
+    )
+
+    text = await _payment_ticket(client, payment_id)
+
+    assert 'Pago Anticipado' in ' '.join(text.split())
+    assert re.search(r'Total\s*\$2,000\.00', text), text
+    assert re.search(r'Saldo\s*\$840\.00', text), text
+
+
+@pytest.mark.usefixtures('seeded')
+@pytest.mark.parametrize(
+    'payment_type', [PaymentType.IMMEDIATE, PaymentType.NA, PaymentType.CREDIT_NOTE]
+)
+async def test_other_payment_types_have_no_ticket(
+    client: AsyncClient, db: AsyncSession, payment_type: PaymentType
+) -> None:
+    order_id = await seed_sales_order(db, completed=True, paid=True)
+    payment_id = await _pay(db, order_id, amount='1160', applied='1160', payment_type=payment_type)
+
+    response = await client.get(f'/api/v1/customer-payments/{payment_id}/ticket')
+
+    assert response.status_code == 409
+    assert payment_type.name in response.json()['detail']

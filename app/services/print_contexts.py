@@ -652,6 +652,64 @@ async def expense_voucher_context(db: AsyncSession, voucher: ExpenseVoucher) -> 
     return 'expense_voucher_ticket.html', context
 
 
+# ── Payment tickets (#272) ────────────────────────────────────────────────────
+
+#: The types legacy `PaymentsController.PrintPayment` prints, and their titles. A credit note's
+#: ticket is built from the credit note instead (roadmap #28); every other type has none.
+PAYMENT_TICKET_TITLES = {
+    PaymentType.CREDIT_PAYMENT: 'Pago',
+    PaymentType.PAYMENT_IN_ADVANCE: 'Pago Anticipado',
+}
+
+
+async def payment_ticket_context(db: AsyncSession, payment: CustomerPayment) -> tuple[str, dict]:
+    """A credit payment's or advance's ticket, after legacy `TicketCreditPayment` and
+    `TicketPaymentInAdvance`. `payment.payment_type` must be a key of `PAYMENT_TICKET_TITLES`.
+
+    Reversed applications are neither printed nor deducted. The balance deducts the change handed
+    back as well as the applied amount, as legacy's `Balance` does: it is the customer's proof of
+    payment, and change already returned is not money they still hold here. `unapplied` on the API
+    counts that change as unapplied, so the two differ when change was given.
+    """
+    money = formatting.money
+    payment_type = PaymentType(payment.payment_type)
+    header = await header_context(db, payment.facility, PAYMENT_TICKET_TITLES[payment_type])
+    facility = await db.get(Facility, payment.facility)
+    customer = await db.get(Customer, payment.customer)
+    session = await db.get(CashSession, payment.cash_session) if payment.cash_session else None
+    cashier = await db.get(Employee, session.cashier) if session else None
+
+    applications = [
+        a
+        for a in await customer_payment_service.list_applications(db, payment.customer_payment_id)
+        if not a.cancelled
+    ]
+    allocated = sum((a.amount + a.amount_change for a in applications), Decimal(0))
+    payment_id = formatting.pad8(payment.customer_payment_id)
+    context = {
+        'header': header,
+        'advance': payment_type == PaymentType.PAYMENT_IN_ADVANCE,
+        # 0 is the placeholder for "not numbered" (migration 007), not folio zero.
+        'folio': formatting.pad8(payment.serial) if payment.serial else '',
+        'date': formatting.date_time(payment.date),
+        'customer': customer.name,
+        'cashier': cashier.nickname if cashier else '',
+        'cash_session': str(session.cash_session_id) if session else '',
+        'method': formatting.method_name(payment.method),
+        'reference': payment.reference or '',
+        'applications': [
+            {'order': formatting.pad8(a.sales_order), 'amount': money(a.amount)}
+            for a in applications
+        ],
+        'balance': money(payment.amount - allocated),
+        'total': money(payment.amount),
+        'receipt_message': facility.receipt_message or None,
+        'payment_id': payment_id,
+        'barcode': formatting.barcode_data_uri(payment_id),
+    }
+    return 'payment_ticket.html', context
+
+
 # ── CFDI (spec 020) ───────────────────────────────────────────────────────────
 
 _CFDI_CURRENCIES = {'MXN': CurrencyCode.MXN, 'USD': CurrencyCode.USD, 'EUR': CurrencyCode.EUR}
