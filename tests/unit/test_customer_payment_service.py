@@ -15,9 +15,11 @@ from fastapi import HTTPException
 from app.enums import CurrencyCode
 from app.services import customer_payment_service
 from app.services.customer_payment_service import (
+    assert_not_settled,
     assert_order_payable,
     assert_same_currency,
     assert_same_customer,
+    assert_within_balance,
     assert_within_unapplied,
     list_order_applications,
     reopen,
@@ -89,6 +91,36 @@ class TestAssertSameCustomer:
             assert_same_customer(5, 6)
 
         assert exc.value.status_code == 422
+
+
+class TestTheOrderBalanceGuards:
+    """Spec 033 FR-021: an application can't take an order below zero, nor land on one that owes
+    nothing."""
+
+    def test_up_to_the_balance_is_allowed(self) -> None:
+        assert_within_balance(Decimal('300.00'), Decimal('300.00'))
+
+    def test_above_the_balance_is_refused(self) -> None:
+        with pytest.raises(HTTPException) as exc:
+            assert_within_balance(Decimal('350.00'), Decimal('300.00'))
+
+        assert exc.value.status_code == 422
+        assert exc.value.detail == 'Amount 350.00 exceeds the order balance of 300.00'
+
+    @pytest.mark.parametrize(
+        ('paid', 'balance'),
+        [(True, '500'), (False, '0.01'), (False, '0')],
+        ids=['flagged-paid', 'a-cent-left', 'nothing-left'],
+    )
+    def test_a_settled_order_is_refused(self, paid: bool, balance: str) -> None:
+        with pytest.raises(HTTPException) as exc:
+            assert_not_settled(SimpleNamespace(paid=paid), Decimal(balance))
+
+        assert exc.value.status_code == 409
+        assert exc.value.detail == 'Sales order is already settled'
+
+    def test_an_unpaid_order_that_owes_is_allowed(self) -> None:
+        assert_not_settled(SimpleNamespace(paid=False), Decimal('0.02'))
 
 
 class TestListOrderApplications:

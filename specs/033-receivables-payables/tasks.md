@@ -367,10 +367,10 @@ description: "Task list for accounts receivable and accounts payable (spec 033)"
 
 ### Tests
 
-- [ ] T042 [P] [US4] In `tests/unit/test_customer_payment_service.py`, test the new pure guards:
+- [X] T042 [P] [US4] In `tests/unit/test_customer_payment_service.py`, test the new pure guards:
   - `assert_within_balance(amount, balance)`: 422 "Amount X exceeds the order balance of Y";
   - `assert_not_settled(order, balance)`: 409 "Sales order is already settled" when `paid` is set or the balance is 0.01 or less.
-- [ ] T043 [P] [US4] Extend `tests/integration/test_payment_flow.py` for `POST /customer-payments/{id}/applications`, through the `client` fixture:
+- [X] T043 [P] [US4] Extend `tests/integration/test_payment_flow.py` for `POST /customer-payments/{id}/applications`, through the `client` fixture:
   - US4 scenario 1 end to end: the first order is paid, the second owes 300, and the payment's `unapplied` is 0;
   - another customer's payment is 422;
   - 350 against an order owing 300 is 422;
@@ -381,20 +381,20 @@ description: "Task list for accounts receivable and accounts payable (spec 033)"
   - `GET /customer-payments/{id}` on the 600 / 530 / 70-change payment shows `unapplied` 0 (US4 scenario 6).
 
   In `tests/api/test_customer_payments.py`, check only that a 409 the patched service raises reaches the caller unchanged.
-- [ ] T044 [P] [US4] Check that `tests/api/test_supplier_payments.py` covers another supplier's payment, an amount above the PO balance, and an amount above the payment's credit (US4 scenario 5). Add only the missing cases.
+- [X] T044 [P] [US4] Check that `tests/api/test_supplier_payments.py` covers another supplier's payment, an amount above the PO balance, and an amount above the payment's credit (US4 scenario 5). Add only the missing cases. Spec 032 already covers all three (409), so nothing was added.
 
 ### Implementation
 
-- [ ] T045 [US4] Add `assert_within_balance` and `assert_not_settled` to the pure rules in `app/services/customer_payment_service.py`, so T042 passes.
-- [ ] T046 [US4] Rewrite `apply_payment` in `app/services/customer_payment_service.py` (research R4), inside `async with inv.busy_as_conflict(db):`:
+- [X] T045 [US4] Add `assert_within_balance` and `assert_not_settled` to the pure rules in `app/services/customer_payment_service.py`, so T042 passes.
+- [X] T046 [US4] Rewrite `apply_payment` in `app/services/customer_payment_service.py` (research R4), inside `async with inv.busy_as_conflict(db):`:
   1. Lock the payment row with `select(CustomerPayment)…with_for_update()` and `execution_options(populate_existing=True)`.
   2. Lock the order row the same way. 404 if it's missing.
   3. Then read `unapplied_amount` and `order_balances`.
   4. Check `assert_order_payable`, `assert_same_customer`, `assert_same_currency`, `assert_not_settled`, `assert_within_unapplied(data.amount + data.amount_change, unapplied)` and `assert_within_balance(data.amount, balance)`.
   5. Insert, flush, `settle` (T023), commit.
 
-  `inv` is `app.services.inventory_documents`, as in `expense_voucher_service`. T043 must pass.
-- [ ] T047 [US4] In `reverse_application`, lock the payment, then the order, in the same order as T046, inside `busy_as_conflict`, before reading `before`. Run the reversal tests again.
+  `inv` is `app.services.inventory_documents`, as in `expense_voucher_service`. `busy_as_conflict` gains an optional message, 'The order is busy, retry', since its default names the warehouse. T043 must pass, and the old test pinning that nothing capped an application at the order's balance becomes a refusal test.
+- [X] T047 [US4] In `reverse_application`, lock the payment, then the order, in the same order as T046, inside `busy_as_conflict`, before reading `before`. Run the reversal tests again.
 
 **Checkpoint**: the concurrency check runs on dev, after confirmation (quickstart step 5). SQLite doesn't serialize row locks.
 

@@ -25,6 +25,7 @@ from app.models.customer import Customer
 from app.models.sales import CustomerPayment, SalesOrder, SalesOrderPayment
 from app.schemas.customer_payment import ApplicationCreate, CustomerPaymentCreate
 from app.services import incidences, sales_order_service, totals
+from app.services import inventory_documents as inv
 
 # ── Decision rules (pure) ─────────────────────────────────────────────────────
 
@@ -68,6 +69,25 @@ def assert_same_customer(payment_customer: int, order_customer: int) -> None:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail='Payment belongs to a different customer than the order',
+        )
+
+
+def assert_within_balance(amount: Decimal, balance: Decimal) -> None:
+    """An application can't take an order below zero (spec 033, FR-021). Change handed back
+    isn't money the order receives, so only the amount counts here."""
+    if amount > balance:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=f'Amount {amount} exceeds the order balance of {balance}',
+        )
+
+
+def assert_not_settled(order: object, balance: Decimal) -> None:
+    """Nothing is owed on an order flagged paid, whatever it computes, nor on one with 0.01 or
+    less left (spec 033, FR-021): a legacy paid order isn't reopened by an application."""
+    if order.paid or balance <= totals.SETTLED:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail='Sales order is already settled'
         )
 
 
@@ -365,31 +385,47 @@ async def apply_payment(
     *,
     current: CurrentUser,
 ) -> SalesOrderPayment:
+    """Apply part of a payment to an order, under locks (spec 033, FR-021, FR-022; research R4).
+
+    The payment, then the order, are locked before anything is read, so two applications can't
+    together take either below zero. A credit note's confirmation locks invoices, then orders, and
+    never a payment, so the two can't deadlock each other.
+    """
     employee = current.employee_id
 
-    order = await db.get(SalesOrder, data.sales_order)
-    if order is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Sales order not found')
+    async with inv.busy_as_conflict(db, 'The order is busy, retry'):
+        payment = await _lock_payment(db, payment.customer_payment_id)
+        order = await _lock_order(db, data.sales_order)
+        if order is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail='Sales order not found'
+            )
+        balance = await _balance(db, order)
 
-    assert_order_payable(order)
-    assert_same_customer(payment.customer, order.customer)
-    assert_same_currency(CurrencyCode(payment.currency), CurrencyCode(order.currency))
-    assert_within_unapplied(data.amount, await unapplied_amount(db, payment.customer_payment_id))
+        assert_order_payable(order)
+        assert_same_customer(payment.customer, order.customer)
+        assert_same_currency(CurrencyCode(payment.currency), CurrencyCode(order.currency))
+        assert_not_settled(order, balance)
+        assert_within_unapplied(
+            data.amount + data.amount_change,
+            await unapplied_amount(db, payment.customer_payment_id),
+        )
+        assert_within_balance(data.amount, balance)
 
-    application = SalesOrderPayment(
-        sales_order=order.sales_order_id,
-        customer_payment=payment.customer_payment_id,
-        amount=data.amount,
-        amount_change=data.amount_change,
-        applier=employee,
-        date=local_now(),
-        confirmed=True,
-        cancelled=False,
-    )
-    db.add(application)
-    await db.flush()
-    settle(order, await _balance(db, order))
-    await db.commit()
+        application = SalesOrderPayment(
+            sales_order=order.sales_order_id,
+            customer_payment=payment.customer_payment_id,
+            amount=data.amount,
+            amount_change=data.amount_change,
+            applier=employee,
+            date=local_now(),
+            confirmed=True,
+            cancelled=False,
+        )
+        db.add(application)
+        await db.flush()
+        settle(order, await _balance(db, order))
+        await db.commit()
     await db.refresh(application)
     return application
 
@@ -402,37 +438,63 @@ async def reverse_application(
     reason: str,
     current: CurrentUser,
 ) -> SalesOrderPayment:
-    """Undo an application without destroying it (FR-045, FR-045a)."""
+    """Undo an application without destroying it (FR-045, FR-045a), under the same locks as
+    `apply_payment`, in the same order."""
     employee = current.employee_id
 
-    if application.cancelled:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT, detail='Application is already reversed'
+    async with inv.busy_as_conflict(db, 'The order is busy, retry'):
+        await _lock_payment(db, payment.customer_payment_id)
+        await db.refresh(application)
+        if application.cancelled:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT, detail='Application is already reversed'
+            )
+        order = await _lock_order(db, application.sales_order)
+
+        # Raises 422 on a blank reason before anything is mutated
+        incidences.record(
+            db,
+            source=SourceType.CUSTOMER_PAYMENT,
+            instance_id=payment.customer_payment_id,
+            updater=employee,
+            reason=reason,
+            context=(
+                f'Reversed application {application.sales_order_payment_id} of '
+                f'{application.amount} against sales order {application.sales_order}'
+            ),
         )
 
-    # Raises 422 on a blank reason before anything is mutated
-    incidences.record(
-        db,
-        source=SourceType.CUSTOMER_PAYMENT,
-        instance_id=payment.customer_payment_id,
-        updater=employee,
-        reason=reason,
-        context=(
-            f'Reversed application {application.sales_order_payment_id} of '
-            f'{application.amount} against sales order {application.sales_order}'
-        ),
-    )
+        before = await _balance(db, order) if order is not None else None
+        application.cancelled = True
+        if order is not None:
+            await db.flush()
+            reopen(order, before, await _balance(db, order))
 
-    order = await db.get(SalesOrder, application.sales_order)
-    before = await _balance(db, order) if order is not None else None
-    application.cancelled = True
-    if order is not None:
-        await db.flush()
-        reopen(order, before, await _balance(db, order))
-
-    await db.commit()
+        await db.commit()
     await db.refresh(application)
     return application
+
+
+async def _lock_payment(db: AsyncSession, customer_payment_id: int) -> CustomerPayment:
+    return (
+        await db.execute(
+            select(CustomerPayment)
+            .where(CustomerPayment.customer_payment_id == customer_payment_id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+    ).scalar_one()
+
+
+async def _lock_order(db: AsyncSession, sales_order_id: int) -> SalesOrder | None:
+    return (
+        await db.execute(
+            select(SalesOrder)
+            .where(SalesOrder.sales_order_id == sales_order_id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+    ).scalar_one_or_none()
 
 
 async def _balance(db: AsyncSession, order: SalesOrder) -> Decimal:
