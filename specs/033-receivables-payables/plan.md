@@ -34,16 +34,15 @@
 **Storage**: MariaDB `mbe_dev`, REPEATABLE READ. No migration. Data written only by the R11 job, after confirmation.
 
 **Testing**: pytest with httpx `ASGITransport`.
-- **Unit:**
-  - `order_balances` with refunds, credit notes (traced, prorated and rounding) and the floor;
-  - the crossing rule of `settle` and `reopen`;
+- **Unit (pure rules, on plain objects):**
+  - credit-note shares, prorated, with the rounding remainder (`credit_note_shares`);
+  - the crossing rule of `settle` and `reopen`, and the new apply guards;
   - aging and buckets;
   - the party figures (owed, overdue, credit, net, utilization, "no limit");
-  - due dates from receipts;
-  - the statement context;
-  - email recipients;
-  - the job's selection and zero time.
-- **Integration (SQLite, through the `client` fixture where a route is involved):** `order_balances`; apply → paid → reverse → reopen; a legacy paid order not reopening; a credit note settling an order; the credit check reading balances; outstanding orders; the AR and AP views' figures and scope; statements and email; the job.
+  - PO due dates from receipts;
+  - email recipients (`merge_recipients`);
+  - the job's zero time (`stale_zero_time`).
+- **Integration (SQLite, through the `client` fixture where a route is involved):** `order_balances` with refunds, credit notes (traced and prorated) and the floor; `open_credit_orders`; unapplied less change; apply → paid → reverse → reopen; a legacy paid order not reopening; a credit note settling an order; the credit check reading balances; outstanding orders; the AR and AP views' figures and scope; the statement context and email; the job's selection, writes and rerun.
 - **API (service mocked, as `tests/api` does):** the route contract of the 8 new routes (401, 403, 404, 422, 502, 503), and the scope and parameters each route passes, with and without 101.
 - **On the deployment:** concurrency (SC-005) and the before/after measurements (SC-001 to SC-003), after confirmation (quickstart).
 

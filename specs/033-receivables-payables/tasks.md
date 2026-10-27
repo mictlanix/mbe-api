@@ -238,12 +238,14 @@ description: "Task list for accounts receivable and accounts payable (spec 033)"
 
 - [ ] T027 [P] [US2] Write the route contract in `tests/api/test_accounts_receivable.py`, with `accounts_service` and `customer_payment_service` patched:
   - `GET /accounts-receivable`:
+    - 200 with the patched service's rows, in the contract's `PartySummary` shape, with `scope` and `totals`;
     - 401 without a login, 403 without read on 18;
     - a caller without 101 reaches the service with their own facility, and `scope` is `{"facility": <theirs>, "all_facilities": false}`;
     - `facility=<other>` from that caller is 403;
     - an administrator, or a caller with 101 read, reaches it with `facility=None`, or with the facility passed;
     - `party`, `overdue`, `sales_agent`, `sort`, `skip` and `limit` are passed through, and `limit` above 200 is 422;
   - `GET /accounts-receivable/{customer_id}`:
+    - 200 with the patched service's result, in the contract's `PartyDetail` shape, with `payments`;
     - 404 when the service raises it;
     - the payment list gets the caller's facility, unless the caller is an administrator or holds PaymentsEditor (100) read (#271).
 - [ ] T028 [P] [US2] Write `tests/integration/test_accounts_receivable_flow.py`, through the `client` fixture, on seeded orders in two facilities:
@@ -316,6 +318,8 @@ description: "Task list for accounts receivable and accounts payable (spec 033)"
   - with no receipt the due date is None, and the PO is still open;
   - `supplier_balance` gives the same owed.
 - [ ] T035 [P] [US3] Write the route contract in `tests/api/test_accounts_payable.py`, with `accounts_service` patched:
+  - `GET /accounts-payable`: 200 with the patched rows in the `PartySummary` shape, with no sales agent, and `cutoff`;
+  - `GET /accounts-payable/{supplier_id}`: 200 in the AP `PartyDetail` shape (`serial` null, no `facility` or `salesperson`);
   - 401, and 403 without read on 19;
   - a caller of any facility with 19 reaches the service with no facility filter, and a `facility` parameter isn't accepted (FR-019, US3 scenario 4);
   - 404 for an unknown supplier when the service raises it.

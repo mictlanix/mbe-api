@@ -12,6 +12,7 @@ There's no schema change (research R12). Everything below is computed from exist
 
 | Field | Rule |
 |---|---|
+| `totals` | The `totals.document_totals(lines)` result (subtotal, tax, total), so order lists don't fetch the lines twice |
 | `total` | `totals.document_totals(lines).total`, in the order's currency |
 | `refunded` | Completed, non-cancelled refunds (`refunded_by_order`, unchanged) |
 | `credited` | The order's share of live fiscal credit notes against its invoices (R2) |

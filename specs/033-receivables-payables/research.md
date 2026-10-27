@@ -126,7 +126,7 @@ The drill-down lists the payments that can be applied: those with credit above 0
 - Wording comes from the side ("Cliente" or "Proveedor", "Facturas" or "Recepciones"); the sales agent appears only for customers.
 
 **Email:**
-- `account_email.email_statement(db, side, party, to, contact_ids, mailer, current)` follows `email_quote`'s order: render, send, then record.
+- `account_email.email_statement(db, side, party_id, *, contact_ids, to, mailer, current)` follows `email_quote`'s order: render, send, then record. A pure `merge_recipients(contact_addresses, typed)` does the deduplication and the 1–10 check.
 - Recipients are the chosen contacts' email addresses plus typed ones, deduplicated, 1–10 in total. A chosen contact must belong to the party and have an address, or the request is refused (422).
 - **Incidence:** source CUSTOMER (7) or a new **SUPPLIER (16)**, `instance_id` = the party, reason "Account statement emailed", context "To: …".
 - With no mailer configured: 503, nothing recorded.
