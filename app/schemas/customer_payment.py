@@ -22,6 +22,11 @@ class CustomerPaymentResponse(BaseModel):
 
     customer_payment_id: int
     customer: int
+    #: The customer's own name, joined from `customer` (#270). Same field name as
+    #: `SalesOrderSummary.customer_display_name`, so the payment and order lists agree.
+    customer_display_name: str | None = Field(
+        default=None, description=CUSTOMER_DISPLAY_NAME_DESCRIPTION
+    )
     amount: Decimal
     currency: CurrencyCode
     method: PaymentMethod

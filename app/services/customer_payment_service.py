@@ -132,6 +132,14 @@ async def attach_summary_unapplied(db: AsyncSession, payments: Sequence[Customer
         )
 
 
+async def attach_customer_names(db: AsyncSession, payments: Sequence[CustomerPayment]) -> None:
+    """The customers' own names for a page of payments, in one query (#270)."""
+    names = await _customer_names(db, payments)
+    for payment in payments:
+        # `__dict__`, as in `attach_summary_unapplied`: there is no such column on the model.
+        payment.__dict__['customer_display_name'] = names.get(payment.customer)
+
+
 async def create_payment(
     db: AsyncSession, data: CustomerPaymentCreate, *, current: CurrentUser
 ) -> CustomerPayment:
@@ -205,6 +213,7 @@ async def list_payments(
     amount_min: Decimal | None = None,
     amount_max: Decimal | None = None,
     reference: str | None = None,
+    search: str | None = None,
     cross_facility: bool = False,
     skip: int = 0,
     limit: int = 20,
@@ -239,6 +248,9 @@ async def list_payments(
         both(CustomerPayment.amount <= amount_max)
     if reference:
         both(CustomerPayment.reference.ilike(f'%{reference}%'))
+    if search:
+        named = select(Customer.customer_id).where(Customer.name.ilike(f'%{search}%'))
+        both(CustomerPayment.customer.in_(named))
     if unverified_only or verified is False:
         both(CustomerPayment.verifier.is_(None))
     elif verified is True:
@@ -248,6 +260,7 @@ async def list_payments(
     page = base.order_by(CustomerPayment.customer_payment_id.desc()).offset(skip).limit(limit)
     items = (await db.execute(page)).scalars().all()
     await attach_summary_unapplied(db, items)
+    await attach_customer_names(db, items)
     return items, total
 
 
@@ -475,7 +488,9 @@ async def reject_payment(
 # ── Outstanding orders ────────────────────────────────────────────────────────
 
 
-async def _customer_names(db: AsyncSession, orders: Sequence[SalesOrder]) -> dict[int, str]:
+async def _customer_names(
+    db: AsyncSession, orders: Sequence[SalesOrder | CustomerPayment]
+) -> dict[int, str]:
     """The customers' own names for a page of orders, in one query keyed on the distinct ids (#174).
 
     One query, and deliberately so: the loop that builds each row already issues two of its own

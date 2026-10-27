@@ -55,6 +55,7 @@ async def _visible_payment_or_404(  # noqa: ANN202
 @router.get('', response_model=ListResponse[CustomerPaymentResponse])
 async def list_customer_payments(
     customer: int | None = Query(None),
+    search: str | None = Query(None, description="Matches part of the customer's name."),
     cash_session: int | None = Query(None),
     facility: int | None = Query(None),
     date_from: LocalDateTime | None = Query(None),
@@ -79,6 +80,7 @@ async def list_customer_payments(
         db,
         current=current,
         customer=customer,
+        search=search,
         cash_session=cash_session,
         facility=facility,
         date_from=date_from,
@@ -176,6 +178,7 @@ async def create_customer_payment(
     db: AsyncSession = Depends(get_db),
 ) -> CustomerPaymentResponse:
     payment = await customer_payment_service.create_payment(db, data, current=current)
+    await customer_payment_service.attach_customer_names(db, [payment])
     return CustomerPaymentResponse.model_validate(payment)
 
 
@@ -187,6 +190,7 @@ async def get_customer_payment(
 ) -> CustomerPaymentResponse:
     payment = await _visible_payment_or_404(db, current, customer_payment_id)
     await customer_payment_service.attach_unapplied(db, payment)
+    await customer_payment_service.attach_customer_names(db, [payment])
     return CustomerPaymentResponse.model_validate(payment)
 
 
@@ -247,6 +251,7 @@ async def verify_customer_payment(
 ) -> CustomerPaymentResponse:
     payment = await _payment_or_404(db, customer_payment_id)
     payment = await customer_payment_service.verify_payment(db, payment, current=current)
+    await customer_payment_service.attach_customer_names(db, [payment])
     return CustomerPaymentResponse.model_validate(payment)
 
 
@@ -261,4 +266,5 @@ async def reject_customer_payment(
     payment = await customer_payment_service.reject_payment(
         db, payment, reason=data.reason, current=current
     )
+    await customer_payment_service.attach_customer_names(db, [payment])
     return CustomerPaymentResponse.model_validate(payment)
