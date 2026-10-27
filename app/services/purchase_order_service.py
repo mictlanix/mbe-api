@@ -21,11 +21,12 @@ from fastapi import HTTPException, status
 from sqlalchemy import ColumnElement, and_, exists, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app import rendering
 from app.core.clock import local_now
 from app.core.constants import COST_PRICE_LIST_ID
 from app.core.deps import CurrentUser
-from app.enums import CurrencyCode
-from app.models.core import Warehouse
+from app.enums import CurrencyCode, SourceType
+from app.models.core import Employee, Warehouse
 from app.models.inventory import InventoryReceipt, InventoryReceiptDetail
 from app.models.product import Product, ProductPrice
 from app.models.purchases import (
@@ -43,10 +44,11 @@ from app.schemas.purchases import (
     RequestStatus,
 )
 from app.schemas.sales_order import DocumentStatus, derive_status
+from app.services import incidences, mail, print_contexts, totals, warehouse_service
 from app.services import inventory_documents as inv
 from app.services import purchase_request_service as requests
-from app.services import totals, warehouse_service
 from app.services.delivery_itinerary_service import _pos_warehouse
+from app.services.sales_quote_service import _recipients_context
 
 # ── States (R1) ───────────────────────────────────────────────────────────────
 
@@ -920,6 +922,84 @@ async def attach(db: AsyncSession, order: PurchaseOrder) -> PurchaseOrder:
         )
     order.__dict__['lines'] = lines
     return order
+
+
+# ── PDF and email (FR-040 to FR-043, R9) ──────────────────────────────────────
+
+
+def assert_printable(order: PurchaseOrder) -> None:
+    """FR-043: only a confirmed purchase order is printed or emailed."""
+    if order_status(order.completed, order.cancelled) is not DocumentStatus.COMPLETED:
+        raise _conflict('Only a confirmed purchase order can be printed or emailed')
+
+
+async def document(db: AsyncSession, order: PurchaseOrder) -> tuple[bytes, dict]:
+    """The PO's PDF, and the print context it was rendered from."""
+    assert_printable(order)
+    await attach(db, order)
+    template, context = await print_contexts.purchase_order_context(db, order)
+    return await rendering.render_pdf(template, context), context
+
+
+def order_email_message(
+    *, order_id: int, company: str, sender: str, to: Sequence[str], note: str | None, pdf: bytes
+) -> mail.Message:
+    """The quote email's shape (spec 024), with the user's message above the signature."""
+    body = f'Le enviamos la orden de compra {order_id}.\n'
+    if note:
+        body += f'{note}\n'
+    body += f'Atte: {sender}.'
+    return mail.Message(
+        to=list(to),
+        subject=f'{company} Orden de compra {order_id}',
+        body=body,
+        attachments=[mail.Attachment(f'orden-compra-{order_id:08d}.pdf', 'application/pdf', pdf)],
+    )
+
+
+async def email_order(
+    db: AsyncSession,
+    order: PurchaseOrder,
+    to: Sequence[str],
+    note: str | None,
+    *,
+    mailer: mail.Mailer,
+    current: CurrentUser,
+) -> datetime:
+    """Send a confirmed PO's PDF and record the send; returns when it was sent (FR-041, FR-042).
+
+    As for quotes, the incidence is written only after the server accepted the message, so every
+    recorded send happened.
+    """
+    pdf, context = await document(db, order)
+    sender = await db.get(Employee, current.employee_id)
+    message = order_email_message(
+        order_id=order.purchase_order_id,
+        company=context['header']['name'],
+        sender=f'{sender.first_name} {sender.last_name}'.strip(),
+        to=to,
+        note=note,
+        pdf=pdf,
+    )
+    try:
+        await mailer.send(message)
+    except mail.MailError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f'The email could not be sent: {exc}',
+        ) from exc
+
+    sent_at = local_now()
+    incidences.record(
+        db,
+        source=SourceType.PURCHASE_ORDER,
+        instance_id=order.purchase_order_id,
+        updater=current.employee_id,
+        reason='Purchase order emailed',
+        context=_recipients_context(to),
+    )
+    await db.commit()
+    return sent_at
 
 
 # ── Lists (FR-030, R11) ───────────────────────────────────────────────────────

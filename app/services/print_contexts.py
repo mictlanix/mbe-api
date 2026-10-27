@@ -44,6 +44,7 @@ from app.models.logistics import (
     DeliveryOrderDetail,
     DeliveryOrderEvent,
 )
+from app.models.purchases import PurchaseOrder
 from app.models.sales import (
     CreditNote,
     CustomerPayment,
@@ -54,6 +55,7 @@ from app.models.sales import (
     SalesQuote,
 )
 from app.models.sat_catalog import SatCfdiUsage, SatTaxRegime
+from app.models.supplier import Supplier, supplier_address
 from app.rendering import formatting, words
 from app.services import (
     cash_session_service,
@@ -550,6 +552,72 @@ async def sales_quote_context(db: AsyncSession, quote: SalesQuote) -> tuple[str,
         'amount_in_words': words.amount_in_words(quote.total, quote.currency),
     }
     return 'sales_quote.html', context
+
+
+async def purchase_order_context(db: AsyncSession, order: PurchaseOrder) -> tuple[str, dict]:
+    """The letter-size orden de compra (spec 031, FR-040, research R9).
+
+    `order` must already have been through `purchase_order_service.attach`, whose line amounts and
+    totals the document prints. A PO has no facility, so the header is the facility of the
+    warehouse of its lowest-id line. Prices are before tax, and tax is always added.
+    """
+    money = formatting.money
+    lines = order.lines
+    facility = (
+        await db.execute(
+            select(Warehouse.facility).where(Warehouse.warehouse_id == lines[0].warehouse)
+        )
+    ).scalar_one()
+    header = await header_context(
+        db, facility, f'Orden de compra - {formatting.pad8(order.purchase_order_id)}', letter=True
+    )
+    supplier = await db.get(Supplier, order.supplier)
+    address = (
+        await db.execute(
+            select(Address)
+            .join(supplier_address, supplier_address.c['address'] == Address.address_id)
+            .where(supplier_address.c['supplier'] == order.supplier)
+            .order_by(Address.address_id)
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    creator = await db.get(Employee, order.creator)
+    warehouses = await _by_id(
+        db, Warehouse, Warehouse.warehouse_id, {line.warehouse for line in lines}
+    )
+
+    comment = (order.comment or '').strip()
+    context = {
+        'header': header,
+        'order_id': formatting.pad8(order.purchase_order_id),
+        'date': formatting.date_short(order.creation_time),
+        'estimated_receipt_date': (
+            formatting.date_short(order.estimated_receipt_date)
+            if order.estimated_receipt_date
+            else None
+        ),
+        'supplier_code': supplier.code,
+        'supplier': supplier.name,
+        'supplier_address': _ship_to_lines(address),
+        'comment': comment or None,
+        'creator': f'{creator.first_name} {creator.last_name}'.strip(),
+        'lines': [
+            {
+                'code': line.product_code,
+                'name': line.product_name,
+                'warehouse': warehouses[line.warehouse].code,
+                'quantity': formatting.qty(line.quantity),
+                'price': money(line.price),
+                'amount': money(line.amount),
+            }
+            for line in lines
+        ],
+        'subtotal': money(order.subtotal),
+        'taxes': money(order.tax),
+        'total': money(order.total),
+        'amount_in_words': words.amount_in_words(order.total, CurrencyCode.MXN),
+    }
+    return 'purchase_order.html', context
 
 
 # ── CFDI (spec 020) ───────────────────────────────────────────────────────────

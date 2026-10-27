@@ -248,16 +248,16 @@ description: "Task list for purchase requests, purchase orders and average cost"
 
 **Independent Test**: spec US5.
 
-- [ ] T025 [P] [US5] Write `tests/unit/test_purchase_order_print.py` first:
+- [X] T025 [P] [US5] Write `tests/unit/test_purchase_order_print.py` first:
   - `order_totals(lines)`: subtotal, tax per line rate, and total, with tax always added;
   - `order_email_message(...)`: subject, body with the optional message, and the attachment name `orden-compra-{id:08d}.pdf`.
-- [ ] T026 [P] [US5] Write `tests/integration/test_purchase_order_document_flow.py` first, in the style of `tests/integration/test_quote_document_render.py` and `test_fiscal_email.py`:
+- [X] T026 [P] [US5] Write `tests/integration/test_purchase_order_document_flow.py` first, in the style of `tests/integration/test_quote_document_render.py` and `test_fiscal_email.py`:
   - the PDF renders for a confirmed PO and shows the supplier, lines, warehouses and totals;
   - the header facility is the lowest line's warehouse's facility;
   - email sends with the attachment and records the source-5 incidence after the send;
   - a `MailError` gives 502 with no incidence; mail not configured gives 503.
 - [ ] T027 [P] [US5] Extend `tests/api/test_purchase_orders.py` first: `/document` and `/email` with 401, 403 (Read and Update on 20), 404, and 409 for a draft or cancelled PO (FR-043).
-- [ ] T028 [US5] Implement it:
+- [X] T028 [US5] Implement it:
   - `app/rendering/templates/purchase_order.html`, letter size, modelled on `sales_quote.html`;
   - `print_contexts.purchase_order_context(db, order)` per research R9;
   - `purchase_order_service.email_order` mirroring `sales_quote_service.email_quote`;

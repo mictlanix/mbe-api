@@ -1,8 +1,9 @@
 from datetime import date
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app import rendering
 from app.core.deps import CurrentUser, require_privilege
 from app.db.session import get_db
 from app.enums import AccessRight, SystemObject
@@ -13,13 +14,15 @@ from app.schemas.purchases import (
     OrderLineAdd,
     OrderLineUpdate,
     PurchaseOrderCreate,
+    PurchaseOrderEmailRequest,
     PurchaseOrderResponse,
     PurchaseOrderSummary,
     PurchaseOrderUpdate,
     ToPurchaseCreate,
     ToPurchaseResponse,
 )
-from app.services import purchase_cost_service
+from app.schemas.sales_quote import QuoteEmailResponse
+from app.services import mail, purchase_cost_service
 from app.services import purchase_order_service as service
 
 router = APIRouter()
@@ -209,3 +212,35 @@ async def cancel_purchase_order(
 ) -> PurchaseOrderResponse:
     await _order_or_404(db, order_id)
     return await _response(db, await service.cancel(db, order_id, current=current))
+
+
+@router.get('/{order_id}/document', response_class=Response, responses=rendering.PDF_RESPONSE)
+async def print_purchase_order_document(
+    order_id: int,
+    _: CurrentUser = Depends(_READ),
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    """The letter-size orden de compra of a confirmed PO (FR-040)."""
+    order = await _order_or_404(db, order_id)
+    pdf, _context = await service.document(db, order)
+    return rendering.pdf_response(pdf, f'orden-compra-{order.purchase_order_id:08d}.pdf')
+
+
+@router.post('/{order_id}/email', response_model=QuoteEmailResponse)
+async def email_purchase_order(
+    order_id: int,
+    data: PurchaseOrderEmailRequest,
+    current: CurrentUser = Depends(_UPDATE),
+    mailer: mail.Mailer | None = Depends(mail.get_mailer),
+    db: AsyncSession = Depends(get_db),
+) -> QuoteEmailResponse:
+    """Send a confirmed PO's PDF to 1–10 addresses, and record the send (FR-041, FR-042)."""
+    if mailer is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail='Email is not configured'
+        )
+    order = await _order_or_404(db, order_id)
+    sent_at = await service.email_order(
+        db, order, data.to, data.message, mailer=mailer, current=current
+    )
+    return QuoteEmailResponse(recipients=data.to, sent_at=sent_at)
