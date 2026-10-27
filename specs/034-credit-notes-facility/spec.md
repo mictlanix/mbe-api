@@ -72,6 +72,7 @@ Builds on spec 011 (refunds, credit notes, payments), spec 033 (a payment's unap
     | 51 | 103 | 10 | 187,164.10 |
     | 52 | 143 | 50 | 1,127,554.53 |
 - **Notes spent at another facility:** 5 of 647 credit-note applications in 2026, 2 of 241 in 2025.
+- **Orders changed by someone at another facility:** 221 of the 27,942 orders created in 2026 were last changed by someone other than their creator who took payments only at another facility that day (0.8%).
 - **Payments applied by someone at another facility:** of 28,270 live applications in 2026, 742 were applied by someone other than the payment's creator. In 613 of those, the person applying took payments only at another facility that day. That's about 2% of applications, all by non-editors, that the facility rule would refuse.
 - **Verification:** no payment dated 2026 has a verifier. The screen is effectively unused.
 - **Privileges among the 36 non-administrators:**
@@ -198,7 +199,8 @@ A clerk's sales orders, unverified payments and credit notes come from their own
   - `GET /sales-orders?facility=` naming another facility answers 403.
   - The writes on a single order answer 404 for another facility's order: `PUT /{id}`, adding, changing or removing lines, `confirm` and `cancel`.
   - The reads stay open by id (`GET /{id}`, ticket, document, payments), as in the current system, so lookups and cross-facility collections keep working (clarified).
-- **FR-012**: `GET /customer-payments/unverified` MUST show what the current system's verification screen shows: payments of every facility, of the methods that require verification. A named `facility` narrows it to that facility for any holder of PaymentsVerification read.
+- **FR-012**: `GET /customer-payments/unverified` MUST cover every facility, as the current system's verification screen does. A named `facility` narrows it to that facility for any holder of PaymentsVerification read.
+  - The current system also limits the screen to the payment methods its config says need verification (`PaymentMethodsVerificationRequired`; `EFT,CreditCard` in its example config). The API keeps its `method` filter for that, and adds no setting.
 - **FR-013**: `GET /credit-notes` and `GET /credit-notes/{id}` MUST apply FR-009 to the note's facility (FR-006), with PaymentsEditor (100) read as the cross-facility privilege. A note is a customer payment, and it follows the payments rule.
 - **FR-014**: Administrators MUST keep their usual short-circuit on every check above.
 
@@ -216,7 +218,7 @@ A clerk's sales orders, unverified payments and credit notes come from their own
 - **SC-002**: Open notes on mbe_dev are 137, 1,727,758.09, as measured on 2026-10-27, give or take the day's activity. Paging through them with any page size returns each exactly once, with `total` equal to the count.
 - **SC-003**: A credit note issued by this API's refund reads, in this API and by the current system's `GetCreditNotes` rule, as a spendable note with its full amount remaining.
 - **SC-004**: As a clerk without the cross-facility privilege, every path named in FR-010, FR-011 and FR-013 refuses another facility's record or a named other facility: 0 leaks. As an administrator or a holder, the same calls proceed. Verify, reject and the single-order reads proceed for any facility, as clarified.
-- **SC-005**: The verification list on mbe_dev shows the same payments as the current system's verification screen for the same filters.
+- **SC-005**: For a PaymentsVerification reader without PaymentsEditor, the verification list on mbe_dev covers every facility, and narrows to one when it is named. Its unfiltered total equals the count of unverified payments across all facilities.
 
 ## Assumptions
 
