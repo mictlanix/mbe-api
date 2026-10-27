@@ -1,0 +1,128 @@
+{#- Account statement (estado de cuenta), spec 033 (FR-023). One template for customers and
+suppliers: the side supplies the wording. The current system has no equivalent; laid out like
+purchase_order.html. Context: print_contexts.account_statement_context. -#}
+{% extends "_print_layout.html" %}
+{% block main %}
+<div>
+	<div style="float: left; width: 49.5%;">
+		<h2 class="uppercase">{{ party_label }}</h2>
+		<p><span class="mylabel">Nombre</span></p>
+		<p>{{ party }}<br>{{ party_id }}</p>
+		{% if sales_agent %}
+		<p><span class="mylabel">Agente de ventas</span></p>
+		<p>{{ sales_agent }}</p>
+		{% endif %}
+	</div>
+	<div style="float: right; width: 49.5%; text-align: right;">
+		<h2 class="text-right uppercase">Estado de cuenta</h2>
+		<p><span class="mylabel">Fecha</span></p>
+		<p>{{ date }}</p>
+		<p><span class="mylabel">Límite de crédito</span></p>
+		<p>{% if credit_limit %}{{ credit_limit }}{% else %}Sin límite{% endif %}{% if credit_days %} · {{ credit_days }} días{% endif %}</p>
+		{% if available_credit %}
+		<p><span class="mylabel">Crédito disponible</span></p>
+		<p>{{ available_credit }}</p>
+		{% endif %}
+	</div>
+	<div style="clear: both;"></div>
+</div>
+
+<div style="margin-top: 5mm; min-height: 2.2mm; border-top: #333 solid 1px; border-bottom: #333 solid 3px;"></div>
+
+<table style="border-spacing: 0 4px; border-collapse: separate;">
+	<thead>
+		<tr>
+			<th class="text-center" style="width: 12%;">Folio</th>
+			<th class="text-center" style="width: 14%;">Fecha</th>
+			<th class="text-center" style="width: 26%;">{{ linked_label }}</th>
+			<th class="text-center" style="width: 14%;">Vencimiento</th>
+			<th class="text-center" style="width: 14%;">Días vencido</th>
+			<th class="text-center" style="width: 20%;">Saldo</th>
+		</tr>
+	</thead>
+	<tbody>
+		{% for document in documents %}
+		<tr class="alt">
+			<td class="text-center">{{ document.number }}</td>
+			<td class="text-center">{{ document.date }}</td>
+			<td class="text-center">{{ document.linked }}</td>
+			<td class="text-center">{{ document.due_date }}</td>
+			<td class="text-center">{{ document.days_past_due }}</td>
+			<td class="nowrap text-right">{{ document.balance }}</td>
+		</tr>
+		{% else %}
+		<tr><td colspan="6" class="text-center">Sin documentos pendientes</td></tr>
+		{% endfor %}
+	</tbody>
+</table>
+
+<div style="min-height: 2.2mm; border-top: #333 solid 3px; border-bottom: #333 solid 1px;"></div>
+
+<table>
+	<thead>
+		<tr>
+			{% for bucket in buckets %}<th class="text-center">{{ bucket.label }}</th>{% endfor %}
+		</tr>
+	</thead>
+	<tbody>
+		<tr>
+			{% for bucket in buckets %}<td class="nowrap text-center">{{ bucket.amount }}</td>{% endfor %}
+		</tr>
+	</tbody>
+</table>
+
+<h2 class="uppercase" style="margin-top: 5mm;">Pagos de los últimos {{ payment_days }} días</h2>
+<table style="border-spacing: 0 4px; border-collapse: separate;">
+	<thead>
+		<tr>
+			<th class="text-center">Fecha</th>
+			<th class="text-center">Folio</th>
+			<th class="text-center">Forma de pago</th>
+			<th class="text-center">Importe</th>
+			<th class="text-center">Aplicado</th>
+			<th class="text-center">Por aplicar</th>
+		</tr>
+	</thead>
+	<tbody>
+		{% for payment in payments %}
+		<tr class="alt">
+			<td class="text-center">{{ payment.date }}</td>
+			<td class="text-center">{{ payment.serial }}</td>
+			<td class="text-center">{{ payment.method }}</td>
+			<td class="nowrap text-right">{{ payment.amount }}</td>
+			<td class="nowrap text-right">{{ payment.applied }}</td>
+			<td class="nowrap text-right">{{ payment.unapplied }}</td>
+		</tr>
+		{% else %}
+		<tr><td colspan="6" class="text-center">Sin pagos en el periodo</td></tr>
+		{% endfor %}
+	</tbody>
+</table>
+
+<div style="min-height: 2.2mm; border-top: #333 solid 3px; border-bottom: #333 solid 1px;"></div>
+
+<table>
+	<tfoot>
+		<tr>
+			<td style="width: 83.33%;"></td>
+			<td class="nowrap text-right">Adeudo</td>
+			<td class="nowrap text-right">{{ owed }}</td>
+		</tr>
+		<tr>
+			<td></td>
+			<td class="nowrap text-right">Vencido</td>
+			<td class="nowrap text-right">{{ overdue }}</td>
+		</tr>
+		<tr>
+			<td></td>
+			<td class="nowrap text-right">Saldo a favor</td>
+			<td class="nowrap text-right">{{ credit }}</td>
+		</tr>
+		<tr>
+			<td></td>
+			<td class="nowrap text-right">Neto</td>
+			<td class="nowrap text-right">{{ net }}</td>
+		</tr>
+	</tfoot>
+</table>
+{% endblock %}

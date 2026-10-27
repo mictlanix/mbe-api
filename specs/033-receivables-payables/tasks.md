@@ -408,19 +408,19 @@ description: "Task list for accounts receivable and accounts payable (spec 033)"
 
 ### Tests
 
-- [ ] T048 [P] [US5] Write `tests/integration/test_account_statement.py` for `account_statement_context(db, side, party_id)` on seeded rows, as `tests/integration/test_delivery_documents_render.py` renders documents:
+- [X] T048 [P] [US5] Write `tests/integration/test_account_statement.py` for `account_statement_context(db, side, party_id)` on seeded rows, as `tests/integration/test_delivery_documents_render.py` renders documents:
   - the totals equal `accounts_service.detail(..., facility=None)`, with orders in two facilities;
   - payments are those within the 90 days before the statement date, with applied and unapplied (customers), or applied and credit (suppliers);
   - the wording is "Cliente" / "Facturas" with a sales agent, or "Proveedor" / "Recepciones" without one;
   - a party with only credit renders, with no documents;
   - the PDF renders.
-- [ ] T049 [P] [US5] Write the email tests in two files:
+- [X] T049 [P] [US5] Write the email tests in two files:
   - `tests/unit/test_account_email.py`, for a pure `merge_recipients(contact_addresses, typed) -> list[str]`: deduplicated case-insensitively, keeping the first spelling; more than 10 after deduplication is 422; none is 422;
   - `tests/integration/test_account_email.py`, for `email_statement` with a fake mailer, as `tests/integration/test_fiscal_email.py` does:
     - a contact of another party, or one without an address, is 422;
     - `MailError` is 502 and records nothing;
     - success records one incidence: source 7 or 16, `instance_id` = the party, reason "Account statement emailed", context "To: …".
-- [ ] T050 [P] [US5] Extend the route contracts in `tests/api/test_accounts_receivable.py` and `tests/api/test_accounts_payable.py` for the statement routes, with the services patched:
+- [X] T050 [P] [US5] Extend the route contracts in `tests/api/test_accounts_receivable.py` and `tests/api/test_accounts_payable.py` for the statement routes, with the services patched:
   - the PDF is `application/pdf` with filename `estado-de-cuenta-{id}.pdf`;
   - the AR statement reaches the service with `facility=None` for a caller scoped to one facility (FR-023), and 101 isn't required (FR-025);
   - 403 without 18 or 19, 404 for an unknown party;
@@ -428,12 +428,12 @@ description: "Task list for accounts receivable and accounts payable (spec 033)"
 
 ### Implementation
 
-- [ ] T051 [US5] Add `account_statement_context(db, side, party_id) -> tuple[str, dict]` to `app/services/print_contexts.py`:
+- [X] T051 [US5] Add `account_statement_context(db, side, party_id, *, facility) -> tuple[str, dict]` to `app/services/print_contexts.py` (`facility` chooses the letterhead only):
   - built from `accounts_service.detail(db, side, party_id, facility=None)`;
-  - the 90-day payments: customer payments with `attach_summary_unapplied`, or supplier payments with `payment_applied`/`payment_credit`;
+  - the 90-day payments from each side's `recent_payments`: customer payments with their applied amounts (change handed back is neither applied nor left) and `attach_summary_unapplied`, or supplier payments with `payment_applied`/`payment_credit`;
   - `header_context`, and `formatting.money`/`formatting.date_time` for display;
   - side labels from `Side`.
-- [ ] T052 [US5] Create `app/rendering/templates/account_statement.html`, extending `_print_layout.html`:
+- [X] T052 [US5] Create `app/rendering/templates/account_statement.html`, extending `_print_layout.html`:
   - the party block: name, limit, credit days, available credit, and the sales agent when present;
   - the aging buckets row;
   - the open documents table: date, serial or id, linked, due date, days past due, balance;
@@ -441,13 +441,13 @@ description: "Task list for accounts receivable and accounts payable (spec 033)"
   - owed, credit and net.
 
   Follow an existing statement-like template's markup, for example the purchase order or quote template, for header and table classes.
-- [ ] T053 [US5] Create `app/services/account_email.py`:
+- [X] T053 [US5] Create `app/services/account_email.py`:
   - `merge_recipients(contact_addresses, typed) -> list[str]`, pure: deduplicated case-insensitively, keeping the first spelling, 1 to 10 or 422;
   - `recipients(db, side, party_id, contact_ids, typed) -> list[str]`, reading `customer_contact` or `supplier_contact` joined to `Contact.email`, then `merge_recipients`;
   - `email_statement(db, side, party_id, *, contact_ids, to, mailer, current) -> tuple[datetime, list[str]]`, in `sales_quote_service.email_quote`'s order: render, send (502 on `MailError`), record with `incidences.record(source=side.source, ...)`, commit;
   - the subject is "{company} Estado de cuenta {party}". The body gives owed and overdue, and says the PDF is attached;
   - the incidence context uses the same "To: …" format as `sales_quote_service._recipients_context`.
-- [ ] T054 [US5] Add the two routes to `app/api/v1/endpoints/accounts_receivable.py` and `app/api/v1/endpoints/accounts_payable.py`:
+- [X] T054 [US5] Add the two routes to `app/api/v1/endpoints/accounts_receivable.py` and `app/api/v1/endpoints/accounts_payable.py`:
   - `GET '/{id}/statement'` returns the PDF from `rendering.render_pdf`, as the quote print route does;
   - `POST '/{id}/statement/email'` takes `StatementEmailRequest` and `mailer: mail.Mailer | None = Depends(mail.get_mailer)`. It returns 503 when the mailer is None, as `email_sales_quote` in `app/api/v1/endpoints/sales_quotes.py` does, and responds with `StatementEmailResponse`.
 

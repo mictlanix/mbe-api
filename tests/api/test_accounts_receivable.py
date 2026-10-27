@@ -17,6 +17,7 @@ from app.core.deps import CurrentUser, get_current_user
 from app.db.session import get_db
 from app.enums import AccessRight, SystemObject
 from app.main import app
+from app.services import mail
 
 BASE = '/api/v1/accounts-receivable'
 ROUTE = 'app.api.v1.endpoints.accounts_receivable'
@@ -269,3 +270,81 @@ class TestTheDrillDown:
                 await client.get(f'{BASE}/11202')
 
         assert payments.await_args.kwargs['facility'] == facility
+
+
+class TestTheStatement:
+    """FR-023, FR-025: a statement goes to the customer, so it covers every facility, and read on
+    18 is enough to print or email it."""
+
+    async def test_prints_the_pdf_for_a_scoped_caller(self) -> None:
+        _auth()
+        context = AsyncMock(return_value=('account_statement.html', {}))
+        with (
+            patch(f'{ROUTE}.has_any_privilege', _holds()),
+            patch(f'{ROUTE}.print_contexts.account_statement_context', context),
+            patch(f'{ROUTE}.rendering.render_pdf', AsyncMock(return_value=b'%PDF-1.7')),
+        ):
+            async with _client() as client:
+                response = await client.get(f'{BASE}/21/statement')
+
+        assert response.status_code == 200, response.text
+        assert response.headers['content-type'] == 'application/pdf'
+        assert 'estado-de-cuenta-21.pdf' in response.headers['content-disposition']
+        side, party = context.await_args.args[1:3]
+        assert (side.party_label, party) == ('Customer', 21)
+
+    async def test_without_read_on_18_is_403(self) -> None:
+        _auth(rights=None)
+        async with _client() as client:
+            printed = await client.get(f'{BASE}/21/statement')
+            emailed = await client.post(f'{BASE}/21/statement/email', json={'to': ['a@x.mx']})
+
+        assert printed.status_code == emailed.status_code == status.HTTP_403_FORBIDDEN
+
+    async def test_an_unknown_customer_is_404(self) -> None:
+        _auth()
+        missing = HTTPException(status_code=404, detail='Customer not found')
+        with patch(
+            f'{ROUTE}.print_contexts.account_statement_context', AsyncMock(side_effect=missing)
+        ):
+            async with _client() as client:
+                response = await client.get(f'{BASE}/999/statement')
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    async def test_email_without_a_mailer_is_503_and_sends_nothing(self) -> None:
+        _auth()
+        app.dependency_overrides[mail.get_mailer] = lambda: None
+        send = AsyncMock()
+        with patch(f'{ROUTE}.account_email.email_statement', send):
+            async with _client() as client:
+                response = await client.post(f'{BASE}/21/statement/email', json={'to': ['a@x.mx']})
+
+        assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
+        send.assert_not_awaited()
+
+    async def test_email_answers_when_and_to_whom(self) -> None:
+        _auth()
+        app.dependency_overrides[mail.get_mailer] = lambda: object()
+        send = AsyncMock(return_value=(WHEN, ['ana@cliente.mx', 'a@x.mx']))
+        with patch(f'{ROUTE}.account_email.email_statement', send):
+            async with _client() as client:
+                response = await client.post(
+                    f'{BASE}/21/statement/email', json={'contacts': [4], 'to': ['a@x.mx']}
+                )
+
+        assert response.status_code == 200, response.text
+        assert response.json() == {
+            'sent_at': '2026-10-27T12:00:00',
+            'to': ['ana@cliente.mx', 'a@x.mx'],
+        }
+        assert send.await_args.kwargs['contact_ids'] == [4]
+        assert send.await_args.kwargs['to'] == ['a@x.mx']
+
+    async def test_email_with_no_recipient_is_422(self) -> None:
+        _auth()
+        app.dependency_overrides[mail.get_mailer] = lambda: object()
+        async with _client() as client:
+            response = await client.post(f'{BASE}/21/statement/email', json={})
+
+        assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT

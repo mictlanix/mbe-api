@@ -12,7 +12,7 @@ from decimal import Decimal
 from typing import Any
 
 from fastapi import HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
@@ -21,8 +21,8 @@ from app.enums import CurrencyCode, FiscalDocumentType, SourceType
 from app.models.core import Employee, Facility
 from app.models.customer import Customer
 from app.models.fiscal import FiscalDocument, FiscalDocumentDetail
-from app.models.sales import SalesOrderDetail
-from app.models.supplier import Supplier
+from app.models.sales import CustomerPayment, SalesOrderDetail, SalesOrderPayment
+from app.models.supplier import Supplier, SupplierPayment
 from app.services import (
     customer_payment_service,
     fiscal_document_service,
@@ -145,6 +145,11 @@ class Side:
     documents: Callable[..., Awaitable[list[Document]]]
     credit: Callable[[AsyncSession, Sequence[int]], Awaitable[dict[int, Decimal]]]
     parties: Callable[[AsyncSession, Sequence[int]], Awaitable[dict[int, Party]]]
+    #: The party's payments received since a date, for the statement (FR-023).
+    recent_payments: Callable[[AsyncSession, int, datetime], Awaitable[list[dict[str, Any]]]]
+    #: The statement's wording: "Cliente" or "Proveedor", "Facturas" or "Recepciones".
+    statement_party: str
+    statement_linked: str
 
 
 async def _facility_codes(db: AsyncSession, ids: set[int]) -> dict[int, str]:
@@ -243,12 +248,58 @@ async def _customer_parties(db: AsyncSession, customer_ids: Sequence[int]) -> di
     }
 
 
+async def _customer_recent_payments(
+    db: AsyncSession, customer_id: int, since: datetime
+) -> list[dict[str, Any]]:
+    payments = list(
+        (
+            await db.execute(
+                select(CustomerPayment)
+                .where(CustomerPayment.customer == customer_id, CustomerPayment.date >= since)
+                .order_by(CustomerPayment.date, CustomerPayment.customer_payment_id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    await customer_payment_service.attach_summary_unapplied(db, payments)
+    ids = [payment.customer_payment_id for payment in payments]
+    applied = dict(
+        (
+            await db.execute(
+                select(SalesOrderPayment.customer_payment, func.sum(SalesOrderPayment.amount))
+                .where(
+                    SalesOrderPayment.customer_payment.in_(ids),
+                    SalesOrderPayment.cancelled.is_(False),
+                )
+                .group_by(SalesOrderPayment.customer_payment)
+            )
+        ).all()
+    )
+    # Applied is what went to orders; change handed back is neither applied nor left to apply.
+    return [
+        {
+            'id': payment.customer_payment_id,
+            'serial': payment.serial,
+            'date': payment.date,
+            'method': payment.method,
+            'amount': payment.amount,
+            'applied': applied.get(payment.customer_payment_id, Decimal(0)),
+            'unapplied': payment.unapplied,
+        }
+        for payment in payments
+    ]
+
+
 CUSTOMERS = Side(
     party_label='Customer',
     source=SourceType.CUSTOMER,
     documents=_customer_documents,
     credit=_customer_credit,
     parties=_customer_parties,
+    recent_payments=_customer_recent_payments,
+    statement_party='Cliente',
+    statement_linked='Facturas',
 )
 
 
@@ -307,12 +358,53 @@ async def _supplier_parties(db: AsyncSession, supplier_ids: Sequence[int]) -> di
     }
 
 
+async def _supplier_recent_payments(
+    db: AsyncSession, supplier_id: int, since: datetime
+) -> list[dict[str, Any]]:
+    payments = list(
+        (
+            await db.execute(
+                select(SupplierPayment)
+                .where(
+                    SupplierPayment.supplier == supplier_id,
+                    SupplierPayment.cancelled.is_(False),
+                    SupplierPayment.date >= since,
+                )
+                .order_by(SupplierPayment.date, SupplierPayment.supplier_payment_id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    applied = await supplier_payment_service.payment_applied(
+        db, [payment.supplier_payment_id for payment in payments]
+    )
+    rows = []
+    for payment in payments:
+        used = applied.get(payment.supplier_payment_id, Decimal(0))
+        rows.append(
+            {
+                'id': payment.supplier_payment_id,
+                'serial': payment.serial,
+                'date': payment.date,
+                'method': payment.method,
+                'amount': payment.amount,
+                'applied': used,
+                'unapplied': supplier_payment_service.payment_credit(payment, used),
+            }
+        )
+    return rows
+
+
 SUPPLIERS = Side(
     party_label='Supplier',
     source=SourceType.SUPPLIER,
     documents=_supplier_documents,
     credit=_supplier_credit,
     parties=_supplier_parties,
+    recent_payments=_supplier_recent_payments,
+    statement_party='Proveedor',
+    statement_linked='Recepciones',
 )
 
 

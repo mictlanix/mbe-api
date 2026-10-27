@@ -17,6 +17,7 @@ from app.core.deps import CurrentUser, get_current_user
 from app.db.session import get_db
 from app.enums import AccessRight
 from app.main import app
+from app.services import mail
 
 BASE = '/api/v1/accounts-payable'
 ROUTE = 'app.api.v1.endpoints.accounts_payable'
@@ -174,3 +175,58 @@ class TestTheDrillDown:
             response = await client.get(f'{BASE}/5')
 
         assert response.status_code == status.HTTP_403_FORBIDDEN
+
+
+class TestTheStatement:
+    async def test_prints_the_suppliers_pdf(self) -> None:
+        _auth()
+        context = AsyncMock(return_value=('account_statement.html', {}))
+        with (
+            patch(f'{ROUTE}.print_contexts.account_statement_context', context),
+            patch(f'{ROUTE}.rendering.render_pdf', AsyncMock(return_value=b'%PDF-1.7')),
+        ):
+            async with _client() as client:
+                response = await client.get(f'{BASE}/5/statement')
+
+        assert response.status_code == 200, response.text
+        assert 'estado-de-cuenta-5.pdf' in response.headers['content-disposition']
+        assert context.await_args.args[1].party_label == 'Supplier'
+
+    async def test_without_read_on_19_is_403(self) -> None:
+        _auth(rights=None)
+        async with _client() as client:
+            printed = await client.get(f'{BASE}/5/statement')
+            emailed = await client.post(f'{BASE}/5/statement/email', json={'to': ['a@x.mx']})
+
+        assert printed.status_code == emailed.status_code == status.HTTP_403_FORBIDDEN
+
+    async def test_an_unknown_supplier_is_404(self) -> None:
+        _auth()
+        missing = HTTPException(status_code=404, detail='Supplier not found')
+        with patch(
+            f'{ROUTE}.print_contexts.account_statement_context', AsyncMock(side_effect=missing)
+        ):
+            async with _client() as client:
+                response = await client.get(f'{BASE}/999/statement')
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    async def test_email_without_a_mailer_is_503(self) -> None:
+        _auth()
+        app.dependency_overrides[mail.get_mailer] = lambda: None
+        async with _client() as client:
+            response = await client.post(f'{BASE}/5/statement/email', json={'to': ['a@x.mx']})
+
+        assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
+
+    async def test_email_answers_when_and_to_whom(self) -> None:
+        _auth()
+        app.dependency_overrides[mail.get_mailer] = lambda: object()
+        send = AsyncMock(return_value=(WHEN, ['a@x.mx']))
+        with patch(f'{ROUTE}.account_email.email_statement', send):
+            async with _client() as client:
+                response = await client.post(f'{BASE}/5/statement/email', json={'to': ['a@x.mx']})
+
+        assert response.status_code == 200, response.text
+        assert response.json()['to'] == ['a@x.mx']
+        assert send.await_args.args[1].party_label == 'Supplier'

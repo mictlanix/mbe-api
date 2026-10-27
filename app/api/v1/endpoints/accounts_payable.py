@@ -7,9 +7,10 @@ cutoff (spec 032), so the view is empty until it's set.
 
 from typing import Literal
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app import rendering
 from app.core.deps import CurrentUser, require_privilege
 from app.db.session import get_db
 from app.enums import AccessRight, CurrencyCode, SystemObject
@@ -18,8 +19,17 @@ from app.schemas.accounts import (
     AccountScope,
     AccountsSummaryResponse,
     PartyDetail,
+    StatementEmailRequest,
+    StatementEmailResponse,
 )
-from app.services import accounts_service, supplier_payment_service, totals
+from app.services import (
+    account_email,
+    accounts_service,
+    mail,
+    print_contexts,
+    supplier_payment_service,
+    totals,
+)
 
 router = APIRouter()
 
@@ -78,3 +88,43 @@ async def get_account_payable(
             for payment, credit in payments
         ],
     )
+
+
+@router.get('/{supplier_id}/statement')
+async def print_statement(
+    supplier_id: int,
+    current: CurrentUser = Depends(_READ),
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    """The supplier's account statement as a PDF, covering every facility (FR-023, FR-025)."""
+    template, context = await print_contexts.account_statement_context(
+        db, accounts_service.SUPPLIERS, supplier_id, facility=current.facility_id
+    )
+    pdf = await rendering.render_pdf(template, context)
+    return rendering.pdf_response(pdf, f'estado-de-cuenta-{supplier_id}.pdf')
+
+
+@router.post('/{supplier_id}/statement/email', response_model=StatementEmailResponse)
+async def email_statement(
+    supplier_id: int,
+    data: StatementEmailRequest,
+    current: CurrentUser = Depends(_READ),
+    mailer: mail.Mailer | None = Depends(mail.get_mailer),
+    db: AsyncSession = Depends(get_db),
+) -> StatementEmailResponse:
+    """Email the statement to the supplier's contacts and typed addresses, and record the send on
+    the supplier (FR-024)."""
+    if mailer is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail='Email is not configured'
+        )
+    sent_at, to = await account_email.email_statement(
+        db,
+        accounts_service.SUPPLIERS,
+        supplier_id,
+        contact_ids=data.contacts,
+        to=data.to,
+        mailer=mailer,
+        current=current,
+    )
+    return StatementEmailResponse(sent_at=sent_at, to=to)

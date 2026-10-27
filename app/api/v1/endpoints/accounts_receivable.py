@@ -7,9 +7,10 @@ checks: its AR screen shows every facility to everyone.
 
 from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app import rendering
 from app.core.deps import CurrentUser, has_any_privilege, require_privilege
 from app.db.session import get_db
 from app.enums import AccessRight, SystemObject
@@ -18,8 +19,17 @@ from app.schemas.accounts import (
     AccountScope,
     AccountsSummaryResponse,
     PartyDetail,
+    StatementEmailRequest,
+    StatementEmailResponse,
 )
-from app.services import accounts_service, customer_payment_service, totals
+from app.services import (
+    account_email,
+    accounts_service,
+    customer_payment_service,
+    mail,
+    print_contexts,
+    totals,
+)
 
 router = APIRouter()
 
@@ -110,3 +120,43 @@ async def get_account_receivable(
             for payment in payments
         ],
     )
+
+
+@router.get('/{customer_id}/statement')
+async def print_statement(
+    customer_id: int,
+    current: CurrentUser = Depends(_READ),
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    """The customer's account statement as a PDF, covering every facility (FR-023, FR-025)."""
+    template, context = await print_contexts.account_statement_context(
+        db, accounts_service.CUSTOMERS, customer_id, facility=current.facility_id
+    )
+    pdf = await rendering.render_pdf(template, context)
+    return rendering.pdf_response(pdf, f'estado-de-cuenta-{customer_id}.pdf')
+
+
+@router.post('/{customer_id}/statement/email', response_model=StatementEmailResponse)
+async def email_statement(
+    customer_id: int,
+    data: StatementEmailRequest,
+    current: CurrentUser = Depends(_READ),
+    mailer: mail.Mailer | None = Depends(mail.get_mailer),
+    db: AsyncSession = Depends(get_db),
+) -> StatementEmailResponse:
+    """Email the statement to the customer's contacts and typed addresses, and record the send on
+    the customer (FR-024)."""
+    if mailer is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail='Email is not configured'
+        )
+    sent_at, to = await account_email.email_statement(
+        db,
+        accounts_service.CUSTOMERS,
+        customer_id,
+        contact_ids=data.contacts,
+        to=data.to,
+        mailer=mailer,
+        current=current,
+    )
+    return StatementEmailResponse(sent_at=sent_at, to=to)
