@@ -1,0 +1,23 @@
+{
+  "workflow": "speckit",
+  "specName": "Credit Note Balances and the Facility Rule",
+  "branch": "034-credit-notes-facility",
+  "currentStep": "specify",
+  "status": "specified",
+  "history": [
+    {
+      "step": "specify",
+      "substep": null,
+      "kind": "start",
+      "by": "extension",
+      "at": "2026-10-27T21:33:59.000Z"
+    },
+    {
+      "step": "specify",
+      "substep": null,
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-10-27T21:43:34.769Z"
+    }
+  ]
+}
