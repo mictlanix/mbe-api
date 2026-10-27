@@ -208,12 +208,12 @@ description: "Task list for purchase requests, purchase orders and average cost"
 
 **Independent Test**: spec US4. 10 on hand at 100, plus 10 received at 120, gives a cost of 110 and one history row with Q, R and U.
 
-- [ ] T020 [P] [US4] Write `tests/unit/test_purchase_cost.py` first, covering T023's pure helpers:
+- [X] T020 [P] [US4] Write `tests/unit/test_purchase_cost.py` first, covering T023's pure helpers:
   - `unit_cost(price, discount)`, ignoring `tax_included`;
   - `average(q, c, r, u)`: Q < 0 counts as 0, rounding half up to 4 decimals (R > 0 always, so Q + R > 0);
   - `apply_lines(lines, on_hand, costs)`: lines in id order, two lines of one product averaged one after the other, U = 0 skipped with a warning, lines without a PO line ignored; it returns the changes and the final cost per product;
   - `restore_plan(receipt_changes, latest_change_by_product)` → `(restores, warnings)`: restore only when the latest change is this receipt's and not a restore, to the previous cost of the receipt's first change for that product.
-- [ ] T021 [P] [US4] Write `tests/integration/test_purchase_cost_flow.py` first, covering US4 scenarios 1–5 and SC-004:
+- [X] T021 [P] [US4] Write `tests/integration/test_purchase_cost_flow.py` first, covering US4 scenarios 1–5 and SC-004:
   - the formula against seeded stock across two facilities and in transit;
   - a receipt without a PO, and a hand-added line on a PO receipt, leave cost unchanged (the hand-added product must not already be on the receipt, or `add_line` merges it into the linked line);
   - a product with no cost row gets one;
@@ -223,13 +223,13 @@ description: "Task list for purchase requests, purchase orders and average cost"
   - `GET /purchase-orders/cost-changes?product=` lists them, newest first;
   - writes to list 0 through the price-list API are still refused (spec 004 FR-005a; `tests/integration/test_cost_price_list.py` stays green).
 - [ ] T022 [P] [US4] Extend `tests/api/test_inventory_receipts.py` first: confirm and cancel responses carry the cost warnings. Extend `tests/api/test_purchase_orders.py` with `cost-changes`: 401, 403, 422 without `product`, and 404 for an unknown product.
-- [ ] T023 [US4] Create `app/services/purchase_cost_service.py` per research R5 and R6:
+- [X] T023 [US4] Create `app/services/purchase_cost_service.py` per research R5 and R6:
   - the pure helpers of T020;
   - `lock(db, receipt_id)`: a locking read of the linked products, then the list-0 rows `FOR UPDATE` ascending;
   - `apply(db, receipt, lines, current)`: a grouped company-wide on-hand query, then the cost row update or insert, the staged `ProductCostChange` rows, and the warnings;
   - `lock_restore(db, receipt_id)` and `restore(db, receipt, current)`;
   - `history(db, product, skip, limit)`.
-- [ ] T024 [US4] Wire the cost step into `app/services/inventory_documents.py` per research R7:
+- [X] T024 [US4] Wire the cost step into `app/services/inventory_documents.py` per research R7:
   - in `confirm_simple`, when `kind is RECEIPT and document.purchase_order is not None`, call `purchase_cost_service.lock` right after `begin_locked`, and `apply` after the checks and before `post_movement`;
   - in `cancel`, for a completed RECEIPT with a PO, call `lock_restore` after `begin_locked` and `restore` with the reversal;
   - keep the warnings on `document.__dict__['cost_warnings']`;

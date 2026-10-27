@@ -148,7 +148,10 @@ async def attach_derived(db: AsyncSession, receipt: InventoryReceipt) -> Invento
             # The response's figure only: no history, so nothing writes it back to the row.
             set_committed_value(line, 'quantity_ordered', ordered[order_line])
         line.__dict__['quantity_received_elsewhere'] = elsewhere.get(order_line, Decimal(0))
-    receipt.__dict__['warnings'] = over_receipt_warnings(lines, ordered, elsewhere)
+    # The cost warnings of the confirm or cancel that returned this receipt, if any (spec 031).
+    receipt.__dict__['warnings'] = over_receipt_warnings(
+        lines, ordered, elsewhere
+    ) + receipt.__dict__.get('cost_warnings', [])
     return receipt
 
 

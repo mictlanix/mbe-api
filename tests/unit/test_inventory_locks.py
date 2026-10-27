@@ -87,6 +87,8 @@ def _receipt(**overrides) -> SimpleNamespace:
         inventory_receipt_id=10,
         facility=1,
         warehouse=5,
+        # A hand-made receipt: no purchase order, so no cost step (spec 031).
+        purchase_order=None,
         completed=False,
         cancelled=False,
         serial=None,

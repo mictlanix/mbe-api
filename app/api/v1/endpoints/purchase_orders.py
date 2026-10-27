@@ -9,6 +9,7 @@ from app.enums import AccessRight, SystemObject
 from app.schemas import ListResponse
 from app.schemas.purchases import (
     AddRequestLines,
+    CostChange,
     OrderLineAdd,
     OrderLineUpdate,
     PurchaseOrderCreate,
@@ -18,6 +19,7 @@ from app.schemas.purchases import (
     ToPurchaseCreate,
     ToPurchaseResponse,
 )
+from app.services import purchase_cost_service
 from app.services import purchase_order_service as service
 
 router = APIRouter()
@@ -105,6 +107,19 @@ async def create_purchase_order_from_group(
     """One draft PO from a supplier and facility's pending lines (FR-025)."""
     order = await service.create_from_group(db, data.supplier, data.facility, current=current)
     return await _response(db, order)
+
+
+@router.get('/cost-changes', response_model=ListResponse[CostChange])
+async def list_cost_changes(
+    product: int = Query(...),
+    skip: int = Query(0, ge=0),
+    limit: int = Query(20, ge=1, le=100),
+    _: CurrentUser = Depends(_READ),
+    db: AsyncSession = Depends(get_db),
+) -> ListResponse[CostChange]:
+    """A product's average-cost changes and restores, newest first (FR-036)."""
+    items, total = await purchase_cost_service.history(db, product, skip=skip, limit=limit)
+    return ListResponse(items=[CostChange.model_validate(item) for item in items], total=total)
 
 
 @router.get('/{order_id}', response_model=PurchaseOrderResponse)

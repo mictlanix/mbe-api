@@ -18,6 +18,8 @@ async def _setup(db):  # noqa: ANN202
     setup = await seed.setup_inventory(db)
     vendor = await seed.supplier(db)
     other = await seed.product(db, code='INV2', supplier=vendor)
+    # Confirming a generated receipt averages cost into the cost list, which must exist.
+    await seed.cost(db, setup.stockable, '10')
     return setup, vendor, other
 
 
