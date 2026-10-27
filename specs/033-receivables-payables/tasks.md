@@ -511,7 +511,7 @@ description: "Task list for accounts receivable and accounts payable (spec 033)"
     - outstanding orders lists only orders that owe;
     - a supplier's balance (spec 032) lists POs with more than 0.01 left, not more than 0.
 - [X] T061 Run `uv run ruff check app/ migrations/ tests/`, `uv run ruff format --check` on the files this spec touched, and `uv run pytest -q`, all green. (`ruff check .` also lints `.specify/` scripts, and 7 touched test files were unformatted before this branch; both are left as they were.)
-- [ ] T062 Run the quickstart on mbe_dev and the dev instance. Each step that writes, deploys or sends email needs the user's confirmation first.
+- [X] T062 Run the quickstart on mbe_dev and the dev instance. Each step that writes, deploys or sends email needs the user's confirmation first.
   - Steps 1–4 and 6: SC-001, SC-002, SC-004, SC-008;
   - step 5: SC-005, including the 20-way concurrency run;
   - step 7: SC-007;
@@ -519,7 +519,7 @@ description: "Task list for accounts receivable and accounts payable (spec 033)"
   - step 9: SC-006, to an internal address only;
   - step 10: cleanup.
 
-  Record the figures in `.spec-context.json` verifications.
+  Record the figures in `.spec-context.json` verifications. Done on 2026-10-27, except step 9: the user chose not to send email. Step 5's first run found the locks didn't serialize (fixed in a426fff, rerun clean).
 - [ ] T063 After confirmation, comment on mictlanix/mbe-roadmap#51 (CFDI cancellation): cancelling a credit note must lock the related orders, read their balance before and after, and call `customer_payment_service.reopen` (spec 033 FR-011, research R3).
 
 ---

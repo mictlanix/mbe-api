@@ -543,5 +543,65 @@
       "at": "2026-10-27T20:36:41.363Z"
     }
   ],
-  "currentTask": "T062"
+  "currentTask": "T062",
+  "verified": [
+    {
+      "what": "full test suite",
+      "command": "uv run pytest -q -p no:cacheprovider",
+      "source": "derived",
+      "exitCode": 0,
+      "durationSeconds": 256.2,
+      "result": "........................................................................ [ 99%] · ........                                                                 [100%] · 5840 passed in 247.78s (0:04:07)"
+    },
+    {
+      "what": "ruff check",
+      "command": "uv run ruff check app tests migrations",
+      "source": "derived",
+      "exitCode": 0,
+      "durationSeconds": 0.7,
+      "result": "All checks passed!"
+    },
+    {
+      "what": "deployed to dev (xolotl :8765)",
+      "result": "033-receivables-payables at a426fff, /health ok, 0 migrations pending"
+    },
+    {
+      "what": "SC-001 one balance",
+      "result": "136 customers: AR owed = credit-check debt, 0 mismatches; 606 open orders: drill-down balance = outstanding-orders balance, 0 mismatches"
+    },
+    {
+      "what": "SC-002 before/after",
+      "result": "old arithmetic and order_balances agree: 606 orders, $6,861,865.40, 136 customers, 0 orders differ (no credit note touches an open order); holds 199 by flag -> 131 by balance (130 in research; 3 customers fell due on 2026-10-27); the current AR screen differs for 0 customers: research expected 3 ($6.4k), but each of those orders also carries a completed refund of its full total, so both read 0"
+    },
+    {
+      "what": "SC-004 buckets",
+      "result": "buckets add up to owed for all 136 customers and all 90 suppliers (test cutoff)"
+    },
+    {
+      "what": "SC-005 applications on dev",
+      "result": "600+400 from 1,000: first paid, second owes 300, payment 0 left; another customer 422; 350 vs 300 owed 422; paid and legacy paid 409 (legacy stays paid); amount+change over unapplied 422; other facility accepted; 20 concurrent x10 on 100 owed: 10 x 201, 10 x 409, 100 applied, paid set; reversal clears paid. The first run applied 20 of 20 (a snapshot older than the locks); fixed in a426fff and rerun. Test rows deleted, 0 left"
+    },
+    {
+      "what": "SC-007 stale-flag job",
+      "result": "dry run 257 (2024: 3, 2025: 219, 2026: 35); --apply flagged 257 with 257 source-3 incidences; zero time on 34 of the 35 from 2026 (316157 totals 0, no event), none before 2026; rerun selects 0"
+    },
+    {
+      "what": "SC-003 AP with test cutoff 2026-01-01",
+      "result": "90 suppliers, owed/credit/net = spec 032 balance for all; 558 due dates = first receipt + credit days; 153 unreceived POs current with no due date; non-admin with 19 sees all 90; cutoff reset to NULL, AP empty again"
+    },
+    {
+      "what": "SC-008 timings on dev",
+      "result": "AR summary of all customers 0.87 s; drill-down max 0.17 s; statement 0.36 s; sales order page 0.07 s"
+    },
+    {
+      "what": "FR-005a and scope",
+      "result": "payment 300789 unapplied 0; customer credit $18,837,400.32 across 317 customers; scoped user (no 101) sees facility 51 only, 403 on facility 47, same limit figures as admin; hold gate releases 68 of 199 flag-held customers"
+    }
+  ],
+  "concerns": [
+    {
+      "note": "Statement email (quickstart step 9) not run: the user chose on 2026-10-27 not to send email. Covered by tests with a fake mailer.",
+      "kind": "skipped"
+    }
+  ]
 }
