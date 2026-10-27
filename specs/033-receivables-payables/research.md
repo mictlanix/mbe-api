@@ -106,7 +106,7 @@ After both locks they read `unapplied_amount` and `order_balances` and check the
 
 **Decision:** no new apply route. The view calls the existing `POST /customer-payments/{id}/applications` and `POST /supplier-payments/{id}/applications`, under their own privileges (CustomerPayments create; SupplierPayment update). The customer route gains the balance check (R4) and the refusal of a settled order.
 
-The drill-down lists the payments that can be applied: those with credit above 0.01, of the same party and in the same currency.
+The drill-down lists the payments that can be applied: those of the same party with credit above 0.01. Each shows its currency. The list isn't filtered by currency, because a party's documents can be in different currencies, and the apply route refuses a mismatch (`assert_same_currency`).
 - **Which facilities' payments the list shows:** #271's rule. That's the caller's facility, unless they're an administrator or hold PaymentsEditor read (100), the same rule as `GET /customer-payments`. Showing other facilities' payments in the drill-down would undo #271.
 - **The party's credit figure** stays company-wide: it's one number, and the statement shows it in full.
 - **The apply route** itself still takes any facility's payment by id (`_payment_or_404`, not `_visible_payment_or_404`), as #271 left it.

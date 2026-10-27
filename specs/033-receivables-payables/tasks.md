@@ -82,9 +82,8 @@ description: "Task list for accounts receivable and accounts payable (spec 033)"
       - the rest of the note goes through `credit_note_shares`. Each order's part is the sum of that invoice's line totals for that order's lines;
     - `balance = totals.remaining(total, [refunded, credited, applied])`.
 - [ ] T006 Add `open_credit_orders(db, *, customer: int | None = None, facility: int | None = None, due_before: datetime | None = None) -> list[tuple[SalesOrder, OrderBalance]]` to `app/services/sales_order_service.py` (FR-007, research R5):
-  - candidates are `payment_terms == NET_D`, completed, not cancelled and `paid` false, filtered by the arguments that are given;
-  - run `order_balances` on the candidates;
-  - keep those with a balance above 0.01.
+  - a private `_credit_candidates(db, *, customer=None, facility=None, due_before=None) -> list[tuple[SalesOrder, OrderBalance]]` selects `payment_terms == NET_D`, completed, not cancelled and `paid` false, filtered by the arguments that are given, and runs `order_balances` on them. It's the one customer-side selector: the stale-flag job (T057) reads it too;
+  - `open_credit_orders` keeps the candidates with a balance above 0.01.
 
   Test it in `tests/integration/test_order_balances.py`:
   - an unpaid order with a zero balance is left out;
@@ -479,7 +478,7 @@ description: "Task list for accounts receivable and accounts payable (spec 033)"
 ### Implementation
 
 - [ ] T057 [US6] Add `stale_zero_time` and `settle_stale_flags` to `app/services/customer_payment_service.py`:
-  - select the candidates with `open_credit_orders`'s filters, but keep balances of 0.01 or less;
+  - take the candidates from `sales_order_service._credit_candidates` (T006), and keep those with a balance of 0.01 or less;
   - gather each order's event dates in batched queries;
   - return a report: per order, the id, date, balance and new zero time.
 
