@@ -183,3 +183,63 @@ async def test_a_product_with_several_labels(db, seeded):
     ).scalars()
     assert len(set(labels)) == 3
     assert (await db.get(Product, product_id)).stockable is True
+
+
+async def test_purchasing_seeds_requests_suppliers_costs_and_linked_orders(db, seeded):
+    """Spec 031: the request, supplier and cost helpers, and a PO line linked to a request line."""
+    from app.core.constants import COST_PRICE_LIST_ID
+    from app.models.product import ProductPrice
+    from app.models.purchases import PurchaseOrder, PurchaseRequest, PurchaseRequestDetail
+
+    setup = await seed.setup_inventory(db)
+    vendor = await seed.supplier(db)
+    item = await seed.product(db, code='BUY', supplier=vendor, min_order_qty=6)
+
+    await seed.cost(db, item, '12.5')
+    await seed.cost(db, item, '13')
+    costs = (
+        (
+            await db.execute(
+                select(ProductPrice.price).where(
+                    ProductPrice.product == item, ProductPrice.price_list == COST_PRICE_LIST_ID
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert costs == [Decimal('13')]
+
+    request, request_lines = await seed.purchase_request(
+        db,
+        warehouse=setup.a.warehouse,
+        lines=[(item, '6', setup.a.warehouse), (item, '2', setup.b.warehouse)],
+        state='approved',
+        serial=7,
+    )
+    header = await db.get(PurchaseRequest, request)
+    assert (header.completed, header.approved, header.cancelled, header.serial) == (
+        True,
+        True,
+        False,
+        7,
+    )
+    line = await db.get(PurchaseRequestDetail, request_lines[1])
+    assert (line.warehouse, line.to_purchase, line.accepted, line.customer) == (
+        setup.b.warehouse,
+        True,
+        False,
+        1,
+    )
+
+    order, details = await seed.purchase_order(
+        db,
+        lines=[(item, '6', setup.a.warehouse)],
+        completed=False,
+        supplier=vendor,
+        price='12',
+        request_lines=[request_lines[0]],
+    )
+    assert (await db.get(PurchaseOrder, order)).supplier == vendor
+    detail = await db.get(PurchaseOrderDetail, details[0])
+    assert (detail.price, detail.purchase_request_detail) == (Decimal('12'), request_lines[0])

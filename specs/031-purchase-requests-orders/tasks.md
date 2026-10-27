@@ -30,7 +30,7 @@ description: "Task list for purchase requests, purchase orders and average cost"
 
 ## Phase 1: Setup
 
-- [ ] T001 Write `migrations/028_purchasing.sql` and `migrations/028_purchasing_rollback.sql` per data-model.md and research R12. Follow the header comment and idempotent style of `migrations/027_inventory_count.sql`.
+- [X] T001 Write `migrations/028_purchasing.sql` and `migrations/028_purchasing_rollback.sql` per data-model.md and research R12. Follow the header comment and idempotent style of `migrations/027_inventory_count.sql`.
   1. **`purchase_request`:** `ADD COLUMN IF NOT EXISTS approver INT NULL` with FK `purchase_request_approver_fk` to employee, and `approval_time DATETIME NULL`.
   2. **`purchase_order_detail`:** `KEY purchase_order_detail_request_detail_idx (purchase_request_detail)` and FK `purchase_order_detail_request_detail_fk`.
   3. **`CREATE TABLE IF NOT EXISTS product_cost_change`:**
@@ -41,11 +41,11 @@ description: "Task list for purchase requests, purchase orders and average cost"
   The rollback reverses all three, the table first.
 
   **Do not apply it to mbe_dev**; T033 does, after confirmation.
-- [ ] T002 After T001, update the models:
+- [X] T002 After T001, update the models:
   - in `app/models/purchases.py`, add `approver` and `approval_time` to `PurchaseRequest`, and a new `ProductCostChange` matching migration 028 column for column, in the style of the file;
   - add `product_cost_change` and the new columns to `docs/data-dictionary.md` (API-only, migration 028);
   - run `uv run pytest tests/unit/test_model_schema.py tests/unit/test_data_dictionary.py tests/unit/test_migrate.py -q`.
-- [ ] T003 [P] Create `app/schemas/purchases.py` with every request and response of contracts/purchasing.md:
+- [X] T003 [P] Create `app/schemas/purchases.py` with every request and response of contracts/purchasing.md:
   - **Requests:**
     - `PurchaseRequestCreate`, `PurchaseRequestUpdate`;
     - `RequestLineAdd` (quantity > 0 with 2 decimals, `product_name` ≤ 250);
@@ -68,11 +68,11 @@ description: "Task list for purchase requests, purchase orders and average cost"
 
 ## Phase 2: Foundational
 
-- [ ] T004 [P] Write `tests/unit/test_purchase_states.py` first, then add the pure state helpers:
+- [X] T004 [P] Write `tests/unit/test_purchase_states.py` first, then add the pure state helpers:
   - in `app/services/purchase_request_service.py`: `request_status(completed, approved, cancelled)`, with NULL as false (research R1, all five flag combinations in the data, including completed + cancelled);
   - in `app/services/purchase_order_service.py`: `order_status(...)`, reusing `derive_status`;
   - in each module, a `*_status_clause(value)` for list filters; an unknown value gives 422.
-- [ ] T005 [P] Extend `tests/integration/inventory_seed.py` with:
+- [X] T005 [P] Extend `tests/integration/inventory_seed.py` with:
   - `purchase_request(db, *, warehouse, lines, state='draft', serial=None)`, writing rows directly in any state;
   - a supplier helper, if none exists;
   - a cost helper: `cost(db, product, price)` writes the list-0 row.

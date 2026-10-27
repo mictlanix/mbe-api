@@ -1,4 +1,5 @@
-"""Inventory-document fixtures on top of the integration baseline (spec 029, extended by spec 030).
+"""Inventory-document fixtures on top of the integration baseline (spec 029, extended by specs 030
+and 031).
 
 ORM rows inserted directly, committed, in the style of `delivery_seed`. The baseline supplies
 facility 1 with warehouse 1 and its in-transit warehouse 2, product 1 and employee 1;
@@ -14,9 +15,10 @@ from datetime import datetime
 from decimal import Decimal
 from typing import NamedTuple
 
-from sqlalchemy import insert
+from sqlalchemy import insert, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.constants import COST_PRICE_LIST_ID
 from app.enums import (
     CurrencyCode,
     EntityStatus,
@@ -27,9 +29,15 @@ from app.enums import (
 )
 from app.models.core import Facility, Label, Warehouse
 from app.models.inventory import InventoryCount, InventoryCountDetail
-from app.models.product import Product, product_label
-from app.models.purchases import PurchaseOrder, PurchaseOrderDetail
+from app.models.product import PriceList, Product, ProductPrice, product_label
+from app.models.purchases import (
+    PurchaseOrder,
+    PurchaseOrderDetail,
+    PurchaseRequest,
+    PurchaseRequestDetail,
+)
 from app.models.sales import SalesOrder, SalesOrderDetail
+from app.models.supplier import Supplier
 from app.services import stock_ledger
 from tests.integration.seed import ISSUER_RFC, POSTAL_CODE
 
@@ -65,7 +73,15 @@ async def warehouse(db: AsyncSession, *, facility: int, code: str, in_transit: b
     return row.warehouse_id
 
 
-async def product(db: AsyncSession, *, code: str, stockable: bool = True) -> int:
+async def product(
+    db: AsyncSession,
+    *,
+    code: str,
+    stockable: bool = True,
+    supplier: int | None = None,
+    min_order_qty: int = 1,
+    purchasable: bool = True,
+) -> int:
     row = Product(
         code=code,
         name=f'Producto {code}',
@@ -73,16 +89,17 @@ async def product(db: AsyncSession, *, code: str, stockable: bool = True) -> int
         stockable=stockable,
         perishable=False,
         seriable=False,
-        purchasable=True,
+        purchasable=purchasable,
         salable=True,
         invoiceable=True,
         tax_rate=Decimal('0.16'),
         tax_included=False,
         price_type=0,
         currency=CurrencyCode.MXN,
-        min_order_qty=1,
+        min_order_qty=min_order_qty,
         status=EntityStatus.ACTIVE,
         stock_verification=stockable,
+        supplier=supplier,
     )
     db.add(row)
     await db.commit()
@@ -153,10 +170,21 @@ async def reserve(db: AsyncSession, product: int, warehouse: int, qty: str) -> i
 
 
 async def purchase_order(
-    db: AsyncSession, *, lines: list[Line], completed: bool = True, cancelled: bool = False
+    db: AsyncSession,
+    *,
+    lines: list[Line],
+    completed: bool = True,
+    cancelled: bool = False,
+    supplier: int | None = None,
+    price: str = '10',
+    request_lines: list[int | None] | None = None,
 ) -> tuple[int, list[int]]:
-    """A purchase order with one line per entry; returns (order, line ids in entry order)."""
+    """A purchase order with one line per entry; returns (order, line ids in entry order).
+
+    `request_lines`, when given, links each line to the request line at the same position.
+    """
     order = PurchaseOrder(
+        supplier=supplier,
         creation_time=WHEN,
         modification_time=WHEN,
         creator=1,
@@ -168,14 +196,15 @@ async def purchase_order(
     db.add(order)
     await db.flush()
     details = []
-    for product_id, quantity, warehouse_id in lines:
+    links = request_lines or [None] * len(lines)
+    for (product_id, quantity, warehouse_id), link in zip(lines, links, strict=True):
         row = await db.get(Product, product_id)
         detail = PurchaseOrderDetail(
             purchase_order=order.purchase_order_id,
             product=product_id,
             warehouse=warehouse_id,
             quantity=Decimal(quantity),
-            price=Decimal('10'),
+            price=Decimal(price),
             discount=Decimal('0'),
             tax_rate=Decimal('0.16'),
             product_code=row.code,
@@ -183,6 +212,7 @@ async def purchase_order(
             exchange_rate=Decimal('1'),
             currency=CurrencyCode.MXN,
             tax_included=False,
+            purchase_request_detail=link,
         )
         db.add(detail)
         details.append(detail)
@@ -271,3 +301,98 @@ async def count(
         )
     await db.commit()
     return document.inventory_count_id
+
+
+async def supplier(db: AsyncSession, *, code: str = 'S1', name: str = 'Proveedor') -> int:
+    row = Supplier(code=code, name=name, credit_limit=Decimal(0), credit_days=0)
+    db.add(row)
+    await db.commit()
+    return row.supplier_id
+
+
+async def cost(db: AsyncSession, product: int, price: str) -> None:
+    """Set the product's row on the cost list (list 0), creating the list when missing."""
+    if await db.get(PriceList, COST_PRICE_LIST_ID) is None:
+        db.add(
+            PriceList(
+                price_list_id=COST_PRICE_LIST_ID,
+                name='Costo',
+                high_profit_margin=Decimal(0),
+                low_profit_margin=Decimal(0),
+            )
+        )
+        await db.flush()
+    row = (
+        await db.execute(
+            select(ProductPrice).where(
+                ProductPrice.product == product, ProductPrice.price_list == COST_PRICE_LIST_ID
+            )
+        )
+    ).scalar_one_or_none()
+    if row is None:
+        db.add(
+            ProductPrice(
+                product=product,
+                price_list=COST_PRICE_LIST_ID,
+                price=Decimal(price),
+                low_profit=Decimal(0),
+                high_profit=Decimal(0),
+            )
+        )
+    else:
+        row.price = Decimal(price)
+    await db.commit()
+
+
+#: The legacy flags of each request state (spec 031, research R1).
+REQUEST_FLAGS = {
+    'draft': (False, False, False),
+    'submitted': (True, False, False),
+    'approved': (True, True, False),
+    'cancelled': (False, False, True),
+}
+
+
+async def purchase_request(
+    db: AsyncSession,
+    *,
+    warehouse: int,
+    lines: list[Line],
+    state: str = 'draft',
+    serial: int | None = None,
+    creator: int = 1,
+    to_purchase: bool = True,
+) -> tuple[int, list[int]]:
+    """A request in any state, one line per entry; returns (request, line ids in entry order)."""
+    completed, approved, cancelled = REQUEST_FLAGS[state]
+    request = PurchaseRequest(
+        creator=creator,
+        updater=creator,
+        warehouse=warehouse,
+        serial=serial,
+        date=WHEN,
+        creation_time=WHEN,
+        modification_time=WHEN,
+        completed=completed,
+        approved=approved,
+        cancelled=cancelled,
+    )
+    db.add(request)
+    await db.flush()
+    details = []
+    for product_id, quantity, warehouse_id in lines:
+        row = await db.get(Product, product_id)
+        detail = PurchaseRequestDetail(
+            purchase_request=request.purchase_request_id,
+            product=product_id,
+            product_name=row.name,
+            quantity=Decimal(quantity),
+            warehouse=warehouse_id,
+            customer=1,
+            to_purchase=to_purchase,
+            accepted=False,
+        )
+        db.add(detail)
+        details.append(detail)
+    await db.commit()
+    return request.purchase_request_id, [d.purchase_request_detail_id for d in details]

@@ -962,6 +962,8 @@ Internal purchase request (before PO is created).
 | `completed` | tinyint(1) | YES | Fulfilled flag |
 | `cancelled` | tinyint(1) | YES | Cancelled flag |
 | `approved` | tinyint(1) | NO | Approved by supervisor |
+| `approver` | int(11) | YES | FK → `employee` — who approved; cleared on reject. **API-only**, migration 028 (spec 031); `NULL` on approvals before it |
+| `approval_time` | datetime | YES | When it was approved; cleared on reject. **API-only**, migration 028 |
 
 ### `purchase_request_detail`
 Line items of a purchase request.
@@ -1015,7 +1017,25 @@ Line items of a purchase order.
 | `exchange_rate` | decimal(8,4) | NO | FX rate |
 | `currency` | int(11) | NO | Currency |
 | `tax_included` | tinyint(1) | NO | Price includes tax |
-| `purchase_request_detail` | int(11) | YES | FK — originating request line |
+| `purchase_request_detail` | int(11) | YES | FK → `purchase_request_detail` — originating request line; indexed with its key since migration 028 |
+
+### `product_cost_change`
+One average-cost step on the confirm of a receipt linked to a purchase order, or the restore of one when that receipt is cancelled (spec 031, FR-036, FR-037). **API-only**, added by migration 028.
+
+| Column | Type | Null | Description |
+|--------|------|------|-------------|
+| `product_cost_change_id` | int(11) | NO | PK; the order of changes per product |
+| `product` | int(11) | NO | FK → `product`. Indexed with the PK for the latest change and the history |
+| `receipt` | int(11) | NO | FK → `inventory_receipt` |
+| `purchase_order_detail` | int(11) | YES | FK → `purchase_order_detail`; `NULL` on a restore |
+| `previous_cost` | decimal(18,4) | NO | Cost before the step; 0 when the product had no cost row |
+| `new_cost` | decimal(18,4) | NO | Cost after the step, rounded half up |
+| `quantity_on_hand` | decimal(18,4) | YES | Q, company-wide on hand before the line, floored at 0; `NULL` on a restore |
+| `quantity_received` | decimal(18,4) | YES | R, the line's received quantity; `NULL` on a restore |
+| `unit_cost` | decimal(18,7) | YES | U = price × (1 − discount); `NULL` on a restore |
+| `reverted_change` | int(11) | YES | FK → `product_cost_change`; on a restore, the receipt's first change it undid |
+| `creation_time` | datetime | NO | When it was recorded |
+| `creator` | int(11) | NO | FK → `employee` |
 
 ### `expense_voucher`
 Petty cash / expense ticket issued from a cash session.
