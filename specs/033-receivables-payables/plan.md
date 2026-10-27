@@ -20,7 +20,7 @@
   - `/accounts-receivable` (18) and `/accounts-payable` (19): summary, drill-down, statement PDF and statement email, 4 routes each.
   - Both are built from one side-agnostic service. The side supplies its open documents, credit and party data (R5–R8).
   - **Scope:** AR follows the caller's facility, or all facilities with SearchCreditsFromAllStores (101); AP is company-wide.
-  - **Supplier side:** reuses spec 032's balances unchanged. It shows nothing until go-live sets the cutoff.
+  - **Supplier side:** reuses spec 032's balances. It shows nothing until go-live sets the cutoff. One change: `supplier_balance` reads the shared open-PO list, so a PO with exactly 0.01 left no longer appears (spec 032 listed anything above 0).
 - **Statements:** one template for both sides, always covering all facilities. They're emailed through spec 024's mailer, with an incidence on the party: source 7, or the new source 16 for suppliers (R10).
 - **Stale flags:** a one-time job, `settle_paid_flags`, sets `paid` on the 257 settled-but-unflagged orders. Only orders from 2026 on get a zero time (R11).
 - **No schema change** (R12).
@@ -43,8 +43,8 @@
   - the statement context;
   - email recipients;
   - the job's selection and zero time.
-- **Integration (SQLite):** apply → paid → reverse → reopen; a legacy paid order not reopening; a credit note settling an order; the credit check reading balances.
-- **API:** the 8 new routes (401, 403, 404, 422, 502, 503), the changed apply and outstanding-orders routes, and the scope with and without 101.
+- **Integration (SQLite, through the `client` fixture where a route is involved):** `order_balances`; apply → paid → reverse → reopen; a legacy paid order not reopening; a credit note settling an order; the credit check reading balances; outstanding orders; the AR and AP views' figures and scope; statements and email; the job.
+- **API (service mocked, as `tests/api` does):** the route contract of the 8 new routes (401, 403, 404, 422, 502, 503), and the scope and parameters each route passes, with and without 101.
 - **On the deployment:** concurrency (SC-005) and the before/after measurements (SC-001 to SC-003), after confirmation (quickstart).
 
 **Target Platform**: Linux server (xolotl)
@@ -63,7 +63,7 @@
 - Single cutover: no design for two writers.
 
 **Scale/Scope**:
-- **Routes:** 8 new, plus 3 changed (customer apply, reverse, outstanding orders).
+- **Routes:** 8 new. 3 write routes change: customer apply, reverse, and credit-note confirm. 4 read shapes change: outstanding orders, customer payment responses, the payment ticket, and order `balance`.
 - **New:**
   - `services/accounts_service.py`: the shared views and statements;
   - `services/account_email.py`;
@@ -128,22 +128,34 @@ app/
 └── services/
     ├── accounts_service.py                       # NEW: side adapters, aging, party figures, scope, statement data
     ├── account_email.py                          # NEW: render, send, record
-    ├── sales_order_service.py                    # + order_balances (credit notes); attach_* and credit check read it; docstrings
-    ├── customer_payment_service.py               # unapplied − change; apply/reverse lock + guards; settle/reopen; search_outstanding
+    ├── sales_order_service.py                    # + credit_note_shares, order_balances, open_credit_orders; attach_* and credit check read them; docstrings
+    ├── customer_payment_service.py               # unapplied − change; apply/reverse lock + guards; settle/reopen; search_outstanding;
+    │                                             #   customer_payments_with_credit; settle_stale_flags (the job's logic)
     ├── customer_refund_service.py                # confirm_refund calls settle
     ├── invoice_service.py                        # credit note confirm locks orders, calls settle
-    ├── supplier_payment_service.py               # + open_purchase_orders (batch, due dates, receipts)
+    ├── supplier_payment_service.py               # + open_purchase_orders (batch, due dates, receipts), credit_by_supplier
     └── print_contexts.py                         # + account_statement_context
 tests/
-├── unit/test_order_balances.py                   # NEW
-├── unit/test_accounts.py                         # NEW: aging, figures, scope, due dates, statement context, recipients
-├── unit/test_settle_paid_flags.py                # NEW
+├── unit/test_order_balances.py                   # NEW: credit_note_shares
+├── unit/test_accounts.py                         # NEW: aging, buckets, figures, PO due dates
+├── unit/test_account_email.py                    # NEW: merge_recipients
+├── unit/test_settle_paid_flags.py                # NEW: stale_zero_time
 ├── unit/test_customer_payment_service.py         # + settle/reopen crossing, guards
-├── unit/test_sales_order_service.py              # + hold by balance, limit with credit notes
-├── integration/test_accounts_flow.py             # NEW
-├── api/test_accounts_receivable.py               # NEW
-├── api/test_accounts_payable.py                  # NEW
-└── api/test_customer_payments.py                 # + new refusals, outstanding list
+├── integration/test_order_balances.py            # NEW: order_balances, open_credit_orders
+├── integration/test_outstanding_orders.py        # NEW
+├── integration/test_accounts_receivable_flow.py  # NEW: scope, figures, drill-down
+├── integration/test_accounts_payable_flow.py     # NEW: equals spec 032's balance
+├── integration/test_account_statement.py         # NEW
+├── integration/test_account_email.py             # NEW
+├── integration/test_settle_paid_flags.py         # NEW
+├── integration/test_payment_flow.py              # + unapplied − change, settle/reopen, refusals
+├── integration/test_credit_hold.py               # + hold by balance, limit with credit notes
+├── integration/test_credit_note_flow.py          # + a credit note settles an order
+├── integration/test_refunded_balance.py          # + a refund settles an order
+├── integration/test_supplier_payment_flow.py     # + open_purchase_orders, due dates
+├── api/test_accounts_receivable.py               # NEW: route contract (mocked service)
+├── api/test_accounts_payable.py                  # NEW: route contract (mocked service)
+└── api/test_customer_payments.py                 # + a service 409 reaches the caller
 docs/specs/07-administration.md                   # §1–2 rewritten for the API
 CHANGELOG.md
 ```

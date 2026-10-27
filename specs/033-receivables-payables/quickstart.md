@@ -26,10 +26,8 @@ This needs confirmation. Pull the branch on xolotl, restart the tmux :8765 insta
 
 ## 3. One balance (SC-001)
 
-For every customer with an open order, compare:
-- `GET /accounts-receivable?party={id}` (with an all-facilities caller): `owed`;
-- the credit check's debt, through a probe that calls `_customer_credit_debt`, in a read-only session;
-- the sum of the `balance` values from `GET /customer-payments/outstanding-orders?customer={id}`, called as a user of each facility that has orders, and summed.
+- **Per customer** with an open order: `owed` from `GET /accounts-receivable?party={id}` (with an all-facilities caller) equals the credit check's debt, read through a probe that calls `_customer_credit_debt` in a read-only session.
+- **Per open credit order:** its `balance` in `GET /customer-payments/outstanding-orders?customer={id}`, called as a user of the order's facility, equals its `balance` in the AR drill-down. The outstanding list also holds cash sales (FR-010). Compare only the drill-down's order ids, and don't sum the list.
 
 **Expected:** 0 mismatches.
 
@@ -40,7 +38,7 @@ For every customer with an open order, compare:
   - `owed_company`, `utilization` and `available_credit` are the same for both callers;
   - `facility=` from the scoped user, for another facility, is refused (403).
 - For every row, the buckets add up to `owed`, with a difference of 0.
-- **Timings:** the summary of all customers in under 2 s; a drill-down in under 1 s.
+- **Timings:** the summary of all customers in under 2 s; a drill-down in under 1 s. Also time `GET /sales-orders?limit=50` before deploying (step 1) and after. The page now reads credit notes; record both figures.
 - **Holds:** confirming an order for a customer whose only overdue orders have a zero balance succeeds. Use an existing stale order from the 257, before step 7 runs.
 
 ## 5. Applications (US4, SC-005)
@@ -77,7 +75,7 @@ uv run python -m app.jobs.settle_paid_flags            # selects 0
 ```
 
 **Expected after the job:**
-- 0 open orders flagged unpaid with a balance of 0.01 or less;
+- 0 completed, non-cancelled credit orders flagged unpaid with a balance of 0.01 or less;
 - 0 orders dated before 2026 with a new zero time;
 - 257 incidences with source 3.
 

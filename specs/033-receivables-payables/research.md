@@ -36,11 +36,11 @@ All figures are from mbe_dev, read-only, on 2026-10-27.
 ## R3. Keeping `paid` consistent (FR-011, clarified)
 
 **Decision:** two helpers in `customer_payment_service`, called under the order's row lock (R4):
-- `settle(db, order)` runs after an event that lowers the balance: an application, the completion of a refund, or the confirmation of a credit note (it locks orders on its invoices).
+- `settle(order, balance)` runs after an event that lowers the balance: an application, the completion of a refund, or the confirmation of a credit note (it locks orders on its invoices).
   - If the balance is 0.01 or less, it sets `paid`.
   - It stamps `balance_zeroed_time` if it's unset or holds the sentinel; it is never cleared, as today.
   - It never clears `paid`.
-- `reopen(db, order, before)` runs after an event that raises the balance: the reversal of an application, and later the cancellation of a credit note (#51).
+- `reopen(order, before, after)` runs after an event that raises the balance: the reversal of an application, and later the cancellation of a credit note (mictlanix/mbe-roadmap#51).
   - It clears `paid` only when `before <= 0.01 < after`.
   - `before` is read under the lock, before the change.
 
@@ -102,26 +102,6 @@ After both locks they read `unapplied_amount` and `order_balances` and check the
 - **Statements:** always all facilities (clarified).
 - **Effect on current users:** 12 of the 23 users who can read 18 can't read 101.
 
-## R14. Unapplied amount counts change handed back (FR-005a, clarified)
-
-**Decision:** `customer_payment_service.unapplied_amount` and `attach_summary_unapplied` subtract `amount + amount_change` of each live application, not `amount` alone. Everything that reports or checks unapplied reads them:
-- `unapplied` on payment responses;
-- the apply check: an application's `amount + amount_change` must not exceed the unapplied amount. Today only `amount` is compared;
-- the drill-down's payments that can be applied;
-- the customer credit (R7);
-- the payment ticket (#275): `print_contexts` computes `allocated = Σ(amount + amount_change)` itself. It switches to `unapplied_amount`, so the ticket and the API share one figure.
-
-`origin/main` (#270, #271, #275) was merged into the branch on 2026-10-27, during the second plan run.
-
-**Measured:**
-- 38,523 live applications carry change. 432 of them are on credit payments (type 2) and the rest are on cash sales.
-- 7,602 payments that show a positive `unapplied` today are 0 or less once change is subtracted.
-- Example: payment 300789 is 600, with 530 applied and 70 change. It's 0 by the ticket's rule; `unapplied` reports 70 today.
-
-**Rationale:** change is money the payment handed back, so it can't be applied again. The current system's `CustomerPayment.Balance` and the #275 ticket both subtract it. Two figures for one payment is the divergence this spec exists to remove.
-
-**Not changed:** the order's balance. Change isn't money the order received, so `order_balances` subtracts `amount` only, as today. The apply check compares `amount`, not `amount + change`, with the order's balance.
-
 ## R9. Applying from the view (FR-020, FR-021)
 
 **Decision:** no new apply route. The view calls the existing `POST /customer-payments/{id}/applications` and `POST /supplier-payments/{id}/applications`, under their own privileges (CustomerPayments create; SupplierPayment update). The customer route gains the balance check (R4) and the refusal of a settled order.
@@ -181,3 +161,23 @@ The drill-down lists the payments that can be applied: those with credit above 0
 - **After:** the same query through `order_balances`. With credit notes affecting no unpaid order, owed must equal the before figure to the cent.
 - **Holds:** 199 by flag, 130 by balance.
 - **The current AR screen** is re-read with its own SQL (`AccountsReceivablesController.cs:80-121`). It's expected to differ for 3 customers, about $6.4k (rounding, and refunds that weren't completed).
+
+## R14. Unapplied amount counts change handed back (FR-005a, clarified)
+
+**Decision:** `customer_payment_service.unapplied_amount` and `attach_summary_unapplied` subtract `amount + amount_change` of each live application, not `amount` alone. Everything that reports or checks unapplied reads them:
+- `unapplied` on payment responses;
+- the apply check: an application's `amount + amount_change` must not exceed the unapplied amount. Today only `amount` is compared;
+- the drill-down's payments that can be applied;
+- the customer credit (R7);
+- the payment ticket (#275): `print_contexts` computes `allocated = Σ(amount + amount_change)` itself. It switches to `unapplied_amount`, so the ticket and the API share one figure.
+
+`origin/main` (#270, #271, #275) was merged into the branch on 2026-10-27, during the second plan run.
+
+**Measured:**
+- 38,523 live applications carry change. 432 of them are on credit payments (type 2) and the rest are on cash sales.
+- 7,602 payments that show a positive `unapplied` today are 0 or less once change is subtracted.
+- Example: payment 300789 is 600, with 530 applied and 70 change. It's 0 by the ticket's rule; `unapplied` reports 70 today.
+
+**Rationale:** change is money the payment handed back, so it can't be applied again. The current system's `CustomerPayment.Balance` and the #275 ticket both subtract it. Two figures for one payment is the divergence this spec exists to remove.
+
+**Not changed:** the order's balance. Change isn't money the order received, so `order_balances` subtracts `amount` only, as today. The apply check compares `amount`, not `amount + change`, with the order's balance.

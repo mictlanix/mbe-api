@@ -44,7 +44,7 @@ Out of scope: the current system's debt reports (Reports epic).
 ### This API today
 
 - **There's no AR or AP endpoint.** 18, 19 and 101 are defined but used nowhere.
-- **The customer balance is computed in three places with the same arithmetic:**
+- **The customer balance is computed in three places with the same arithmetic, and a fourth with different arithmetic** (`paid` maintenance, below, compares applications with the total only):
   - order lists (`attach_summary_totals`);
   - the credit check (`_customer_credit_debt`, `_overdue_credit_orders`);
   - `GET /customer-payments/outstanding-orders`.
@@ -164,7 +164,7 @@ A credit manager, a salesperson and a cashier each look at the same customer: on
 1. **Given** a credit order whose total is covered by applications and completed refunds, but whose `paid` flag is still unset and whose due date has passed, **When** the customer places a new credit order, **Then** they aren't on hold for that order.
 2. **Given** an order with a live fiscal credit note against its invoice, **When** its balance is read anywhere, **Then** the credit note's share is deducted.
 3. **Given** an order whose balance a payment application brings to 0.01 or less, **When** the application is saved, **Then** the order is flagged paid and its zero time is stamped. **And** when that application is reversed and the balance rises above 0.01 again, the flag is cleared.
-4. **Given** a completed refund that brings an unpaid order's balance to zero, **When** the refund completes, **Then** the order is flagged paid.
+4. **Given** a completed refund that brings an unpaid order's balance to zero, **When** the refund completes, **Then** the order is flagged paid. This is defensive: a refund requires a paid order today (FR-060), so the API can't create this case, and the rule mustn't depend on FR-060 staying as it is.
 
 ---
 
@@ -306,14 +306,14 @@ The orders that are paid off but still flagged unpaid are corrected once. Each g
   - **Hold:** at least one overdue open credit order.
   - **Limit:** the customer's owed, plus the order in hand at confirmation, against their limit.
   - **Walk-in customer:** exempt from both, as today.
-- **FR-010**: The outstanding-orders list MUST list only open orders, each with the shared balance. Its facility scope and search are unchanged.
+- **FR-010**: The outstanding-orders list MUST list only orders with a balance above 0.01, each with the shared balance. It keeps every payment term, since cash sales are paid through it too. Its facility scope and search are unchanged.
 
 #### Keeping `paid` consistent
 
 - **FR-011**: After any event that changes an order's balance, the order's `paid` flag MUST be updated. The events are an application or its reversal, a refund's completion or cancellation, and a credit note's issue or cancellation.
   - **Set:** when the balance is 0.01 or less. The zero time is stamped the first time and never cleared, as today.
   - **Clear:** only when an event moves the balance from 0.01 or less to above 0.01. A paid order whose balance was already above 0.01 before the event stays paid, so a legacy paid order never reopens. An event that lowers the balance never clears it.
-- **FR-012**: The orders that are open by FR-007, flagged unpaid and have a balance of 0.01 or less (257 on mbe_dev) MUST be corrected once:
+- **FR-012**: The credit orders that are completed, not cancelled, flagged unpaid and have a balance of 0.01 or less (257 on mbe_dev) MUST be corrected once:
   - flagged paid, with one incidence per order;
   - the zero time set to the moment the balance reached zero for orders dated 2026 or later;
   - the zero time left unset for earlier orders, so they never produce a commission (the audit's decision 4).
@@ -387,7 +387,9 @@ The orders that are paid off but still flagged unpaid are corrected once. Each g
 
 ### Measurable Outcomes
 
-- **SC-001**: For every customer in mbe_dev, the AR view's owed, the credit check's debt and the sum of the outstanding-orders balances are equal to the cent. 0 mismatches.
+- **SC-001**: On mbe_dev, 0 mismatches to the cent:
+  - for every customer, the AR view's owed equals the credit check's debt;
+  - for every open credit order, its balance in the outstanding-orders list equals its balance in the AR drill-down.
 - **SC-002**: Before and after on mbe_dev:
   - **Customer owed:** reported against today's $6.86M over 606 orders and 136 customers, every difference explained by credit notes.
   - **Holds:** customers on hold fall from 199 to the number owing an overdue balance, 130 today.
@@ -397,7 +399,7 @@ The orders that are paid off but still flagged unpaid are corrected once. Each g
 - **SC-005**: 100% of applications with another party's payment, or above a document's balance, are refused. 20 simultaneous applications against one order never apply more than its balance.
 - **SC-006**: For a sample of 20 customers and 5 suppliers, the statement's totals equal the view's figures across all facilities, including statements printed by a user scoped to one facility. Each email send leaves exactly one incidence.
 - **SC-007**: After the one-time correction:
-  - 0 open orders flagged unpaid have a balance of 0.01 or less;
+  - 0 completed, non-cancelled credit orders flagged unpaid have a balance of 0.01 or less;
   - 0 orders dated before 2026 gain a zero time;
   - running it again changes 0 rows.
 - **SC-008**: On mbe_dev's data, the summary for all customers answers within 2 seconds, and a drill-down or a statement within 1 second.
