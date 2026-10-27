@@ -51,7 +51,7 @@
 
 **Scale/Scope**:
 - 984 notes, 137 spendable.
-- 8 routes change: credit-note list and detail; payment apply, reverse and `/unverified`; sales-order list; sales-order writes, with 6 routes sharing one helper.
+- 12 routes change: credit-note list and detail; payment apply, reverse and `/unverified`; the sales-order list; and 6 sales-order writes sharing one helper.
 
 ## Constitution Check
 

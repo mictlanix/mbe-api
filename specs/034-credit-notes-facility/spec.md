@@ -166,7 +166,7 @@ A clerk's sales orders, unverified payments and credit notes come from their own
 - **A note paid back in cash with something applied first** (note 462): remaining is 0. `refunded` (1,545.00) is what was handed back.
 - **A refund to the walk-in customer:** the note is issued and readable, but never offered for spending. The current system does the same.
 - **An administrator** passes every facility check, as everywhere in the API.
-- **A clerk with no facility** (an administrator without one): falls under the administrator rule. A non-administrator always has a facility in their token.
+- **An administrator without a facility in their token:** passes every check on a record. The lists default to the caller's facility, so such an administrator names a facility, as on `GET /customer-payments`. All 3 administrators in mbe_dev have a facility. A non-administrator always has one.
 - **Payments on facility-less legacy rows:** customer payments always carry a facility; none is NULL in mbe_dev.
 
 ## Requirements *(mandatory)*

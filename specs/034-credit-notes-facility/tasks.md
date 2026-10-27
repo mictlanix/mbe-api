@@ -76,14 +76,14 @@ No setup: no dependency, setting, enum or migration is added (research R9).
   - A reversed application restores the remaining.
   - Each note reports `facility` = its payment's facility (FR-006).
   - Detail and list agree.
-- [ ] T005 [P] [US1] Extend `tests/integration/test_refunded_balance.py` (or `tests/integration/test_payment_flow.py`, beside `test_a_paid_sale_is_refunded_as_a_credit_note`): confirming a refund with `payout: credit_note` writes the note with `refunded == 0` and `cash_session is None`, the backing payment keeps the session, and `GET /credit-notes/{id}` reads `amount` = `remaining` = the refund total (US1 scenario 5, SC-003).
+- [ ] T005 [P] [US1] Extend `tests/integration/test_payment_flow.py`, beside `test_a_paid_sale_is_refunded_as_a_credit_note`: confirming a refund with `payout: credit_note` writes the note with `refunded == 0` and `cash_session is None`, the backing payment keeps the session, and `GET /credit-notes/{id}` reads `amount` = `remaining` = the refund total (US1 scenario 5, SC-003).
 - [ ] T006 [P] [US1] Update `tests/api/test_credit_notes.py` for the new fields: `_note()` gains `amount`, `facility` and `refunded_to_customer`; `refunded` is the cash handed back. The list and detail routes return them.
 
 ### Implementation
 
 - [ ] T007 [US1] Rewrite `app/services/credit_note_service.py` (research R1, R3):
   - `remaining_balance(unapplied, *, refunded_to_customer)` per T003;
-  - a private `_notes_query()` returning a select of `CreditNote`, its payment's `amount` and `facility`, and the remaining expression. The used amount is an outer-joined aggregate subquery: `Σ(SalesOrderPayment.amount + amount_change)` per `customer_payment`, non-cancelled only. The expression is `CASE WHEN cash_session IS NOT NULL THEN 0 ELSE GREATEST(payment.amount − COALESCE(used, 0), 0) END`; use SQLAlchemy `case` and `func.greatest`, or a `case` floor if SQLite lacks `greatest`;
+  - a private `_notes_query()` returning a select of `CreditNote`, its payment's `amount` and `facility`, and the remaining expression. The used amount is an outer-joined aggregate subquery: `Σ(SalesOrderPayment.amount + amount_change)` per `customer_payment`, non-cancelled only. The expression is a SQLAlchemy `case`: 0 when `cash_session` is not NULL, 0 when `payment.amount − COALESCE(used, 0)` is below 0, otherwise that difference. Use `case` for the floor, not `GREATEST`, which SQLite lacks;
   - `_attach(note, amount, facility, remaining)` setting `__dict__` keys `amount`, `facility`, `remaining`, `refunded_to_customer`;
   - `get_credit_note(db, credit_note_id)` runs `_notes_query()` for one id and attaches;
   - `list_credit_notes` runs it with the filters, unchanged for now apart from using the query (paging is US2);
@@ -109,7 +109,8 @@ No setup: no dependency, setting, enum or migration is added (research R9).
   - 5 open notes, 3 spent, 1 paid back in cash and 2 of the walk-in customer, interleaved by id;
   - `open_only=true&limit=2` pages 2, 2, 1 with `total` 5, every open note once and newest first;
   - without `open_only`, `total` counts all 11;
-  - a `customer` filter counts only that customer's open notes (US2 scenarios 1 and 2).
+  - a `customer` filter counts only that customer's open notes (US2 scenarios 1 and 2);
+  - the same rule called directly, `credit_note_service.list_credit_notes(db, current=…, open_only=True)`, one case per branch of the open rule: remaining 0.01 (not open) and 0.02 (open), paid back in cash, the walk-in customer. The constitution requires branching logic to be tested directly, not only through an endpoint; the rule is SQL, so it is tested against SQLite.
 
 ### Implementation
 
@@ -200,7 +201,8 @@ No setup: no dependency, setting, enum or migration is added (research R9).
 - [ ] T025 [P] Update `docs/specs/02-sales.md`:
   - **Customer Payments:** add an "API (spec 034)" note: apply and reverse follow the payment's facility; verification is company-wide; `/unverified` covers every facility;
   - **Credit notes:** amount and remaining come from the backing payment, paid back in cash reads 0, the open pool, the facility rule, and the refund writer's shape;
-  - **Sales Orders:** the facility rule on the list and writes, with 101.
+  - **Sales Orders:** the facility rule on the list and writes, with 101;
+  - **Credit notes, spec 011's FR-070:** a note's remaining is now its backing payment's unapplied amount, not "the amount issued less applications". Spec 011 stays as the historical record.
 - [ ] T026 [P] Add to `CHANGELOG.md` under `[Unreleased]`:
   - **Fixed:**
     - credit note balances on legacy data (#277);
