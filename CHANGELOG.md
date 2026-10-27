@@ -7,6 +7,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Changed
+- **The cash cut subtracts cash supplier payments** (mictlanix/mbe-roadmap#74, spec 032). The cut ticket shows "Pagos a proveedores" when the session has cash supplier payments, and the figures gain `supplier_payments_total`. `cash_in_drawer` and `expected_cash` drop by it.
+- **Closing a cash session locks its row** (spec 032). A close now waits for an in-flight voucher confirm or void, or a cash supplier payment or cancel, on that session, and a closed session's figures never change afterwards. A second close still answers 409.
 - **Receipts of purchase orders update average cost** (mictlanix/mbe-roadmap#70, spec 031). Confirming a receipt linked to a purchase order now averages each linked product's cost (list 0) with company-wide stock, in the same transaction, and records the change. Cancelling it restores that cost when no later change touched it, and warns otherwise. The warnings come back in the receipt's `warnings`. Receipts without a purchase order are unchanged.
 - **A purchase order's receipt keeps its warehouse** (spec 031). `PUT /inventory-receipts/{id}` that moves a receipt linked to a purchase order to another warehouse answers 409. Hand-made receipts still move.
 - **Complementary receipts leave non-stockable order lines out** (spec 031), as confirm does. Before, the draft included them and its confirm was refused 422; mbe_dev has 53 such order lines.
@@ -48,6 +50,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **The `PaymentOnDelivery` model** (#248). The current system dropped `payment_on_delivery` in mictlanix/mbe#84, and nothing in this API read or wrote it. The model, its data-dictionary section and its schema-dump block are gone. The receipt's "Contraentrega" label, for payments collected without a cash session, is unaffected.
 
 ### Added
+- **Expense vouchers** (mictlanix/mbe-roadmap#72, spec 032). `/expense-vouchers` (11 routes, ExpenseTicket 82) records cash outflows from the caller's open session, as draft, completed or cancelled; a completed voucher later voided shows `voided`.
+  - **Creator only:** only the creator edits, confirms or cancels a draft. Confirm needs the caller's open session and a total above 0, and moves the voucher into that session.
+  - **Void:** a confirmed voucher is voided with a reason, by a user with Delete in its facility, while its session is open. The reason is an incidence (source 14). A closed session's vouchers never change.
+  - **Ticket:** `GET /{id}/ticket` prints a confirmed voucher with the total and "Entregó" and "Recibió" lines. "Set cashier" is not built.
+- **Supplier payments** (mictlanix/mbe-roadmap#74, spec 032). `/supplier-payments` (7 routes, SupplierPayment 21) records payments numbered per facility and applies them to confirmed purchase orders, partially or in full.
+  - **Applications:** kept, never deleted. An application is reversed with a reason, and a payment is cancelled with a reason, which reverses all its applications. Both are incidences (source 15).
+  - **Cash:** a cash payment needs the caller's open session and cannot be cancelled once it closes.
+  - **Balances:** `GET /purchase-orders/{id}/payments` gives an order's total, applied and balance. `GET /supplier-payments/suppliers/{id}/balance` gives the supplier's owed, credit and net.
+  - **Cutoff:** only orders confirmed on or after `supplier_balance_cutoff` count. It is NULL until a go-live migration sets it, so until then no order accepts applications.
+- **Migration 029** (spec 032): adds `facility`, `serial`, `cash_session`, `cancelled` and audit columns to `supplier_payment`, with `UNIQUE (facility, serial)`; the 5 legacy payments keep NULL facility and serial and carry no credit. Creates `purchase_order_payment` and `supplier_balance_cutoff`.
+- **Incidence sources 14 and 15** (spec 032): `EXPENSE_VOUCHER` and `SUPPLIER_PAYMENT`.
 - **Purchase requests and their approval** (mictlanix/mbe-roadmap#68, spec 031). `/purchase-requests` takes a request from draft to submitted to approved, on PurchaseRequest (86) and PurchaseRequestApproval (96).
   - **Serial:** a request is numbered on its first submit, per facility of its header warehouse, under the same lock as spec 029's numbering, so concurrent submits never repeat a serial. A numbered request keeps its facility.
   - **Approval:** `/approval-queue` lists submitted requests of every facility, oldest first. Approve records the approver and the time; bulk approve reports each id. Reject records the reason as an incidence and returns the request to draft, keeping its serial.

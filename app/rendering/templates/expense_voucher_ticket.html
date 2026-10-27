@@ -1,0 +1,42 @@
+{#- Expense voucher ("Ticket de Gastos"), after legacy Views/ExpenseVoucher/Print.cshtml (spec 032,
+research R10). Context: print_contexts.expense_voucher_context.
+
+Legacy printed no total; FR-009 adds it. -#}
+{% extends "_ticket_layout.html" %}
+{% block main %}
+<table>
+	<tr>
+		<td class="right">Folio :</td>
+		<td class="left">{{ voucher_id }}</td>
+	</tr>
+	<tr>
+		<td class="right">Fecha :</td>
+		<td class="left">{{ date }}</td>
+	</tr>
+	<tr>
+		<td class="line right">Cajero :</td>
+		<td class="line left">{{ cashier }}</td>
+	</tr>
+	{% for line in lines %}
+	<tr>
+		<td colspan="2">{{ line.expense }}</td>
+	</tr>
+	<tr>
+		<td class="line">{{ line.comment }}</td>
+		<td class="line number">{{ line.amount }}</td>
+	</tr>
+	{% endfor %}
+	<tr>
+		<td class="right">Total :</td>
+		<td class="number">{{ total }}</td>
+	</tr>
+</table>
+<div class="signature">
+	Entregó<br>
+	Nombre y Firma
+</div>
+<div class="signature">
+	Recibió<br>
+	Nombre y Firma
+</div>
+{% endblock %}

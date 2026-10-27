@@ -71,6 +71,12 @@ The title prints in the layout's header, so legacy's "Corte de Caja" table headi
 		<td class="right">Gastos :</td>
 		<td class="number">{{ expenses_total }}</td>
 	</tr>
+	{% if supplier_payments_total %}
+	<tr>
+		<td class="right">Pagos a proveedores :</td>
+		<td class="number">{{ supplier_payments_total }}</td>
+	</tr>
+	{% endif %}
 	<tr>
 		<td class="right">Devoluciones :</td>
 		<td class="number">{{ cash_refunds }}</td>

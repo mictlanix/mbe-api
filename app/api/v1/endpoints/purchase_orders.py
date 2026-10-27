@@ -22,7 +22,8 @@ from app.schemas.purchases import (
     ToPurchaseResponse,
 )
 from app.schemas.sales_quote import QuoteEmailResponse
-from app.services import mail, purchase_cost_service
+from app.schemas.supplier_payments import PurchaseOrderBalance
+from app.services import mail, purchase_cost_service, supplier_payment_service
 from app.services import purchase_order_service as service
 
 router = APIRouter()
@@ -31,6 +32,7 @@ _READ = require_privilege(SystemObject.PURCHASES_ORDERS, AccessRight.READ)
 _CREATE = require_privilege(SystemObject.PURCHASES_ORDERS, AccessRight.CREATE)
 _UPDATE = require_privilege(SystemObject.PURCHASES_ORDERS, AccessRight.UPDATE)
 _DELETE = require_privilege(SystemObject.PURCHASES_ORDERS, AccessRight.DELETE)
+_PAYMENTS_READ = require_privilege(SystemObject.SUPPLIER_PAYMENT, AccessRight.READ)
 
 
 async def _order_or_404(db: AsyncSession, order_id: int):  # noqa: ANN202
@@ -212,6 +214,19 @@ async def cancel_purchase_order(
 ) -> PurchaseOrderResponse:
     await _order_or_404(db, order_id)
     return await _response(db, await service.cancel(db, order_id, current=current))
+
+
+@router.get('/{order_id}/payments', response_model=PurchaseOrderBalance)
+async def get_purchase_order_payments(
+    order_id: int,
+    _: CurrentUser = Depends(_PAYMENTS_READ),
+    db: AsyncSession = Depends(get_db),
+) -> PurchaseOrderBalance:
+    """The PO's balance and its supplier-payment applications (spec 032, FR-019)."""
+    order = await _order_or_404(db, order_id)
+    return PurchaseOrderBalance.model_validate(
+        await supplier_payment_service.purchase_order_balance(db, order)
+    )
 
 
 @router.get('/{order_id}/document', response_class=Response, responses=rendering.PDF_RESPONSE)

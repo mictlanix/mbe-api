@@ -44,7 +44,7 @@ from app.models.logistics import (
     DeliveryOrderDetail,
     DeliveryOrderEvent,
 )
-from app.models.purchases import PurchaseOrder
+from app.models.purchases import ExpenseVoucher, PurchaseOrder
 from app.models.sales import (
     CreditNote,
     CustomerPayment,
@@ -390,6 +390,10 @@ async def cash_cut_context(db: AsyncSession, session: CashSession) -> tuple[str,
         'starting_cash': money(figures.starting_cash),
         'cash_sales': money(figures.cash_sales),
         'expenses_total': money(figures.expenses_total),
+        # Printed only when the session paid a supplier in cash (spec 032, research R8).
+        'supplier_payments_total': (
+            money(figures.supplier_payments_total) if figures.supplier_payments_total else None
+        ),
         'cash_refunds': money(figures.cash_refunds),
         'counted_cash': money(figures.counted_cash),
         'difference_label': 'Faltante' if figures.is_shortage else 'Sobrante',
@@ -618,6 +622,34 @@ async def purchase_order_context(db: AsyncSession, order: PurchaseOrder) -> tupl
         'amount_in_words': words.amount_in_words(order.total, CurrencyCode.MXN),
     }
     return 'purchase_order.html', context
+
+
+async def expense_voucher_context(db: AsyncSession, voucher: ExpenseVoucher) -> tuple[str, dict]:
+    """The expense voucher ticket, after legacy `ExpenseVoucher/Print` (spec 032, research R10).
+
+    `voucher` must already have been through `expense_voucher_service.attach`, which loads the
+    lines with their category names, the total and the cashier's name.
+    """
+    money = formatting.money
+    header = await header_context(db, voucher.facility, 'Ticket de Gastos')
+    # Legacy prints the store's address but not its RFC.
+    header['rfc'] = ''
+    context = {
+        'header': header,
+        'voucher_id': formatting.pad8(voucher.expense_voucher_id),
+        'cashier': voucher.creator_name,
+        'date': formatting.date_time(voucher.date),
+        'lines': [
+            {
+                'expense': line.expense_name,
+                'comment': line.comment or '',
+                'amount': money(line.amount),
+            }
+            for line in voucher.lines
+        ],
+        'total': money(voucher.total),
+    }
+    return 'expense_voucher_ticket.html', context
 
 
 # ── CFDI (spec 020) ───────────────────────────────────────────────────────────

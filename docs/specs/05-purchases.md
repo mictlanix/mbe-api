@@ -157,69 +157,112 @@ Not built in the new MBE. The current system's approval (`PurchaseOrderApproval`
 
 ## 5. Expense Vouchers (Ticket de Gastos)
 
-**Route**: `GET /expense-voucher`  
-**Controller**: `ExpenseVoucherController`  
-**SystemObject**: `ExpenseTicket` (82)
+**Route**: `/api/v1/expense-vouchers`
+**SystemObject**: `ExpenseTicket` (82): Read to list, view and print; Create to create; Update to edit and confirm; Delete to void
+**Spec**: `specs/032-expense-supplier-payments` (mictlanix/mbe-roadmap#72)
 
 ### Purpose
-Petty cash / expense ticket issued during a cash session. Records miscellaneous cash outflows from the drawer.
+Petty cash outflows from the drawer, made in the caller's open cash session. Voucher numbers are the id, global, with no serial.
+
+### States
+Derived from the legacy flags; nothing new is stored:
+
+| State | `completed` | `cancelled` |
+|-------|-------------|-------------|
+| `draft` | 0 | 0 |
+| `completed` | 1 | 0 |
+| `cancelled` | any | 1 |
+
+A confirmed voucher that was then voided is `completed` and `cancelled`; the API marks it `voided`, which tells it from a cancelled draft.
 
 ### List View
-- Filter by: facility, cash session, date range, status
-- Columns: ID, date, facility, session, amount, status
+- Filters: `status`, `facility`, `cash_session`, `creator`, `from`, `to`.
+- Sort: newest first.
+- **Facility:** a non-administrator sees and acts on their own facility's vouchers only (403 otherwise). An administrator sees every facility.
 
 ### Header Fields
 
 | Field | Column | Notes |
 |-------|--------|-------|
-| Facility | `expense_voucher.facility` | From user context |
-| Cash Session | `expense_voucher.cash_session` | Must be open |
-| Date | `expense_voucher.date` | |
-| Notes | `expense_voucher.comment` | |
+| Facility | `expense_voucher.facility` | Its session's drawer's; set on create and again on confirm |
+| Cash Session | `expense_voucher.cash_session` | The caller's open session; moved to the caller's then-open session on confirm |
+| Creator | `expense_voucher.creator` | The caller, who is the cashier |
+| Date | `expense_voucher.date` | Creation time, then confirmation time |
+| Notes | `expense_voucher.comment` | Up to 500 characters |
 
 ### Line Item Fields (`expense_voucher_detail`)
 
 | Field | Column | Notes |
 |-------|--------|-------|
-| Expense Category | `expense` | FK → `expenses` |
-| Amount | `amount` | |
-| Note | `comment` | |
+| Expense Category | `expense` | Must exist in `expenses` (Expenses, 81) |
+| Amount | `amount` | Above 0, 2 decimals; 0 or less is refused (422), not ignored |
+| Note | `comment` | Up to 500 characters; defaults to the category's comment |
 
 ### Actions
-- **Complete**: posts the expense; reduces expected cash in session closing count
-- **Cancel**: voids
+- **Create** (Create): needs the caller's open session (409 without one).
+- **Edit** (Update): header and lines, drafts only and by the creator only (403 otherwise).
+- **Confirm** (Update): the creator only, with the caller's open session and a total above 0 (409 otherwise). The voucher moves into the caller's session open at that moment, so a draft left in a closed session is confirmed in the new one. It is then read-only except for void.
+- **Cancel** (Update): drafts only, by the creator, without a reason.
+- **Void** (Delete, `POST /{id}/void`): a confirmed voucher, by any user with the right in its facility, with a reason of 1 to 500 characters, recorded as an incidence (source 14). Allowed only while the voucher's own session is open (409 otherwise); the caller needs no session of their own.
+- **Ticket** (Read, `GET /{id}/ticket`): confirmed vouchers only. The PDF shows the facility header, the voucher number, the cashier, the date, each line's category, note and amount, the total, and "Entregó" and "Recibió" signature lines.
 
 ### Business Rules
-- An open `cash_session` is required to create expense vouchers.
-- Completed vouchers reduce the session's expected closing cash amount.
+- **Cash cut:** the session's confirmed, non-voided vouchers are subtracted from expected cash.
+- **Closed sessions:** once its session is closed a voucher never changes. Confirm and void lock the session's row, as closing does, so a close waits for them and the closed figures never change.
+- **Set cashier:** not built. The current system's button was removed in 2025-08; the cashier is always the caller whose session holds the voucher.
+- **Current system:** a confirmed voucher could never be voided, and confirm did not always need an open session. Both are corrected here.
 
 ---
 
 ## 6. Supplier Payments
 
-**Route**: `GET /supplier-payments`  
-**Controller**: `SupplierPaymentsController`  
-**SystemObject**: `SupplierPayment` (21)
+**Route**: `/api/v1/supplier-payments`, `GET /api/v1/purchase-orders/{id}/payments`
+**SystemObject**: `SupplierPayment` (21): Read to list, view and see balances; Create to record; Update to apply; Delete to reverse an application or cancel
+**Spec**: `specs/032-expense-supplier-payments` (mictlanix/mbe-roadmap#74)
 
 ### Purpose
-Record payments made to suppliers for purchase orders.
+Payments made to suppliers, applied to their confirmed purchase orders. Accounts payable reports (#79) build on the balances.
+
+### States
+`completed` and `cancelled`. Payments are never edited: a wrong one is cancelled and recorded again.
 
 ### List View
-- Filter by: supplier, date range, payment method
-- Columns: ID, date, supplier, method, amount, reference
+- Filters: `supplier`, `facility`, `method`, `status`, `from`, `to`.
+- Sort: newest first. There is no facility limit on reading or applying, as for purchase orders.
 
-### Form Fields (`supplier_payment`)
+### Fields (`supplier_payment`)
 
 | Field | Column | Notes |
 |-------|--------|-------|
-| Supplier | `supplier_payment.supplier` | FK → `supplier` |
-| Amount | `supplier_payment.amount` | |
-| Payment Method | `supplier_payment.method` | Enum |
-| Date | `supplier_payment.date` | |
-| Reference | `supplier_payment.reference` | Check/transfer reference |
-| Notes | `supplier_payment.comment` | |
+| Supplier | `supplier_payment.supplier` | Required |
+| Amount | `supplier_payment.amount` | Above 0, 2 decimals |
+| Payment Method | `supplier_payment.method` | SAT `PaymentMethod`, as customer payments |
+| Date | `supplier_payment.date` | Default now, not in the future; always now for cash (a body `date` is refused 422) |
+| Reference | `supplier_payment.reference` | Up to 50 characters |
+| Notes | `supplier_payment.comment` | Up to 500 characters |
+| Facility, Serial | `facility`, `serial` | Serial is the facility's next, under the facility lock (spec 027). Facility is the session's for cash, otherwise the caller's; an administrator without a facility names one, for a non-cash payment only. NULL on the 5 legacy rows (migration 029) |
+| Cash Session | `supplier_payment.cash_session` | A cash payment's session, NULL otherwise |
+| Cancelled | `supplier_payment.cancelled` | 0 or 1 |
 
-### Business Rules
-- Supplier payments are standalone records not directly FK-linked to a specific PO in the schema.
-- Reconciliation between PO amounts and payments is done via the Accounts Payable view.
-- Total paid by supplier is computed by summing `supplier_payment.amount` per supplier.
+### Actions
+- **Record** (Create): optionally with `applications` to purchase orders.
+- **Apply** (Update, `POST /{id}/applications`): 1 to 50 applications to distinct purchase orders. Each is refused (409), and with it the whole call, when the order is not confirmed or is cancelled, is another supplier's, falls before the cutoff, or the amount exceeds the order's balance or the payment's credit, or when the payment is cancelled or legacy.
+- **Reverse** (Delete, `POST /{id}/applications/{application_id}/reverse`): with a reason; the application is kept as cancelled and its amount returns to the payment's credit and the order's balance. Recorded as an incidence (source 15). Reversing twice answers 409.
+- **Cancel** (Delete, `POST /{id}/cancel`): with a reason; reverses every live application. Recorded as an incidence (source 15). Cancelling twice answers 409.
+
+### Cash Payments
+- A cash payment needs the caller's open cash session (409 without one) and belongs to it.
+- The cash cut subtracts the session's non-cancelled cash payments as a separate figure, "Pagos a proveedores" (`supplier_payments_total`); `cash_in_drawer` and `expected_cash` drop by it.
+- Cancelling one is refused once its session is closed. Any user with Delete on 21 may cancel it.
+
+### Balances
+- **Applications:** `purchase_order_payment`, one row per application: payment, order, amount, applier, date, cancelled. Never deleted.
+- **Payment credit:** amount minus live applications; 0 when cancelled or legacy. Computed, not stored.
+- **Order balance** (`GET /purchase-orders/{id}/payments`): the order's total (tax added) minus its live applications. It is fixed once confirmed: receipts do not change it. `balance` is `null` for an order that does not count.
+- **Supplier balance** (`GET /supplier-payments/suppliers/{id}/balance`): `owed` (balances of counting orders), `credit` (payments' credit) and `net`, with the orders that have a balance and the payments that have credit, oldest first.
+- **Cutoff:** only orders confirmed on or after the cutoff date (`supplier_balance_cutoff`, one company-wide row) count. It is NULL until the go-live migration sets it, so until then no order accepts applications and payments are all credit. No route changes it.
+- **Concurrency:** applications and cancels lock the payment and order rows, so credit and balance never go below 0.
+
+### Current System
+- Payments were standalone rows with no facility, serial, cancel, cash session or link to an order. Edit and delete did nothing, and no payment could be applied or corrected. Accounts payable summed payments against completed orders, including the 31 that are also cancelled.
+- Supplier returns are not modelled; none exist. Payments are in MXN. Which company bank account paid is not recorded.

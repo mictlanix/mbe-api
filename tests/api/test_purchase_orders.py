@@ -26,6 +26,7 @@ from app.services import mail
 BASE = '/api/v1/purchase-orders'
 SERVICE = 'app.services.purchase_order_service'
 COST_SERVICE = 'app.services.purchase_cost_service'
+PAYMENT_SERVICE = 'app.services.supplier_payment_service'
 WHEN = datetime(2026, 10, 1, 10, 0)
 PDF = b'%PDF-1.7 fake'
 
@@ -156,6 +157,31 @@ def _change(**overrides) -> SimpleNamespace:
     return SimpleNamespace(**base)
 
 
+def _balance() -> dict:
+    """Every field of PurchaseOrderBalance."""
+    return dict(
+        purchase_order_id=1,
+        supplier=5,
+        status='completed',
+        counts=True,
+        total=Decimal('8000.00'),
+        applied=Decimal('3000.00'),
+        balance=Decimal('5000.00'),
+        applications=[
+            SimpleNamespace(
+                purchase_order_payment_id=4,
+                purchase_order=1,
+                amount=Decimal('3000.00'),
+                applier=7,
+                date=WHEN,
+                cancelled=False,
+                supplier_payment=2,
+                serial=6,
+            )
+        ],
+    )
+
+
 @contextmanager
 def _service(order: SimpleNamespace | None = None, *, found: bool = True):
     """Patch both services: every state-changing call answers with `order`."""
@@ -185,6 +211,12 @@ def _service(order: SimpleNamespace | None = None, *, found: bool = True):
         mocks['history'] = stack.enter_context(
             patch(f'{COST_SERVICE}.history', AsyncMock(return_value=([_change()], 1)))
         )
+        mocks['purchase_order_balance'] = stack.enter_context(
+            patch(
+                f'{PAYMENT_SERVICE}.purchase_order_balance',
+                AsyncMock(return_value=_balance()),
+            )
+        )
         yield mocks
 
 
@@ -206,6 +238,8 @@ ROUTES = [
     ('post', '/1/cancel', AccessRight.DELETE),
     ('get', '/1/document', AccessRight.READ),
     ('post', '/1/email', AccessRight.UPDATE),
+    # Supplier payments' right (21), not the PO's (spec 032, FR-019).
+    ('get', '/1/payments', AccessRight.READ),
 ]
 BODIES = {
     ('post', ''): {'supplier': 5, 'comment': 'x'},
@@ -236,7 +270,7 @@ def test_the_table_covers_every_route_of_the_router() -> None:
         for method, path, _ in ROUTES
         for names in [iter(['order_id', 'line_id'])]
     }
-    assert len(ROUTES) == 15
+    assert len(ROUTES) == 16
     assert served == declared
 
 
@@ -568,6 +602,66 @@ async def test_unknown_order_is_404_on_every_id_route() -> None:
         'attach',
     ):
         service[name].assert_not_awaited()
+
+
+# ── Payments (spec 032, US6) ──────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_payments_returns_the_balance_and_the_applications() -> None:
+    _auth()
+    with _service() as service:
+        async with _client() as client:
+            response = await client.get(f'{BASE}/1/payments')
+
+    assert response.status_code == status.HTTP_200_OK, response.text
+    assert service['purchase_order_balance'].await_args.args[1].purchase_order_id == 1
+    body = response.json()
+    assert (body['purchase_order_id'], body['supplier'], body['status']) == (1, 5, 'completed')
+    assert (body['counts'], body['total'], body['applied'], body['balance']) == (
+        True,
+        '8000.00',
+        '3000.00',
+        '5000.00',
+    )
+    assert body['applications'] == [
+        {
+            'purchase_order_payment_id': 4,
+            'purchase_order': 1,
+            'amount': '3000.00',
+            'applier': 7,
+            'date': '2026-10-01T10:00:00',
+            'cancelled': False,
+            'supplier_payment': 2,
+            'serial': 6,
+        }
+    ]
+
+
+@pytest.mark.asyncio
+async def test_payments_of_an_order_that_does_not_count_has_no_balance() -> None:
+    _auth()
+    with _service() as service:
+        service['purchase_order_balance'].return_value = _balance() | {
+            'counts': False,
+            'balance': None,
+            'applications': [],
+        }
+        async with _client() as client:
+            response = await client.get(f'{BASE}/1/payments')
+
+    assert (response.json()['counts'], response.json()['balance']) == (False, None)
+
+
+@pytest.mark.asyncio
+async def test_payments_of_an_unknown_order_is_404() -> None:
+    _auth()
+    with _service(found=False) as service:
+        async with _client() as client:
+            response = await client.get(f'{BASE}/9/payments')
+
+    assert response.status_code == status.HTTP_404_NOT_FOUND
+    service['purchase_order_balance'].assert_not_awaited()
 
 
 # ── Document ──────────────────────────────────────────────────────────────────

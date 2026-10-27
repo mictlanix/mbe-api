@@ -111,6 +111,33 @@ class ProductCostChange(Base):
     creator: Mapped[int] = mapped_column(Integer, ForeignKey('employee.employee_id'))
 
 
+class PurchaseOrderPayment(Base):
+    """An application of a supplier payment to a purchase order (spec 032, migration 029)."""
+
+    __tablename__ = 'purchase_order_payment'
+
+    purchase_order_payment_id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    supplier_payment: Mapped[int] = mapped_column(
+        Integer, ForeignKey('supplier_payment.supplier_payment_id')
+    )
+    purchase_order: Mapped[int] = mapped_column(
+        Integer, ForeignKey('purchase_order.purchase_order_id')
+    )
+    amount: Mapped[Decimal] = mapped_column(Numeric(18, 2))
+    applier: Mapped[int] = mapped_column(Integer, ForeignKey('employee.employee_id'))
+    date: Mapped[datetime] = mapped_column(DateTime)
+    cancelled: Mapped[bool] = mapped_column(Boolean, default=False, server_default='0')
+
+
+class SupplierBalanceCutoff(Base):
+    """The one row (id 1) whose `cutoff` starts supplier balances (spec 032, migration 029)."""
+
+    __tablename__ = 'supplier_balance_cutoff'
+
+    supplier_balance_cutoff_id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    cutoff: Mapped[datetime | None] = mapped_column(DateTime)
+
+
 class ExpenseVoucher(Base):
     __tablename__ = 'expense_voucher'
 

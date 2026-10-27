@@ -22,6 +22,7 @@ from app.enums import CashCountType, PaymentMethod, PaymentType
 from app.models.core import CashCount, CashDrawer, CashSession, Employee
 from app.models.purchases import ExpenseVoucher, ExpenseVoucherDetail
 from app.models.sales import CustomerPayment, SalesOrderPayment
+from app.models.supplier import SupplierPayment
 from app.schemas.cash_session import (
     CashSessionClose,
     CashSessionOpen,
@@ -122,6 +123,36 @@ async def get_session(db: AsyncSession, cash_session_id: int) -> CashSession | N
     return await db.get(CashSession, cash_session_id)
 
 
+def _locked(cash_session_id: int):  # noqa: ANN202
+    """The session row, `FOR UPDATE` and re-read over whatever this unit of work already holds.
+
+    Every drawer operation and the close take this lock first, so whichever runs first wins and a
+    closed session's figures never change (spec 032, research R2).
+    """
+    return (
+        select(CashSession)
+        .where(CashSession.cash_session_id == cash_session_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+
+
+async def lock_open_session(db: AsyncSession, cash_session_id: int) -> CashSession:
+    """Lock the session row and require it still open, before any other lock is taken.
+
+    Voucher confirm and void, and cash supplier payment create and cancel, go through this. A close
+    that got the lock first has set `end`, which the re-read sees (spec 032, research R2).
+    """
+    session = (await db.execute(_locked(cash_session_id))).scalar_one_or_none()
+    if session is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Cash session not found')
+    if session.end is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail='The cash session is closed'
+        )
+    return session
+
+
 async def opening_amount(db: AsyncSession, cash_session_id: int) -> Decimal:
     total = (
         await db.execute(
@@ -155,6 +186,8 @@ class CashCutFigures:
     sales_total: Decimal
     refunds_by_method: list[tuple[int, Decimal]]
     expenses_total: Decimal
+    #: Cash paid to suppliers out of this drawer (spec 032, research R8).
+    supplier_payments_total: Decimal
     starting_cash: Decimal
     cash_sales: Decimal
     cash_refunds: Decimal
@@ -239,6 +272,21 @@ async def cut_figures(db: AsyncSession, session_id: int) -> CashCutFigures:
         Decimal(0),
     )
 
+    supplier_payments = sum(
+        (
+            payment.amount
+            for payment in (
+                await db.execute(
+                    select(SupplierPayment).where(SupplierPayment.cash_session == session_id)
+                )
+            )
+            .scalars()
+            .all()
+            if payment.method == PaymentMethod.CASH and not payment.cancelled
+        ),
+        Decimal(0),
+    )
+
     counts = (
         (
             await db.execute(
@@ -259,12 +307,14 @@ async def cut_figures(db: AsyncSession, session_id: int) -> CashCutFigures:
     cash_sales = dict(sales_by_method).get(PaymentMethod.CASH, Decimal(0))
     cash_refunds = dict(refunds_by_method).get(PaymentMethod.CASH, Decimal(0))
     expenses = _cents(expenses)
-    in_drawer = starting + cash_sales - expenses - cash_refunds
+    supplier_payments = _cents(supplier_payments)
+    in_drawer = starting + cash_sales - expenses - supplier_payments - cash_refunds
     return CashCutFigures(
         sales_by_method=sales_by_method,
         sales_total=sum((amount for _, amount in sales_by_method), Decimal(0)),
         refunds_by_method=refunds_by_method,
         expenses_total=expenses,
+        supplier_payments_total=supplier_payments,
         starting_cash=starting,
         cash_sales=cash_sales,
         cash_refunds=cash_refunds,
@@ -408,6 +458,7 @@ async def close_session(
     """Record the denomination counts and end the shift (FR-052)."""
     employee = current.employee_id
 
+    session = (await db.execute(_locked(session.cash_session_id))).scalar_one()
     if session.end is not None:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT, detail='Session is already closed'
