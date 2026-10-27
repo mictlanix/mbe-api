@@ -637,8 +637,13 @@ async def _pay_customer_back(
                 customer_refund=refund.customer_refund_id,
                 customer_payment=payment.customer_payment_id,
                 customer=refund.customer,
-                refunded=amount,
-                cash_session=session_id,
+                # The current system's shape (`CustomerRefundsController.cs:353-378`, spec 034
+                # FR-005): the amount and the cash session live on the backing payment. On the note,
+                # `refunded` and `cash_session` mean it was paid back in cash, so a note issued
+                # here carries neither, or neither system would let it be spent. NULL explicitly:
+                # the column defaults to 0.
+                refunded=Decimal(0),
+                cash_session=None,
                 date=now,
             )
         )

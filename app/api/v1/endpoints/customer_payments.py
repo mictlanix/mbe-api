@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import rendering
-from app.core.deps import CurrentUser, has_any_privilege, require_privilege
+from app.core.deps import CurrentUser, can_see_every_facility, require_privilege
 from app.db.session import get_db
 from app.enums import AccessRight, PaymentType, SystemObject
 from app.schemas import ListResponse, LocalDateTime
@@ -38,9 +38,7 @@ async def _payment_or_404(db: AsyncSession, customer_payment_id: int):  # noqa: 
 
 async def _sees_every_facility(db: AsyncSession, current: CurrentUser) -> bool:
     """Another facility's payments are PaymentsEditor (100) territory, as on `/search` (#271)."""
-    return current.administrator or await has_any_privilege(
-        db, current.user_id, [(SystemObject.PAYMENTS_EDITOR, AccessRight.READ)]
-    )
+    return await can_see_every_facility(db, current, SystemObject.PAYMENTS_EDITOR)
 
 
 async def _visible_payment_or_404(  # noqa: ANN202
@@ -119,6 +117,9 @@ async def list_unverified_payments(
         amount_min=amount_min,
         amount_max=amount_max,
         unverified_only=True,
+        # Every facility, narrowed to a named one: the current system's verification screen has no
+        # store filter, and verifiers act company-wide (spec 034, FR-012).
+        cross_facility=True,
         skip=skip,
         limit=limit,
     )
@@ -244,7 +245,7 @@ async def apply_customer_payment(
     current: CurrentUser = Depends(_CREATE),
     db: AsyncSession = Depends(get_db),
 ) -> ApplicationResponse:
-    payment = await _payment_or_404(db, customer_payment_id)
+    payment = await _visible_payment_or_404(db, current, customer_payment_id)
     application = await customer_payment_service.apply_payment(db, payment, data, current=current)
     return ApplicationResponse.model_validate(application)
 
@@ -260,7 +261,7 @@ async def reverse_customer_payment_application(
     current: CurrentUser = Depends(_UPDATE),
     db: AsyncSession = Depends(get_db),
 ) -> ApplicationResponse:
-    payment = await _payment_or_404(db, customer_payment_id)
+    payment = await _visible_payment_or_404(db, current, customer_payment_id)
     application = await customer_payment_service.get_application(db, payment, application_id)
     if application is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Application not found')
@@ -276,6 +277,7 @@ async def verify_customer_payment(
     current: CurrentUser = Depends(_VERIFY_UPDATE),
     db: AsyncSession = Depends(get_db),
 ) -> CustomerPaymentResponse:
+    # Any facility: verification is company-wide, as the current system's screen (spec 034).
     payment = await _payment_or_404(db, customer_payment_id)
     payment = await customer_payment_service.verify_payment(db, payment, current=current)
     await customer_payment_service.attach_customer_names(db, [payment])
@@ -289,6 +291,7 @@ async def reject_customer_payment(
     current: CurrentUser = Depends(_VERIFY_UPDATE),
     db: AsyncSession = Depends(get_db),
 ) -> CustomerPaymentResponse:
+    # Any facility: verification is company-wide, as the current system's screen (spec 034).
     payment = await _payment_or_404(db, customer_payment_id)
     payment = await customer_payment_service.reject_payment(
         db, payment, reason=data.reason, current=current

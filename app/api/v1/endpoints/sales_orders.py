@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import rendering
-from app.core.deps import CurrentUser, require_privilege
+from app.core.deps import CurrentUser, can_see_every_facility, require_privilege
 from app.db.session import get_db
 from app.enums import AccessRight, OrderOrigin, SystemObject
 from app.schemas import ListResponse, LocalDateTime
@@ -34,6 +34,20 @@ async def _order_or_404(db: AsyncSession, sales_order_id: int):  # noqa: ANN202
     return order
 
 
+async def _writable_order_or_404(  # noqa: ANN202
+    db: AsyncSession, current: CurrentUser, sales_order_id: int
+):
+    """An order the caller may change: their facility's, unless they hold SearchCreditsFromAllStores
+    (101) read (spec 034, FR-011). 404 rather than 403, so the id's existence isn't revealed.
+    Reads stay open by id, as in the current system, for lookups and cross-facility collections."""
+    order = await _order_or_404(db, sales_order_id)
+    if order.facility != current.facility_id and not await can_see_every_facility(
+        db, current, SystemObject.SEARCH_CREDITS_FROM_ALL_STORES
+    ):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Sales order not found')
+    return order
+
+
 @router.get('', response_model=ListResponse[SalesOrderSummary])
 async def list_sales_orders(
     mine: bool = Query(False),
@@ -59,6 +73,17 @@ async def list_sales_orders(
     current: CurrentUser = Depends(_READ),
     db: AsyncSession = Depends(get_db),
 ) -> ListResponse[SalesOrderSummary]:
+    if (
+        facility is not None
+        and facility != current.facility_id
+        and not await can_see_every_facility(
+            db, current, SystemObject.SEARCH_CREDITS_FROM_ALL_STORES
+        )
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Another facility's sales orders require SearchCreditsFromAllStores read",
+        )
     items, total = await sales_order_service.list_orders(
         db,
         current=current,
@@ -136,7 +161,7 @@ async def update_sales_order(
     current: CurrentUser = Depends(_UPDATE),
     db: AsyncSession = Depends(get_db),
 ) -> SalesOrderResponse:
-    order = await _order_or_404(db, sales_order_id)
+    order = await _writable_order_or_404(db, current, sales_order_id)
     order = await sales_order_service.update_order(db, order, data, current=current)
     return SalesOrderResponse.model_validate(order)
 
@@ -187,7 +212,7 @@ async def confirm_sales_order(
     current: CurrentUser = Depends(_UPDATE),
     db: AsyncSession = Depends(get_db),
 ) -> SalesOrderResponse:
-    order = await _order_or_404(db, sales_order_id)
+    order = await _writable_order_or_404(db, current, sales_order_id)
     order = await sales_order_service.confirm_order(db, order, current=current)
     return SalesOrderResponse.model_validate(order)
 
@@ -198,7 +223,7 @@ async def cancel_sales_order(
     current: CurrentUser = Depends(_UPDATE),
     db: AsyncSession = Depends(get_db),
 ) -> SalesOrderResponse:
-    order = await _order_or_404(db, sales_order_id)
+    order = await _writable_order_or_404(db, current, sales_order_id)
     order = await sales_order_service.cancel_order(db, order, current=current)
     return SalesOrderResponse.model_validate(order)
 
@@ -210,7 +235,7 @@ async def add_sales_order_line(
     current: CurrentUser = Depends(_UPDATE),
     db: AsyncSession = Depends(get_db),
 ) -> SalesOrderResponse:
-    order = await _order_or_404(db, sales_order_id)
+    order = await _writable_order_or_404(db, current, sales_order_id)
     order = await sales_order_service.add_line(db, order, data, current=current)
     return SalesOrderResponse.model_validate(order)
 
@@ -223,7 +248,7 @@ async def update_sales_order_line(
     current: CurrentUser = Depends(_UPDATE),
     db: AsyncSession = Depends(get_db),
 ) -> SalesOrderResponse:
-    order = await _order_or_404(db, sales_order_id)
+    order = await _writable_order_or_404(db, current, sales_order_id)
     line = await sales_order_service.get_line(db, order, line_id)
     if line is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Line not found')
@@ -238,7 +263,7 @@ async def remove_sales_order_line(
     current: CurrentUser = Depends(_UPDATE),
     db: AsyncSession = Depends(get_db),
 ) -> SalesOrderResponse:
-    order = await _order_or_404(db, sales_order_id)
+    order = await _writable_order_or_404(db, current, sales_order_id)
     line = await sales_order_service.get_line(db, order, line_id)
     if line is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Line not found')

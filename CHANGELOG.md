@@ -7,6 +7,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Changed
+- **The facility rule on payment writes, sales orders and credit notes** (mictlanix/mbe-roadmap#156, spec 034). It was left over from #271. Without the cross-facility privilege, a clerk's records stay in their own facility:
+  - **Payments:** applying a payment and reversing an application answer 404 for another facility's payment without PaymentsEditor (100) read. The order may be of any facility. In mbe_dev, about 2% of 2026's applications (613 of 28,270) were made by someone working at another facility that day.
+  - **Sales orders:** editing an order, changing its lines, confirming and cancelling answer 404 for another facility's order, and `GET /sales-orders?facility=` naming another facility answers 403, without SearchCreditsFromAllStores (101) read. Reading an order stays open by id.
+  - **Credit notes:** the list defaults to the caller's facility and takes a `facility` parameter (403 for another without PaymentsEditor); another facility's note answers 404.
+  - **Verification** is company-wide, as the current system's screen: `/customer-payments/unverified` covers every facility, narrowed by `facility`, and verify and reject act on any facility's payment.
+  - Administrators pass every check, as everywhere.
+- **`CreditNoteResponse` fields** (spec 034). New: `amount` (issued, the backing payment's amount), `facility` and `refunded_to_customer`. `refunded` now means what was handed back in cash, the column's meaning in the current system: 0 except on a note paid back.
 - **One balance for every sales order, and credit notes come off it** (mictlanix/mbe-roadmap#77, spec 033). Order lists and detail, the credit check, `GET /customer-payments/outstanding-orders`, accounts receivable and statements read one rule: total, less completed refunds, less the order's share of live fiscal credit notes against its invoices, less live applications.
   - **Credit notes:** a note line copied from an order's line counts for that order; the rest of the note is shared by each order's part of the invoice. Only 5 credit orders in mbe_dev ever had a note, all flagged paid, so no open balance moves today.
   - **Credit hold:** counts overdue credit orders that still owe more than 0.01, not orders flagged unpaid. In mbe_dev, 130 customers instead of 199: the other 69 were held only by paid-off orders whose flag was never set.
@@ -232,6 +239,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
 ### Fixed
+- **Credit notes report what they can still pay** (#277, spec 034). The current system writes a note's amount on its backing payment and `refunded = 0` on the note, so 982 of mbe_dev's 984 notes read 0 issued and 0 remaining. A note's amount is now its payment's amount, and its remaining is the payment's unapplied amount, change included: note 990 reads 27.00 and 3.00. A note paid back in cash reads 0. 137 notes are open, 1,727,758.09.
+- **Open credit notes page correctly** (#278, spec 034). `open_only` filtered each page after paging while `total` counted every note, so the first page of 100 came back empty with total 984. The filter is now in the query: more than 0.01 left, not paid back in cash, not the walk-in customer's.
+- **The API's refund writes credit notes the current system's way** (spec 034). It wrote `refunded` and the cash session on the note, which the current system reads as "paid back in cash", so neither system would have let it be spent. The note now carries neither; the backing payment keeps the session.
 - **A customer payment's `unapplied` subtracts the change handed back** (spec 033). It was amount less applied, so a payment fully used with change showed the change as still available: payment 300789 in mbe_dev is 600, with 530 applied and 70 handed back, and reported 70. It is now 0, the figure its ticket prints. Customer credit reads the same figure: $18.77M across 316 customers in mbe_dev, not $24.87M across 1,750.
 
 ### Fixed

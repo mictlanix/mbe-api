@@ -137,6 +137,20 @@ async def has_any_privilege(
     return any(mask & rights[obj] for obj, mask in result.all())
 
 
+async def can_see_every_facility(
+    db: AsyncSession, current: CurrentUser, system_object: SystemObject
+) -> bool:
+    """Whether the caller may act on another facility's records (spec 034, FR-009, FR-014).
+
+    Administrators always may. Anyone else needs read on the path's cross-facility privilege:
+    PaymentsEditor (100) for payments and credit notes, SearchCreditsFromAllStores (101) for sales
+    orders and accounts receivable.
+    """
+    return current.administrator or await has_any_privilege(
+        db, current.user_id, [(system_object, AccessRight.READ)]
+    )
+
+
 def require_any_privilege(*grants: tuple[SystemObject, AccessRight]):
     """Like `require_privilege`, but any one of several grants opens the route.
 

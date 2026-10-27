@@ -1,0 +1,336 @@
+{
+  "workflow": "speckit",
+  "specName": "Credit Note Balances and the Facility Rule",
+  "branch": "034-credit-notes-facility",
+  "currentStep": "implement",
+  "status": "implemented",
+  "history": [
+    {
+      "step": "specify",
+      "substep": null,
+      "kind": "start",
+      "by": "extension",
+      "at": "2026-10-27T21:33:59.000Z"
+    },
+    {
+      "step": "specify",
+      "substep": null,
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-10-27T21:43:34.769Z"
+    },
+    {
+      "step": "plan",
+      "substep": null,
+      "kind": "start",
+      "by": "extension",
+      "at": "2026-10-27T21:46:30.929Z"
+    },
+    {
+      "step": "plan",
+      "substep": null,
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-10-27T21:50:20.932Z"
+    },
+    {
+      "step": "tasks",
+      "substep": null,
+      "kind": "start",
+      "by": "extension",
+      "at": "2026-10-27T21:53:17.722Z"
+    },
+    {
+      "step": "tasks",
+      "substep": null,
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-10-27T21:54:30.901Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "kind": "start",
+      "by": "extension",
+      "at": "2026-10-27T23:02:13.013Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T001",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-10-27T23:42:37.921Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T002",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-10-27T23:42:37.921Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T003",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-10-27T23:42:37.921Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T004",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-10-27T23:42:37.921Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T005",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-10-27T23:42:37.921Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T006",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-10-27T23:42:37.921Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T007",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-10-27T23:42:37.921Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T008",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-10-27T23:42:37.921Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T009",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-10-27T23:42:37.921Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T010",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-10-27T23:42:37.921Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T011",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-10-27T23:42:37.921Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T012",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-10-27T23:42:37.922Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T013",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-10-27T23:42:37.922Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T014",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-10-27T23:42:37.922Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T015",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-10-27T23:42:37.922Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T016",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-10-27T23:42:37.922Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T017",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-10-27T23:42:37.922Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T018",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-10-27T23:42:37.922Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T019",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-10-27T23:42:37.922Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T020",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-10-27T23:42:37.922Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T021",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-10-27T23:42:37.922Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T022",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-10-27T23:42:37.922Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T023",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-10-27T23:42:37.922Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T024",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-10-27T23:42:37.922Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T025",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-10-27T23:42:37.922Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T026",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-10-27T23:42:37.922Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T028",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-10-27T23:42:37.922Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T027",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-10-27T23:42:55.083Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-10-27T23:42:55.083Z"
+    }
+  ],
+  "verified": [
+    {
+      "what": "full test suite",
+      "command": "uv run pytest -q -p no:cacheprovider",
+      "source": "derived",
+      "exitCode": 0,
+      "durationSeconds": 337.2,
+      "result": "........................................................................ [ 98%] · ...............................................................          [100%] · 5895 passed in 329.17s (0:05:29)"
+    },
+    {
+      "what": "ruff check",
+      "command": "uv run ruff check app tests migrations",
+      "source": "derived",
+      "exitCode": 0,
+      "durationSeconds": 0.6,
+      "result": "All checks passed!"
+    },
+    {
+      "what": "deployed to dev (xolotl :8765)",
+      "result": "034-credit-notes-facility at b39bb8f, /health ok, 0 migrations pending"
+    },
+    {
+      "what": "before (dev on main's code)",
+      "result": "open_only limit=100: 0 items, total 984 (#278); note 990 remaining 0 (#277); clerk carmengodinez (facility 51, no 100/101) lists facility 8's orders (200) and reads facility 8's note 990 (200); verifier carolnavarrete's unverified list: her facility only, 18,261"
+    },
+    {
+      "what": "SC-001 credit note balances",
+      "result": "all 984 notes: amount = backing payment's amount, remaining = its unapplied amount floored at 0, 0 mismatches; notes 158 and 462 read 0 and refunded_to_customer; note 990 reads 27.00 and 3.00"
+    },
+    {
+      "what": "SC-002 open-only paging",
+      "result": "per facility at limit 7 and at 100: 137 open notes listed, 137 distinct, the same set as SQL's spendable pool, every total equal to SQL's per-facility count"
+    },
+    {
+      "what": "SC-004 facility rule as a clerk",
+      "result": "carmengodinez (facility 51): credit notes ?facility=8 403, own list facility 51 only, note 990 404; apply and reverse on a facility-8 payment 404 'Payment not found' (the facility check, before the service); PUT a facility-8 order 404; GET that order and its ticket 200; sales orders ?facility=8 403. Administrators: 200 on another facility's orders and notes"
+    },
+    {
+      "what": "SC-005 verification company-wide",
+      "result": "carolnavarrete (108 read, no 100): unverified total 295,302 = SQL's count across all facilities; facility=8 narrows to 59,891 = SQL"
+    },
+    {
+      "what": "SC-003 a refund credit note on dev (approved)",
+      "result": "test customer T034, paid order (product 921, facility 51), session 10443 on free drawer 14 as admin; refund confirmed with payout credit_note: the note reads amount 100.00, remaining 100.00, refunded 0, refunded_to_customer false, facility 51, open; in SQL refunded 0 and cash_session NULL on the note, session 10443 on the type-4 payment, so the current system pool takes it. Every test row deleted, 0 left; the refund folio leaves one gap in facility 51 numbering"
+    }
+  ],
+  "currentTask": "T028"
+}

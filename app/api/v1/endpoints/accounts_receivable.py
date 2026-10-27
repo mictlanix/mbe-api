@@ -11,7 +11,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import rendering
-from app.core.deps import CurrentUser, has_any_privilege, require_privilege
+from app.core.deps import CurrentUser, can_see_every_facility, require_privilege
 from app.db.session import get_db
 from app.enums import AccessRight, SystemObject
 from app.schemas.accounts import (
@@ -37,9 +37,7 @@ _READ = require_privilege(SystemObject.ACCOUNTS_RECEIVABLE, AccessRight.READ)
 
 
 async def _sees_every_facility(db: AsyncSession, current: CurrentUser) -> bool:
-    return current.administrator or await has_any_privilege(
-        db, current.user_id, [(SystemObject.SEARCH_CREDITS_FROM_ALL_STORES, AccessRight.READ)]
-    )
+    return await can_see_every_facility(db, current, SystemObject.SEARCH_CREDITS_FROM_ALL_STORES)
 
 
 async def _scope(db: AsyncSession, current: CurrentUser, facility: int | None) -> int | None:
@@ -99,9 +97,7 @@ async def get_account_receivable(
     result = await accounts_service.detail(
         db, accounts_service.CUSTOMERS, customer_id, facility=scope
     )
-    every_payment = current.administrator or await has_any_privilege(
-        db, current.user_id, [(SystemObject.PAYMENTS_EDITOR, AccessRight.READ)]
-    )
+    every_payment = await can_see_every_facility(db, current, SystemObject.PAYMENTS_EDITOR)
     payments = await customer_payment_service.payments_with_credit(
         db, customers=[customer_id], facility=None if every_payment else current.facility_id
     )
