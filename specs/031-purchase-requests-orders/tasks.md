@@ -285,7 +285,7 @@ description: "Task list for purchase requests, purchase orders and average cost"
 - [X] T032 Run `uv run ruff check app/ migrations/ tests/`, `uv run ruff format --check` on the changed files, and `uv run pytest -q`. Everything must be green.
 - [X] T033 **Ask the user first; DDL.** Apply migration 028 to mbe_dev with `uv run python -m app.db.migrate`. Check the two columns, the index and FK, and the new table. Record the result in spec.md under "Verification".
 - [X] T034 **Ask the user first.** Deploy to the test instance (`/var/www/mbe-api-test`, `mbe-api-test`) as mictlanix@, restarting as root. Only after T033.
-- [ ] T035 **Ask the user first; writes to mbe_dev.** Run quickstart steps 3–8:
+- [X] T035 **Ask the user first; writes to mbe_dev.** Run quickstart steps 3–8:
   - concurrent submits (SC-002);
   - concurrent ordering of the same request lines (SC-001);
   - a concurrent double PO confirm (SC-003);

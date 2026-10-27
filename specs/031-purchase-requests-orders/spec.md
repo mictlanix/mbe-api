@@ -383,3 +383,29 @@ Migration 028 is applied to mbe_dev, with approval, and a second run is a no-op.
 - `product_cost_change` exists with its five FKs and is empty.
 
 The branch is deployed to the dev instance (xolotl, port 8765). `/purchase-requests`, `/purchase-orders` and `/purchase-orders/to-purchase` answer 401 without a token.
+
+### Live checks on the dev instance (2026-10-26)
+
+All writes were approved: facility 47 (warehouses 8 and 14), warehouse 19 (facility 54) and supplier 125, which had no pending lines in either facility. The email send was skipped at the user's request, and the integration tests cover it.
+
+- **US1 and SC-002 (requests 2273–2292):**
+  - 20 drafts submitted at once all answered 200, with serials 568–587, consecutive from the facility's maximum of 567;
+  - the approved request has approver 1 and an approval time;
+  - the rejected one went back to draft, kept serial 569, and has a source-4 incidence holding the reason.
+- **SC-001 (request 2293, 3 marked lines):** 10 `to-purchase` calls and 10 `request-lines` calls ran at once, onto 10 draft POs. One `to-purchase` took all 3 lines (PO 11062). The other 19 calls answered 409 "Nothing is pending…" or "Nothing left to add…". Each line is on exactly one live PO line.
+- **SC-003 (PO 11070, warehouses 8 and 14):** two simultaneous confirms answered 200 and 409 "Only a draft purchase order can be confirmed", and exactly one receipt was created per warehouse.
+- **SC-004 and US4:**
+  - **One receipt (PO 11071):** C = 1,499.88, Q = 25.47, 5 received at 1,649.87. The new cost is 1,524.4927, equal to the formula. Cancelling restored the cost with no warning.
+  - **Two facilities at once (PO 11072, warehouses 8 and 19, priced at cost so cost ends unchanged):** both confirms answered 200. The second change's on-hand is 9 = 6 + 3, which is the first change's on-hand plus its quantity received. Cancelling the earlier receipt warned "Cost of 17797 not restored: changed since by receipt 1". Cancelling the later one restored the cost.
+- **SC-005 (PO 11073, 212 lines into warehouse 19, priced at cost):**
+  - confirming the PO took 0.05 s;
+  - confirming its receipt took 0.2 s;
+  - cancelling the receipt took 1.07 s;
+  - all are within 5 s.
+- **SC-006:** PDFs of POs 11072 and 11073 (212 lines, 1.25 s) are Letter-size, with the facility header, the supplier with its address, the lines with their warehouses, and the totals (203.00 + 32.48 IVA = 235.48).
+- **After the run:**
+  - cost and company-wide stock are unchanged for all 222 products touched;
+  - all 21 requests and the draft POs are cancelled, and receipts 32046–32051 are cancelled;
+  - POs 11070–11073 stay confirmed, since a confirmed PO cannot be cancelled;
+  - no request answered 5xx, and the script was removed from xolotl.
+- **Note:** the 7 losing `to-purchase` calls each inserted a PO and rolled it back, so ids 11063–11069 were used up. POs are numbered by id, so a race leaves a gap in the numbers.
