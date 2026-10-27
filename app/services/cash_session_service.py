@@ -22,6 +22,7 @@ from app.enums import CashCountType, PaymentMethod, PaymentType
 from app.models.core import CashCount, CashDrawer, CashSession, Employee
 from app.models.purchases import ExpenseVoucher, ExpenseVoucherDetail
 from app.models.sales import CustomerPayment, SalesOrderPayment
+from app.models.supplier import SupplierPayment
 from app.schemas.cash_session import (
     CashSessionClose,
     CashSessionOpen,
@@ -185,6 +186,8 @@ class CashCutFigures:
     sales_total: Decimal
     refunds_by_method: list[tuple[int, Decimal]]
     expenses_total: Decimal
+    #: Cash paid to suppliers out of this drawer (spec 032, research R8).
+    supplier_payments_total: Decimal
     starting_cash: Decimal
     cash_sales: Decimal
     cash_refunds: Decimal
@@ -269,6 +272,21 @@ async def cut_figures(db: AsyncSession, session_id: int) -> CashCutFigures:
         Decimal(0),
     )
 
+    supplier_payments = sum(
+        (
+            payment.amount
+            for payment in (
+                await db.execute(
+                    select(SupplierPayment).where(SupplierPayment.cash_session == session_id)
+                )
+            )
+            .scalars()
+            .all()
+            if payment.method == PaymentMethod.CASH and not payment.cancelled
+        ),
+        Decimal(0),
+    )
+
     counts = (
         (
             await db.execute(
@@ -289,12 +307,14 @@ async def cut_figures(db: AsyncSession, session_id: int) -> CashCutFigures:
     cash_sales = dict(sales_by_method).get(PaymentMethod.CASH, Decimal(0))
     cash_refunds = dict(refunds_by_method).get(PaymentMethod.CASH, Decimal(0))
     expenses = _cents(expenses)
-    in_drawer = starting + cash_sales - expenses - cash_refunds
+    supplier_payments = _cents(supplier_payments)
+    in_drawer = starting + cash_sales - expenses - supplier_payments - cash_refunds
     return CashCutFigures(
         sales_by_method=sales_by_method,
         sales_total=sum((amount for _, amount in sales_by_method), Decimal(0)),
         refunds_by_method=refunds_by_method,
         expenses_total=expenses,
+        supplier_payments_total=supplier_payments,
         starting_cash=starting,
         cash_sales=cash_sales,
         cash_refunds=cash_refunds,

@@ -38,6 +38,7 @@ from app.api.v1.endpoints import (
     sales_quotes,
     sat_catalogs,
     stock,
+    supplier_payments,
     suppliers,
     taxpayer_certificates,
     taxpayer_issuers,
@@ -131,4 +132,7 @@ api_router.include_router(
 )
 api_router.include_router(
     purchase_orders.router, prefix='/purchase-orders', tags=['purchase-orders']
+)
+api_router.include_router(
+    supplier_payments.router, prefix='/supplier-payments', tags=['supplier-payments']
 )

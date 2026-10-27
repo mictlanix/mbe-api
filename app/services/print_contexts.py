@@ -390,6 +390,10 @@ async def cash_cut_context(db: AsyncSession, session: CashSession) -> tuple[str,
         'starting_cash': money(figures.starting_cash),
         'cash_sales': money(figures.cash_sales),
         'expenses_total': money(figures.expenses_total),
+        # Printed only when the session paid a supplier in cash (spec 032, research R8).
+        'supplier_payments_total': (
+            money(figures.supplier_payments_total) if figures.supplier_payments_total else None
+        ),
         'cash_refunds': money(figures.cash_refunds),
         'counted_cash': money(figures.counted_cash),
         'difference_label': 'Faltante' if figures.is_shortage else 'Sobrante',

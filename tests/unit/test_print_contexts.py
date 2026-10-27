@@ -694,6 +694,7 @@ def _figures(**overrides) -> CashCutFigures:
         sales_total=Decimal('1460'),
         refunds_by_method=[(PaymentMethod.NA, Decimal('116'))],
         expenses_total=Decimal('80'),
+        supplier_payments_total=Decimal('0'),
         starting_cash=Decimal('500'),
         cash_sales=Decimal('1160'),
         cash_refunds=Decimal('100'),
@@ -751,6 +752,13 @@ class TestCashCut:
         assert context['difference_label'] == 'Sobrante'
         assert context['expenses'] == []
         assert context['expenses_total'] == '$0.00'
+
+    async def test_supplier_payments_print_only_when_there_are_some(self) -> None:
+        _, none = await _cut(_figures())
+        _, some = await _cut(_figures(supplier_payments_total=Decimal('1250.5')))
+
+        assert none['supplier_payments_total'] is None
+        assert some['supplier_payments_total'] == '$1,250.50'
 
 
 # ── Sales order document ──────────────────────────────────────────────────────

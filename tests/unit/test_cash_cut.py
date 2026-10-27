@@ -15,6 +15,7 @@ from app.enums import PaymentMethod, PaymentType
 from app.models.core import CashCount
 from app.models.purchases import ExpenseVoucher
 from app.models.sales import CustomerPayment, SalesOrderPayment
+from app.models.supplier import SupplierPayment
 from app.services import cash_session_service
 from app.services.cash_session_service import CashCutFigures
 
@@ -68,6 +69,10 @@ def _voucher(*amounts: str, completed: bool | None = True, cancelled: bool | Non
     return [(voucher, SimpleNamespace(amount=Decimal(a))) for a in amounts]
 
 
+def _supplier_payment(amount: str, method: int = CASH, *, cancelled: bool = False):
+    return SimpleNamespace(amount=Decimal(amount), method=method, cancelled=cancelled)
+
+
 def _count(denomination: str, quantity: int) -> SimpleNamespace:
     return SimpleNamespace(denomination=Decimal(denomination), quantity=quantity)
 
@@ -77,6 +82,7 @@ async def _figures(
     payments: tuple = (),
     applications: tuple = (),
     vouchers: tuple = (),
+    supplier_payments: tuple = (),
     counted: tuple = (),
     starting: str = '0',
 ) -> CashCutFigures:
@@ -85,6 +91,7 @@ async def _figures(
             CustomerPayment: payments,
             SalesOrderPayment: applications,
             ExpenseVoucher: [row for voucher in vouchers for row in voucher],
+            SupplierPayment: supplier_payments,
             CashCount: counted,
         }
     )
@@ -188,6 +195,33 @@ class TestExpenses:
 
         assert figures.expenses_total == Decimal('92.50')
         assert figures.cash_in_drawer == Decimal('407.50')
+
+
+class TestSupplierPayments:
+    """Cash paid to suppliers out of the drawer (spec 032, research R8)."""
+
+    async def test_live_cash_payments_are_summed_and_leave_the_drawer(self) -> None:
+        payments = (
+            _supplier_payment('300'),
+            _supplier_payment('50.25'),
+            _supplier_payment('999', cancelled=True),
+            _supplier_payment('888', CARD),
+        )
+
+        figures = await _figures(
+            supplier_payments=payments, vouchers=(_voucher('20'),), starting='500'
+        )
+
+        assert figures.supplier_payments_total == Decimal('350.25')
+        assert figures.expenses_total == Decimal('20.00')
+        # 500 − 20 − 350.25
+        assert figures.cash_in_drawer == Decimal('129.75')
+
+    async def test_none_is_zero(self) -> None:
+        figures = await _figures(starting='500')
+
+        assert figures.supplier_payments_total == Decimal('0')
+        assert figures.cash_in_drawer == Decimal('500.00')
 
 
 class TestBalance:
