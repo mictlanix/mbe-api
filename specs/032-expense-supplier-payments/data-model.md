@@ -22,6 +22,8 @@ Existing tables are used as they are unless marked **new** or **added**. Migrati
 - `completed` → `cancelled`: void, with delete on 82, a reason, and the voucher's session still open.
 - Nothing changes once the session is closed.
 
+**Derived:** `voided` is `completed AND cancelled`. It is not stored, and the API exposes it so a void reads differently from a cancelled draft.
+
 ## Expense voucher line (`expense_voucher_detail`, existing)
 
 | Column | Use |

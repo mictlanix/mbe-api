@@ -26,7 +26,7 @@ The wire values are `draft`, `completed` and `cancelled`, as for receipts and PO
 
 **Decision**:
 - **The session** is the caller's open session: `cash_session_service.open_session_for_cashier`, the newest with `end IS NULL`. A stale session (opened on an earlier day) counts as open, as for customer refunds.
-- **Every drawer operation locks the session row** `FOR UPDATE` and re-reads it (`populate_existing`) before anything else is locked, then checks `end IS NULL`:
+- **Every drawer operation locks the session row** `FOR UPDATE` and re-reads it (`populate_existing`) before anything else is locked, then checks `end IS NULL`. One helper, `cash_session_service.lock_open_session`, does this for all of them:
   - voucher confirm and void;
   - cash supplier payment create and cancel.
 - **`close_session` locks the same row** and re-checks `end` under the lock before writing the counts. Today it checks `end` on the row the endpoint read without a lock; that change is the only one to spec 011's close.

@@ -55,7 +55,7 @@ Each step needs the user's confirmation first.
    - record a cash payment and check the cut subtracts it;
    - reverse an application and cancel a payment, and check the balances;
    - in a test session, run 20 cash payment creates and cancels at the same moment as the session's close: the closed cut equals what the close reported, and each operation either landed before the close or answered 409.
-   - **SC-006 and the plan's goals:** time voucher create, add a line and confirm (each under 1 s), and `GET /supplier-payments/suppliers/{id}/balance` for the supplier with the most counting POs (under 2 s). Record the times.
-6. **Cleanup**, agreed with the user before running:
+6. **SC-006 and the plan's goals:** time voucher create, add a line and confirm (each under 1 s), and `GET /supplier-payments/suppliers/{id}/balance` for the supplier with the most counting POs (under 2 s). Record the times.
+7. **Cleanup**, agreed with the user before running:
    - cancel the test payments and void the test vouchers;
    - reset the cutoff to NULL.
