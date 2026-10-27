@@ -16,6 +16,7 @@ from app.api.v1.endpoints import (
     delivery_orders,
     employees,
     exchange_rates,
+    expense_vouchers,
     expenses,
     facilities,
     fiscal_documents,
@@ -91,6 +92,9 @@ api_router.include_router(cash_drawers.router, prefix='/cash-drawers', tags=['ca
 api_router.include_router(cash_sessions.router, prefix='/cash-sessions', tags=['cash-sessions'])
 api_router.include_router(exchange_rates.router, prefix='/exchange-rates', tags=['exchange-rates'])
 api_router.include_router(expenses.router, prefix='/expenses', tags=['expenses'])
+api_router.include_router(
+    expense_vouchers.router, prefix='/expense-vouchers', tags=['expense-vouchers']
+)
 api_router.include_router(
     payment_method_options.router,
     prefix='/payment-method-options',
