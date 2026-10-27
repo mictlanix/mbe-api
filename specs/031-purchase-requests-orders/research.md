@@ -104,7 +104,9 @@ Every write to a request or a PO, including hand edits of headers and lines, fir
    Warehouses whose lines are all non-stockable, or have nothing pending, get no receipt.
 5. **State:** `completed = 1`, the updater and the time. Commit.
 
-Warehouses aren't locked: drafts take no serial and post no stock. The PO row lock with the state check is what keeps receipts from being duplicated. A second or concurrent confirm finds the PO completed and answers 409.
+Warehouses aren't locked: drafts take no serial and post no stock.
+
+**Known limit (implementation review):** each receipt insert takes foreign-key share locks on its warehouse and facility rows. A confirm creating receipts for two warehouses of one facility can therefore deadlock with a step that X-locks the second warehouse and then the facility (a sales folio, refund or delivery stop), and one side answers 409 "busy, retry". It needs a PO with two destination warehouses in one facility at the same moment as such a step, so it is left as a retryable conflict, like spec 029's ledger-insert note. The PO row lock with the state check is what keeps receipts from being duplicated. A second or concurrent confirm finds the PO completed and answers 409.
 
 **Rationale**: this is the current system's `GenerateInventoryEntries` with its three defects fixed:
 - it ran outside the confirm transaction;
@@ -157,8 +159,8 @@ So no two steps take these locks crosswise.
 **Decision**: `inv.cancel` for a completed `RECEIPT` with a `purchase_order` calls `purchase_cost_service` after `begin_locked`:
 
 1. **Lock:**
-   - read the products the receipt changed, with a locking read: `SELECT DISTINCT product FROM product_cost_change WHERE receipt = :id AND reverted_change IS NULL FOR UPDATE`;
-   - lock their cost rows, ascending.
+   - the same locks as the confirm (R5): the products of the receipt's PO-linked lines, by a locking read, then their cost rows ascending. A confirmed receipt's lines are frozen, and every product it changed is on one of them;
+   - not a locking read of `product_cost_change` by receipt: its next-key lock reaches past the newest receipt, so a concurrent confirm in another facility, holding a cost row this cancel waits for, would deadlock inserting its own change row (found in implementation review).
 2. **For each product** (after the stock checks, when the reversal is posted):
    - if the product's latest change (highest id) belongs to this receipt and is not a restore, set cost back to the `previous_cost` of the receipt's first change for that product, and stage a change row with `reverted_change` pointing to that first change and Q, R and U NULL;
    - otherwise keep cost and add the warning "Cost of {code} not restored: changed since by receipt {serial or id}".
@@ -175,7 +177,7 @@ The warnings are returned on the receipt response's `warnings`.
 - **`inventory_documents.confirm_simple`:**
   - When `kind is RECEIPT` and `document.purchase_order` is set, call `purchase_cost_service.lock(db, document_id)` right after `begin_locked`, and `apply(...)` before posting.
   - The warnings are kept on `document.__dict__['cost_warnings']`.
-- **`inventory_documents.cancel`:** the same, with `lock_restore` and `restore`.
+- **`inventory_documents.cancel`:** the same `lock`, then `restore` with the reversal (R6).
 - **`inventory_receipt_service.attach_derived`:** the over-receipt warnings and any `cost_warnings` together make up `warnings`.
 - **`inventory_receipt_service.complementary_receipt`:** non-stockable order lines are left out of the remaining lines, as on confirm (R4); otherwise its draft is refused 422 on confirm.
 - **`inventory_receipt_service.update`:** moving the warehouse of a receipt linked to a PO answers 409 "A purchase order's receipt keeps its warehouse".

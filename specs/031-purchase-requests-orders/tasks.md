@@ -227,11 +227,11 @@ description: "Task list for purchase requests, purchase orders and average cost"
   - the pure helpers of T020;
   - `lock(db, receipt_id)`: a locking read of the linked products, then the list-0 rows `FOR UPDATE` ascending;
   - `apply(db, receipt, lines, current)`: a grouped company-wide on-hand query, then the cost row update or insert, the staged `ProductCostChange` rows, and the warnings;
-  - `lock_restore(db, receipt_id)` and `restore(db, receipt, current)`;
+  - `restore(db, receipt, current)`, after the same `lock` (research R6);
   - `history(db, product, skip, limit)`.
 - [X] T024 [US4] Wire the cost step into `app/services/inventory_documents.py` per research R7:
   - in `confirm_simple`, when `kind is RECEIPT and document.purchase_order is not None`, call `purchase_cost_service.lock` right after `begin_locked`, and `apply` after the checks and before `post_movement`;
-  - in `cancel`, for a completed RECEIPT with a PO, call `lock_restore` after `begin_locked` and `restore` with the reversal;
+  - in `cancel`, for a completed RECEIPT with a PO, call `lock` after `begin_locked` and `restore` with the reversal;
   - keep the warnings on `document.__dict__['cost_warnings']`;
   - in `app/services/inventory_receipt_service.attach_derived`, `warnings` = the over-receipt warnings plus the cost warnings;
   - add the `cost-changes` route.
@@ -282,7 +282,7 @@ description: "Task list for purchase requests, purchase orders and average cost"
   - **Added:** requests, POs, to-purchase, average cost and its history, the PO PDF and email, migration 028;
   - **Changed:** receipt confirm and cancel update cost for receipts with a PO; receipts with a PO keep their warehouse; complementary receipts leave non-stockable PO lines out.
 - [X] T031 Check that `tests/integration/test_no_endpoint_returns_500.py` (and any route inventory test) covers the 29 new routes, and extend it if it lists routes by hand.
-- [ ] T032 Run `uv run ruff check app/ migrations/ tests/`, `uv run ruff format --check` on the changed files, and `uv run pytest -q`. Everything must be green.
+- [X] T032 Run `uv run ruff check app/ migrations/ tests/`, `uv run ruff format --check` on the changed files, and `uv run pytest -q`. Everything must be green.
 - [ ] T033 **Ask the user first; DDL.** Apply migration 028 to mbe_dev with `uv run python -m app.db.migrate`. Check the two columns, the index and FK, and the new table. Record the result in spec.md under "Verification".
 - [ ] T034 **Ask the user first.** Deploy to the test instance (`/var/www/mbe-api-test`, `mbe-api-test`) as mictlanix@, restarting as root. Only after T033.
 - [ ] T035 **Ask the user first; writes to mbe_dev.** Run quickstart steps 3–8:

@@ -649,7 +649,10 @@ async def cancel(db: AsyncSession, kind: Kind, document_id: int, *, current: Cur
             kind is RECEIPT and document.purchase_order is not None and bool(document.completed)
         )
         if costed:
-            await purchase_cost_service.lock_restore(db, document_id)
+            # The same cost-row locks as the confirm: a confirmed receipt's lines are frozen, and
+            # every product it changed is on one of them. A locking read of `product_cost_change`
+            # instead would gap-lock past the newest receipt and deadlock with its inserts.
+            await purchase_cost_service.lock(db, document_id)
         assert_facility(current, document.facility)
         if document.completed and not kind.cancellable_when_completed:
             raise HTTPException(

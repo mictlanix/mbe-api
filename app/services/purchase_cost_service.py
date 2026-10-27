@@ -160,26 +160,6 @@ async def lock(db: AsyncSession, receipt_id: int) -> None:
     await _lock_costs(db, products)
 
 
-async def lock_restore(db: AsyncSession, receipt_id: int) -> None:
-    """The cost rows of the products the receipt changed, before any ordinary read (R6)."""
-    products = (
-        (
-            await db.execute(
-                select(ProductCostChange.product)
-                .where(
-                    ProductCostChange.receipt == receipt_id,
-                    ProductCostChange.reverted_change.is_(None),
-                )
-                .order_by(ProductCostChange.product)
-                .with_for_update()
-            )
-        )
-        .scalars()
-        .all()
-    )
-    await _lock_costs(db, products)
-
-
 # ── Apply and restore ─────────────────────────────────────────────────────────
 
 
@@ -290,7 +270,7 @@ async def restore(
     db: AsyncSession, receipt: InventoryReceipt, *, current: CurrentUser
 ) -> list[str]:
     """Undo the receipt's cost changes where still possible, else warn (FR-037, R6). Call it
-    after `lock_restore`."""
+    after `lock`: the products a receipt changed are among its PO-linked lines' (R6)."""
     receipt_id = receipt.inventory_receipt_id
     mine = list(
         (
