@@ -368,3 +368,16 @@ The buyer downloads the confirmed PO as a PDF, or emails it to one of the suppli
 - A PDF for requests.
 - Cleaning up past duplicates: request serials, request lines on two POs, duplicate receipts.
 - The UI (mbe-ui).
+
+## Verification
+
+### Local suite (2026-10-26)
+
+5,362 tests pass, and `ruff check` and `ruff format --check` are clean.
+
+### Migration 028 (2026-10-26)
+
+Migration 028 is applied to mbe_dev, with approval, and a second run is a no-op.
+- `purchase_request` has `approver` (FK to employee) and `approval_time`.
+- `purchase_order_detail.purchase_request_detail` has its index and FK.
+- `product_cost_change` exists with its five FKs and is empty.
