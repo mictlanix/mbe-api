@@ -148,7 +148,7 @@ description: "Task list for purchase requests, purchase orders and average cost"
   - SC-001 sequentially: a line taken by one PO is in `skipped` for the next.
 
   SQLite can't show row-lock races; the concurrent case is quickstart step 4 (T035).
-- [ ] T013 [P] [US2] Write `tests/api/test_purchase_orders.py` first, covering the create, header update, cancel, line, request-line, to-purchase, list and detail routes: 401, 403 (20), 404, 409 and 422, including 422 for a line with no warehouse when the caller has no point of sale.
+- [X] T013 [P] [US2] Write `tests/api/test_purchase_orders.py` first, covering the create, header update, cancel, line, request-line, to-purchase, list and detail routes: 401, 403 (20), 404, 409 and 422, including 422 for a line with no warehouse when the caller has no point of sale.
 - [X] T014 [US2] Extend `app/services/purchase_order_service.py` (T004 created it with the state helpers):
   - the pure helpers of T011;
   - create; header update (draft-only, refusing changes to fixed fields); line add, update and remove (draft-only), with the line warehouse defaulting to the caller's point-of-sale warehouse via `_pos_warehouse`, and 422 "A warehouse is required" when neither is given (FR-021);
@@ -191,7 +191,7 @@ description: "Task list for purchase requests, purchase orders and average cost"
   - moving a PO receipt's warehouse gives 409 (research R7), and a hand-made receipt can still move;
   - a PO with only non-stockable lines confirms with no receipt;
   - a complementary receipt of a PO with a non-stockable line leaves that line out, and the PO shows no receiving progress for it.
-- [ ] T018 [P] [US3] Extend `tests/api/test_purchase_orders.py` first with confirm: 401, 403, 404, 409 (not a draft, no lines, a zero quantity, no supplier) and the `receipts` in the response. Extend `tests/api/test_inventory_receipts.py` with the warehouse-move 409.
+- [X] T018 [P] [US3] Extend `tests/api/test_purchase_orders.py` first with confirm: 401, 403, 404, 409 (not a draft, no lines, a zero quantity, no supplier) and the `receipts` in the response. Extend `tests/api/test_inventory_receipts.py` with the warehouse-move 409.
 - [X] T019 [US3] Implement `confirm` in `app/services/purchase_order_service.py` per research R4: commit, lock the PO row, check, read what non-cancelled receipts hold with one grouped query, create the draft receipts and lines ascending by warehouse, then set `completed`, the updater and the time.
   - Add the per-line progress to `attach`, reusing the grouped query shape of `inventory_receipt_service._received_elsewhere`; non-stockable lines get `quantity_received` and `quantity_pending` null.
   - In `inventory_receipt_service.complementary_receipt`, leave non-stockable order lines out of the remaining lines, so its draft can be confirmed (it is refused 422 otherwise; mbe_dev has 53 such PO lines).
@@ -222,7 +222,7 @@ description: "Task list for purchase requests, purchase orders and average cost"
   - every history row reproduces `new_cost` from its own Q, C, R and U;
   - `GET /purchase-orders/cost-changes?product=` lists them, newest first;
   - writes to list 0 through the price-list API are still refused (spec 004 FR-005a; `tests/integration/test_cost_price_list.py` stays green).
-- [ ] T022 [P] [US4] Extend `tests/api/test_inventory_receipts.py` first: confirm and cancel responses carry the cost warnings. Extend `tests/api/test_purchase_orders.py` with `cost-changes`: 401, 403, 422 without `product`, and 404 for an unknown product.
+- [X] T022 [P] [US4] Extend `tests/api/test_inventory_receipts.py` first: confirm and cancel responses carry the cost warnings. Extend `tests/api/test_purchase_orders.py` with `cost-changes`: 401, 403, 422 without `product`, and 404 for an unknown product.
 - [X] T023 [US4] Create `app/services/purchase_cost_service.py` per research R5 and R6:
   - the pure helpers of T020;
   - `lock(db, receipt_id)`: a locking read of the linked products, then the list-0 rows `FOR UPDATE` ascending;
@@ -256,7 +256,7 @@ description: "Task list for purchase requests, purchase orders and average cost"
   - the header facility is the lowest line's warehouse's facility;
   - email sends with the attachment and records the source-5 incidence after the send;
   - a `MailError` gives 502 with no incidence; mail not configured gives 503.
-- [ ] T027 [P] [US5] Extend `tests/api/test_purchase_orders.py` first: `/document` and `/email` with 401, 403 (Read and Update on 20), 404, and 409 for a draft or cancelled PO (FR-043).
+- [X] T027 [P] [US5] Extend `tests/api/test_purchase_orders.py` first: `/document` and `/email` with 401, 403 (Read and Update on 20), 404, and 409 for a draft or cancelled PO (FR-043).
 - [X] T028 [US5] Implement it:
   - `app/rendering/templates/purchase_order.html`, letter size, modelled on `sales_quote.html`;
   - `print_contexts.purchase_order_context(db, order)` per research R9;

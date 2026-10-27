@@ -263,6 +263,21 @@ async def test_unknown_line_is_404() -> None:
 
 
 @pytest.mark.asyncio
+async def test_update_passes_through_a_purchase_orders_receipt_keeping_its_warehouse() -> None:
+    _auth()
+    error = HTTPException(status_code=409, detail="A purchase order's receipt keeps its warehouse")
+    with (
+        patch(f'{SHARED}.get_document', AsyncMock(return_value=_receipt())),
+        patch(f'{SERVICE}.update', AsyncMock(side_effect=error)),
+    ):
+        async with _client() as client:
+            response = await client.put(f'{BASE}/1', json={'warehouse': 2, 'comment': 'x'})
+
+    assert response.status_code == status.HTTP_409_CONFLICT
+    assert response.json() == {'detail': "A purchase order's receipt keeps its warehouse"}
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     ('path', 'body'),
     [
