@@ -35,7 +35,15 @@ from app.models.sales import (
 )
 from app.schemas.customer_refund import CustomerRefundLineUpdate, RefundPayout
 from app.schemas.sales_order import derive_status
-from app.services import cash_session_service, documents, stock_ledger, totals, warehouse_service
+from app.services import (
+    cash_session_service,
+    customer_payment_service,
+    documents,
+    sales_order_service,
+    stock_ledger,
+    totals,
+    warehouse_service,
+)
 
 # ── Decision rules (pure) ─────────────────────────────────────────────────────
 
@@ -573,8 +581,12 @@ async def confirm_refund(
         employee=employee,
     )
 
-    # FR-064 — the order was paid before this refund and stays paid; balance_zeroed_time
-    # belongs to a supervisor zeroing an unpaid balance, not to this path (FR-065a).
+    # FR-064 — the order was paid before this refund (FR-060) and stays paid, so `settle` leaves it
+    # and its balance_zeroed_time alone (FR-065a). It's called anyway, so that a refund settling an
+    # unpaid order would flag it paid without depending on FR-060 staying as it is (spec 033).
+    await db.flush()
+    balances = await sales_order_service.order_balances(db, [order])
+    customer_payment_service.settle(order, balances[order.sales_order_id].balance)
     await db.commit()
     await db.refresh(refund)
     return await attach_derived(db, refund)

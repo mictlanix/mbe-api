@@ -259,7 +259,7 @@ Payments made to suppliers, applied to their confirmed purchase orders. Accounts
 - **Applications:** `purchase_order_payment`, one row per application: payment, order, amount, applier, date, cancelled. Never deleted.
 - **Payment credit:** amount minus live applications; 0 when cancelled or legacy. Computed, not stored.
 - **Order balance** (`GET /purchase-orders/{id}/payments`): the order's total (tax added) minus its live applications. It is fixed once confirmed: receipts do not change it. `balance` is `null` for an order that does not count.
-- **Supplier balance** (`GET /supplier-payments/suppliers/{id}/balance`): `owed` (balances of counting orders), `credit` (payments' credit) and `net`, with the orders that have a balance and the payments that have credit, oldest first.
+- **Supplier balance** (`GET /supplier-payments/suppliers/{id}/balance`): `owed` (balances of counting orders), `credit` (payments' credit) and `net`, with the orders that have more than 0.01 left and the payments that have credit, oldest first. Accounts payable reads the same lists (07-administration §2).
 - **Cutoff:** only orders confirmed on or after the cutoff date (`supplier_balance_cutoff`, one company-wide row) count. It is NULL until the go-live migration sets it, so until then no order accepts applications and payments are all credit. No route changes it.
 - **Concurrency:** applications and cancels lock the payment and order rows, so credit and balance never go below 0.
 

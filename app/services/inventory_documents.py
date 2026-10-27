@@ -326,20 +326,21 @@ def _mariadb_code(error: DBAPIError) -> int | None:
 
 
 @asynccontextmanager
-async def busy_as_conflict(db: AsyncSession) -> AsyncIterator[None]:
+async def busy_as_conflict(
+    db: AsyncSession, detail: str = 'The warehouse is busy, retry'
+) -> AsyncIterator[None]:
     """Roll back any failure; a deadlock or lock wait timeout answers 409 (R2, known limits).
 
     Another writer's ledger insert can take warehouse locks in the opposite order; InnoDB then
-    rolls one side back. The caller can retry, so that is a conflict rather than a 500.
+    rolls one side back. The caller can retry, so that is a conflict rather than a 500. `detail`
+    names what was busy for callers that lock something other than warehouses.
     """
     try:
         yield
     except BaseException as error:
         await db.rollback()
         if isinstance(error, DBAPIError) and _mariadb_code(error) in _BUSY:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT, detail='The warehouse is busy, retry'
-            ) from error
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=detail) from error
         raise
 
 

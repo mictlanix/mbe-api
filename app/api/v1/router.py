@@ -1,6 +1,8 @@
 from fastapi import APIRouter
 
 from app.api.v1.endpoints import (
+    accounts_payable,
+    accounts_receivable,
     addresses,
     auth,
     bank_accounts,
@@ -68,6 +70,9 @@ api_router.include_router(
     customer_refunds.router, prefix='/customer-refunds', tags=['customer-refunds']
 )
 api_router.include_router(credit_notes.router, prefix='/credit-notes', tags=['credit-notes'])
+api_router.include_router(
+    accounts_receivable.router, prefix='/accounts-receivable', tags=['accounts-receivable']
+)
 api_router.include_router(labels.router, prefix='/labels', tags=['labels'])
 api_router.include_router(
     taxpayer_issuers.router, prefix='/taxpayer-issuers', tags=['taxpayer-issuers']
@@ -135,4 +140,7 @@ api_router.include_router(
 )
 api_router.include_router(
     supplier_payments.router, prefix='/supplier-payments', tags=['supplier-payments']
+)
+api_router.include_router(
+    accounts_payable.router, prefix='/accounts-payable', tags=['accounts-payable']
 )

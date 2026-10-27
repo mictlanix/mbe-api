@@ -87,7 +87,11 @@ async def _customers(db: AsyncSession) -> None:
             )
         )
     await db.flush()
-    db.add(_order(HELD, terms=PaymentTerms.NET_D, completed=True, due=OVERDUE))
+    # It owes something: since spec 033 the hold reads the balance, not the flag alone.
+    held = _order(HELD, terms=PaymentTerms.NET_D, completed=True, due=OVERDUE)
+    db.add(held)
+    await db.flush()
+    db.add(_line(held.sales_order_id, '100'))
     debt = _order(
         AT_LIMIT, terms=PaymentTerms.NET_D, completed=True, due=local_now() + timedelta(days=365)
     )

@@ -13,18 +13,32 @@ from datetime import datetime
 from decimal import Decimal
 
 from fastapi import HTTPException, status
-from sqlalchemy import func, or_, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 
 from app.core.clock import local_now
 from app.core.config import settings
+from app.core.constants import SYSTEM_EMPLOYEE_ID
 from app.core.deps import CurrentUser
-from app.enums import CurrencyCode, SourceType
+from app.enums import CurrencyCode, FiscalDocumentType, SourceType
 from app.models.core import Employee
 from app.models.customer import Customer
-from app.models.sales import CustomerPayment, SalesOrder, SalesOrderPayment
+from app.models.fiscal import FiscalDocument, FiscalDocumentDetail, FiscalDocumentRelation
+from app.models.sales import (
+    CustomerPayment,
+    CustomerRefund,
+    SalesOrder,
+    SalesOrderDetail,
+    SalesOrderPayment,
+)
 from app.schemas.customer_payment import ApplicationCreate, CustomerPaymentCreate
-from app.services import incidences, sales_order_service, totals
+from app.services import fiscal_document_service, incidences, sales_order_service, totals
+from app.services import inventory_documents as inv
+
+#: The first year whose orders the stale-flag correction gives a zero time (spec 033, FR-012).
+STALE_ZERO_TIME_FROM = 2026
+STALE_FLAG_REASON = 'Paid flag corrected: balance is settled (spec 033)'
 
 # ── Decision rules (pure) ─────────────────────────────────────────────────────
 
@@ -71,9 +85,66 @@ def assert_same_customer(payment_customer: int, order_customer: int) -> None:
         )
 
 
-def covers_total(applied: Decimal, total: Decimal) -> bool:
-    """Whether the order is settled. Equality counts — a cent short is not paid."""
-    return total > 0 and applied >= total
+def assert_within_balance(amount: Decimal, balance: Decimal) -> None:
+    """An application can't take an order below zero (spec 033, FR-021). Change handed back
+    isn't money the order receives, so only the amount counts here."""
+    if amount > balance:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=f'Amount {amount} exceeds the order balance of {balance}',
+        )
+
+
+def assert_not_settled(order: object, balance: Decimal) -> None:
+    """Nothing is owed on an order flagged paid, whatever it computes, nor on one with 0.01 or
+    less left (spec 033, FR-021): a legacy paid order isn't reopened by an application."""
+    if order.paid or balance <= totals.SETTLED:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail='Sales order is already settled'
+        )
+
+
+def settle(order: object, balance: Decimal) -> None:
+    """Flag an unpaid order paid once its balance is 0.01 or less (spec 033, FR-011).
+
+    Called after anything that lowers a balance: an application, a refund's completion, a credit
+    note's confirmation. It never clears `paid`, and it leaves an order already flagged paid alone:
+    a refund on a legacy paid order settles nothing new (FR-065a), so it mustn't gain a zero time.
+
+    The moment the balance reached zero dates the order's commission month (spec 025 FR-008a), as
+    the current system's `PaymentsController` stamps it in every payment path. Never cleared: a
+    reversal does not move the month an order was first settled in. `0001-01-01` is a legacy
+    sentinel for "unset".
+    """
+    if order.paid or balance > totals.SETTLED:
+        return
+    order.paid = True
+    if order.balance_zeroed_time is None or order.balance_zeroed_time.year < 1900:
+        order.balance_zeroed_time = local_now()
+
+
+def reopen(order: object, before: Decimal, after: Decimal) -> None:
+    """Clear `paid` when an event takes the balance from 0.01 or less to above it (spec 033, FR-011,
+    clarification Q2).
+
+    Called after anything that raises a balance: an application's reversal, a credit note going back
+    to draft. A paid order that already owed before the event stays paid, so a legacy paid order
+    never reopens. The zero time stays: it dates the first settlement.
+    """
+    if before <= totals.SETTLED < after:
+        order.paid = False
+
+
+def stale_zero_time(order_date: datetime, events: Sequence[datetime]) -> datetime | None:
+    """The zero time the stale-flag correction gives an order: when its balance reached zero, its
+    latest application, refund or credit note (spec 033, FR-012).
+
+    Only from 2026 on: the zero time dates an order's commission month (spec 025), and the audit's
+    decision 4 keeps earlier orders out of commissions.
+    """
+    if order_date.year < STALE_ZERO_TIME_FROM or not events:
+        return None
+    return max(events)
 
 
 def is_barcode_or_id(term: str) -> bool:
@@ -84,13 +155,19 @@ def is_barcode_or_id(term: str) -> bool:
 
 
 async def unapplied_amount(db: AsyncSession, customer_payment_id: int) -> Decimal:
-    """The payment's amount less every non-cancelled application. Never stored."""
+    """The payment's amount less every non-cancelled application and the change it handed back.
+    Never stored.
+
+    Change is money the payment returned to the customer, so it can't be applied again. The
+    payment's ticket and the current system's `Balance` subtract it too, and so does the customer's
+    credit (spec 033, FR-005a): payment 300789 in mbe_dev is 600, 530 applied, 70 handed back, 0.
+    """
     payment = await db.get(CustomerPayment, customer_payment_id)
     if payment is None:
         return Decimal(0)
     applied = (
         await db.execute(
-            select(func.sum(SalesOrderPayment.amount)).where(
+            select(func.sum(SalesOrderPayment.amount + SalesOrderPayment.amount_change)).where(
                 SalesOrderPayment.customer_payment == customer_payment_id,
                 SalesOrderPayment.cancelled.is_(False),
             )
@@ -116,7 +193,10 @@ async def attach_summary_unapplied(db: AsyncSession, payments: Sequence[Customer
 
     rows = (
         await db.execute(
-            select(SalesOrderPayment.customer_payment, func.sum(SalesOrderPayment.amount))
+            select(
+                SalesOrderPayment.customer_payment,
+                func.sum(SalesOrderPayment.amount + SalesOrderPayment.amount_change),
+            )
             .where(
                 SalesOrderPayment.customer_payment.in_(ids),
                 SalesOrderPayment.cancelled.is_(False),
@@ -330,31 +410,50 @@ async def apply_payment(
     *,
     current: CurrentUser,
 ) -> SalesOrderPayment:
+    """Apply part of a payment to an order, under locks (spec 033, FR-021, FR-022; research R4).
+
+    The payment, then the order, are locked before anything is read, so two applications can't
+    together take either below zero. The request's earlier reads are committed away first, as spec
+    032 does: under REPEATABLE READ they would pin a snapshot older than the locks, and the balance
+    read after them would miss what the previous lock holder applied. A credit note's confirmation
+    locks invoices, then orders, and never a payment, so the two can't deadlock each other.
+    """
     employee = current.employee_id
 
-    order = await db.get(SalesOrder, data.sales_order)
-    if order is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Sales order not found')
+    async with inv.busy_as_conflict(db, 'The order is busy, retry'):
+        await db.commit()
+        payment = await _lock_payment(db, payment.customer_payment_id)
+        order = await _lock_order(db, data.sales_order)
+        if order is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail='Sales order not found'
+            )
+        balance = await _balance(db, order)
 
-    assert_order_payable(order)
-    assert_same_customer(payment.customer, order.customer)
-    assert_same_currency(CurrencyCode(payment.currency), CurrencyCode(order.currency))
-    assert_within_unapplied(data.amount, await unapplied_amount(db, payment.customer_payment_id))
+        assert_order_payable(order)
+        assert_same_customer(payment.customer, order.customer)
+        assert_same_currency(CurrencyCode(payment.currency), CurrencyCode(order.currency))
+        assert_not_settled(order, balance)
+        assert_within_unapplied(
+            data.amount + data.amount_change,
+            await unapplied_amount(db, payment.customer_payment_id),
+        )
+        assert_within_balance(data.amount, balance)
 
-    application = SalesOrderPayment(
-        sales_order=order.sales_order_id,
-        customer_payment=payment.customer_payment_id,
-        amount=data.amount,
-        amount_change=data.amount_change,
-        applier=employee,
-        date=local_now(),
-        confirmed=True,
-        cancelled=False,
-    )
-    db.add(application)
-    await db.flush()
-    await _sync_paid_flag(db, order)
-    await db.commit()
+        application = SalesOrderPayment(
+            sales_order=order.sales_order_id,
+            customer_payment=payment.customer_payment_id,
+            amount=data.amount,
+            amount_change=data.amount_change,
+            applier=employee,
+            date=local_now(),
+            confirmed=True,
+            cancelled=False,
+        )
+        db.add(application)
+        await db.flush()
+        settle(order, await _balance(db, order))
+        await db.commit()
     await db.refresh(application)
     return application
 
@@ -367,76 +466,69 @@ async def reverse_application(
     reason: str,
     current: CurrentUser,
 ) -> SalesOrderPayment:
-    """Undo an application without destroying it (FR-045, FR-045a)."""
+    """Undo an application without destroying it (FR-045, FR-045a), under the same locks as
+    `apply_payment`, in the same order."""
     employee = current.employee_id
 
-    if application.cancelled:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT, detail='Application is already reversed'
+    async with inv.busy_as_conflict(db, 'The order is busy, retry'):
+        await db.commit()
+        await _lock_payment(db, payment.customer_payment_id)
+        await db.refresh(application)
+        if application.cancelled:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT, detail='Application is already reversed'
+            )
+        order = await _lock_order(db, application.sales_order)
+
+        # Raises 422 on a blank reason before anything is mutated
+        incidences.record(
+            db,
+            source=SourceType.CUSTOMER_PAYMENT,
+            instance_id=payment.customer_payment_id,
+            updater=employee,
+            reason=reason,
+            context=(
+                f'Reversed application {application.sales_order_payment_id} of '
+                f'{application.amount} against sales order {application.sales_order}'
+            ),
         )
 
-    # Raises 422 on a blank reason before anything is mutated
-    incidences.record(
-        db,
-        source=SourceType.CUSTOMER_PAYMENT,
-        instance_id=payment.customer_payment_id,
-        updater=employee,
-        reason=reason,
-        context=(
-            f'Reversed application {application.sales_order_payment_id} of '
-            f'{application.amount} against sales order {application.sales_order}'
-        ),
-    )
+        before = await _balance(db, order) if order is not None else None
+        application.cancelled = True
+        if order is not None:
+            await db.flush()
+            reopen(order, before, await _balance(db, order))
 
-    application.cancelled = True
-    order = await db.get(SalesOrder, application.sales_order)
-    if order is not None:
-        await db.flush()
-        await _sync_paid_flag(db, order)
-
-    await db.commit()
+        await db.commit()
     await db.refresh(application)
     return application
 
 
-async def _sync_paid_flag(db: AsyncSession, order: SalesOrder) -> None:
-    """Set or clear `paid` from the applications that currently stand (FR-044)."""
-    await db.refresh(order)
-    applied = await sales_order_service.applied_amount(db, order.sales_order_id)
-    computed = await _order_total(db, order)
-    order.paid = covers_total(applied, computed)
-    # The moment the balance reached zero dates the order's commission month (spec 025 FR-008a),
-    # as the current system's `PaymentsController` stamps it in every payment path. Never cleared:
-    # a reversal does not move the month an order was first settled in. `0001-01-01` is a legacy
-    # sentinel for "unset".
-    if order.paid and (order.balance_zeroed_time is None or order.balance_zeroed_time.year < 1900):
-        order.balance_zeroed_time = local_now()
-
-
-async def _order_total(db: AsyncSession, order: SalesOrder) -> Decimal:
-    from app.models.sales import SalesOrderDetail
-
-    lines = (
-        (
-            await db.execute(
-                select(SalesOrderDetail).where(SalesOrderDetail.sales_order == order.sales_order_id)
-            )
+async def _lock_payment(db: AsyncSession, customer_payment_id: int) -> CustomerPayment:
+    return (
+        await db.execute(
+            select(CustomerPayment)
+            .where(CustomerPayment.customer_payment_id == customer_payment_id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
         )
-        .scalars()
-        .all()
-    )
-    return totals.document_totals(
-        [
-            totals.Line(
-                quantity=line.quantity,
-                price=line.price,
-                discount_rate=line.discount_rate,
-                tax_rate=line.tax_rate,
-                tax_included=line.tax_included,
-            )
-            for line in lines
-        ]
-    ).total
+    ).scalar_one()
+
+
+async def _lock_order(db: AsyncSession, sales_order_id: int) -> SalesOrder | None:
+    return (
+        await db.execute(
+            select(SalesOrder)
+            .where(SalesOrder.sales_order_id == sales_order_id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+    ).scalar_one_or_none()
+
+
+async def _balance(db: AsyncSession, order: SalesOrder) -> Decimal:
+    """The order's balance by the one rule (spec 033, FR-001)."""
+    return (await sales_order_service.order_balances(db, [order]))[order.sales_order_id].balance
 
 
 async def get_application(
@@ -493,10 +585,8 @@ async def _customer_names(
 ) -> dict[int, str]:
     """The customers' own names for a page of orders, in one query keyed on the distinct ids (#174).
 
-    One query, and deliberately so: the loop that builds each row already issues two of its own
-    (`_order_total` and `applied_amount`), so resolving the name per row would make it three and
-    turn a page of twenty into sixty round trips. A page of walk-in sales is one customer repeated
-    and fetches a single row.
+    One query, and deliberately so: resolving the name per row would turn a page of twenty into
+    twenty round trips. A page of walk-in sales is one customer repeated and fetches a single row.
 
     Mirrors `sales_order_service.attach_customer_names`, which does the same job for
     `SalesOrderSummary`; it returns a mapping rather than writing onto the instances because these
@@ -523,31 +613,24 @@ async def search_outstanding(
     skip: int = 0,
     limit: int = 20,
 ) -> tuple[list[dict], int]:
-    """Unpaid confirmed orders with their balances (FR-046).
+    """Confirmed orders that still owe, with their balances (FR-046; spec 033, FR-010).
 
     A numeric term matches the order id or its folio; anything else matches the customer's name,
     either salesperson's nickname, or the order's customer-name override.
+
+    Owing is the one balance rule's figure above 0.01, which no column holds, so the page is cut
+    after the balances are computed: every unpaid order of the facility that matches, at most about
+    a thousand in mbe_dev. Every payment term stays, since cash sales are paid through this list.
     """
-    base = select(SalesOrder).where(
+    query = select(SalesOrder).where(
         SalesOrder.completed.is_(True),
         SalesOrder.cancelled.is_(False),
         SalesOrder.paid.is_(False),
         SalesOrder.facility == current.facility_id,
     )
-    count_q = (
-        select(func.count())
-        .select_from(SalesOrder)
-        .where(
-            SalesOrder.completed.is_(True),
-            SalesOrder.cancelled.is_(False),
-            SalesOrder.paid.is_(False),
-            SalesOrder.facility == current.facility_id,
-        )
-    )
 
     if customer is not None:
-        base = base.where(SalesOrder.customer == customer)
-        count_q = count_q.where(SalesOrder.customer == customer)
+        query = query.where(SalesOrder.customer == customer)
 
     if search:
         if is_barcode_or_id(search):
@@ -561,25 +644,21 @@ async def search_outstanding(
                 SalesOrder.salesperson.in_(employee_ids),
                 SalesOrder.customer_name.ilike(like),
             )
-        base = base.where(clause)
-        count_q = count_q.where(clause)
+        query = query.where(clause)
 
-    total: int = (await db.execute(count_q)).scalar_one()
-    page = base.order_by(SalesOrder.sales_order_id.desc()).offset(skip).limit(limit)
-    orders = (await db.execute(page)).scalars().all()
-    display_names = await _customer_names(db, orders)
-
-    # Batched, unlike the two reads below it: those are this endpoint's pre-existing shape, and
-    # matching them would add a query per row for a figure one query answers for the page (#223).
-    refunded_by = await sales_order_service.refunded_by_order(
-        db, [order.sales_order_id for order in orders]
+    candidates = list(
+        (await db.execute(query.order_by(SalesOrder.sales_order_id.desc()))).scalars().all()
     )
+    balances = await sales_order_service.order_balances(db, candidates)
+    owing = [
+        order for order in candidates if balances[order.sales_order_id].balance > totals.SETTLED
+    ]
+    page = owing[skip : skip + limit]
+    display_names = await _customer_names(db, page)
 
     rows: list[dict] = []
-    for order in orders:
-        order_total = await _order_total(db, order)
-        applied = await sales_order_service.applied_amount(db, order.sales_order_id)
-        refunded = refunded_by.get(order.sales_order_id, Decimal(0))
+    for order in page:
+        balance = balances[order.sales_order_id]
         rows.append(
             {
                 'sales_order_id': order.sales_order_id,
@@ -590,9 +669,130 @@ async def search_outstanding(
                 'date': order.date,
                 'due_date': order.due_date,
                 'currency': order.currency,
-                'total': order_total,
-                # Returned goods are not owed for (#223); floored at zero by `remaining`.
-                'balance': totals.remaining(order_total, [applied, refunded]),
+                'total': balance.total,
+                'balance': balance.balance,
             }
         )
-    return rows, total
+    return rows, len(owing)
+
+
+async def payments_with_credit(
+    db: AsyncSession, *, customers: Sequence[int], facility: int | None = None
+) -> list[CustomerPayment]:
+    """The customers' payments with more than 0.01 left to apply, oldest first, each carrying
+    `unapplied` (spec 033, FR-005a, FR-020).
+
+    Unapplied is computed in the query, the same arithmetic as `unapplied_amount`, so the walk-in
+    customer's tens of thousands of fully used cash payments never leave the database.
+    """
+    if not customers:
+        return []
+    used = func.coalesce(func.sum(SalesOrderPayment.amount + SalesOrderPayment.amount_change), 0)
+    unapplied = CustomerPayment.amount - used
+    query = (
+        select(CustomerPayment, unapplied)
+        .outerjoin(
+            SalesOrderPayment,
+            and_(
+                SalesOrderPayment.customer_payment == CustomerPayment.customer_payment_id,
+                SalesOrderPayment.cancelled.is_(False),
+            ),
+        )
+        .where(CustomerPayment.customer.in_(list(customers)))
+        .group_by(CustomerPayment.customer_payment_id)
+        .having(unapplied > totals.SETTLED)
+        .order_by(CustomerPayment.date, CustomerPayment.customer_payment_id)
+    )
+    if facility is not None:
+        query = query.where(CustomerPayment.facility == facility)
+    payments = []
+    for payment, left in (await db.execute(query)).all():
+        payment.__dict__['unapplied'] = Decimal(left)
+        payments.append(payment)
+    return payments
+
+
+# ── One-time correction (spec 033, FR-012) ────────────────────────────────────
+
+
+async def _settled_at(db: AsyncSession, order_ids: Sequence[int]) -> dict[int, list[datetime]]:
+    """Per order, the dates of what brought its balance down: live applications, completed
+    refunds, and live credit notes against its invoices."""
+    events: dict[int, list[datetime]] = {oid: [] for oid in order_ids}
+    if not order_ids:
+        return events
+    applied = select(SalesOrderPayment.sales_order, func.max(SalesOrderPayment.date)).where(
+        SalesOrderPayment.sales_order.in_(order_ids), SalesOrderPayment.cancelled.is_(False)
+    )
+    refunded = select(CustomerRefund.sales_order, func.max(CustomerRefund.date)).where(
+        CustomerRefund.sales_order.in_(order_ids),
+        CustomerRefund.completed.is_(True),
+        CustomerRefund.cancelled.is_(False),
+    )
+    invoice, note = aliased(FiscalDocument), aliased(FiscalDocument)
+    credited = (
+        select(SalesOrderDetail.sales_order, func.max(note.issued))
+        .join(
+            FiscalDocumentDetail,
+            FiscalDocumentDetail.order_detail == SalesOrderDetail.sales_order_detail_id,
+        )
+        .join(invoice, invoice.fiscal_document_id == FiscalDocumentDetail.document)
+        .join(FiscalDocumentRelation, FiscalDocumentRelation.relation == invoice.fiscal_document_id)
+        .join(note, note.fiscal_document_id == FiscalDocumentRelation.document)
+        .where(
+            SalesOrderDetail.sales_order.in_(order_ids),
+            invoice.type == FiscalDocumentType.INVOICE,
+            fiscal_document_service.live(invoice),
+            note.type == FiscalDocumentType.CREDIT_NOTE,
+            fiscal_document_service.live(note),
+        )
+    )
+    for query, column in (
+        (applied, SalesOrderPayment.sales_order),
+        (refunded, CustomerRefund.sales_order),
+        (credited, SalesOrderDetail.sales_order),
+    ):
+        for order_id, when in (await db.execute(query.group_by(column))).all():
+            if when is not None:
+                events[order_id].append(when)
+    return events
+
+
+async def settle_stale_flags(db: AsyncSession, *, apply: bool) -> list[dict]:
+    """Flag paid the credit orders that owe nothing but are still flagged unpaid (spec 033, FR-012;
+    257 on mbe_dev), one incidence each, by the system employee. Without `apply`, only report.
+
+    Rerunnable: an order it flags is no longer a candidate, so a second run finds nothing. A zero
+    time already on an order is kept, as `settle` keeps it.
+    """
+    candidates = await sales_order_service._credit_candidates(db)
+    stale = [(order, b) for order, b in candidates if b.balance <= totals.SETTLED]
+    events = await _settled_at(db, [order.sales_order_id for order, _ in stale])
+    report = []
+    for order, balance in stale:
+        zero_time = stale_zero_time(order.date, events[order.sales_order_id])
+        report.append(
+            {
+                'sales_order_id': order.sales_order_id,
+                'date': order.date,
+                'balance': balance.balance,
+                'zero_time': zero_time,
+            }
+        )
+        if not apply:
+            continue
+        order.paid = True
+        unset = order.balance_zeroed_time is None or order.balance_zeroed_time.year < 1900
+        if zero_time is not None and unset:
+            order.balance_zeroed_time = zero_time
+        incidences.record(
+            db,
+            source=SourceType.SALES_ORDER,
+            instance_id=order.sales_order_id,
+            updater=SYSTEM_EMPLOYEE_ID,
+            reason=STALE_FLAG_REASON,
+            context=f'Balance {balance.balance}; zero time {zero_time or "left unset"}',
+        )
+    if apply:
+        await db.commit()
+    return report

@@ -5,7 +5,7 @@ block has its flag here, so the templates only print and test.
 """
 
 from collections.abc import Sequence
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from decimal import ROUND_HALF_UP, Decimal
 from pathlib import Path, PurePosixPath
 from types import SimpleNamespace
@@ -14,7 +14,7 @@ from urllib.parse import urlsplit
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.clock import local_today
+from app.core.clock import local_now, local_today
 from app.core.config import settings
 from app.enums import (
     CurrencyCode,
@@ -58,6 +58,7 @@ from app.models.sat_catalog import SatCfdiUsage, SatTaxRegime
 from app.models.supplier import Supplier, supplier_address
 from app.rendering import formatting, words
 from app.services import (
+    accounts_service,
     cash_session_service,
     cfdi,
     customer_payment_service,
@@ -666,10 +667,10 @@ async def payment_ticket_context(db: AsyncSession, payment: CustomerPayment) -> 
     """A credit payment's or advance's ticket, after legacy `TicketCreditPayment` and
     `TicketPaymentInAdvance`. `payment.payment_type` must be a key of `PAYMENT_TICKET_TITLES`.
 
-    Reversed applications are neither printed nor deducted. The balance deducts the change handed
-    back as well as the applied amount, as legacy's `Balance` does: it is the customer's proof of
-    payment, and change already returned is not money they still hold here. `unapplied` on the API
-    counts that change as unapplied, so the two differ when change was given.
+    Reversed applications are neither printed nor deducted. The balance is the payment's
+    `unapplied_amount`, which deducts the change handed back as well as the applied amount, as
+    legacy's `Balance` does: change already returned is not money the customer still holds here
+    (spec 033, FR-005a).
     """
     money = formatting.money
     payment_type = PaymentType(payment.payment_type)
@@ -684,7 +685,7 @@ async def payment_ticket_context(db: AsyncSession, payment: CustomerPayment) -> 
         for a in await customer_payment_service.list_applications(db, payment.customer_payment_id)
         if not a.cancelled
     ]
-    allocated = sum((a.amount + a.amount_change for a in applications), Decimal(0))
+    balance = await customer_payment_service.unapplied_amount(db, payment.customer_payment_id)
     payment_id = formatting.pad8(payment.customer_payment_id)
     context = {
         'header': header,
@@ -701,7 +702,7 @@ async def payment_ticket_context(db: AsyncSession, payment: CustomerPayment) -> 
             {'order': formatting.pad8(a.sales_order), 'amount': money(a.amount)}
             for a in applications
         ],
-        'balance': money(payment.amount - allocated),
+        'balance': money(balance),
         'total': money(payment.amount),
         'receipt_message': facility.receipt_message or None,
         'payment_id': payment_id,
@@ -1338,3 +1339,84 @@ async def delivery_order_document_context(
         'cancelled_at': formatting.date_time(order.modification_time) if cancelled else None,
     }
     return 'delivery_order.html', context
+
+
+# ── Account statement (spec 033, US5) ─────────────────────────────────────────
+
+STATEMENT_PAYMENT_DAYS = 90
+_BUCKET_LABELS = {
+    'current': 'Por vencer',
+    '1-30': '1 a 30 días',
+    '31-60': '31 a 60 días',
+    '61-90': '61 a 90 días',
+    '90+': 'Más de 90 días',
+}
+
+
+async def account_statement_context(
+    db: AsyncSession, side: 'accounts_service.Side', party_id: int, *, facility: int
+) -> tuple[str, dict]:
+    """A customer's or supplier's account statement (FR-023), one template for both sides.
+
+    It goes to the party, so it covers every facility whatever the caller's scope, and its figures
+    are the view's for the same party seen across all facilities. `facility` only chooses whose
+    letterhead it prints on. 404 when the party doesn't exist.
+    """
+    money = formatting.money
+    detail = await accounts_service.detail(db, side, party_id, facility=None)
+    summary = detail['summary']
+    now = local_now()
+    payments = await side.recent_payments(
+        db, party_id, now - timedelta(days=STATEMENT_PAYMENT_DAYS)
+    )
+    limited = summary['credit_limit'] is not None and summary['credit_limit'] > 0
+    context = {
+        'header': await header_context(db, facility, 'Estado de cuenta', letter=True),
+        'party_label': side.statement_party,
+        'linked_label': side.statement_linked,
+        'party': summary['name'],
+        'party_id': party_id,
+        'sales_agent': summary['sales_agent_name'],
+        'date': formatting.date_time(now),
+        'credit_limit': money(summary['credit_limit']) if limited else None,
+        'credit_days': summary['credit_days'],
+        'available_credit': (
+            money(summary['available_credit']) if summary['available_credit'] is not None else None
+        ),
+        'documents': [
+            {
+                'id': document['id'],
+                'number': str(document['serial'] or document['id']),
+                'date': formatting.date_short(document['date']),
+                'linked': ', '.join(link['label'] for link in document['linked']),
+                'due_date': (
+                    formatting.date_short(document['due_date']) if document['due_date'] else ''
+                ),
+                'days_past_due': document['days_past_due'],
+                'balance': money(document['balance']),
+            }
+            for document in detail['documents']
+        ],
+        'buckets': [
+            {'label': _BUCKET_LABELS[name], 'amount': money(amount)}
+            for name, amount in summary['buckets'].items()
+        ],
+        'payment_days': STATEMENT_PAYMENT_DAYS,
+        'payments': [
+            {
+                'id': payment['id'],
+                'serial': str(payment['serial'] or ''),
+                'date': formatting.date_short(payment['date']),
+                'method': formatting.method_name(payment['method']),
+                'amount': money(payment['amount']),
+                'applied': money(payment['applied']),
+                'unapplied': money(payment['unapplied']),
+            }
+            for payment in payments
+        ],
+        'owed': money(summary['owed']),
+        'overdue': money(summary['overdue']),
+        'credit': money(summary['credit']),
+        'net': money(summary['net']),
+    }
+    return 'account_statement.html', context

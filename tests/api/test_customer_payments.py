@@ -191,6 +191,27 @@ async def test_applying_to_a_draft_order_is_409() -> None:
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize('detail', ['Sales order is already settled', 'The order is busy, retry'])
+async def test_a_settled_or_busy_order_is_409(detail: str) -> None:
+    """Spec 033 FR-021, FR-022: the service's refusal reaches the caller as it is."""
+    _auth()
+    conflict = HTTPException(status_code=status.HTTP_409_CONFLICT, detail=detail)
+    with patch(
+        'app.services.customer_payment_service.get_payment', AsyncMock(return_value=_payment())
+    ), patch(
+        'app.services.customer_payment_service.apply_payment', AsyncMock(side_effect=conflict)
+    ):
+        async with await _client() as client:
+            response = await client.post(
+                '/api/v1/customer-payments/1/applications',
+                json={'sales_order': 1, 'amount': '10'},
+            )
+
+    assert response.status_code == status.HTTP_409_CONFLICT
+    assert response.json()['detail'] == detail
+
+
+@pytest.mark.asyncio
 async def test_over_application_is_422() -> None:
     _auth()
     error = HTTPException(

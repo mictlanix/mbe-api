@@ -6,11 +6,17 @@ paid. Each of those is a read of rows the previous request wrote, which is exact
 cannot represent.
 """
 
+from datetime import datetime
+from decimal import Decimal
+
 from httpx import AsyncClient
+from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.enums import PaymentMethod
-from tests.integration.seed import seed_sales_order
+from app.enums import CurrencyCode, EntityStatus, PaymentMethod
+from app.models.customer import Customer
+from app.models.sales import CustomerPayment, SalesOrder, SalesOrderPayment
+from tests.integration.seed import seed_facility, seed_sales_order
 
 
 async def _completed_order_with_total(client: AsyncClient, db: AsyncSession) -> tuple[int, str]:
@@ -119,19 +125,11 @@ async def test_applying_more_than_the_payment_holds_is_refused(
     assert 'unapplied' in response.json()['detail']
 
 
-async def test_an_application_is_not_capped_at_what_the_order_owes(
+async def test_an_application_above_what_the_order_owes_is_refused(
     client: AsyncClient, db: AsyncSession, seeded: None
 ) -> None:
-    """Recording current behaviour, not endorsing it.
-
-    `apply_payment` checks that an application fits inside the *payment's* unapplied balance;
-    nothing checks it against what the *order* still owes. So a payment larger than the sale can be
-    applied whole, and the order's balance is whatever `totals.remaining` makes of the excess.
-    Pinned because it is easy to change by accident, and because a reader of
-    `assert_within_unapplied` would reasonably assume the other bound exists too. Whether
-    overpayment *should* be refused is a product question — `amount_change` suggests cash change was
-    the intent — and this test is not the place to decide it.
-    """
+    """Spec 033 FR-021. Until then nothing checked the order's side, so a payment larger than the
+    sale could be applied whole. Change is how a cash tender hands back the excess."""
     order_id, total = await _completed_order_with_total(client, db)
     payment = await client.post(
         '/api/v1/customer-payments',
@@ -139,17 +137,13 @@ async def test_an_application_is_not_capped_at_what_the_order_owes(
     )
     payment_id = payment.json()['customer_payment_id']
 
-    applied = await client.post(
+    refused = await client.post(
         f'/api/v1/customer-payments/{payment_id}/applications',
         json={'sales_order': order_id, 'amount': '99999'},
     )
 
-    assert applied.status_code == 201, applied.text
-    order = await client.get(f'/api/v1/sales-orders/{order_id}')
-    assert order.json()['status'] == 'paid'
-    # Not negative: `remaining` floors at zero, so the excess is simply not reported here.
-    assert order.json()['balance'] == '0.00'
-    assert float(total) < 99999
+    assert refused.status_code == 422, refused.text
+    assert refused.json()['detail'] == f'Amount 99999 exceeds the order balance of {total}'
 
 
 async def test_an_unpaid_order_is_listed_as_outstanding(
@@ -348,6 +342,248 @@ async def test_a_paid_sale_is_refunded_as_a_credit_note(
     assert notes.json()['total'] == 1
     # Nothing drawn against it yet, so the whole refund is available. Compared numerically: the
     # credit note carries its column's scale, which is wider than the money the order reports.
-    from decimal import Decimal
-
     assert Decimal(notes.json()['items'][0]['remaining']) == Decimal(total)
+
+
+async def _payment_with_change(client: AsyncClient, db: AsyncSession) -> tuple[int, int]:
+    """Payment 300789's shape: 600 tendered, 530 applied, 70 handed back. Returns the payment
+    and its application."""
+    order_id, _ = await _completed_order_with_total(client, db)
+    payment = await client.post(
+        '/api/v1/customer-payments',
+        json={'customer': 1, 'amount': '600', 'method': PaymentMethod.CASH},
+    )
+    payment_id = payment.json()['customer_payment_id']
+    applied = await client.post(
+        f'/api/v1/customer-payments/{payment_id}/applications',
+        json={'sales_order': order_id, 'amount': '530', 'amount_change': '70'},
+    )
+    assert applied.status_code == 201, applied.text
+    return payment_id, applied.json()['sales_order_payment_id']
+
+
+async def test_change_handed_back_is_not_unapplied(
+    client: AsyncClient, db: AsyncSession, seeded: None
+) -> None:
+    """Spec 033 FR-005a: 600 − 530 − 70 = 0, as the payment's ticket says (#275)."""
+    payment_id, _ = await _payment_with_change(client, db)
+
+    read = await client.get(f'/api/v1/customer-payments/{payment_id}')
+    listed = await client.get('/api/v1/customer-payments', params={'customer': 1})
+
+    assert read.status_code == 200, read.text
+    assert Decimal(read.json()['unapplied']) == 0
+    row = next(r for r in listed.json()['items'] if r['customer_payment_id'] == payment_id)
+    assert Decimal(row['unapplied']) == 0
+
+
+async def test_a_reversed_applications_change_counts_again(
+    client: AsyncClient, db: AsyncSession, seeded: None
+) -> None:
+    payment_id, application_id = await _payment_with_change(client, db)
+
+    await client.post(
+        f'/api/v1/customer-payments/{payment_id}/applications/{application_id}/reverse',
+        json={'reason': 'Cobro duplicado'},
+    )
+
+    read = await client.get(f'/api/v1/customer-payments/{payment_id}')
+    assert Decimal(read.json()['unapplied']) == Decimal('600')
+
+
+async def _order_row(db: AsyncSession, order_id: int) -> SalesOrder:
+    db.expire_all()
+    return await db.get(SalesOrder, order_id)
+
+
+async def _pay(client: AsyncClient, order_id: int, amount: str) -> tuple[int, int]:
+    payment = await client.post(
+        '/api/v1/customer-payments',
+        json={'customer': 1, 'amount': amount, 'method': PaymentMethod.CASH},
+    )
+    payment_id = payment.json()['customer_payment_id']
+    applied = await client.post(
+        f'/api/v1/customer-payments/{payment_id}/applications',
+        json={'sales_order': order_id, 'amount': amount},
+    )
+    assert applied.status_code == 201, applied.text
+    return payment_id, applied.json()['sales_order_payment_id']
+
+
+async def _reverse(client: AsyncClient, payment_id: int, application_id: int) -> None:
+    reversed_ = await client.post(
+        f'/api/v1/customer-payments/{payment_id}/applications/{application_id}/reverse',
+        json={'reason': 'Cobro duplicado'},
+    )
+    assert reversed_.status_code == 200, reversed_.text
+
+
+class TestThePaidFlagFollowsTheBalance:
+    """Spec 033 FR-011: set when the balance reaches 0.01 or less; cleared only when an event takes
+    it from there back above 0.01, so a legacy paid order never reopens."""
+
+    async def test_settling_sets_paid_and_reversing_clears_it(
+        self, client: AsyncClient, db: AsyncSession, seeded: None
+    ) -> None:
+        order_id, total = await _completed_order_with_total(client, db)
+
+        payment_id, application_id = await _pay(client, order_id, total)
+        settled = await _order_row(db, order_id)
+        assert settled.paid is True
+        stamped = settled.balance_zeroed_time
+        assert stamped is not None
+
+        await _reverse(client, payment_id, application_id)
+        reopened = await _order_row(db, order_id)
+        assert reopened.paid is False
+        assert reopened.balance_zeroed_time == stamped, 'the commission month never moves'
+
+    async def test_the_legacy_sentinel_counts_as_unset(
+        self, client: AsyncClient, db: AsyncSession, seeded: None
+    ) -> None:
+        order_id, total = await _completed_order_with_total(client, db)
+        await db.execute(
+            update(SalesOrder)
+            .where(SalesOrder.sales_order_id == order_id)
+            .values(balance_zeroed_time=datetime(1, 1, 1))
+        )
+        await db.commit()
+
+        await _pay(client, order_id, total)
+
+        assert (await _order_row(db, order_id)).balance_zeroed_time.year > 1900
+
+    async def test_a_partial_payment_leaves_the_order_unpaid(
+        self, client: AsyncClient, db: AsyncSession, seeded: None
+    ) -> None:
+        order_id, _ = await _completed_order_with_total(client, db)
+
+        await _pay(client, order_id, '100')
+
+        assert (await _order_row(db, order_id)).paid is False
+
+    async def test_a_legacy_paid_order_stays_paid_when_a_payment_is_reversed(
+        self, client: AsyncClient, db: AsyncSession, seeded: None
+    ) -> None:
+        """Flagged paid with 1,060 still computed: the balance was never at zero, so reversing
+        its 100 doesn't cross back over, and the order stays closed (clarification Q2)."""
+        order_id = await seed_sales_order(db, completed=True, paid=True)
+        now = datetime(2026, 9, 1, 10, 0)
+        payment = CustomerPayment(
+            facility=1, customer=1, amount=Decimal('100'), method=1, date=now,
+            currency=CurrencyCode.MXN, creator=1, updater=1, creation_time=now,
+            modification_time=now, payment_type=2, serial=0,
+        )  # fmt: skip
+        db.add(payment)
+        await db.flush()
+        application = SalesOrderPayment(
+            sales_order=order_id, customer_payment=payment.customer_payment_id,
+            amount=Decimal('100'), amount_change=Decimal(0), applier=1, date=now,
+            confirmed=True, cancelled=False,
+        )  # fmt: skip
+        db.add(application)
+        await db.commit()
+
+        await _reverse(client, payment.customer_payment_id, application.sales_order_payment_id)
+
+        assert (await _order_row(db, order_id)).paid is True
+
+
+async def _apply(client: AsyncClient, payment_id: int, order_id: int, amount: str, **body):  # noqa: ANN003, ANN202
+    return await client.post(
+        f'/api/v1/customer-payments/{payment_id}/applications',
+        json={'sales_order': order_id, 'amount': amount, **body},
+    )
+
+
+async def _new_payment(client: AsyncClient, amount: str, customer: int = 1) -> int:
+    payment = await client.post(
+        '/api/v1/customer-payments',
+        json={'customer': customer, 'amount': amount, 'method': PaymentMethod.CASH},
+    )
+    assert payment.status_code == 201, payment.text
+    return payment.json()['customer_payment_id']
+
+
+class TestApplyingAPayment:
+    """Spec 033 FR-021. These orders are cash sales; credit orders go through the same service, so
+    the same refusals hold for them."""
+
+    async def test_one_payment_across_two_orders(
+        self, client: AsyncClient, db: AsyncSession, seeded: None
+    ) -> None:
+        """US4 scenario 1: 2,000 over two orders of 1,160 settles one and leaves 320 owing."""
+        first, total = await _completed_order_with_total(client, db)
+        second, _ = await _completed_order_with_total(client, db)
+        payment_id = await _new_payment(client, '2000')
+
+        assert (await _apply(client, payment_id, first, total)).status_code == 201
+        assert (await _apply(client, payment_id, second, '840')).status_code == 201
+
+        assert (await _order_row(db, first)).paid is True
+        second_read = await client.get(f'/api/v1/sales-orders/{second}')
+        assert second_read.json()['balance'] == '320.00'
+        payment = await client.get(f'/api/v1/customer-payments/{payment_id}')
+        assert Decimal(payment.json()['unapplied']) == 0
+
+    async def test_another_customers_payment_is_refused(
+        self, client: AsyncClient, db: AsyncSession, seeded: None
+    ) -> None:
+        db.add(
+            Customer(
+                customer_id=2,
+                code='C2',
+                name='Cliente Dos',
+                credit_limit=Decimal('0'),
+                credit_days=0,
+                price_list=1,
+                status=EntityStatus.ACTIVE,
+            )  # fmt: skip
+        )
+        await db.commit()
+        order_id, _ = await _completed_order_with_total(client, db)
+        payment_id = await _new_payment(client, '100', customer=2)
+
+        refused = await _apply(client, payment_id, order_id, '100')
+
+        assert refused.status_code == 422, refused.text
+        assert 'different customer' in refused.json()['detail']
+
+    async def test_a_settled_order_is_refused(
+        self, client: AsyncClient, db: AsyncSession, seeded: None
+    ) -> None:
+        flagged = await seed_sales_order(db, completed=True, paid=True)
+        settled, total = await _completed_order_with_total(client, db)
+        await _pay(client, settled, total)
+        payment_id = await _new_payment(client, '100')
+
+        for order_id in (flagged, settled):
+            refused = await _apply(client, payment_id, order_id, '10')
+            assert refused.status_code == 409, refused.text
+            assert refused.json()['detail'] == 'Sales order is already settled'
+
+    async def test_change_counts_against_what_the_payment_holds(
+        self, client: AsyncClient, db: AsyncSession, seeded: None
+    ) -> None:
+        order_id, _ = await _completed_order_with_total(client, db)
+        payment_id = await _new_payment(client, '100')
+
+        refused = await _apply(client, payment_id, order_id, '90', amount_change='20')
+
+        assert refused.status_code == 422, refused.text
+        assert 'unapplied' in refused.json()['detail']
+
+    async def test_another_facilitys_order_is_still_accepted(
+        self, client: AsyncClient, db: AsyncSession, seeded: None
+    ) -> None:
+        """14% of 2026's credit applications in mbe_dev used another facility's payment."""
+        order_id, _ = await _completed_order_with_total(client, db)
+        await db.execute(
+            update(SalesOrder)
+            .where(SalesOrder.sales_order_id == order_id)
+            .values(facility=await seed_facility(db))
+        )
+        await db.commit()
+        payment_id = await _new_payment(client, '100')
+
+        assert (await _apply(client, payment_id, order_id, '100')).status_code == 201

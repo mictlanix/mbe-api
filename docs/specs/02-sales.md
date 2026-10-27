@@ -293,6 +293,7 @@ Record and manage payments received from customers. The payments list is scoped 
 - **Apply to Order**: creates `sales_order_payment` record; marks order `IsPaid = true` when fully covered
 - **Verify**: supervisor confirms receipt (`verifier` field set to employee)
 - **Unapply**: cancels `sales_order_payment` application (`cancelled = 1`)
+- **API (spec 033):** a payment's `unapplied` is its amount less its live applications and the change they handed back, as the payment ticket shows. An application locks the payment and the order, and is refused above the order's balance (422) or on an order already settled (409); `amount + amount_change` must fit what the payment has left. `paid` follows the one order balance (07-administration §1): set at 0.01 or less, cleared only when a reversal takes it back above.
 
 ---
 

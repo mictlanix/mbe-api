@@ -200,6 +200,8 @@ class SourceType(IntEnum):
     # API-only, like 10–14: a supplier payment cancelled, or one of its applications reversed
     # (spec 032).
     SUPPLIER_PAYMENT = 15
+    # API-only, like 10–15: a supplier account statement emailed (spec 033).
+    SUPPLIER = 16
 
 
 class CommissionScheme(IntEnum):

@@ -25,7 +25,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.clock import local_now
 from app.core.deps import CurrentUser
 from app.enums import PaymentMethod, SourceType
-from app.models.core import CashDrawer
+from app.models.core import CashDrawer, Facility
+from app.models.inventory import InventoryReceipt
 from app.models.purchases import (
     PurchaseOrder,
     PurchaseOrderDetail,
@@ -535,56 +536,87 @@ async def purchase_order_balance(db: AsyncSession, order: PurchaseOrder) -> dict
     }
 
 
-async def supplier_balance(db: AsyncSession, supplier_id: int) -> dict[str, Any]:
-    """The counting POs with a balance and the payments with credit, oldest first, and the totals
-    owed, in credit and net (FR-019)."""
-    supplier = await db.get(Supplier, supplier_id)
-    if supplier is None:
-        raise _not_found('Supplier')
-    cutoff = await get_cutoff(db)
+async def open_purchase_orders(
+    db: AsyncSession, *, supplier: int | None = None
+) -> list[dict[str, Any]]:
+    """The counting POs with more than 0.01 left, oldest confirmed first, each with its confirmed
+    receipts (spec 033, FR-008). None while the cutoff is NULL.
 
-    counting: list[PurchaseOrder] = []
-    if cutoff is not None:
-        counting = list(
-            (
-                await db.execute(
-                    select(PurchaseOrder)
-                    .where(
-                        PurchaseOrder.supplier == supplier_id,
-                        PurchaseOrder.completed.is_(True),
-                        PurchaseOrder.cancelled.is_(False),
-                        PurchaseOrder.modification_time >= cutoff,
-                    )
-                    .order_by(PurchaseOrder.modification_time, PurchaseOrder.purchase_order_id)
-                )
-            )
-            .scalars()
-            .all()
+    A receipt's confirmation stamps its `modification_time` and nothing edits a confirmed receipt
+    afterwards, so the earliest one dates the PO's due date (research R6). A cancelled receipt
+    drops out, and the next confirmed one dates it.
+    """
+    cutoff = await get_cutoff(db)
+    if cutoff is None:
+        return []
+    query = (
+        select(PurchaseOrder)
+        .where(
+            PurchaseOrder.supplier.is_not(None),
+            PurchaseOrder.completed.is_(True),
+            PurchaseOrder.cancelled.is_(False),
+            PurchaseOrder.modification_time >= cutoff,
         )
+        .order_by(PurchaseOrder.modification_time, PurchaseOrder.purchase_order_id)
+    )
+    if supplier is not None:
+        query = query.where(PurchaseOrder.supplier == supplier)
+    counting = list((await db.execute(query)).scalars().all())
     po_ids = [order.purchase_order_id for order in counting]
     totals_ = await _po_totals(db, po_ids)
     applied = await po_applied(db, po_ids)
-    orders = []
+
+    receipts: dict[int, list[dict[str, Any]]] = defaultdict(list)
+    if po_ids:
+        rows = await db.execute(
+            select(
+                InventoryReceipt.purchase_order,
+                InventoryReceipt.inventory_receipt_id,
+                Facility.code,
+                InventoryReceipt.serial,
+                InventoryReceipt.modification_time,
+            )
+            .join(Facility, Facility.facility_id == InventoryReceipt.facility)
+            .where(
+                InventoryReceipt.purchase_order.in_(po_ids),
+                InventoryReceipt.completed.is_(True),
+                InventoryReceipt.cancelled.is_(False),
+            )
+            .order_by(InventoryReceipt.modification_time, InventoryReceipt.inventory_receipt_id)
+        )
+        for po, receipt_id, code, serial, confirmed in rows.all():
+            receipts[po].append({'id': receipt_id, 'label': f'{code}-{serial}', 'time': confirmed})
+
+    open_ = []
     for order in counting:
         po = order.purchase_order_id
         live = applied.get(po, Decimal(0))
-        if totals_[po] - live > 0:
-            orders.append(
+        if totals_[po] - live > totals.SETTLED:
+            open_.append(
                 {
-                    'purchase_order_id': po,
-                    'confirmed': order.modification_time,
+                    'order': order,
                     'total': totals_[po],
                     'applied': live,
                     'balance': totals_[po] - live,
+                    'receipts': receipts[po],
+                    'first_receipt': receipts[po][0]['time'] if receipts[po] else None,
                 }
             )
+    return open_
 
+
+async def payments_with_credit(
+    db: AsyncSession, *, suppliers: Sequence[int]
+) -> list[tuple[SupplierPayment, Decimal]]:
+    """The suppliers' payments with credit left, oldest first, with that credit (FR-019)."""
+    if not suppliers:
+        return []
     candidates = (
         (
             await db.execute(
                 select(SupplierPayment)
                 .where(
-                    SupplierPayment.supplier == supplier_id,
+                    SupplierPayment.supplier.in_(list(suppliers)),
                     SupplierPayment.cancelled.is_(False),
                     SupplierPayment.facility.is_not(None),
                 )
@@ -595,20 +627,51 @@ async def supplier_balance(db: AsyncSession, supplier_id: int) -> dict[str, Any]
         .all()
     )
     used = await payment_applied(db, [p.supplier_payment_id for p in candidates])
-    payments = []
+    with_credit = []
     for payment in candidates:
         credit = payment_credit(payment, used.get(payment.supplier_payment_id, Decimal(0)))
         if credit > 0:
-            payments.append(
-                {
-                    'supplier_payment_id': payment.supplier_payment_id,
-                    'facility': payment.facility,
-                    'serial': payment.serial,
-                    'date': payment.date,
-                    'amount': payment.amount,
-                    'credit': credit,
-                }
-            )
+            with_credit.append((payment, credit))
+    return with_credit
+
+
+async def credit_by_supplier(db: AsyncSession, supplier_ids: Sequence[int]) -> dict[int, Decimal]:
+    """Each supplier's credit, the total `supplier_balance` reports, batched (spec 033)."""
+    credit: dict[int, Decimal] = {}
+    for payment, left in await payments_with_credit(db, suppliers=supplier_ids):
+        credit[payment.supplier] = credit.get(payment.supplier, Decimal(0)) + left
+    return credit
+
+
+async def supplier_balance(db: AsyncSession, supplier_id: int) -> dict[str, Any]:
+    """The counting POs with a balance and the payments with credit, oldest first, and the totals
+    owed, in credit and net (FR-019). The AP view reads the same two lists (spec 033)."""
+    supplier = await db.get(Supplier, supplier_id)
+    if supplier is None:
+        raise _not_found('Supplier')
+    cutoff = await get_cutoff(db)
+
+    orders = [
+        {
+            'purchase_order_id': row['order'].purchase_order_id,
+            'confirmed': row['order'].modification_time,
+            'total': row['total'],
+            'applied': row['applied'],
+            'balance': row['balance'],
+        }
+        for row in await open_purchase_orders(db, supplier=supplier_id)
+    ]
+    payments = [
+        {
+            'supplier_payment_id': payment.supplier_payment_id,
+            'facility': payment.facility,
+            'serial': payment.serial,
+            'date': payment.date,
+            'amount': payment.amount,
+            'credit': credit,
+        }
+        for payment, credit in await payments_with_credit(db, suppliers=[supplier_id])
+    ]
 
     owed = sum((o['balance'] for o in orders), Decimal(0))
     credit = sum((p['credit'] for p in payments), Decimal(0))

@@ -2,7 +2,7 @@
 
 Two behaviours matter: a numeric term is an identifier (order id or folio) rather than a name
 fragment, and the result set is confined to orders that can actually take money — completed,
-uncancelled and unpaid.
+uncancelled, unpaid, and still owing more than 0.01 by the one balance rule (spec 033, FR-010).
 """
 
 from decimal import Decimal
@@ -40,10 +40,7 @@ def _current() -> CurrentUser:
 
 
 def _db(orders: list, customer_names: list | None = None) -> AsyncMock:
-    results = [
-        SimpleNamespace(scalar_one=lambda: len(orders)),
-        SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: orders)),
-    ]
+    results = [SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: orders))]
     # The customer-name lookup (#174), issued once for the page and only when it has rows.
     if orders:
         rows = customer_names or []
@@ -51,6 +48,13 @@ def _db(orders: list, customer_names: list | None = None) -> AsyncMock:
     db = AsyncMock()
     db.execute = AsyncMock(side_effect=results)
     return db
+
+
+def _balances(total: str, balance: str) -> AsyncMock:
+    """`order_balances` for order 1: real code that would consume queries this fake hasn't
+    scripted, and what is under test here is the projection, not the arithmetic."""
+    figures = SimpleNamespace(total=Decimal(total), balance=Decimal(balance))
+    return AsyncMock(return_value={1: figures})
 
 
 def _order() -> SimpleNamespace:
@@ -91,13 +95,7 @@ class TestSearchOutstanding:
         db = _db([_order()])
 
         with patch(
-            'app.services.customer_payment_service._order_total',
-            AsyncMock(return_value=Decimal('290.00')),
-        ), patch(
-            'app.services.sales_order_service.applied_amount',
-            AsyncMock(return_value=Decimal('100.00')),
-        ), patch(
-            'app.services.sales_order_service.refunded_by_order', AsyncMock(return_value={})
+            'app.services.sales_order_service.order_balances', _balances('290.00', '190.00')
         ):
             rows, total = await search_outstanding(db, current=_current())
 
@@ -106,21 +104,14 @@ class TestSearchOutstanding:
         assert rows[0]['balance'] == Decimal('190.00')
 
     @pytest.mark.asyncio
-    async def test_fully_applied_order_reports_zero_balance(self) -> None:
+    async def test_an_order_with_nothing_left_is_not_listed(self) -> None:
+        """Unpaid by flag but settled by the balance: nothing to apply a payment to."""
         db = _db([_order()])
 
-        with patch(
-            'app.services.customer_payment_service._order_total',
-            AsyncMock(return_value=Decimal('290.00')),
-        ), patch(
-            'app.services.sales_order_service.applied_amount',
-            AsyncMock(return_value=Decimal('290.00')),
-        ), patch(
-            'app.services.sales_order_service.refunded_by_order', AsyncMock(return_value={})
-        ):
-            rows, _ = await search_outstanding(db, current=_current())
+        with patch('app.services.sales_order_service.order_balances', _balances('290.00', '0.01')):
+            rows, total = await search_outstanding(db, current=_current())
 
-        assert rows[0]['balance'] == Decimal('0.00')
+        assert (rows, total) == ([], 0)
 
 
 class TestTheCustomerNameLookup:
@@ -140,8 +131,8 @@ class TestTheCustomerNameLookup:
     @pytest.mark.asyncio
     @pytest.mark.parametrize('size', [1, 5, 20, 100])
     async def test_one_query_regardless_of_page_size(self, size: int) -> None:
-        """The constraint #174 names: the row loop already issues two queries per order, so a
-        per-row name lookup would make a page of twenty cost sixty round trips."""
+        """The constraint #174 names: a per-row name lookup would make a page of twenty cost twenty
+        round trips."""
         orders = [SimpleNamespace(customer=i) for i in range(1, size + 1)]
         db = self._names([])
 
@@ -172,18 +163,7 @@ class TestTheCustomerNameLookup:
         """Null, not a KeyError: the column is cosmetic and must not 500 a whole page."""
         db = _db([_order()], customer_names=[])
 
-        with patch(
-            'app.services.customer_payment_service._order_total',
-            AsyncMock(return_value=Decimal('1.00')),
-        ), patch(
-            'app.services.sales_order_service.applied_amount',
-            AsyncMock(return_value=Decimal('0.00')),
-        ), patch(
-            # The refund lookup is real code and would consume a query this fake has not scripted;
-            # what is under test here is the name, not the balance (#223).
-            'app.services.sales_order_service.refunded_by_order',
-            AsyncMock(return_value={}),
-        ):
+        with patch('app.services.sales_order_service.order_balances', _balances('1.00', '1.00')):
             rows, _ = await search_outstanding(db, current=_current())
 
         assert rows[0]['customer_display_name'] is None
@@ -192,18 +172,7 @@ class TestTheCustomerNameLookup:
     async def test_the_row_carries_the_name_beside_the_override(self) -> None:
         db = _db([_order()], customer_names=[(2, 'Cliente Dos')])
 
-        with patch(
-            'app.services.customer_payment_service._order_total',
-            AsyncMock(return_value=Decimal('1.00')),
-        ), patch(
-            'app.services.sales_order_service.applied_amount',
-            AsyncMock(return_value=Decimal('0.00')),
-        ), patch(
-            # The refund lookup is real code and would consume a query this fake has not scripted;
-            # what is under test here is the name, not the balance (#223).
-            'app.services.sales_order_service.refunded_by_order',
-            AsyncMock(return_value={}),
-        ):
+        with patch('app.services.sales_order_service.order_balances', _balances('1.00', '1.00')):
             rows, _ = await search_outstanding(db, current=_current())
 
         assert rows[0]['customer_display_name'] == 'Cliente Dos'

@@ -13,13 +13,17 @@ import pytest
 from fastapi import HTTPException
 
 from app.enums import CurrencyCode
+from app.services import customer_payment_service
 from app.services.customer_payment_service import (
+    assert_not_settled,
     assert_order_payable,
     assert_same_currency,
     assert_same_customer,
+    assert_within_balance,
     assert_within_unapplied,
-    covers_total,
     list_order_applications,
+    reopen,
+    settle,
 )
 
 
@@ -89,28 +93,34 @@ class TestAssertSameCustomer:
         assert exc.value.status_code == 422
 
 
-class TestCoversTotal:
-    def test_exact_coverage_marks_paid(self) -> None:
-        assert covers_total(Decimal('290.00'), Decimal('290.00')) is True
+class TestTheOrderBalanceGuards:
+    """Spec 033 FR-021: an application can't take an order below zero, nor land on one that owes
+    nothing."""
 
-    def test_overpayment_marks_paid(self) -> None:
-        assert covers_total(Decimal('300.00'), Decimal('290.00')) is True
+    def test_up_to_the_balance_is_allowed(self) -> None:
+        assert_within_balance(Decimal('300.00'), Decimal('300.00'))
 
-    def test_one_cent_short_is_not_paid(self) -> None:
-        assert covers_total(Decimal('289.99'), Decimal('290.00')) is False
+    def test_above_the_balance_is_refused(self) -> None:
+        with pytest.raises(HTTPException) as exc:
+            assert_within_balance(Decimal('350.00'), Decimal('300.00'))
 
-    def test_nothing_applied_is_not_paid(self) -> None:
-        assert covers_total(Decimal('0'), Decimal('290.00')) is False
+        assert exc.value.status_code == 422
+        assert exc.value.detail == 'Amount 350.00 exceeds the order balance of 300.00'
 
-    def test_zero_total_order_is_never_paid(self) -> None:
-        """An order totalling zero should not be marked paid by an empty application set."""
-        assert covers_total(Decimal('0'), Decimal('0')) is False
+    @pytest.mark.parametrize(
+        ('paid', 'balance'),
+        [(True, '500'), (False, '0.01'), (False, '0')],
+        ids=['flagged-paid', 'a-cent-left', 'nothing-left'],
+    )
+    def test_a_settled_order_is_refused(self, paid: bool, balance: str) -> None:
+        with pytest.raises(HTTPException) as exc:
+            assert_not_settled(SimpleNamespace(paid=paid), Decimal(balance))
 
-    def test_reversal_clears_the_flag_symmetrically(self) -> None:
-        """Applying then reversing must return the flag to where it started."""
-        total = Decimal('100.00')
-        assert covers_total(Decimal('100.00'), total) is True
-        assert covers_total(Decimal('0'), total) is False
+        assert exc.value.status_code == 409
+        assert exc.value.detail == 'Sales order is already settled'
+
+    def test_an_unpaid_order_that_owes_is_allowed(self) -> None:
+        assert_not_settled(SimpleNamespace(paid=False), Decimal('0.02'))
 
 
 class TestListOrderApplications:
@@ -179,49 +189,67 @@ class TestListOrderApplications:
         assert db.execute.await_count == 1
 
 
-class TestTheBalanceZeroedStamp:
-    """Payments stamp `balance_zeroed_time` when they settle an order, as the current system does
-    in every payment path; it dates the order's commission month (spec 025 FR-008a)."""
+class TestSettle:
+    """Spec 033 FR-011: an order is flagged paid once its balance is 0.01 or less. The moment is
+    stamped once and dates the order's commission month (spec 025 FR-008a)."""
 
     NOW = datetime(2026, 10, 22, 12, 0)
 
-    async def _sync(self, *, applied: str, stamp: object) -> SimpleNamespace:
-        from app.services import customer_payment_service
-
-        order = SimpleNamespace(sales_order_id=1, paid=False, balance_zeroed_time=stamp)
-        db = SimpleNamespace(refresh=AsyncMock())
-        with (
-            patch.object(
-                customer_payment_service.sales_order_service,
-                'applied_amount',
-                AsyncMock(return_value=Decimal(applied)),
-            ),
-            patch.object(
-                customer_payment_service, '_order_total', AsyncMock(return_value=Decimal('100'))
-            ),
-            patch.object(customer_payment_service, 'local_now', return_value=self.NOW),
-        ):
-            await customer_payment_service._sync_paid_flag(db, order)
+    def _settle(self, balance: str, *, paid: bool = False, stamp: object = None) -> SimpleNamespace:
+        order = SimpleNamespace(paid=paid, balance_zeroed_time=stamp)
+        with patch.object(customer_payment_service, 'local_now', return_value=self.NOW):
+            settle(order, Decimal(balance))
         return order
 
-    @pytest.mark.parametrize(
-        'stamp', [None, datetime(1, 1, 1)], ids=['none', 'sentinel']
-    )
-    async def test_settling_an_order_stamps_it(self, stamp: object) -> None:
-        order = await self._sync(applied='100', stamp=stamp)
+    @pytest.mark.parametrize('balance', ['0', '0.01'])
+    def test_nothing_left_sets_paid_and_stamps_it(self, balance: str) -> None:
+        order = self._settle(balance)
 
         assert order.paid is True
         assert order.balance_zeroed_time == self.NOW
 
-    async def test_an_existing_stamp_is_kept(self) -> None:
+    def test_the_legacy_sentinel_counts_as_unset(self) -> None:
+        assert self._settle('0', stamp=datetime(1, 1, 1)).balance_zeroed_time == self.NOW
+
+    def test_an_existing_stamp_is_kept(self) -> None:
         earlier = datetime(2026, 9, 1)
 
-        order = await self._sync(applied='100', stamp=earlier)
+        assert self._settle('0', stamp=earlier).balance_zeroed_time == earlier
 
-        assert order.balance_zeroed_time == earlier
+    def test_two_cents_left_changes_nothing(self) -> None:
+        order = self._settle('0.02')
 
-    async def test_an_unpaid_order_is_not_stamped(self) -> None:
-        order = await self._sync(applied='40', stamp=None)
+        assert (order.paid, order.balance_zeroed_time) == (False, None)
 
-        assert order.paid is False
-        assert order.balance_zeroed_time is None
+    def test_it_never_clears_paid(self) -> None:
+        assert self._settle('500', paid=True).paid is True
+
+    def test_an_order_already_paid_is_not_stamped(self) -> None:
+        """FR-065a: a refund on a legacy paid order settles nothing new, so it gains no commission
+        month."""
+        assert self._settle('0', paid=True).balance_zeroed_time is None
+
+
+class TestReopen:
+    """Spec 033 FR-011, clarification Q2: `paid` is cleared only when an event takes the balance
+    from 0.01 or less to above it. A paid order that already owed stays paid."""
+
+    STAMP = datetime(2026, 9, 1)
+
+    @pytest.mark.parametrize(
+        ('before', 'after', 'cleared'),
+        [
+            ('0', '0.02', True),
+            ('0.01', '0.02', True),
+            ('0.02', '50', False),
+            ('0', '0.01', False),
+        ],
+        ids=['settled-to-owing', 'edge-to-owing', 'legacy-already-owing', 'still-settled'],
+    )
+    def test_only_a_crossing_clears_paid(self, before: str, after: str, cleared: bool) -> None:
+        order = SimpleNamespace(paid=True, balance_zeroed_time=self.STAMP)
+
+        reopen(order, Decimal(before), Decimal(after))
+
+        assert order.paid is not cleared
+        assert order.balance_zeroed_time == self.STAMP, 'the commission month never moves'

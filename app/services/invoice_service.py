@@ -55,7 +55,7 @@ from app.schemas.fiscal import (
     PaymentReceiptCreate,
     relation_code,
 )
-from app.services import cfdi_invoice, cfdi_payment
+from app.services import cfdi_invoice, cfdi_payment, customer_payment_service, sales_order_service
 from app.services import fiscal_document_service as fds
 
 #: The general public RFC: its postal code is the issuing store's (FR-004).
@@ -732,6 +732,13 @@ async def confirm(db: AsyncSession, current: CurrentUser, document: FiscalDocume
         document.version = CFDI_VERSION
         document.provider = issuer.provider
         _touch(document, current)
+        if document.type == FiscalDocumentType.CREDIT_NOTE:
+            # Sealed, the note counts: it lowers the balance of the orders on its invoice.
+            await db.flush()
+            orders = await _credited_orders(db, document)
+            balances = await sales_order_service.order_balances(db, orders)
+            for order in orders:
+                customer_payment_service.settle(order, balances[order.sales_order_id].balance)
         await db.commit()
     except BaseException:
         await db.rollback()
@@ -890,13 +897,66 @@ async def remove_relation(
 
 
 async def reopen(db: AsyncSession, current: CurrentUser, document: FiscalDocument) -> None:
-    """Back to draft: the sealed XML goes, the serial stays for the next confirm to reuse."""
+    """Back to draft: the sealed XML goes, the serial stays for the next confirm to reuse.
+
+    A credit note stops counting once its XML goes, so the orders on its invoice owe again, and one
+    it had settled is flagged unpaid (spec 033, FR-011).
+    """
     if document.status != 'sealed':
         raise _error(status.HTTP_409_CONFLICT, 'Fiscal document is not sealed')
+    credit_note = document.type == FiscalDocumentType.CREDIT_NOTE
+    orders = await _credited_orders(db, document) if credit_note else []
+    before = await sales_order_service.order_balances(db, orders)
     xml = await db.get(FiscalDocumentXml, document.fiscal_document_id)
     await db.delete(xml)
     _touch(document, current)
+    if orders:
+        await db.flush()
+        after = await sales_order_service.order_balances(db, orders)
+        for order in orders:
+            oid = order.sales_order_id
+            customer_payment_service.reopen(order, before[oid].balance, after[oid].balance)
     await db.commit()
+
+
+async def _credited_orders(db: AsyncSession, note: FiscalDocument) -> list[SalesOrder]:
+    """The orders on a credit note's invoice, locked in ascending id after the invoice (spec 033,
+    research R4): invoices → orders, the order a payment's application never takes in reverse."""
+    invoice = (
+        await db.execute(
+            select(FiscalDocumentRelation.relation)
+            .where(FiscalDocumentRelation.document == note.fiscal_document_id)
+            .order_by(FiscalDocumentRelation.fiscal_document_relation_id)
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if invoice is None:
+        return []
+    await db.execute(
+        select(FiscalDocument.fiscal_document_id)
+        .where(FiscalDocument.fiscal_document_id == invoice)
+        .with_for_update()
+    )
+    order_ids = (
+        select(SalesOrderDetail.sales_order)
+        .join(
+            FiscalDocumentDetail,
+            FiscalDocumentDetail.order_detail == SalesOrderDetail.sales_order_detail_id,
+        )
+        .where(FiscalDocumentDetail.document == invoice)
+    )
+    return list(
+        (
+            await db.execute(
+                select(SalesOrder)
+                .where(SalesOrder.sales_order_id.in_(order_ids))
+                .order_by(SalesOrder.sales_order_id)
+                .with_for_update()
+            )
+        )
+        .scalars()
+        .all()
+    )
 
 
 # ── Payment receipts (#53, spec 028; research R2, R7) ─────────────────────────

@@ -18,7 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.enums import CurrencyCode, EntityStatus, PaymentTerms, Priority
 from app.models.customer import Customer, customer_taxpayer
-from app.models.sales import SalesOrder
+from app.models.sales import SalesOrder, SalesOrderDetail
 from tests.integration.seed import RFC
 
 
@@ -241,28 +241,46 @@ async def test_a_customer_in_arrears_opens_no_new_order(
         )
     )
     await db.flush()
+    # It owes something: since spec 033 the hold reads the balance, not the flag alone.
+    order = SalesOrder(
+        creator=1,
+        updater=1,
+        creation_time=overdue,
+        modification_time=overdue,
+        facility=1,
+        point_sale=1,
+        salesperson=1,
+        customer=2,
+        date=overdue,
+        promise_date=overdue,
+        due_date=overdue,
+        currency=CurrencyCode.MXN,
+        exchange_rate=Decimal('1'),
+        payment_terms=PaymentTerms.NET_D,
+        priority=Priority.NORMAL,
+        completed=True,
+        cancelled=False,
+        paid=False,
+        delivered=False,
+        serial=99,
+    )
+    db.add(order)
+    await db.flush()
     db.add(
-        SalesOrder(
-            creator=1,
-            updater=1,
-            creation_time=overdue,
-            modification_time=overdue,
-            facility=1,
-            point_sale=1,
-            salesperson=1,
-            customer=2,
-            date=overdue,
-            promise_date=overdue,
-            due_date=overdue,
-            currency=CurrencyCode.MXN,
+        SalesOrderDetail(
+            sales_order=order.sales_order_id,
+            product=1,
+            quantity=Decimal('1'),
+            cost=Decimal('1'),
+            price=Decimal('100'),
+            discount_rate=Decimal('0'),
+            tax_rate=Decimal('0'),
+            product_code='P1',
+            product_name='Producto Uno',
+            warehouse=1,
             exchange_rate=Decimal('1'),
-            payment_terms=PaymentTerms.NET_D,
-            priority=Priority.NORMAL,
-            completed=True,
-            cancelled=False,
-            paid=False,
-            delivered=False,
-            serial=99,
+            currency=CurrencyCode.MXN,
+            tax_included=False,
         )
     )
     await db.commit()

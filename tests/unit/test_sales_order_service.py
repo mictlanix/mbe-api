@@ -386,18 +386,23 @@ class TestTheCreditHold:
     for as long as it did.
     """
 
+    @pytest.fixture(autouse=True)
+    def _open_orders(self):  # noqa: ANN202
+        """Both questions the gate asks go to `open_credit_orders` (spec 033): the overdue ones,
+        asked with `due_before`, and the ones making up the debt (#220). The debt is always empty
+        here, so the limit is never the reason."""
+
+        async def answer(db, *, customer, due_before=None):  # noqa: ANN001, ANN202
+            if due_before is None:
+                return []
+            return [(SimpleNamespace(), SimpleNamespace(balance=Decimal('10')))] * db.overdue
+
+        with patch.object(sales_order_service, 'open_credit_orders', side_effect=answer):
+            yield
+
     @staticmethod
-    def _db(overdue: int) -> AsyncMock:
-        """Answers both questions the gate asks: how many overdue credit orders, and which unpaid
-        credit orders make up the debt (#220). None here, so the limit is never the reason."""
-        db = AsyncMock()
-        db.execute = AsyncMock(
-            return_value=SimpleNamespace(
-                scalar_one=lambda: overdue,
-                scalars=lambda: SimpleNamespace(all=lambda: []),
-            )
-        )
-        return db
+    def _db(overdue: int) -> SimpleNamespace:
+        return SimpleNamespace(overdue=overdue)
 
     @staticmethod
     def _customer(customer_id: int = 7, credit_limit: str | None = '5000') -> SimpleNamespace:
