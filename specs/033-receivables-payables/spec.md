@@ -53,6 +53,7 @@ Out of scope: the current system's debt reports (Reports epic).
 - **The credit hold counts by flag.** It counts orders that are unpaid by flag and past due, whatever their balance. The limit check sums the balance of orders that are unpaid by flag.
 - **Stale docstring:** `_customer_credit_debt` says it "does not net off refunds", but it does (#223).
 - **The outstanding-orders list** selects unpaid-by-flag orders of the caller's facility, zero-balance ones included.
+- **`unapplied` ignores change handed back.** A payment's `unapplied` is amount − applied. The change recorded on each application (`amount_change`) isn't subtracted, so a payment that was fully used shows the change as still available. The payment ticket (#275) and the current system's `Balance` subtract it. Example: payment 300789 is 600, with 530 applied and 70 change; the ticket says 0 left, `unapplied` says 70.
 - **Applying a customer payment** already refuses another customer's payment, another currency, and more than the payment's unapplied amount. **It doesn't check the order's balance, and nothing is locked.**
 - **Writers of `paid`:**
   - Only the customer payment service writes `paid`, from applications alone: `paid` = applications cover the total.
@@ -94,8 +95,9 @@ Out of scope: the current system's debt reports (Reports epic).
 - **The 257 stale unpaid flags:** 3 orders from 2024, 219 from 2025 and 35 from 2026.
 - **Walk-in customer:** 127 credit orders with a balance, $205,543.
 - **Customer credit:**
-  - 1,750 customers hold positive unapplied payments, $24.87M in total.
-  - 63 of them also owe on an open order, and hold $4.50M of that credit.
+  - **With change subtracted** (FR-005a): 316 customers hold positive unapplied amounts, $18.77M in total. 39 of them also owe on an open order, and hold $4.37M of that credit.
+  - **Without change subtracted,** as `unapplied` reports today: 1,750 customers and $24.87M. The difference is 7,602 payments that change brought to zero.
+  - 38,523 live applications carry change. 432 of them are on credit payments; the rest are on cash sales.
   - 74 payments have a negative unapplied amount, −$516k: cash refunds.
 - **Fiscal credit notes:**
   - 113 live credit notes (type 100), from 2019 to 2026-03.
@@ -128,7 +130,7 @@ Each concept exists once and is read from the side's own data. A view, action or
 | Due date | The order's due date | Date of the PO's first confirmed receipt + the supplier's credit days; none until a receipt is confirmed |
 | Overdue | Due date before today and balance > 0.01 | Same |
 | Owed | Sum of the open documents' balances, in base currency | Same |
-| Credit | Positive unapplied amounts of the customer's payments | Credit of the supplier's payments (spec 032) |
+| Credit | Positive unapplied amounts of the customer's payments: amount − Σ(applied + change) | Credit of the supplier's payments (spec 032) |
 | Net | Owed − credit | Same |
 | Credit limit | `customer.credit_limit`, enforced on sales (credit check) | `supplier.credit_limit`, shown only |
 | Linked documents | Invoices (CFDI batch and serial) | Confirmed receipts |
@@ -145,6 +147,7 @@ Each concept exists once and is read from the side's own data. A view, action or
 - Q: Does a `paid` flag close an order whatever its computed balance? (16,405 legacy paid orders compute $120.2M.) → A: Yes. The flag closes an order. Among orders not flagged paid, the balance alone decides what's open and overdue, and from now on the flag follows the balance (FR-007, FR-011).
 - Q: When may the `paid` flag be cleared? → A: Only when an event moves the balance from 0.01 or less to above 0.01. A paid order whose balance was already above 0.01 stays paid, so a legacy paid order never reopens (FR-011).
 - Q: What does a customer statement cover for a user scoped to one facility? → A: Every facility's open orders of the customer, always. Read on 18 is enough to print or email it; the view stays scoped (FR-023, FR-025).
+- Q: How is a customer payment's unapplied amount, and so the customer's credit, computed? → A: amount − Σ(applied + change) over its live applications, as the payment ticket (mictlanix/mbe-api#275) and the current system compute it. The `unapplied` field is fixed to match, and AR credit reads it (FR-005a).
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -216,6 +219,7 @@ From a party's drill-down, the user picks one of that party's payments with an u
 3. **Given** an order owing 300, **When** an application of 350 is attempted, **Then** it's refused.
 4. **Given** two users applying to the same order at once, **When** both applications together exceed its balance, **Then** one is refused, and the order's balance never goes below zero.
 5. **Given** the supplier side, **When** the same steps are taken with a supplier payment and that supplier's POs, **Then** the outcomes are the same (spec 032's rules).
+6. **Given** a payment of 600 with 530 applied and 70 of change handed back, **When** it's read, offered for application or counted in the customer's credit, **Then** its unapplied amount is 0 everywhere, as its ticket says.
 
 ---
 
@@ -286,10 +290,11 @@ The orders that are paid off but still flagged unpaid are corrected once. Each g
 - **FR-004**: A PO's balance MUST be its total with tax, less supplier returns (always 0 until returns are modelled), less live applications, floored at 0. This is spec 032's rule, unchanged.
 - **FR-005**: A party's figures MUST be:
   - **owed**: the sum of its open documents' balances, in base currency;
-  - **credit**: the sum of its payments' positive unapplied amounts, using spec 032's rule on the supplier side;
+  - **credit**: the sum of its payments' positive unapplied amounts (FR-005a), using spec 032's rule on the supplier side;
   - **net**: owed − credit.
 
   On the supplier side, they MUST equal spec 032's supplier balance.
+- **FR-005a**: A customer payment's unapplied amount MUST be its amount less the applied amount and the change of each live application. It MUST be the one figure wherever unapplied is reported or checked: payment responses, the apply check, the payment ticket and the AR credit.
 - **FR-006**: Overdue MUST mean a due date before today and a balance above 0.01, on both sides; the `paid` flag MUST NOT decide it.
   - A sales order's due date is its own.
   - A PO's due date is the date its first confirmed receipt was confirmed plus the supplier's credit days. A PO without one isn't due.
@@ -349,7 +354,7 @@ The orders that are paid off but still flagged unpaid are corrected once. Each g
 - **FR-021**: An application MUST be refused when:
   - the payment belongs to another party;
   - it's in another currency;
-  - it's above the payment's unapplied amount;
+  - its amount plus its change is above the payment's unapplied amount;
   - it's above the document's balance;
   - nothing is owed on the document: it's flagged paid, or its balance is 0.01 or less.
 
@@ -401,7 +406,7 @@ The orders that are paid off but still flagged unpaid are corrected once. Each g
 
 - **Base currency:** a party's figures are in base currency at each document's exchange rate, as the credit check does. All open credit orders on mbe_dev are in MXN.
 - **No customer cutoff:** customer history counts in full (decided 27 Oct 2026). The audit's 2025-01-01 floor applies only to the current system's reports.
-- **Customer credit** is every positive unapplied amount, with no cutoff. That includes legacy payments, $24.87M across 1,750 customers. Cleaning it up is the audit's phase 2, not this spec. Credit is shown, but utilization and the credit check read owed, not net.
+- **Customer credit** is every positive unapplied amount (FR-005a), with no cutoff. That includes legacy payments, $18.77M across 316 customers. Cleaning it up is the audit's phase 2, not this spec. Credit is shown, but utilization and the credit check read owed, not net.
 - **Supplier side at go-live:**
   - Nothing is migrated, and go-live sets `supplier_balance_cutoff` to the go-live date.
   - Verification uses a test cutoff and leaves it NULL.

@@ -54,6 +54,8 @@ These write to mbe_dev, so they need confirmation. Use a test customer and order
 - **Concurrency:** 20 simultaneous applications of 10 against one order owing 100. **Expected:** exactly 10 succeed, the rest get 409 or 422, and the balance never goes below 0.
 - **Reversal:** reverse one application on the paid order. **Expected:** `paid` is cleared, because the balance crossed back above 0.01.
 - **Legacy order:** an application to a legacy paid order with a computed balance is refused (409), and the order stays paid.
+- **Change:** `GET /customer-payments/300789` shows `unapplied` 0 (600 − 530 − 70), the same as its ticket. An application whose amount plus change is above the payment's unapplied amount is refused (422).
+- **Credit:** the customer credit across all customers is about $18.77M across 316 customers, not $24.87M.
 
 ## 6. After: re-measure (SC-002)
 

@@ -86,8 +86,9 @@ After both locks they read `unapplied_amount` and `order_balances` and check the
 ## R7. Party figures and credit
 
 - **Owed and overdue:** sums of open documents, in base currency at each document's `exchange_rate`. Supplier POs carry no rate and are all MXN, so their rate is 1.
-- **Customer credit:** the sum, over the customer's payments, of `amount − live applications` where that difference is above 0.01. It's one grouped query per page of customers.
-  - 1,750 customers hold $24.87M today.
+- **Customer credit:** the sum, over the customer's payments, of the unapplied amount (R14), `amount − Σ(applied + change)` over live applications, where it's above 0.01. It's one grouped query per page of customers.
+  - 316 customers hold $18.77M today. Without subtracting change it would be 1,750 customers and $24.87M.
+  - 39 of the 316 owe on an open order, and hold $4.37M of that credit.
   - The 74 negative ones (cash refunds, −$516k) are left out by the positive filter.
 - **Supplier credit:** spec 032's `payment_credit`.
 - **Net** = owed − credit.
@@ -100,6 +101,26 @@ After both locks they read `unapplied_amount` and `order_balances` and check the
 - **Supplier side:** no facility filter, and 101 isn't read (FR-019).
 - **Statements:** always all facilities (clarified).
 - **Effect on current users:** 12 of the 23 users who can read 18 can't read 101.
+
+## R14. Unapplied amount counts change handed back (FR-005a, clarified)
+
+**Decision:** `customer_payment_service.unapplied_amount` and `attach_summary_unapplied` subtract `amount + amount_change` of each live application, not `amount` alone. Everything that reports or checks unapplied reads them:
+- `unapplied` on payment responses;
+- the apply check: an application's `amount + amount_change` must not exceed the unapplied amount. Today only `amount` is compared;
+- the drill-down's payments that can be applied;
+- the customer credit (R7);
+- the payment ticket. #275 is on main after this branch's base: `print_contexts` computes `allocated = Σ(amount + amount_change)` itself (`print_contexts.py:687` on main). It switches to `unapplied_amount`, so the ticket and the API share one figure.
+
+The branch merges `origin/main` first, to pick up #270, #271 and #275.
+
+**Measured:**
+- 38,523 live applications carry change. 432 of them are on credit payments (type 2) and the rest are on cash sales.
+- 7,602 payments that show a positive `unapplied` today are 0 or less once change is subtracted.
+- Example: payment 300789 is 600, with 530 applied and 70 change. It's 0 by the ticket's rule; `unapplied` reports 70 today.
+
+**Rationale:** change is money the payment handed back, so it can't be applied again. The current system's `CustomerPayment.Balance` and the #275 ticket both subtract it. Two figures for one payment is the divergence this spec exists to remove.
+
+**Not changed:** the order's balance. Change isn't money the order received, so `order_balances` subtracts `amount` only, as today. The apply check compares `amount`, not `amount + change`, with the order's balance.
 
 ## R9. Applying from the view (FR-020, FR-021)
 

@@ -15,6 +15,7 @@
     - set when the balance reaches 0.01 or less;
     - cleared only when the balance crosses back above it (R3).
   - Applying a customer payment now locks payment → order, and refuses an amount above the order's balance or an order already settled (R4).
+  - A payment's unapplied amount subtracts the change handed back, as the ticket (#275) and the current system do. Customer credit, payment responses, the apply check and the ticket all read that one figure (R14).
 - **Shared views** (#77, #79):
   - `/accounts-receivable` (18) and `/accounts-payable` (19): summary, drill-down, statement PDF and statement email, 4 routes each.
   - Both are built from one side-agnostic service. The side supplies its open documents, credit and party data (R5–R8).
@@ -72,11 +73,11 @@
   - `jobs/settle_paid_flags.py`.
 - **Extended:**
   - `sales_order_service.py`: `order_balances`, plus the credit check reading it;
-  - `customer_payment_service.py`: locks, guards, `settle` and `reopen`, `search_outstanding`;
+  - `customer_payment_service.py`: `unapplied` subtracts change; locks, guards, `settle` and `reopen`; `search_outstanding`;
   - `customer_refund_service.py`: settle on confirm;
   - `invoice_service.py`: settle on a credit note's confirm;
   - `supplier_payment_service.py`: batch open POs, due dates;
-  - `print_contexts.py`: statement context;
+  - `print_contexts.py`: statement context; the payment ticket reads `unapplied_amount` (after merging `origin/main` for #275);
   - `enums.py`: `SourceType.SUPPLIER`.
 - **Docs:** `07-administration.md` §1–2, and the CHANGELOG.
 
@@ -87,7 +88,7 @@
 | Principle | Check | Status |
 |---|---|---|
 | I. Simplicity First | Balances are computed, not stored. One service serves both sides. Existing apply routes are reused. No migration. **Not built:** supplier returns, remittances, enforcement of supplier limits, legacy cleanup beyond FR-012, debt reports. | PASS |
-| II. Think Before Coding | Three clarifications are recorded. Measured before deciding: the $120.2M on paid orders, the 257 stale flags, credit-note line tracing (1 of 115 lines), cross-facility applications (14%), privilege holders, and POs without receipts. | PASS |
+| II. Think Before Coding | Four clarifications are recorded. Measured before deciding: the $120.2M on paid orders, change on 38,523 applications ($18.77M of credit, not $24.87M), the 257 stale flags, credit-note line tracing (1 of 115 lines), cross-facility applications (14%), privilege holders, and POs without receipts. | PASS |
 | III. Surgical Changes | The changes to existing code are what FR-001 requires: four balance copies become one call; `_sync_paid_flag` becomes `settle`/`reopen`; the apply path gains locks and two guards; refund and credit-note confirms each gain one `settle` call; the stale docstrings of the credit check are rewritten. | PASS |
 | IV. Goal-Driven | SC-001 to SC-008 map to tests or to recorded runs (quickstart). | PASS |
 | V. Reuse Over Rebuild | **Reused:** `totals.remaining`, `refunded_by_order`, `fiscal_document_service.live`, `invoice_settlements`' note totals, spec 032's `po_counts`/`_po_totals`/`payment_credit`, `require_privilege`, `has_any_privilege`, `busy_as_conflict`, `incidences.record`, `render_pdf`, `header_context`, `_print_layout.html`, `get_mailer`, and quotes' email flow and recipient validation. The new modules are justified below. | PASS, see Complexity Tracking |
@@ -95,7 +96,7 @@
 | VII. Security by Default | Every new route is gated on 18 or 19. AR scope is enforced server-side; the current system has no server-side check at all. Statements need read on the side, and the clarified scope is all facilities. | PASS |
 | VIII. Ruff | The gate runs before each commit. | PASS |
 | Testing | Tests are written first for every service branch and route. | PASS |
-| Changelog | `[Unreleased]`: Added (AR and AP views, statements, `settle_paid_flags`); Changed (the credit hold and limit read the shared balance; balances deduct credit notes; applications are locked and capped at the order balance; `paid` is cleared only on a crossing). | PASS |
+| Changelog | `[Unreleased]`: Added (AR and AP views, statements, `settle_paid_flags`); Fixed (a payment's `unapplied` subtracts change handed back); Changed (the credit hold and limit read the shared balance; balances deduct credit notes; applications are locked and capped at the order balance; `paid` is cleared only on a crossing). | PASS |
 
 Post-design: no new violations.
 
@@ -128,7 +129,7 @@ app/
     ├── accounts_service.py                       # NEW: side adapters, aging, party figures, scope, statement data
     ├── account_email.py                          # NEW: render, send, record
     ├── sales_order_service.py                    # + order_balances (credit notes); attach_* and credit check read it; docstrings
-    ├── customer_payment_service.py               # apply/reverse lock + guards; settle/reopen replace _sync_paid_flag; search_outstanding
+    ├── customer_payment_service.py               # unapplied − change; apply/reverse lock + guards; settle/reopen; search_outstanding
     ├── customer_refund_service.py                # confirm_refund calls settle
     ├── invoice_service.py                        # credit note confirm locks orders, calls settle
     ├── supplier_payment_service.py               # + open_purchase_orders (batch, due dates, receipts)

@@ -105,9 +105,14 @@ The send records one incidence: source 7 (customer) or 16 (supplier), `instance_
 
 ## Changed: existing routes
 
+**Customer payment responses** (`GET /customer-payments`, `/{id}`, `/search`, `/unverified`): `unapplied` = amount − Σ(applied + change) over live applications. Today it doesn't subtract change.
+
+**`GET /customer-payments/{id}/ticket`** (#275): the balance reads the same `unapplied`. The printed figure doesn't change.
+
 **`POST /customer-payments/{id}/applications`:**
 - **New 409:** "Sales order is already settled", when the order is flagged paid or its balance is 0.01 or less.
 - **New 422:** "Amount X exceeds the order balance of Y".
+- **Changed 422:** the unapplied check compares `amount + amount_change` with the unapplied amount, which now subtracts change.
 - **New 409:** "The order is busy, retry", on lock contention.
 - The other refusals are unchanged.
 

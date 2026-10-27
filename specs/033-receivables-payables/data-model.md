@@ -56,7 +56,7 @@ There's no schema change (research R12). Everything below is computed from exist
 | `overdue` | Σ of the same for documents with `days_past_due > 0` |
 | `buckets` | `current`, `1-30`, `31-60`, `61-90`, `90+`; they sum to `owed` |
 | `oldest` | Earliest open document `date` in scope |
-| `credit` | Customer: Σ positive unapplied payments. Supplier: spec 032 credit |
+| `credit` | Customer: Σ positive unapplied amounts, `amount − Σ(applied + change)` over live applications (R14). Supplier: spec 032 credit |
 | `net` | `owed − credit` |
 | `credit_limit`, `credit_days` | From the party |
 | `owed_company` | `owed` across every facility (the customer side can differ from `owed` when the caller is scoped) |
@@ -87,7 +87,7 @@ There's no schema change (research R12). Everything below is computed from exist
 |---|---|---|
 | Payment belongs to another party | 422 | existing `assert_same_customer`; spec 032 |
 | Different currency | 422 | existing `assert_same_currency` |
-| Above the payment's unapplied amount | 422 | existing `assert_within_unapplied`; spec 032 |
+| `amount + amount_change` above the payment's unapplied amount (which now subtracts change) | 422 | `assert_within_unapplied`, **changed** to include change; spec 032 |
 | Above the order's balance | 422 | **new** on the customer side; spec 032 on the supplier side |
 | Order flagged paid or balance ≤ 0.01 | 409 | **new** on the customer side |
 | Lock contention or deadlock | 409 | `busy_as_conflict` |
