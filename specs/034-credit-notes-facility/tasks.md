@@ -212,7 +212,7 @@ No setup: no dependency, setting, enum or migration is added (research R9).
     - the facility rule on payment apply and reverse, sales-order list and writes, and credit notes (roadmap#156);
     - `/unverified` covers every facility;
     - `CreditNoteResponse` fields: `amount`, `facility`, `refunded_to_customer`; `refunded` now means cash handed back.
-- [ ] T027 Run `uv run ruff check app/ migrations/ tests/`, `uv run ruff format --check` on the touched files, and `uv run pytest -q`; all green.
+- [X] T027 Run `uv run ruff check app/ migrations/ tests/`, `uv run ruff format --check` on the touched files, and `uv run pytest -q`; all green.
 - [X] T028 Run the quickstart. Steps 1–5 are read-only after deploying to dev, which needs no confirmation. Step 6 writes to mbe_dev and needs confirmation. Record the figures in `.spec-context.json` verifications.
 
 ---
