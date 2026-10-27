@@ -304,6 +304,37 @@ async def test_to_purchase_groups_by_supplier_and_facility(client, db, seeded):
     assert len(body['groups']) == 3
 
 
+async def test_a_to_purchase_that_lost_the_race_creates_no_po(client, db, seeded, monkeypatch):
+    """The group's lines are taken between the pre-read and the lock: the re-check refuses before
+    the PO exists, so no PO number is used up."""
+    a, _, pa, _, _ = await _vendors(db)
+    _, lines = await seed.purchase_request(
+        db, warehouse=1, lines=[(pa, '1', 1)], state='approved', serial=1
+    )
+    lock = service.requests.lock_request_lines
+    new_orders: list = []
+
+    async def taken_then_locked(session, ids):  # noqa: ANN001, ANN202
+        await seed.purchase_order(
+            session, lines=[(pa, '1', 1)], completed=False, supplier=a, request_lines=lines
+        )
+        await lock(session, ids)
+
+    def new_order(*args, **kwargs):  # noqa: ANN202
+        new_orders.append(args)
+        return original_new_order(*args, **kwargs)
+
+    original_new_order = service._new_order
+    monkeypatch.setattr(service.requests, 'lock_request_lines', taken_then_locked)
+    monkeypatch.setattr(service, '_new_order', new_order)
+    response = await client.post(f'{URL}/to-purchase', json={'supplier': a, 'facility': 1})
+    assert (response.status_code, response.json()['detail']) == (
+        409,
+        'Nothing is pending for this supplier and facility',
+    )
+    assert new_orders == []
+
+
 async def test_to_purchase_needs_a_supplier(client, db, seeded):
     response = await client.post(f'{URL}/to-purchase', json={'supplier': None, 'facility': 1})
     assert response.status_code == 422

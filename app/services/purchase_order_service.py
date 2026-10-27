@@ -535,18 +535,37 @@ def _skip_reason(state: RequestStatus, live: Any) -> str:
     return 'Not marked to purchase'
 
 
+async def _still_pending(
+    db: AsyncSession,
+    lines: Sequence[PurchaseRequestDetail],
+    states: dict[int, RequestStatus],
+) -> tuple[list[PurchaseRequestDetail], list[dict[str, Any]]]:
+    """Re-check each locked request line (R3): `(pending, skipped)`."""
+    live = await requests.live_order_lines(db, [line.purchase_request_detail_id for line in lines])
+    pending: list[PurchaseRequestDetail] = []
+    skipped: list[dict[str, Any]] = []
+    for line in lines:
+        state = states[line.purchase_request]
+        found = live.get(line.purchase_request_detail_id)
+        if is_pending(state, line.to_purchase, found and found[0]):
+            pending.append(line)
+        else:
+            skipped.append(
+                {
+                    'purchase_request_detail': line.purchase_request_detail_id,
+                    'reason': _skip_reason(state, found),
+                }
+            )
+    return pending, skipped
+
+
 async def _add_pending_lines(
     db: AsyncSession,
     order: PurchaseOrder,
     lines: Sequence[PurchaseRequestDetail],
     header_warehouses: dict[int, int],
-    states: dict[int, RequestStatus],
-) -> tuple[list[str], list[dict[str, Any]], int]:
-    """Re-check each locked request line and put the pending ones on `order` (R3).
-
-    Returns the warnings, the skipped lines, and how many were taken.
-    """
-    live = await requests.live_order_lines(db, [line.purchase_request_detail_id for line in lines])
+) -> list[str]:
+    """Put the re-checked pending request lines on `order`; returns the warnings."""
     products = {
         product.product_id: product
         for product in (
@@ -559,19 +578,7 @@ async def _add_pending_lines(
     }
     cost_of = await costs(db, products)
     warnings: list[str] = []
-    skipped: list[dict[str, Any]] = []
-    taken = 0
     for line in lines:
-        state = states[line.purchase_request]
-        found = live.get(line.purchase_request_detail_id)
-        if not is_pending(state, line.to_purchase, found and found[0]):
-            skipped.append(
-                {
-                    'purchase_request_detail': line.purchase_request_detail_id,
-                    'reason': _skip_reason(state, found),
-                }
-            )
-            continue
         product = products[line.product]
         warehouse = line.warehouse or header_warehouses[line.purchase_request]
         values, warning = line_values(
@@ -584,14 +591,13 @@ async def _add_pending_lines(
                 **values,
             )
         )
-        taken += 1
         for message in (
             warning,
             supplier_mismatch_warning(product.code, product.supplier, order.supplier),
         ):
             if message is not None:
                 warnings.append(message)
-    return warnings, skipped, taken
+    return warnings
 
 
 async def _locked_request_lines(
@@ -664,11 +670,10 @@ async def add_request_lines(
         lines, header_warehouses, states = await _locked_request_lines(db, ids)
         if states.get(request_id, RequestStatus.APPROVED) is not RequestStatus.APPROVED:
             raise _conflict("Only an approved request's lines can be ordered")
-        warnings, skipped, taken = await _add_pending_lines(
-            db, order, lines, header_warehouses, states
-        )
-        if not taken:
+        pending, skipped = await _still_pending(db, lines, states)
+        if not pending:
             raise _conflict('Nothing left to add from this request')
+        warnings = await _add_pending_lines(db, order, pending, header_warehouses)
         _touch(order, current)
         await db.commit()
     order.__dict__['warnings'] = warnings
@@ -697,14 +702,14 @@ async def create_from_group(
         await requests.lock_request_lines(db, ids)
 
         lines, header_warehouses, states = await _locked_request_lines(db, ids)
+        # Re-checked before the PO exists, so a call that lost the race uses up no PO number.
+        pending, skipped = await _still_pending(db, lines, states)
+        if not pending:
+            raise _conflict('Nothing is pending for this supplier and facility')
         order = _new_order(supplier, current)
         db.add(order)
         await db.flush()
-        warnings, skipped, taken = await _add_pending_lines(
-            db, order, lines, header_warehouses, states
-        )
-        if not taken:
-            raise _conflict('Nothing is pending for this supplier and facility')
+        warnings = await _add_pending_lines(db, order, pending, header_warehouses)
         await db.commit()
     order.__dict__['warnings'] = warnings
     order.__dict__['skipped'] = skipped

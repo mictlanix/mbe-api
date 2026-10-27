@@ -408,4 +408,4 @@ All writes were approved: facility 47 (warehouses 8 and 14), warehouse 19 (facil
   - all 21 requests and the draft POs are cancelled, and receipts 32046–32051 are cancelled;
   - POs 11070–11073 stay confirmed, since a confirmed PO cannot be cancelled;
   - no request answered 5xx, and the script was removed from xolotl.
-- **Note:** the 7 losing `to-purchase` calls each inserted a PO and rolled it back, so ids 11063–11069 were used up. POs are numbered by id, so a race leaves a gap in the numbers.
+- **Note:** the 7 losing `to-purchase` calls each inserted a PO and rolled it back, so ids 11063–11069 were used up. POs are numbered by id, so a race leaves a gap in the numbers. Fixed afterwards: `to-purchase` re-checks the locked lines before it creates the PO, so a call that loses the race creates none. The integration test `test_a_to_purchase_that_lost_the_race_creates_no_po` covers it, and the full suite passes (5,363 tests).
