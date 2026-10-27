@@ -110,7 +110,7 @@ class TestTheSummary:
     async def test_lists_the_rows_with_scope_and_totals(self) -> None:
         _auth()
         with (
-            patch(f'{ROUTE}.has_any_privilege', _holds()),
+            patch('app.core.deps.has_any_privilege', _holds()),
             patch(f'{ROUTE}.accounts_service.summary', AsyncMock(return_value=_listing())),
         ):
             async with _client() as client:
@@ -147,7 +147,7 @@ class TestTheSummary:
         _auth()
         summary = AsyncMock(return_value=_listing())
         with (
-            patch(f'{ROUTE}.has_any_privilege', _holds()),
+            patch('app.core.deps.has_any_privilege', _holds()),
             patch(f'{ROUTE}.accounts_service.summary', summary),
         ):
             async with _client() as client:
@@ -165,7 +165,8 @@ class TestTheSummary:
         summary = AsyncMock(return_value=_listing())
         with (
             patch(
-                f'{ROUTE}.has_any_privilege', _holds(SystemObject.SEARCH_CREDITS_FROM_ALL_STORES)
+                'app.core.deps.has_any_privilege',
+                _holds(SystemObject.SEARCH_CREDITS_FROM_ALL_STORES),
             ),
             patch(f'{ROUTE}.accounts_service.summary', summary),
         ):
@@ -182,7 +183,7 @@ class TestTheSummary:
         _auth()
         summary = AsyncMock(return_value=_listing())
         with (
-            patch(f'{ROUTE}.has_any_privilege', _holds()),
+            patch('app.core.deps.has_any_privilege', _holds()),
             patch(f'{ROUTE}.accounts_service.summary', summary),
         ):
             async with _client() as client:
@@ -206,7 +207,7 @@ class TestTheDrillDown:
         _auth()
         detail = AsyncMock(return_value={'summary': _summary(), 'documents': [_document()]})
         with (
-            patch(f'{ROUTE}.has_any_privilege', _holds()),
+            patch('app.core.deps.has_any_privilege', _holds()),
             patch(f'{ROUTE}.accounts_service.detail', detail),
             patch(
                 f'{ROUTE}.customer_payment_service.payments_with_credit',
@@ -234,7 +235,7 @@ class TestTheDrillDown:
         _auth()
         missing = HTTPException(status_code=404, detail='Customer not found')
         with (
-            patch(f'{ROUTE}.has_any_privilege', _holds()),
+            patch('app.core.deps.has_any_privilege', _holds()),
             patch(f'{ROUTE}.accounts_service.detail', AsyncMock(side_effect=missing)),
         ):
             async with _client() as client:
@@ -259,7 +260,7 @@ class TestTheDrillDown:
         _auth(administrator=administrator)
         payments = AsyncMock(return_value=[])
         with (
-            patch(f'{ROUTE}.has_any_privilege', _holds(*held)),
+            patch('app.core.deps.has_any_privilege', _holds(*held)),
             patch(
                 f'{ROUTE}.accounts_service.detail',
                 AsyncMock(return_value={'summary': _summary(), 'documents': []}),
@@ -280,7 +281,7 @@ class TestTheStatement:
         _auth()
         context = AsyncMock(return_value=('account_statement.html', {}))
         with (
-            patch(f'{ROUTE}.has_any_privilege', _holds()),
+            patch('app.core.deps.has_any_privilege', _holds()),
             patch(f'{ROUTE}.print_contexts.account_statement_context', context),
             patch(f'{ROUTE}.rendering.render_pdf', AsyncMock(return_value=b'%PDF-1.7')),
         ):

@@ -459,7 +459,7 @@ def _clerk(*, editor: bool):  # noqa: ANN202
 
     app.dependency_overrides[get_db] = _noop_db
     return patch(
-        'app.api.v1.endpoints.customer_payments.has_any_privilege', AsyncMock(return_value=editor)
+        'app.core.deps.has_any_privilege', AsyncMock(return_value=editor)
     )
 
 

@@ -11,7 +11,13 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from fastapi import HTTPException
 
-from app.core.deps import CurrentUser, has_any_privilege, require_any_privilege, require_privilege
+from app.core.deps import (
+    CurrentUser,
+    can_see_every_facility,
+    has_any_privilege,
+    require_any_privilege,
+    require_privilege,
+)
 from app.enums import AccessRight, SystemObject
 
 CUSTOMERS_READ = (SystemObject.CUSTOMERS, AccessRight.READ)
@@ -107,3 +113,32 @@ def test_both_factories_expose_their_grants() -> None:
     assert require_privilege(SystemObject.LABELS, AccessRight.DELETE).grants == (
         (SystemObject.LABELS, AccessRight.DELETE),
     )
+
+
+# ── can_see_every_facility (spec 034, FR-009, FR-014) ─────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_an_administrator_sees_every_facility_without_a_query() -> None:
+    db = _db()
+
+    assert await can_see_every_facility(db, _user(administrator=True), SystemObject.PAYMENTS_EDITOR)
+    db.execute.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    'system_object', [SystemObject.PAYMENTS_EDITOR, SystemObject.SEARCH_CREDITS_FROM_ALL_STORES]
+)
+async def test_read_on_the_named_object_sees_every_facility(system_object: SystemObject) -> None:
+    db = _db((int(system_object), int(AccessRight.READ)))
+
+    assert await can_see_every_facility(db, _user(), system_object)
+
+
+@pytest.mark.asyncio
+async def test_another_bit_or_no_row_does_not() -> None:
+    other_bit = _db((int(SystemObject.PAYMENTS_EDITOR), int(AccessRight.UPDATE)))
+
+    assert not await can_see_every_facility(other_bit, _user(), SystemObject.PAYMENTS_EDITOR)
+    assert not await can_see_every_facility(_db(), _user(), SystemObject.PAYMENTS_EDITOR)

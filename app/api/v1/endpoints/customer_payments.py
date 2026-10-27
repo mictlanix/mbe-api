@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import rendering
-from app.core.deps import CurrentUser, has_any_privilege, require_privilege
+from app.core.deps import CurrentUser, can_see_every_facility, require_privilege
 from app.db.session import get_db
 from app.enums import AccessRight, PaymentType, SystemObject
 from app.schemas import ListResponse, LocalDateTime
@@ -38,9 +38,7 @@ async def _payment_or_404(db: AsyncSession, customer_payment_id: int):  # noqa: 
 
 async def _sees_every_facility(db: AsyncSession, current: CurrentUser) -> bool:
     """Another facility's payments are PaymentsEditor (100) territory, as on `/search` (#271)."""
-    return current.administrator or await has_any_privilege(
-        db, current.user_id, [(SystemObject.PAYMENTS_EDITOR, AccessRight.READ)]
-    )
+    return await can_see_every_facility(db, current, SystemObject.PAYMENTS_EDITOR)
 
 
 async def _visible_payment_or_404(  # noqa: ANN202

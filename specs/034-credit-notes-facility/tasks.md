@@ -40,12 +40,12 @@ No setup: no dependency, setting, enum or migration is added (research R9).
 
 **Purpose**: one helper for "this caller sees every facility" (research R4).
 
-- [ ] T001 Write the tests first, in `tests/unit/test_deps_privileges.py`, for `can_see_every_facility(db, current, system_object) -> bool`, using that file's fake `_db(...)` rows:
+- [X] T001 Write the tests first, in `tests/unit/test_deps_privileges.py`, for `can_see_every_facility(db, current, system_object) -> bool`, using that file's fake `_db(...)` rows:
   - an administrator → True without querying;
   - a holder of read on the object → True;
   - a row with another bit, or no row → False;
   - the object passed is the one queried (100 and 101 cases).
-- [ ] T002 Add `can_see_every_facility` to `app/core/deps.py`, beside `has_any_privilege`: `current.administrator or await has_any_privilege(db, current.user_id, [(system_object, AccessRight.READ)])`, with a docstring naming the rule (spec 034 FR-009, FR-014). Then make the two existing private copies call it:
+- [X] T002 Add `can_see_every_facility` to `app/core/deps.py`, beside `has_any_privilege`: `current.administrator or await has_any_privilege(db, current.user_id, [(system_object, AccessRight.READ)])`, with a docstring naming the rule (spec 034 FR-009, FR-014). Then make the two existing private copies call it:
   - `_sees_every_facility` in `app/api/v1/endpoints/customer_payments.py`, with PAYMENTS_EDITOR;
   - `_sees_every_facility` in `app/api/v1/endpoints/accounts_receivable.py`, with SEARCH_CREDITS_FROM_ALL_STORES.
 
