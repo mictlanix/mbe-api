@@ -159,8 +159,7 @@ description: "Task list for expense vouchers and supplier payments (spec 032)"
 
 ### Implementation for User Story 2
 
-- [ ] T019 [US2] Use `ReversalRequest` from `app/schemas/customer_payment.py` (`reason`, 1–500 characters) as the void body, imported in `app/api/v1/endpoints/expense_vouchers.py`. Add no new reason schema (constitution V).
-- [ ] T020 [US2] Add `void_voucher` to `app/services/expense_voucher_service.py` (research R3):
+- [ ] T019 [US2] Add `void_voucher` to `app/services/expense_voucher_service.py` (research R3):
   1. pre-read the voucher's `cash_session`, then commit;
   2. `lock_open_session` on that session;
   3. lock the voucher row, and re-check that it is still in that session, completed and not cancelled;
@@ -168,7 +167,7 @@ description: "Task list for expense vouchers and supplier payments (spec 032)"
   5. write `incidences.record(... SourceType.EXPENSE_VOUCHER ...)` in the same transaction.
 
   Use `busy_as_conflict`.
-- [ ] T021 [US2] Add `POST /{id}/void` to `app/api/v1/endpoints/expense_vouchers.py`, gated on 82 Delete with the facility rule.
+- [ ] T020 [US2] Add `POST /{id}/void` to `app/api/v1/endpoints/expense_vouchers.py`, gated on 82 Delete with the facility rule. Its body is `ReversalRequest` from `app/schemas/customer_payment.py` (`reason`, 1–500 characters); add no new reason schema (constitution V).
 
 **Checkpoint**: US1 and US2 pass on their own. Vouchers are complete except for printing.
 
@@ -185,7 +184,7 @@ description: "Task list for expense vouchers and supplier payments (spec 032)"
 
 ### Tests for User Story 4
 
-- [ ] T022 [P] [US4] Unit tests in `tests/unit/test_supplier_payments.py`:
+- [ ] T021 [P] [US4] Unit tests in `tests/unit/test_supplier_payments.py`:
   - **Create:**
     - the amount, date and method rules: 422 for an amount of 0 or less, more than 2 decimals, a future date, or an unknown method;
     - a cash payment with a body `date` answers 422;
@@ -204,31 +203,31 @@ description: "Task list for expense vouchers and supplier payments (spec 032)"
     - the payment is cancelled, or legacy (`facility IS NULL`);
     - duplicate POs, or more than 50 items, answer 422; an unknown PO answers 404.
   - **Arithmetic:** credit is the amount minus live applications, and a reversed application doesn't count; the PO balance is `order_totals` total minus live applications.
-- [ ] T023 [P] [US4] Unit tests in `tests/unit/test_cash_cut.py`:
+- [ ] T022 [P] [US4] Unit tests in `tests/unit/test_cash_cut.py`:
   - `cut_figures.supplier_payments_total` sums the session's non-cancelled cash payments;
   - cancelled and non-cash payments are left out;
   - `cash_in_drawer` and `expected_cash` subtract it.
-- [ ] T024 [P] [US4] Integration test in `tests/integration/test_supplier_payment_flow.py`:
+- [ ] T023 [P] [US4] Integration test in `tests/integration/test_supplier_payment_flow.py`:
   - the Independent Test, with the cutoff row set in the test;
   - creating a payment with applications in one call;
   - a cash payment lowering the session's expected cash;
   - serials 1, 2 and 3 in facility A, and 1 in facility B.
-- [ ] T025 [P] [US4] API tests in `tests/api/test_supplier_payments.py` for list, create, get and `POST /{id}/applications`:
+- [ ] T024 [P] [US4] API tests in `tests/api/test_supplier_payments.py` for list, create, get and `POST /{id}/applications`:
   - 401, 403 without 21 Read, Create or Update, 404, 409 and 422 as contract/payments.md says;
   - list filters: `supplier`, `facility`, `method`, `status`, `from`, `to`, and `skip`/`limit`, newest first;
   - the response's `applied`, `credit` and `applications[]`.
-- [ ] T026 [P] [US4] In `tests/api/test_cash_sessions.py`: the session's cut and `expected_cash` reflect a cash supplier payment and a confirmed voucher.
+- [ ] T025 [P] [US4] In `tests/api/test_cash_sessions.py`: the session's cut and `expected_cash` reflect a cash supplier payment and a confirmed voucher.
 
 ### Implementation for User Story 4
 
-- [ ] T027 [P] [US4] Write the schemas in `app/schemas/supplier_payments.py`:
+- [ ] T026 [P] [US4] Write the schemas in `app/schemas/supplier_payments.py`:
   - `ApplicationItem` (`purchase_order`, `amount`);
   - `SupplierPaymentCreate`:
     - `supplier`, `amount`, `method` (a `PaymentMethod`), `date`, `reference` up to 50, `comment` up to 500, `facility`, and up to 50 `applications`;
     - validators for the amount, for 2 decimals and the maximum, for distinct POs, and for a date not in the future;
   - `ApplicationsCreate`, with 1–50 distinct items;
   - `Application`, `SupplierPaymentSummary` and `SupplierPaymentResponse`.
-- [ ] T028 [US4] Write `app/services/supplier_payment_service.py`:
+- [ ] T027 [US4] Write `app/services/supplier_payment_service.py`:
   - **Shared helpers:**
     - `get_cutoff(db)`, which reads `supplier_balance_cutoff` row 1;
     - `po_counts(order, cutoff)`: completed, not cancelled, and `modification_time >= cutoff`;
@@ -250,12 +249,12 @@ description: "Task list for expense vouchers and supplier payments (spec 032)"
   - `get_payment` and `list_payments`, with `applied` and `credit` computed and the supplier's name.
 
   Wrap the locking paths in `busy_as_conflict`.
-- [ ] T029 [US4] Write the endpoints in `app/api/v1/endpoints/supplier_payments.py`: GET list, POST, GET `/{id}` and POST `/{id}/applications`, gated on `SystemObject.SUPPLIER_PAYMENT` (Read, Create, Update). Register the router in `app/api/v1/router.py` with `prefix='/supplier-payments'`.
-- [ ] T030 [US4] Extend `app/services/cash_session_service.py` (research R8):
+- [ ] T028 [US4] Write the endpoints in `app/api/v1/endpoints/supplier_payments.py`: GET list, POST, GET `/{id}` and POST `/{id}/applications`, gated on `SystemObject.SUPPLIER_PAYMENT` (Read, Create, Update). Register the router in `app/api/v1/router.py` with `prefix='/supplier-payments'`.
+- [ ] T029 [US4] Extend `app/services/cash_session_service.py` (research R8):
   - `CashCutFigures` gains `supplier_payments_total`;
   - `cut_figures` sums `SupplierPayment.amount` where `cash_session = session`, `method = PaymentMethod.CASH` and `cancelled` is false;
   - `cash_in_drawer` subtracts it.
-- [ ] T031 [US4] Add the "Pagos a proveedores" row:
+- [ ] T030 [US4] Add the "Pagos a proveedores" row:
   - pass `supplier_payments_total` through `cash_cut_context` in `app/services/print_contexts.py`;
   - render it in `app/rendering/templates/cash_cut.html` after "Gastos", only when it is above 0.
 
@@ -273,22 +272,22 @@ description: "Task list for expense vouchers and supplier payments (spec 032)"
 
 ### Tests for User Story 3
 
-- [ ] T032 [P] [US3] In `tests/unit/test_expense_vouchers.py`, check that `expense_voucher_context` returns the template name and:
+- [ ] T031 [P] [US3] In `tests/unit/test_expense_vouchers.py`, check that `expense_voucher_context` returns the template name and:
   - `header` from `header_context`, `pad8(voucher id)` and the cashier's name;
   - the date, each line's category, note and amount, and the total.
-- [ ] T033 [P] [US3] In `tests/api/test_expense_vouchers.py`, check `GET /{id}/ticket`:
+- [ ] T032 [P] [US3] In `tests/api/test_expense_vouchers.py`, check `GET /{id}/ticket`:
   - 200 with `application/pdf` for a confirmed voucher;
   - 409 for a draft or a cancelled voucher;
   - 401, 403 (82 Read, and the facility rule) and 404.
 
 ### Implementation for User Story 3
 
-- [ ] T034 [P] [US3] Write `app/rendering/templates/expense_voucher_ticket.html`, extending `_ticket_layout.html` the way `cash_cut.html` does:
+- [ ] T033 [P] [US3] Write `app/rendering/templates/expense_voucher_ticket.html`, extending `_ticket_layout.html` the way `cash_cut.html` does:
   - the header, the voucher number, the cashier and the date;
   - the lines, then the total;
   - "Entregó" and "Recibió" signature lines.
-- [ ] T035 [US3] Add `expense_voucher_context(db, voucher)` to `app/services/print_contexts.py`, following `cash_cut_context`.
-- [ ] T036 [US3] Add `GET /{id}/ticket` to `app/api/v1/endpoints/expense_vouchers.py`, rendering as `GET /cash-sessions/{id}/ticket` does in `app/api/v1/endpoints/cash_sessions.py`.
+- [ ] T034 [US3] Add `expense_voucher_context(db, voucher)` to `app/services/print_contexts.py`, following `cash_cut_context`.
+- [ ] T035 [US3] Add `GET /{id}/ticket` to `app/api/v1/endpoints/expense_vouchers.py`, rendering as `GET /cash-sessions/{id}/ticket` does in `app/api/v1/endpoints/cash_sessions.py`.
 
 **Checkpoint**: vouchers are complete (#72).
 
@@ -302,7 +301,7 @@ description: "Task list for expense vouchers and supplier payments (spec 032)"
 
 ### Tests for User Story 5
 
-- [ ] T037 [P] [US5] Unit tests in `tests/unit/test_supplier_payments.py`:
+- [ ] T036 [P] [US5] Unit tests in `tests/unit/test_supplier_payments.py`:
   - **Reverse:**
     - an application that is already reversed answers 409;
     - an application of another payment answers 404;
@@ -312,22 +311,22 @@ description: "Task list for expense vouchers and supplier payments (spec 032)"
     - a cash payment whose session is closed answers 409 "The cash session is closed";
     - on success every live application is reversed, the payment's `cancelled` is set, and one source-15 incidence is written: "Supplier payment cancelled".
   - **After cancel:** applying to the payment answers 409, and its credit is 0.
-- [ ] T038 [P] [US5] Integration test in `tests/integration/test_supplier_payment_flow.py`:
+- [ ] T037 [P] [US5] Integration test in `tests/integration/test_supplier_payment_flow.py`:
   - reverse, and the PO balance and the payment credit both rise by the amount;
   - cancel, and every PO it touched is back to its earlier balance;
   - cancelling a cash payment returns its amount to the cut.
-- [ ] T039 [P] [US5] API tests in `tests/api/test_supplier_payments.py` for `POST /{id}/applications/{application_id}/reverse` and `POST /{id}/cancel`: 401; 403 without 21 Delete; 404; 409; 422 for a missing or overlong reason.
+- [ ] T038 [P] [US5] API tests in `tests/api/test_supplier_payments.py` for `POST /{id}/applications/{application_id}/reverse` and `POST /{id}/cancel`: 401; 403 without 21 Delete; 404; 409; 422 for a missing or overlong reason.
 
 ### Implementation for User Story 5
 
-- [ ] T040 [US5] Add `reverse_application` to `app/services/supplier_payment_service.py`. It locks the payment row, then that application's PO row (research R4), sets `cancelled`, writes the incidence, and uses `busy_as_conflict`.
-- [ ] T041 [US5] Add `cancel_payment` to `app/services/supplier_payment_service.py`, using `busy_as_conflict`:
+- [ ] T039 [US5] Add `reverse_application` to `app/services/supplier_payment_service.py`. It locks the payment row, then that application's PO row (research R4), sets `cancelled`, writes the incidence, and uses `busy_as_conflict`.
+- [ ] T040 [US5] Add `cancel_payment` to `app/services/supplier_payment_service.py`, using `busy_as_conflict`:
   1. pre-read the payment's `cash_session`; commit;
   2. `lock_open_session` (cash only);
   3. lock the payment row and re-check it (not cancelled, same session);
   4. read its live applications (no application can be added past the payment lock), then lock their PO rows ascending;
   5. reverse every live application, set `cancelled`, `updater` and `modification_time`, and write the incidence.
-- [ ] T042 [US5] Add `POST /{id}/applications/{application_id}/reverse` and `POST /{id}/cancel` to `app/api/v1/endpoints/supplier_payments.py`, gated on 21 Delete, with `ReversalRequest` from `app/schemas/customer_payment.py` as the body of both.
+- [ ] T041 [US5] Add `POST /{id}/applications/{application_id}/reverse` and `POST /{id}/cancel` to `app/api/v1/endpoints/supplier_payments.py`, gated on 21 Delete, with `ReversalRequest` from `app/schemas/customer_payment.py` as the body of both.
 
 **Checkpoint**: payments can be corrected.
 
@@ -341,24 +340,24 @@ description: "Task list for expense vouchers and supplier payments (spec 032)"
 
 ### Tests for User Story 6
 
-- [ ] T043 [P] [US6] Unit tests in `tests/unit/test_supplier_payments.py`:
+- [ ] T042 [P] [US6] Unit tests in `tests/unit/test_supplier_payments.py`:
   - **PO balance:** `counts` is false and `balance` is null before the cutoff and with a NULL cutoff; with `counts` true, `balance = total − applied`.
   - **Supplier summary:**
     - `owed`, `credit` and `net`;
     - `orders[]` lists only counting POs with a balance above 0, oldest first;
     - `payments[]` lists only payments with credit above 0, so legacy and cancelled payments are left out;
     - `cutoff` is echoed.
-- [ ] T044 [P] [US6] API tests:
+- [ ] T043 [P] [US6] API tests:
   - in `tests/api/test_supplier_payments.py`, `GET /supplier-payments/suppliers/{id}/balance`: 200, 401, 403 (21 Read) and 404;
   - in `tests/api/test_purchase_orders.py`, `GET /purchase-orders/{id}/payments`: 200, 401, 403 (21 Read) and 404.
 
 ### Implementation for User Story 6
 
-- [ ] T045 [P] [US6] Add `PurchaseOrderBalance`, `SupplierBalance`, `SupplierBalanceOrder` and `SupplierBalancePayment` to `app/schemas/supplier_payments.py` (contract/payments.md).
-- [ ] T046 [US6] Add to `app/services/supplier_payment_service.py` (research R7):
+- [ ] T044 [P] [US6] Add `PurchaseOrderBalance`, `SupplierBalance`, `SupplierBalanceOrder` and `SupplierBalancePayment` to `app/schemas/supplier_payments.py` (contract/payments.md).
+- [ ] T045 [US6] Add to `app/services/supplier_payment_service.py` (research R7):
   - `purchase_order_balance(db, order)`, with each application's `supplier_payment` and `serial`;
   - `supplier_balance(db, supplier_id)`, as two grouped queries plus one lines query over the counting POs. Totals come from `order_totals`.
-- [ ] T047 [US6] Add the routes:
+- [ ] T046 [US6] Add the routes:
   - `GET /suppliers/{supplier_id}/balance` in `app/api/v1/endpoints/supplier_payments.py`;
   - `GET /{id}/payments` in `app/api/v1/endpoints/purchase_orders.py`.
 
@@ -370,16 +369,16 @@ description: "Task list for expense vouchers and supplier payments (spec 032)"
 
 ## Phase 9: Polish & Cross-Cutting Concerns
 
-- [ ] T048 [P] Update `docs/specs/05-purchases.md` §5–6 to describe what was built:
+- [ ] T047 [P] Update `docs/specs/05-purchases.md` §5–6 to describe what was built:
   - voucher states and void;
   - payments, applications, the cutoff, and balances;
   - cash payments in the cut.
-- [ ] T049 [P] Update `docs/data-dictionary.md`: the `supplier_payment` columns, `purchase_order_payment`, `supplier_balance_cutoff`, and incidence sources 14 and 15.
-- [ ] T050 [P] Update `CHANGELOG.md` `[Unreleased]`:
+- [ ] T048 [P] Update `docs/data-dictionary.md`: the `supplier_payment` columns, `purchase_order_payment`, `supplier_balance_cutoff`, and incidence sources 14 and 15.
+- [ ] T049 [P] Update `CHANGELOG.md` `[Unreleased]`:
   - **Added:** vouchers, supplier payments, applications, balances, migration 029;
   - **Changed:** the cut subtracts cash supplier payments; a session's close waits for in-flight vouchers and payments.
-- [ ] T051 Run `uv run ruff check app tests migrations`, `uv run ruff format --check` on the changed files, and `uv run pytest -q`. Everything is green, and no route answers 500 in the API tests.
-- [ ] T052 Run quickstart.md's local checks and tick off each item. The deployment steps (migration 029, deploy to dev, SC-001 to SC-004, cleanup) wait for the user's confirmation at each step and are not part of implement.
+- [ ] T050 Run `uv run ruff check app tests migrations`, `uv run ruff format --check` on the changed files, and `uv run pytest -q`. Everything is green, and no route answers 500 in the API tests.
+- [ ] T051 Run quickstart.md's local checks and tick off each item. The deployment steps (migration 029, deploy to dev, SC-001 to SC-004, cleanup) wait for the user's confirmation at each step and are not part of implement.
 
 ---
 
@@ -391,10 +390,10 @@ description: "Task list for expense vouchers and supplier payments (spec 032)"
 - **Foundational (T004–T008):** after Setup. Blocks every story.
 - **US1 (Phase 3):** after Foundational.
 - **US2 (Phase 4):** after US1, because it voids confirmed vouchers.
-- **US4 (Phase 5):** after Foundational. It doesn't depend on US1 or US2, except that T026 checks the cut with a voucher too.
+- **US4 (Phase 5):** after Foundational. It doesn't depend on US1 or US2, except that T025 checks the cut with a voucher too.
 - **US3 (Phase 6):** after US1.
 - **US5 (Phase 7):** after US4.
-- **US6 (Phase 8):** after US4. It doesn't depend on US5, but the reversal cases in T043 are easier once US5 exists.
+- **US6 (Phase 8):** after US4. It doesn't depend on US5, but the reversal cases in T042 are easier once US5 exists.
 - **Polish:** after every story.
 
 ### Within a story
@@ -410,14 +409,14 @@ description: "Task list for expense vouchers and supplier payments (spec 032)"
 - After Foundational, there are two independent tracks:
   - vouchers: US1 → US2 → US3;
   - supplier payments: US4 → US5 / US6.
-- T048, T049 and T050 run together.
+- T047, T048 and T049 run together.
 
 ### Parallel example: User Story 4
 
 ```text
-Together: T022 (unit), T023 (cut unit), T024 (integration), T025 (API), T026 (cash sessions API), T027 (schemas)
-Then:     T028 (service) → T029 (endpoints + router)
-Together: T030 (cut figure) → T031 (cut row)
+Together: T021 (unit), T022 (cut unit), T023 (integration), T024 (API), T025 (cash sessions API), T026 (schemas)
+Then:     T027 (service) → T028 (endpoints + router)
+Then:     T029 (cut figure) → T030 (cut row)
 ```
 
 ---
