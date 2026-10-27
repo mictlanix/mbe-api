@@ -159,7 +159,7 @@ description: "Task list for expense vouchers and supplier payments (spec 032)"
 
 ### Implementation for User Story 2
 
-- [ ] T019 [US2] Add `VoidRequest` (`reason`, 1–500 characters) to `app/schemas/expense_vouchers.py`. Reuse an existing reason schema if one exists in `app/schemas/`.
+- [ ] T019 [US2] Use `ReversalRequest` from `app/schemas/customer_payment.py` (`reason`, 1–500 characters) as the void body, imported in `app/api/v1/endpoints/expense_vouchers.py`. Add no new reason schema (constitution V).
 - [ ] T020 [US2] Add `void_voucher` to `app/services/expense_voucher_service.py` (research R3):
   1. pre-read the voucher's `cash_session`, then commit;
   2. `lock_open_session` on that session;
@@ -327,7 +327,7 @@ description: "Task list for expense vouchers and supplier payments (spec 032)"
   3. lock the payment row and re-check it (not cancelled, same session);
   4. read its live applications (no application can be added past the payment lock), then lock their PO rows ascending;
   5. reverse every live application, set `cancelled`, `updater` and `modification_time`, and write the incidence.
-- [ ] T042 [US5] Add `POST /{id}/applications/{application_id}/reverse` and `POST /{id}/cancel` to `app/api/v1/endpoints/supplier_payments.py`, gated on 21 Delete, with the reason schema of T019 (or a shared one).
+- [ ] T042 [US5] Add `POST /{id}/applications/{application_id}/reverse` and `POST /{id}/cancel` to `app/api/v1/endpoints/supplier_payments.py`, gated on 21 Delete, with `ReversalRequest` from `app/schemas/customer_payment.py` as the body of both.
 
 **Checkpoint**: payments can be corrected.
 

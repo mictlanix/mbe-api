@@ -130,10 +130,12 @@ tests/
 ├── unit/test_expense_vouchers.py                 # NEW
 ├── unit/test_supplier_payments.py                # NEW
 ├── unit/test_cash_cut.py                         # + supplier payments in the figures
+├── unit/test_cash_session_service.py             # + close re-reads under lock; lock_open_session
 ├── integration/test_expense_voucher_flow.py      # NEW
 ├── integration/test_supplier_payment_flow.py     # NEW
 ├── api/test_expense_vouchers.py                  # NEW
 ├── api/test_supplier_payments.py                 # NEW
+├── api/test_purchase_orders.py                   # + GET /{id}/payments
 └── api/test_cash_sessions.py                     # + close and cut with vouchers and payments
 docs/specs/05-purchases.md
 docs/data-dictionary.md
