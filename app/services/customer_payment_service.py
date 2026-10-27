@@ -13,7 +13,7 @@ from datetime import datetime
 from decimal import Decimal
 
 from fastapi import HTTPException, status
-from sqlalchemy import func, or_, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.clock import local_now
@@ -585,3 +585,39 @@ async def search_outstanding(
             }
         )
     return rows, len(owing)
+
+
+async def payments_with_credit(
+    db: AsyncSession, *, customers: Sequence[int], facility: int | None = None
+) -> list[CustomerPayment]:
+    """The customers' payments with more than 0.01 left to apply, oldest first, each carrying
+    `unapplied` (spec 033, FR-005a, FR-020).
+
+    Unapplied is computed in the query, the same arithmetic as `unapplied_amount`, so the walk-in
+    customer's tens of thousands of fully used cash payments never leave the database.
+    """
+    if not customers:
+        return []
+    used = func.coalesce(func.sum(SalesOrderPayment.amount + SalesOrderPayment.amount_change), 0)
+    unapplied = CustomerPayment.amount - used
+    query = (
+        select(CustomerPayment, unapplied)
+        .outerjoin(
+            SalesOrderPayment,
+            and_(
+                SalesOrderPayment.customer_payment == CustomerPayment.customer_payment_id,
+                SalesOrderPayment.cancelled.is_(False),
+            ),
+        )
+        .where(CustomerPayment.customer.in_(list(customers)))
+        .group_by(CustomerPayment.customer_payment_id)
+        .having(unapplied > sales_order_service.SETTLED)
+        .order_by(CustomerPayment.date, CustomerPayment.customer_payment_id)
+    )
+    if facility is not None:
+        query = query.where(CustomerPayment.facility == facility)
+    payments = []
+    for payment, left in (await db.execute(query)).all():
+        payment.__dict__['unapplied'] = Decimal(left)
+        payments.append(payment)
+    return payments

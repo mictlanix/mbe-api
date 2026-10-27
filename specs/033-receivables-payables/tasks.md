@@ -236,7 +236,7 @@ description: "Task list for accounts receivable and accounts payable (spec 033)"
 
 ### Tests
 
-- [ ] T027 [P] [US2] Write the route contract in `tests/api/test_accounts_receivable.py`, with `accounts_service` and `customer_payment_service` patched:
+- [X] T027 [P] [US2] Write the route contract in `tests/api/test_accounts_receivable.py`, with `accounts_service` and `customer_payment_service` patched:
   - `GET /accounts-receivable`:
     - 200 with the patched service's rows, in the contract's `PartySummary` shape, with `scope` and `totals`;
     - 401 without a login, 403 without read on 18;
@@ -248,7 +248,7 @@ description: "Task list for accounts receivable and accounts payable (spec 033)"
     - 200 with the patched service's result, in the contract's `PartyDetail` shape, with `payments`;
     - 404 when the service raises it;
     - the payment list gets the caller's facility, unless the caller is an administrator or holds PaymentsEditor (100) read (#271).
-- [ ] T028 [P] [US2] Write `tests/integration/test_accounts_receivable_flow.py`, through the `client` fixture, on seeded orders in two facilities:
+- [X] T028 [P] [US2] Write `tests/integration/test_accounts_receivable_flow.py`, through the `client` fixture, on seeded orders in two facilities:
   - **Summary:**
     - a scoped caller (no 101) sees only their facility's orders, and each customer's figures add up those orders only (US2 scenario 1);
     - an administrator sees every facility, and `facility=` narrows the view (scenario 2);
@@ -267,15 +267,15 @@ description: "Task list for accounts receivable and accounts payable (spec 033)"
 
 ### Implementation
 
-- [ ] T029 [US2] Add the customer side to `app/services/accounts_service.py`:
+- [X] T029 [US2] Add the customer side to `app/services/accounts_service.py`:
   - `_customer_documents(db, *, facility, customer=None) -> list[Document]`:
     - from `sales_order_service.open_credit_orders`;
     - add the live invoices per order in one query (`fiscal_document_detail.order_detail` → order lines, `fiscal_document_service.live`, `type` invoice) and facility codes in one query;
     - `deductions = refunded + credited`;
-  - `_customer_credit(db, customer_ids) -> dict[int, Decimal]`: one grouped query; per payment, `amount − Σ(amount + amount_change)` over live applications; summed per customer where above 0.01 (research R7). Same arithmetic as `unapplied_amount`;
+  - `_customer_credit(db, customer_ids) -> dict[int, Decimal]`: one grouped query; per payment, `amount − Σ(amount + amount_change)` over live applications; summed per customer where above 0.01 (research R7). Built on `payments_with_credit` (T031), the same arithmetic as `unapplied_amount`;
   - `_customer_parties(db, ids)`: name, `credit_limit`, `credit_days`, `salesperson` and the agent's name;
   - a frozen dataclass `Side`: privilege, incidence source, labels, and the loader callables. Add a `CUSTOMERS` instance.
-- [ ] T030 [US2] Add the side-agnostic reads to `app/services/accounts_service.py`:
+- [X] T030 [US2] Add the side-agnostic reads to `app/services/accounts_service.py`:
   - `summary(db, side, *, facility, party=None, overdue=False, sales_agent=None, sort='owed', skip=0, limit=50)`:
     - load the documents in scope;
     - group them by party;
@@ -284,16 +284,16 @@ description: "Task list for accounts receivable and accounts payable (spec 033)"
     - filter, sort and page;
     - return the rows, the count and the column totals;
   - `detail(db, side, party_id, *, facility)`: the party's summary and documents, 404 when the party doesn't exist.
-- [ ] T031 [US2] Add `customer_payments_with_credit(db, customer_id, *, facility: int | None)` to `app/services/customer_payment_service.py`:
-  - the customer's payments, filtered by facility when it's given;
-  - with `attach_summary_unapplied`;
-  - only those with `unapplied` above 0.01, oldest first.
-- [ ] T032 [US2] Create `app/api/v1/endpoints/accounts_receivable.py`, with `require_privilege(SystemObject.ACCOUNTS_RECEIVABLE, AccessRight.READ)` on every route:
+- [X] T031 [US2] Add `payments_with_credit(db, *, customers, facility: int | None = None)` to `app/services/customer_payment_service.py`:
+  - the customers' payments, filtered by facility when it's given;
+  - unapplied computed in the query, with `unapplied_amount`'s arithmetic, so the walk-in customer's fully used cash payments stay in the database;
+  - only those with `unapplied` above 0.01, oldest first. `_customer_credit` sums the same rows.
+- [X] T032 [US2] Create `app/api/v1/endpoints/accounts_receivable.py`, with `require_privilege(SystemObject.ACCOUNTS_RECEIVABLE, AccessRight.READ)` on every route:
   - `_scope(db, current, facility)`:
     - all facilities when the caller is an administrator or `has_any_privilege(db, current.user_id, [(SystemObject.SEARCH_CREDITS_FROM_ALL_STORES, AccessRight.READ)])`, narrowed by `facility` if given;
     - otherwise `current.facility_id`, and 403 when `facility` is given and differs;
   - `GET ''` → `accounts_service.summary(..., side=CUSTOMERS)`;
-  - `GET '/{customer_id}'` → `accounts_service.detail`, plus `payments` from `customer_payments_with_credit`. The facility filter applies unless the caller is an administrator or holds PaymentsEditor (100) read, the same check as `_sees_every_facility` in `app/api/v1/endpoints/customer_payments.py`.
+  - `GET '/{customer_id}'` → `accounts_service.detail`, plus `payments` from `payments_with_credit`. The facility filter applies unless the caller is an administrator or holds PaymentsEditor (100) read, the same check as `_sees_every_facility` in `app/api/v1/endpoints/customer_payments.py`.
 
   Register the router in `app/api/v1/router.py` under `/accounts-receivable`. T027 and T028 must pass.
 
