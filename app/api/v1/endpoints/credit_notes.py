@@ -27,6 +27,10 @@ async def _sees_every_facility(db: AsyncSession, current: CurrentUser) -> bool:
 @router.get('', response_model=ListResponse[CreditNoteResponse])
 async def list_credit_notes(
     customer: int | None = Query(None),
+    customer_payment: int | None = Query(
+        None,
+        description='The backing payment, whose id a credit-note ticket prints under its barcode',
+    ),
     facility: int | None = Query(None, description="Defaults to the caller's facility"),
     open_only: bool = Query(
         False,
@@ -51,6 +55,7 @@ async def list_credit_notes(
         db,
         current=current,
         customer=customer,
+        customer_payment=customer_payment,
         facility=facility,
         open_only=open_only,
         skip=skip,

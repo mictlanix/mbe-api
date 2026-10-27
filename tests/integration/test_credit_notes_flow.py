@@ -284,3 +284,40 @@ class TestTheOpenRule:
         note, _ = await _note(db, ledger['order'], '10', customer=1)
 
         assert note not in await self._open_ids(db)
+
+
+class TestByBackingPayment:
+    """#280: a credit-note ticket prints its backing payment's id; the list finds the note by it."""
+
+    async def test_the_payment_finds_its_note_with_what_is_left(
+        self, client: AsyncClient, db: AsyncSession, ledger: dict
+    ) -> None:
+        await _note(db, ledger['order'], '10')
+        note, payment = await _note(db, ledger['order'], '27')
+        await _apply(db, ledger['order'], payment, '24')
+
+        found = await client.get(URL, params={'customer_payment': payment})
+
+        assert found.status_code == 200, found.text
+        assert found.json()['total'] == 1
+        (row,) = found.json()['items']
+        assert (row['credit_note_id'], row['remaining']) == (
+            note,
+            (await _read(client, note))['remaining'],
+        )
+
+    async def test_a_payment_that_backs_no_note_finds_nothing(
+        self, client: AsyncClient, db: AsyncSession, ledger: dict
+    ) -> None:
+        await _note(db, ledger['order'], '10')
+        payment = await client.post(
+            '/api/v1/customer-payments', json={'customer': CUSTOMER, 'amount': '50', 'method': 0}
+        )
+        assert payment.status_code == 201, payment.text
+
+        found = await client.get(
+            URL, params={'customer_payment': payment.json()['customer_payment_id']}
+        )
+
+        assert found.status_code == 200, found.text
+        assert found.json() == {'items': [], 'total': 0}
