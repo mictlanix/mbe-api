@@ -24,7 +24,7 @@ from app.models.core import Employee
 from app.models.customer import Customer
 from app.models.sales import CustomerPayment, SalesOrder, SalesOrderPayment
 from app.schemas.customer_payment import ApplicationCreate, CustomerPaymentCreate
-from app.services import incidences, sales_order_service, totals
+from app.services import incidences, sales_order_service
 
 # ── Decision rules (pure) ─────────────────────────────────────────────────────
 
@@ -71,9 +71,35 @@ def assert_same_customer(payment_customer: int, order_customer: int) -> None:
         )
 
 
-def covers_total(applied: Decimal, total: Decimal) -> bool:
-    """Whether the order is settled. Equality counts — a cent short is not paid."""
-    return total > 0 and applied >= total
+def settle(order: object, balance: Decimal) -> None:
+    """Flag an unpaid order paid once its balance is 0.01 or less (spec 033, FR-011).
+
+    Called after anything that lowers a balance: an application, a refund's completion, a credit
+    note's confirmation. It never clears `paid`, and it leaves an order already flagged paid alone:
+    a refund on a legacy paid order settles nothing new (FR-065a), so it mustn't gain a zero time.
+
+    The moment the balance reached zero dates the order's commission month (spec 025 FR-008a), as
+    the current system's `PaymentsController` stamps it in every payment path. Never cleared: a
+    reversal does not move the month an order was first settled in. `0001-01-01` is a legacy
+    sentinel for "unset".
+    """
+    if order.paid or balance > sales_order_service.SETTLED:
+        return
+    order.paid = True
+    if order.balance_zeroed_time is None or order.balance_zeroed_time.year < 1900:
+        order.balance_zeroed_time = local_now()
+
+
+def reopen(order: object, before: Decimal, after: Decimal) -> None:
+    """Clear `paid` when an event takes the balance from 0.01 or less to above it (spec 033, FR-011,
+    clarification Q2).
+
+    Called after anything that raises a balance: an application's reversal, a credit note going back
+    to draft. A paid order that already owed before the event stays paid, so a legacy paid order
+    never reopens. The zero time stays: it dates the first settlement.
+    """
+    if before <= sales_order_service.SETTLED < after:
+        order.paid = False
 
 
 def is_barcode_or_id(term: str) -> bool:
@@ -362,7 +388,7 @@ async def apply_payment(
     )
     db.add(application)
     await db.flush()
-    await _sync_paid_flag(db, order)
+    settle(order, await _balance(db, order))
     await db.commit()
     await db.refresh(application)
     return application
@@ -397,55 +423,21 @@ async def reverse_application(
         ),
     )
 
-    application.cancelled = True
     order = await db.get(SalesOrder, application.sales_order)
+    before = await _balance(db, order) if order is not None else None
+    application.cancelled = True
     if order is not None:
         await db.flush()
-        await _sync_paid_flag(db, order)
+        reopen(order, before, await _balance(db, order))
 
     await db.commit()
     await db.refresh(application)
     return application
 
 
-async def _sync_paid_flag(db: AsyncSession, order: SalesOrder) -> None:
-    """Set or clear `paid` from the applications that currently stand (FR-044)."""
-    await db.refresh(order)
-    applied = await sales_order_service.applied_amount(db, order.sales_order_id)
-    computed = await _order_total(db, order)
-    order.paid = covers_total(applied, computed)
-    # The moment the balance reached zero dates the order's commission month (spec 025 FR-008a),
-    # as the current system's `PaymentsController` stamps it in every payment path. Never cleared:
-    # a reversal does not move the month an order was first settled in. `0001-01-01` is a legacy
-    # sentinel for "unset".
-    if order.paid and (order.balance_zeroed_time is None or order.balance_zeroed_time.year < 1900):
-        order.balance_zeroed_time = local_now()
-
-
-async def _order_total(db: AsyncSession, order: SalesOrder) -> Decimal:
-    from app.models.sales import SalesOrderDetail
-
-    lines = (
-        (
-            await db.execute(
-                select(SalesOrderDetail).where(SalesOrderDetail.sales_order == order.sales_order_id)
-            )
-        )
-        .scalars()
-        .all()
-    )
-    return totals.document_totals(
-        [
-            totals.Line(
-                quantity=line.quantity,
-                price=line.price,
-                discount_rate=line.discount_rate,
-                tax_rate=line.tax_rate,
-                tax_included=line.tax_included,
-            )
-            for line in lines
-        ]
-    ).total
+async def _balance(db: AsyncSession, order: SalesOrder) -> Decimal:
+    """The order's balance by the one rule (spec 033, FR-001)."""
+    return (await sales_order_service.order_balances(db, [order]))[order.sales_order_id].balance
 
 
 async def get_application(
@@ -502,10 +494,8 @@ async def _customer_names(
 ) -> dict[int, str]:
     """The customers' own names for a page of orders, in one query keyed on the distinct ids (#174).
 
-    One query, and deliberately so: the loop that builds each row already issues two of its own
-    (`_order_total` and `applied_amount`), so resolving the name per row would make it three and
-    turn a page of twenty into sixty round trips. A page of walk-in sales is one customer repeated
-    and fetches a single row.
+    One query, and deliberately so: resolving the name per row would turn a page of twenty into
+    twenty round trips. A page of walk-in sales is one customer repeated and fetches a single row.
 
     Mirrors `sales_order_service.attach_customer_names`, which does the same job for
     `SalesOrderSummary`; it returns a mapping rather than writing onto the instances because these
@@ -532,31 +522,24 @@ async def search_outstanding(
     skip: int = 0,
     limit: int = 20,
 ) -> tuple[list[dict], int]:
-    """Unpaid confirmed orders with their balances (FR-046).
+    """Confirmed orders that still owe, with their balances (FR-046; spec 033, FR-010).
 
     A numeric term matches the order id or its folio; anything else matches the customer's name,
     either salesperson's nickname, or the order's customer-name override.
+
+    Owing is the one balance rule's figure above 0.01, which no column holds, so the page is cut
+    after the balances are computed: every unpaid order of the facility that matches, at most about
+    a thousand in mbe_dev. Every payment term stays, since cash sales are paid through this list.
     """
-    base = select(SalesOrder).where(
+    query = select(SalesOrder).where(
         SalesOrder.completed.is_(True),
         SalesOrder.cancelled.is_(False),
         SalesOrder.paid.is_(False),
         SalesOrder.facility == current.facility_id,
     )
-    count_q = (
-        select(func.count())
-        .select_from(SalesOrder)
-        .where(
-            SalesOrder.completed.is_(True),
-            SalesOrder.cancelled.is_(False),
-            SalesOrder.paid.is_(False),
-            SalesOrder.facility == current.facility_id,
-        )
-    )
 
     if customer is not None:
-        base = base.where(SalesOrder.customer == customer)
-        count_q = count_q.where(SalesOrder.customer == customer)
+        query = query.where(SalesOrder.customer == customer)
 
     if search:
         if is_barcode_or_id(search):
@@ -570,25 +553,23 @@ async def search_outstanding(
                 SalesOrder.salesperson.in_(employee_ids),
                 SalesOrder.customer_name.ilike(like),
             )
-        base = base.where(clause)
-        count_q = count_q.where(clause)
+        query = query.where(clause)
 
-    total: int = (await db.execute(count_q)).scalar_one()
-    page = base.order_by(SalesOrder.sales_order_id.desc()).offset(skip).limit(limit)
-    orders = (await db.execute(page)).scalars().all()
-    display_names = await _customer_names(db, orders)
-
-    # Batched, unlike the two reads below it: those are this endpoint's pre-existing shape, and
-    # matching them would add a query per row for a figure one query answers for the page (#223).
-    refunded_by = await sales_order_service.refunded_by_order(
-        db, [order.sales_order_id for order in orders]
+    candidates = list(
+        (await db.execute(query.order_by(SalesOrder.sales_order_id.desc()))).scalars().all()
     )
+    balances = await sales_order_service.order_balances(db, candidates)
+    owing = [
+        order
+        for order in candidates
+        if balances[order.sales_order_id].balance > sales_order_service.SETTLED
+    ]
+    page = owing[skip : skip + limit]
+    display_names = await _customer_names(db, page)
 
     rows: list[dict] = []
-    for order in orders:
-        order_total = await _order_total(db, order)
-        applied = await sales_order_service.applied_amount(db, order.sales_order_id)
-        refunded = refunded_by.get(order.sales_order_id, Decimal(0))
+    for order in page:
+        balance = balances[order.sales_order_id]
         rows.append(
             {
                 'sales_order_id': order.sales_order_id,
@@ -599,9 +580,8 @@ async def search_outstanding(
                 'date': order.date,
                 'due_date': order.due_date,
                 'currency': order.currency,
-                'total': order_total,
-                # Returned goods are not owed for (#223); floored at zero by `remaining`.
-                'balance': totals.remaining(order_total, [applied, refunded]),
+                'total': balance.total,
+                'balance': balance.balance,
             }
         )
-    return rows, total
+    return rows, len(owing)

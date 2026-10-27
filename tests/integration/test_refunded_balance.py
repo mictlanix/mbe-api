@@ -20,6 +20,7 @@ from datetime import datetime
 from decimal import Decimal
 
 from httpx import AsyncClient
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.enums import CurrencyCode, PaymentMethod, PaymentTerms, Priority
@@ -160,3 +161,59 @@ async def test_returning_everything_leaves_nothing_owed(
     read = await client.get(f'/api/v1/sales-orders/{order_id}')
 
     assert read.json()['balance'] == '0.00'
+
+
+async def _confirm_draft_refund(client: AsyncClient, db: AsyncSession, order_id: int) -> None:
+    """Confirm a draft refund of the whole order, written directly: `open_refund` requires a paid
+    order (FR-060), so only rows can put a refund on an unpaid one."""
+    refund_id = (
+        await db.execute(
+            select(CustomerRefund.customer_refund_id).where(CustomerRefund.sales_order == order_id)
+        )
+    ).scalar_one()
+    opened = await client.post(
+        '/api/v1/cash-sessions', json={'cash_drawer': 1, 'opening_amount': '0'}
+    )
+    assert opened.status_code == 201, opened.text
+    confirmed = await client.post(
+        f'/api/v1/customer-refunds/{refund_id}/confirm', json={'payout': 'credit_note'}
+    )
+    assert confirmed.status_code == 200, confirmed.text
+
+
+async def test_a_refund_that_settles_an_unpaid_order_flags_it_paid(
+    client: AsyncClient, db: AsyncSession, seeded: None
+) -> None:
+    """Spec 033 FR-011. Defensive: FR-060 keeps the API from creating this case."""
+    order_id, line_id = await _order_with_one_line(db, quantity='10', price='100')
+    await _refund(
+        db, order_id=order_id, line_id=line_id, quantity='10', price='100', completed=False
+    )
+
+    await _confirm_draft_refund(client, db, order_id)
+
+    db.expire_all()
+    order = await db.get(SalesOrder, order_id)
+    assert order.paid is True
+    assert order.balance_zeroed_time is not None
+
+
+async def test_a_refund_on_a_paid_order_leaves_its_zero_time_alone(
+    client: AsyncClient, db: AsyncSession, seeded: None
+) -> None:
+    """FR-065a: the zero time dates commissions, and a refund doesn't settle anything new. A
+    legacy paid order with none stays without one."""
+    order_id, line_id = await _order_with_one_line(db, quantity='10', price='100')
+    await db.execute(
+        update(SalesOrder).where(SalesOrder.sales_order_id == order_id).values(paid=True)
+    )
+    await _refund(
+        db, order_id=order_id, line_id=line_id, quantity='10', price='100', completed=False
+    )
+
+    await _confirm_draft_refund(client, db, order_id)
+
+    db.expire_all()
+    order = await db.get(SalesOrder, order_id)
+    assert order.paid is True
+    assert order.balance_zeroed_time is None

@@ -6,12 +6,15 @@ paid. Each of those is a read of rows the previous request wrote, which is exact
 cannot represent.
 """
 
+from datetime import datetime
 from decimal import Decimal
 
 from httpx import AsyncClient
+from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.enums import PaymentMethod
+from app.enums import CurrencyCode, PaymentMethod
+from app.models.sales import CustomerPayment, SalesOrder, SalesOrderPayment
 from tests.integration.seed import seed_sales_order
 
 
@@ -397,3 +400,101 @@ async def test_a_reversed_applications_change_counts_again(
 
     read = await client.get(f'/api/v1/customer-payments/{payment_id}')
     assert Decimal(read.json()['unapplied']) == Decimal('600')
+
+
+async def _order_row(db: AsyncSession, order_id: int) -> SalesOrder:
+    db.expire_all()
+    return await db.get(SalesOrder, order_id)
+
+
+async def _pay(client: AsyncClient, order_id: int, amount: str) -> tuple[int, int]:
+    payment = await client.post(
+        '/api/v1/customer-payments',
+        json={'customer': 1, 'amount': amount, 'method': PaymentMethod.CASH},
+    )
+    payment_id = payment.json()['customer_payment_id']
+    applied = await client.post(
+        f'/api/v1/customer-payments/{payment_id}/applications',
+        json={'sales_order': order_id, 'amount': amount},
+    )
+    assert applied.status_code == 201, applied.text
+    return payment_id, applied.json()['sales_order_payment_id']
+
+
+async def _reverse(client: AsyncClient, payment_id: int, application_id: int) -> None:
+    reversed_ = await client.post(
+        f'/api/v1/customer-payments/{payment_id}/applications/{application_id}/reverse',
+        json={'reason': 'Cobro duplicado'},
+    )
+    assert reversed_.status_code == 200, reversed_.text
+
+
+class TestThePaidFlagFollowsTheBalance:
+    """Spec 033 FR-011: set when the balance reaches 0.01 or less; cleared only when an event takes
+    it from there back above 0.01, so a legacy paid order never reopens."""
+
+    async def test_settling_sets_paid_and_reversing_clears_it(
+        self, client: AsyncClient, db: AsyncSession, seeded: None
+    ) -> None:
+        order_id, total = await _completed_order_with_total(client, db)
+
+        payment_id, application_id = await _pay(client, order_id, total)
+        settled = await _order_row(db, order_id)
+        assert settled.paid is True
+        stamped = settled.balance_zeroed_time
+        assert stamped is not None
+
+        await _reverse(client, payment_id, application_id)
+        reopened = await _order_row(db, order_id)
+        assert reopened.paid is False
+        assert reopened.balance_zeroed_time == stamped, 'the commission month never moves'
+
+    async def test_the_legacy_sentinel_counts_as_unset(
+        self, client: AsyncClient, db: AsyncSession, seeded: None
+    ) -> None:
+        order_id, total = await _completed_order_with_total(client, db)
+        await db.execute(
+            update(SalesOrder)
+            .where(SalesOrder.sales_order_id == order_id)
+            .values(balance_zeroed_time=datetime(1, 1, 1))
+        )
+        await db.commit()
+
+        await _pay(client, order_id, total)
+
+        assert (await _order_row(db, order_id)).balance_zeroed_time.year > 1900
+
+    async def test_a_partial_payment_leaves_the_order_unpaid(
+        self, client: AsyncClient, db: AsyncSession, seeded: None
+    ) -> None:
+        order_id, _ = await _completed_order_with_total(client, db)
+
+        await _pay(client, order_id, '100')
+
+        assert (await _order_row(db, order_id)).paid is False
+
+    async def test_a_legacy_paid_order_stays_paid_when_a_payment_is_reversed(
+        self, client: AsyncClient, db: AsyncSession, seeded: None
+    ) -> None:
+        """Flagged paid with 1,060 still computed: the balance was never at zero, so reversing
+        its 100 doesn't cross back over, and the order stays closed (clarification Q2)."""
+        order_id = await seed_sales_order(db, completed=True, paid=True)
+        now = datetime(2026, 9, 1, 10, 0)
+        payment = CustomerPayment(
+            facility=1, customer=1, amount=Decimal('100'), method=1, date=now,
+            currency=CurrencyCode.MXN, creator=1, updater=1, creation_time=now,
+            modification_time=now, payment_type=2, serial=0,
+        )  # fmt: skip
+        db.add(payment)
+        await db.flush()
+        application = SalesOrderPayment(
+            sales_order=order_id, customer_payment=payment.customer_payment_id,
+            amount=Decimal('100'), amount_change=Decimal(0), applier=1, date=now,
+            confirmed=True, cancelled=False,
+        )  # fmt: skip
+        db.add(application)
+        await db.commit()
+
+        await _reverse(client, payment.customer_payment_id, application.sales_order_payment_id)
+
+        assert (await _order_row(db, order_id)).paid is True

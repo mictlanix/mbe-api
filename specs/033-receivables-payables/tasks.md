@@ -154,27 +154,27 @@ description: "Task list for accounts receivable and accounts payable (spec 033)"
 
 ### Tests
 
-- [ ] T013 [P] [US1] Extend `tests/integration/test_credit_hold.py`:
+- [X] T013 [P] [US1] Extend `tests/integration/test_credit_hold.py`:
   - an overdue NET_D order flagged unpaid whose applications cover it doesn't hold the customer (US1 scenario 1);
   - an overdue order whose balance a live credit note covers doesn't hold the customer;
   - an overdue order with 0.02 left does hold the customer;
   - the limit check sums `order_balances`, so a credit note lowers the debt.
-- [ ] T014 [P] [US1] Extend `tests/integration/test_payment_flow.py` with `paid` maintenance (FR-011, research R3):
+- [X] T014 [P] [US1] Extend `tests/integration/test_payment_flow.py` with `paid` maintenance (FR-011, research R3):
   - an application that brings the balance to 0.01 or less sets `paid` and stamps `balance_zeroed_time`;
   - reversing it clears `paid` and keeps `balance_zeroed_time`;
   - the sentinel `0001-01-01` counts as unset and is replaced;
   - a paid order whose balance was already above 0.01 stays paid when an application on it is reversed. That's the legacy case: seed the order flagged paid with a partial application;
   - a partial application leaves `paid` false.
-- [ ] T015 [P] [US1] Extend `tests/integration/test_credit_note_flow.py`: confirming a credit note whose share covers an unpaid order's balance sets `paid` on that order. An order on the same invoice that still owes stays unpaid.
-- [ ] T016 [P] [US1] Extend `tests/integration/test_refunded_balance.py`: `confirm_refund` on a refund that brings an unpaid order's balance to 0 sets `paid` (US1 scenario 4). Seed the refund rows directly, since `open_refund` requires a paid order (FR-060).
-- [ ] T017 [P] [US1] Write `tests/integration/test_outstanding_orders.py` for `GET /customer-payments/outstanding-orders`, through the `client` fixture:
+- [X] T015 [P] [US1] Extend `tests/integration/test_credit_note_flow.py`: confirming a credit note whose share covers an unpaid order's balance sets `paid` on that order. An order on the same invoice that still owes stays unpaid.
+- [X] T016 [P] [US1] Extend `tests/integration/test_refunded_balance.py`: `confirm_refund` on a refund that brings an unpaid order's balance to 0 sets `paid` (US1 scenario 4). Seed the refund rows directly, since `open_refund` requires a paid order (FR-060).
+- [X] T017 [P] [US1] Write `tests/integration/test_outstanding_orders.py` for `GET /customer-payments/outstanding-orders`, through the `client` fixture:
   - an unpaid order with a balance of 0.01 or less isn't listed, whatever its payment terms;
   - an unpaid cash sale with a balance is still listed (FR-010: any terms);
   - `balance` deducts a credit note's share, and equals the order's `order_balances` balance;
   - `total` counts only the listed orders, and paging is stable;
   - the facility scope, the `customer` filter and search are unchanged.
-- [ ] T018 [P] [US1] Add to `tests/integration/test_order_balances.py`: `attach_derived`, `attach_summary_totals` and `order_balances` report the same `balance` for an order with a refund and a credit note.
-- [ ] T019 [P] [US1] Write the tests first, in `tests/unit/test_customer_payment_service.py`, for `settle(order, balance)` and `reopen(order, before, after)` on `SimpleNamespace` orders (FR-011, research R3):
+- [X] T018 [P] [US1] Add to `tests/integration/test_order_balances.py`: `attach_derived`, `attach_summary_totals` and `order_balances` report the same `balance` for an order with a refund and a credit note.
+- [X] T019 [P] [US1] Write the tests first, in `tests/unit/test_customer_payment_service.py`, for `settle(order, balance)` and `reopen(order, before, after)` on `SimpleNamespace` orders (FR-011, research R3):
   - `settle` at 0.01 and at 0 sets `paid`;
   - `settle` stamps `balance_zeroed_time` when it's None, and replaces the `0001-01-01` sentinel;
   - `settle` keeps an existing zero time;
@@ -184,37 +184,38 @@ description: "Task list for accounts receivable and accounts payable (spec 033)"
 
 ### Implementation
 
-- [ ] T020 [US1] In `app/services/sales_order_service.py`, make `attach_derived` and `attach_summary_totals` take `subtotal`, `tax_total`, `total` and `balance` from `order_balances`:
+- [X] T020 [US1] In `app/services/sales_order_service.py`, make `attach_derived` and `attach_summary_totals` take `subtotal`, `tax_total`, `total` and `balance` from `order_balances`:
   - `attach_derived` keeps its own line fetch for the line rows;
   - `attach_summary_totals` drops its own line, applied and refunded queries;
   - update the `balance` comment to name credit notes.
 
   T018 must pass, along with the existing sales order tests.
-- [ ] T021 [US1] In `app/services/sales_order_service.py`, rewrite the credit check on `open_credit_orders` (FR-009):
+- [X] T021 [US1] In `app/services/sales_order_service.py`, rewrite the credit check on `open_credit_orders` (FR-009):
   - `_overdue_credit_orders` returns `len(await open_credit_orders(db, customer=customer_id, due_before=local_now()))`;
   - `_customer_credit_debt` returns Σ `balance × exchange_rate` over `open_credit_orders(db, customer=customer_id)`;
   - rewrite both docstrings: the debt nets refunds and credit notes through the one balance rule (FR-001), and the hold counts overdue orders with a balance above 0.01, not the flag alone. Remove the "It does not net off refunds" paragraph and its 2025 figures. Keep the NET_D and exchange-rate reasoning.
   - Messages and the walk-in exemption don't change.
 
   T013 must pass.
-- [ ] T022 [US1] In `app/services/customer_payment_service.py`, replace `_sync_paid_flag` with two plain functions, with no database argument (research R3):
-  - `settle(order, balance: Decimal)`: if the balance is 0.01 or less, set `paid`, and stamp `balance_zeroed_time` with `local_now()` when it's None or before 1900. It never clears `paid`;
+- [X] T022 [US1] In `app/services/customer_payment_service.py`, replace `_sync_paid_flag` with two plain functions, with no database argument (research R3):
+  - `settle(order, balance: Decimal)`: if the order isn't flagged paid and the balance is 0.01 or less, set `paid`, and stamp `balance_zeroed_time` with `local_now()` when it's None or before 1900. It never clears `paid`, and it leaves an order already flagged paid alone, zero time included: a refund on a legacy paid order settles nothing new (spec 011 FR-065a), so it mustn't gain a commission month;
   - `reopen(order, before: Decimal, after: Decimal)`: clear `paid` only when `before <= 0.01 < after`. It never touches `balance_zeroed_time`.
 
   Callers compute the balances with `order_balances`. Keep the commission-month comment on `settle`. Remove `covers_total` and `_order_total` once nothing uses them, and update or remove their unit tests in `tests/unit/test_customer_payment_service.py`. T019 must pass.
-- [ ] T023 [US1] In `app/services/customer_payment_service.py`:
+- [X] T023 [US1] In `app/services/customer_payment_service.py`:
   - `apply_payment`: after the insert and flush, call `settle` with the order's balance from `order_balances`;
   - `reverse_application`: read `before` from `order_balances` before cancelling, and `after` after the flush, then call `reopen`.
 
   T014 must pass.
-- [ ] T024 [US1] In `app/services/customer_refund_service.py`, `confirm_refund`: after `refund.completed = True` and a flush, call `customer_payment_service.settle(order, balance)` on the order it already locks, with the balance from `order_balances`. T016 must pass.
-- [ ] T025 [US1] In `app/services/invoice_service.py`, `confirm` for a credit note (research R4):
+- [X] T024 [US1] In `app/services/customer_refund_service.py`, `confirm_refund`: after `refund.completed = True` and a flush, call `customer_payment_service.settle(order, balance)` on the order it already locks, with the balance from `order_balances`. T016 must pass.
+- [X] T025 [US1] In `app/services/invoice_service.py`, `confirm` for a credit note (research R4):
   - after the XML row is added and flushed, lock the orders on the related invoice in ascending id with `with_for_update()`. Find them through the invoice's `fiscal_document_detail.order_detail` → `sales_order_detail.sales_order`;
   - compute `order_balances`, and call `customer_payment_service.settle` on each;
-  - the invoice lock taken in `_prepare_credit_note` stays first, so the order is invoices → orders.
+  - the invoice lock taken in `_prepare_credit_note` stays first, so the order is invoices → orders;
+  - `reopen` of a sealed credit note (back to draft, its XML deleted) is a raising event: lock the same orders, read their balances before and after the XML goes, and call `customer_payment_service.reopen`. Found during implementation: spec 028 lets a sealed, unstamped note go back to draft.
 
-  T015 must pass.
-- [ ] T026 [US1] In `app/services/customer_payment_service.py`, `search_outstanding` (FR-010):
+  T015 must pass, with a reopen test beside it.
+- [X] T026 [US1] In `app/services/customer_payment_service.py`, `search_outstanding` (FR-010):
   - select the candidates with today's filters (scope, customer, search);
   - run `order_balances` on all of them, and drop balances of 0.01 or less;
   - set `total` to the remaining count, then page in Python, newest id first;

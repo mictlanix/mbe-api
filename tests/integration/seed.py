@@ -14,7 +14,7 @@ from decimal import Decimal
 from pathlib import Path
 from types import EllipsisType
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.enums import (
@@ -38,6 +38,7 @@ from app.models.customer import Customer, TaxpayerRecipient
 from app.models.fiscal import (
     FiscalDocument,
     FiscalDocumentDetail,
+    FiscalDocumentRelation,
     FiscalDocumentXml,
     TaxpayerBatch,
     TaxpayerIssuer,
@@ -468,3 +469,58 @@ async def seed_fiscal_document(
         db.add(FiscalDocumentXml(fiscal_document_xml_id=document.fiscal_document_id, data=xml))
     await db.commit()
     return document.fiscal_document_id
+
+
+def _fiscal_line(document: int, price: str, order_line: int | None) -> FiscalDocumentDetail:
+    return FiscalDocumentDetail(
+        document=document, product=1, order_detail=order_line, product_service='01010101',
+        product_name='Producto Uno', unit_of_measurement='H87', quantity=Decimal('1'),
+        price=Decimal(price), discount=Decimal('0'), tax_rate=Decimal('0'),
+        exchange_rate=Decimal('1'), currency=CurrencyCode.MXN, tax_included=False,
+    )  # fmt: skip
+
+
+async def seed_invoice(
+    db: AsyncSession, lines: list[tuple[str, int]], *, serial: int = 9001
+) -> int:
+    """A live invoice whose lines are `(price, order_line)`, replacing the fixture's lines."""
+    invoice = await seed_fiscal_document(db, 'invoice', serial=serial)
+    await db.execute(delete(FiscalDocumentDetail).where(FiscalDocumentDetail.document == invoice))
+    db.add_all(_fiscal_line(invoice, price, line) for price, line in lines)
+    await db.commit()
+    return invoice
+
+
+async def seed_credit_note(
+    db: AsyncSession,
+    invoice: int,
+    total: str,
+    *,
+    lines: list[tuple[str, int | None]] = (),
+    serial: int = 7001,
+    **state: object,
+) -> int:
+    """A credit note for `total` against `invoice`, its XML carrying only that total."""
+    live = state.get('completed', True)
+    note = await seed_fiscal_document(
+        db,
+        'credit_note',
+        serial=serial,
+        xml=f'<Comprobante Total="{total}"/>' if live else None,
+        **state,
+    )
+    await db.execute(delete(FiscalDocumentDetail).where(FiscalDocumentDetail.document == note))
+    db.add_all(_fiscal_line(note, price, line) for price, line in lines)
+    db.add(
+        FiscalDocumentRelation(
+            document=note,
+            relation=invoice,
+            exchange_rate=Decimal('1'),
+            installment=0,
+            previous_balance=Decimal('0'),
+            amount=Decimal('0'),
+            type='01',
+        )  # fmt: skip
+    )
+    await db.commit()
+    return note

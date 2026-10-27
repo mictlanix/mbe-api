@@ -8,11 +8,10 @@ documents built on it.
 from datetime import datetime
 from decimal import Decimal
 
-from sqlalchemy import delete
+from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.enums import CurrencyCode, PaymentTerms, Priority
-from app.models.fiscal import FiscalDocumentDetail, FiscalDocumentRelation
 from app.models.sales import (
     CustomerPayment,
     CustomerRefund,
@@ -22,7 +21,7 @@ from app.models.sales import (
     SalesOrderPayment,
 )
 from app.services.sales_order_service import open_credit_orders, order_balances
-from tests.integration.seed import seed_facility, seed_fiscal_document
+from tests.integration.seed import seed_credit_note, seed_facility, seed_invoice
 
 NOW = datetime(2026, 9, 1, 10, 0)
 
@@ -114,59 +113,6 @@ async def _refund(
     await db.commit()
 
 
-def _fiscal_line(document: int, price: str, order_line: int | None) -> FiscalDocumentDetail:
-    return FiscalDocumentDetail(
-        document=document, product=1, order_detail=order_line, product_service='01010101',
-        product_name='Producto Uno', unit_of_measurement='H87', quantity=Decimal('1'),
-        price=Decimal(price), discount=Decimal('0'), tax_rate=Decimal('0'),
-        exchange_rate=Decimal('1'), currency=CurrencyCode.MXN, tax_included=False,
-    )  # fmt: skip
-
-
-async def _invoice(db: AsyncSession, lines: list[tuple[str, int]], *, serial: int = 9001) -> int:
-    """A live invoice whose lines are `(price, order_line)`, replacing the fixture's lines."""
-    invoice = await seed_fiscal_document(db, 'invoice', serial=serial)
-    await db.execute(delete(FiscalDocumentDetail).where(FiscalDocumentDetail.document == invoice))
-    db.add_all(_fiscal_line(invoice, price, line) for price, line in lines)
-    await db.commit()
-    return invoice
-
-
-async def _note(
-    db: AsyncSession,
-    invoice: int,
-    total: str,
-    *,
-    lines: list[tuple[str, int | None]] = (),
-    serial: int = 7001,
-    **state: object,
-) -> int:
-    """A credit note for `total` against `invoice`, its XML carrying only that total."""
-    live = state.get('completed', True)
-    note = await seed_fiscal_document(
-        db,
-        'credit_note',
-        serial=serial,
-        xml=f'<Comprobante Total="{total}"/>' if live else None,
-        **state,
-    )
-    await db.execute(delete(FiscalDocumentDetail).where(FiscalDocumentDetail.document == note))
-    db.add_all(_fiscal_line(note, price, line) for price, line in lines)
-    db.add(
-        FiscalDocumentRelation(
-            document=note,
-            relation=invoice,
-            exchange_rate=Decimal('1'),
-            installment=0,
-            previous_balance=Decimal('0'),
-            amount=Decimal('0'),
-            type='01',
-        )  # fmt: skip
-    )
-    await db.commit()
-    return note
-
-
 async def _balance(db: AsyncSession, order_id: int):  # noqa: ANN202
     order = await db.get(SalesOrder, order_id)
     return (await order_balances(db, [order]))[order_id]
@@ -200,8 +146,8 @@ async def test_only_completed_live_refunds_come_off(db: AsyncSession, seeded: No
 
 async def test_a_live_credit_note_comes_off(db: AsyncSession, seeded: None) -> None:
     order_id, line_id = await _order(db)
-    invoice = await _invoice(db, [('1000', line_id)])
-    await _note(db, invoice, '250.00')
+    invoice = await seed_invoice(db, [('1000', line_id)])
+    await seed_credit_note(db, invoice, '250.00')
 
     balance = await _balance(db, order_id)
 
@@ -213,8 +159,8 @@ async def test_a_traced_line_counts_in_full_for_its_order(db: AsyncSession, seed
     """The note is 300: 100 traced to the second order, 200 shared by the invoice's parts."""
     first, first_line = await _order(db, price='600')
     second, second_line = await _order(db, price='400')
-    invoice = await _invoice(db, [('600', first_line), ('400', second_line)])
-    await _note(db, invoice, '300.00', lines=[('100', second_line), ('200', None)])
+    invoice = await seed_invoice(db, [('600', first_line), ('400', second_line)])
+    await seed_credit_note(db, invoice, '300.00', lines=[('100', second_line), ('200', None)])
 
     balances = await order_balances(
         db, [await db.get(SalesOrder, first), await db.get(SalesOrder, second)]
@@ -229,8 +175,8 @@ async def test_an_invoice_of_two_orders_shares_the_note_by_their_parts(
 ) -> None:
     first, first_line = await _order(db, price='750')
     second, second_line = await _order(db, price='250')
-    invoice = await _invoice(db, [('750', first_line), ('250', second_line)])
-    await _note(db, invoice, '100.00')
+    invoice = await seed_invoice(db, [('750', first_line), ('250', second_line)])
+    await seed_credit_note(db, invoice, '100.00')
 
     one_by_one = [(await _balance(db, first)).credited, (await _balance(db, second)).credited]
     together = await order_balances(
@@ -243,9 +189,9 @@ async def test_an_invoice_of_two_orders_shares_the_note_by_their_parts(
 
 async def test_cancelled_and_draft_notes_do_not_count(db: AsyncSession, seeded: None) -> None:
     order_id, line_id = await _order(db)
-    invoice = await _invoice(db, [('1000', line_id)])
-    await _note(db, invoice, '100.00', cancelled=True, serial=7002)
-    await _note(db, invoice, '200.00', completed=False, serial=7003)
+    invoice = await seed_invoice(db, [('1000', line_id)])
+    await seed_credit_note(db, invoice, '100.00', cancelled=True, serial=7002)
+    await seed_credit_note(db, invoice, '200.00', completed=False, serial=7003)
 
     assert (await _balance(db, order_id)).credited == Decimal(0)
 
@@ -255,8 +201,8 @@ async def test_deductions_above_the_total_leave_nothing_owed(
 ) -> None:
     order_id, line_id = await _order(db)
     await _apply(db, order_id, '900')
-    invoice = await _invoice(db, [('1000', line_id)])
-    await _note(db, invoice, '500.00')
+    invoice = await seed_invoice(db, [('1000', line_id)])
+    await seed_credit_note(db, invoice, '500.00')
 
     assert (await _balance(db, order_id)).balance == Decimal('0.00')
 
@@ -281,3 +227,22 @@ async def test_open_credit_orders_keeps_unpaid_credit_orders_that_owe(
     assert cash not in every
     assert here == every - {elsewhere}
     assert customer == every
+
+
+async def test_the_order_and_its_list_row_read_the_same_balance(
+    client: AsyncClient, db: AsyncSession, seeded: None
+) -> None:
+    """`attach_derived` and `attach_summary_totals` report what `order_balances` computes."""
+    order_id, line_id = await _order(db)
+    await _refund(db, order_id, line_id, '100')
+    invoice = await seed_invoice(db, [('1000', line_id)])
+    await seed_credit_note(db, invoice, '200.00')
+
+    read = await client.get(f'/api/v1/sales-orders/{order_id}')
+    listed = await client.get('/api/v1/sales-orders', params={'limit': 100})
+
+    expected = (await _balance(db, order_id)).balance
+    assert expected == Decimal('700.00')
+    assert Decimal(read.json()['balance']) == expected
+    row = next(r for r in listed.json()['items'] if r['sales_order_id'] == order_id)
+    assert Decimal(row['balance']) == expected

@@ -20,7 +20,7 @@ from app.models.fiscal import (
     TaxpayerCertificate,
 )
 from app.models.product import Product
-from app.models.sales import SalesOrderDetail
+from app.models.sales import SalesOrder, SalesOrderDetail
 from app.schemas.fiscal import CreditNoteCreate, InvoiceLineCopy, InvoiceLineUpdate, InvoiceUpdate
 from app.services import fiscal_document_service as fds
 from app.services import invoice_service as svc
@@ -311,3 +311,65 @@ async def test_credit_note_lines_do_not_count_as_invoiced(notes: CreditNotes) ->
     order_line = await notes.db.get(SalesOrderDetail, order_line_id)
     remaining = await svc.remaining_by_order_line(notes.db, [order_line], exclude_document=0)
     assert remaining[order_line.sales_order_detail_id] == Decimal(6)
+
+
+# ── Orders settled by a credit note (spec 033, FR-011) ──────────────────────────
+
+
+async def _invoiced_orders(notes: CreditNotes) -> tuple[int, int, int, list[SimpleNamespace]]:
+    """Two unpaid orders of 1,160.00 (ten at 100 plus 16%) on one invoice: its first line is the
+    first order's, its second line the second order's, each at ten at 100."""
+    db = notes.db
+    first = await seed_sales_order(db, completed=True)
+    second = await seed_sales_order(db, completed=True)
+    order_lines = (
+        (
+            await db.execute(
+                select(SalesOrderDetail.sales_order_detail_id)
+                .where(SalesOrderDetail.sales_order.in_([first, second]))
+                .order_by(SalesOrderDetail.sales_order)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    invoice = await _invoice(db)
+    lines = await _lines(db, invoice)
+    for source, order_line in zip(lines[:2], order_lines, strict=True):
+        line_id = FiscalDocumentDetail.fiscal_document_detail_id
+        await db.execute(
+            update(FiscalDocumentDetail)
+            .where(line_id == source.fiscal_document_detail_id)
+            .values(order_detail=order_line, quantity=Decimal(10), price=Decimal(100))
+        )
+    await db.commit()
+    return first, second, invoice, await _lines(db, invoice)
+
+
+async def _paid(db: AsyncSession, order: int) -> bool:
+    db.expire_all()
+    return (await db.get(SalesOrder, order)).paid
+
+
+async def test_confirming_a_credit_note_settles_the_order_it_covers(notes: CreditNotes) -> None:
+    first, second, invoice, lines = await _invoiced_orders(notes)
+
+    await notes.confirm(
+        await notes.copy(await notes.create(invoice), lines[0].fiscal_document_detail_id)
+    )
+
+    assert await _paid(notes.db, first) is True, 'its line, copied whole, covers 1,160.00'
+    assert await _paid(notes.db, second) is False, 'nothing of the note is left for it'
+
+
+async def test_reopening_the_credit_note_reopens_the_order(notes: CreditNotes) -> None:
+    """Back to draft, the note stops counting, so the order owes again (FR-011)."""
+    first, _second, invoice, lines = await _invoiced_orders(notes)
+    sealed = await notes.confirm(
+        await notes.copy(await notes.create(invoice), lines[0].fiscal_document_detail_id)
+    )
+    assert await _paid(notes.db, first) is True
+
+    await svc.reopen(notes.db, notes.current, await notes.load(sealed))
+
+    assert await _paid(notes.db, first) is False

@@ -39,8 +39,8 @@ All figures are from mbe_dev, read-only, on 2026-10-27.
 - `settle(order, balance)` runs after an event that lowers the balance: an application, the completion of a refund, or the confirmation of a credit note (it locks orders on its invoices).
   - If the balance is 0.01 or less, it sets `paid`.
   - It stamps `balance_zeroed_time` if it's unset or holds the sentinel; it is never cleared, as today.
-  - It never clears `paid`.
-- `reopen(order, before, after)` runs after an event that raises the balance: the reversal of an application, and later the cancellation of a credit note (mictlanix/mbe-roadmap#51).
+  - It never clears `paid`, and it leaves an order already flagged paid alone, zero time included (spec 011 FR-065a: a refund on a legacy paid order must not gain a commission month).
+- `reopen(order, before, after)` runs after an event that raises the balance: the reversal of an application, a sealed credit note going back to draft (spec 028's `reopen`), and later the cancellation of a credit note (mictlanix/mbe-roadmap#51).
   - It clears `paid` only when `before <= 0.01 < after`.
   - `before` is read under the lock, before the change.
 

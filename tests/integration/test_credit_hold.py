@@ -15,11 +15,13 @@ from datetime import datetime
 from decimal import Decimal
 
 from httpx import AsyncClient
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.enums import CurrencyCode, EntityStatus, PaymentTerms, Priority
 from app.models.customer import Customer
-from app.models.sales import SalesOrder, SalesOrderDetail
+from app.models.sales import CustomerPayment, SalesOrder, SalesOrderDetail, SalesOrderPayment
+from tests.integration.seed import seed_credit_note, seed_invoice
 
 OVERDUE = datetime(2020, 1, 1, 10, 0)
 
@@ -43,31 +45,45 @@ async def _customer(db: AsyncSession, customer_id: int, *, in_arrears: bool) -> 
     await db.commit()
 
 
-async def _overdue_credit_order(db: AsyncSession, customer_id: int) -> None:
-    db.add(
-        SalesOrder(
-            creator=1,
-            updater=1,
-            creation_time=OVERDUE,
-            modification_time=OVERDUE,
-            facility=1,
-            point_sale=1,
-            salesperson=1,
-            customer=customer_id,
-            date=OVERDUE,
-            promise_date=OVERDUE,
-            due_date=OVERDUE,
-            currency=CurrencyCode.MXN,
-            exchange_rate=Decimal('1'),
-            payment_terms=PaymentTerms.NET_D,
-            priority=Priority.NORMAL,
-            completed=True,
-            cancelled=False,
-            paid=False,
-            delivered=False,
-            serial=900 + customer_id,
-        )
+async def _overdue_credit_order(
+    db: AsyncSession, customer_id: int, *, price: str = '100'
+) -> tuple[int, int]:
+    """An overdue credit order owing `price`, and its line. Since spec 033 the hold reads the
+    balance, so the order has to owe something to hold anyone."""
+    order = SalesOrder(
+        creator=1,
+        updater=1,
+        creation_time=OVERDUE,
+        modification_time=OVERDUE,
+        facility=1,
+        point_sale=1,
+        salesperson=1,
+        customer=customer_id,
+        date=OVERDUE,
+        promise_date=OVERDUE,
+        due_date=OVERDUE,
+        currency=CurrencyCode.MXN,
+        exchange_rate=Decimal('1'),
+        payment_terms=PaymentTerms.NET_D,
+        priority=Priority.NORMAL,
+        completed=True,
+        cancelled=False,
+        paid=False,
+        delivered=False,
+        serial=900 + customer_id,
     )
+    db.add(order)
+    await db.flush()
+    line = SalesOrderDetail(
+        sales_order=order.sales_order_id, product=1, quantity=Decimal('1'),
+        cost=Decimal('1'), price=Decimal(price), discount_rate=Decimal('0'),
+        tax_rate=Decimal('0'), product_code='P1', product_name='Producto Uno',
+        warehouse=1, exchange_rate=Decimal('1'), currency=CurrencyCode.MXN,
+        tax_included=False,
+    )  # fmt: skip
+    db.add(line)
+    await db.flush()
+    return order.sales_order_id, line.sales_order_detail_id
 
 
 async def _draft_with_a_line(client: AsyncClient, customer_id: int) -> int:
@@ -353,3 +369,85 @@ class TestTheCreditLimit:
         confirmed = await client.post(f'/api/v1/sales-orders/{order_id}/confirm')
 
         assert 'over their credit limit' not in str(confirmed.json().get('detail')), confirmed.text
+
+
+async def _applied(db: AsyncSession, order_id: int, customer_id: int, amount: str) -> None:
+    """A payment of `amount` applied in full to the order."""
+    now = datetime(2026, 9, 1, 10, 0)
+    payment = CustomerPayment(
+        facility=1, customer=customer_id, amount=Decimal(amount), method=1, date=now,
+        currency=CurrencyCode.MXN, creator=1, updater=1, creation_time=now,
+        modification_time=now, payment_type=2, serial=0,
+    )  # fmt: skip
+    db.add(payment)
+    await db.flush()
+    db.add(
+        SalesOrderPayment(
+            sales_order=order_id, customer_payment=payment.customer_payment_id,
+            amount=Decimal(amount), amount_change=Decimal(0), applier=1, date=now,
+            confirmed=True, cancelled=False,
+        )  # fmt: skip
+    )
+    await db.commit()
+
+
+class TestTheHoldReadsTheBalance:
+    """Spec 033 FR-006, FR-009: overdue means past due *and* owing more than 0.01.
+
+    199 customers in mbe_dev were held by the flag, 130 by what they actually owe: the other 69
+    were held only by orders paid off whose `paid` flag was never set.
+    """
+
+    async def test_a_paid_off_order_still_flagged_unpaid_holds_no_one(
+        self, client: AsyncClient, db: AsyncSession, seeded: None
+    ) -> None:
+        await _customer(db, 2, in_arrears=False)
+        order, _ = await _overdue_credit_order(db, 2)
+        await _applied(db, order, 2, '100')
+        draft = await _draft_with_a_line(client, 2)
+
+        confirmed = await client.post(f'/api/v1/sales-orders/{draft}/confirm')
+
+        assert not _is_credit_hold(confirmed), confirmed.text
+
+    async def test_an_order_settled_by_a_credit_note_holds_no_one(
+        self, client: AsyncClient, db: AsyncSession, seeded: None
+    ) -> None:
+        await _customer(db, 2, in_arrears=False)
+        _, line = await _overdue_credit_order(db, 2)
+        invoice = await seed_invoice(db, [('100', line)])
+        await seed_credit_note(db, invoice, '100.00')
+        draft = await _draft_with_a_line(client, 2)
+
+        confirmed = await client.post(f'/api/v1/sales-orders/{draft}/confirm')
+
+        assert not _is_credit_hold(confirmed), confirmed.text
+
+    async def test_two_cents_left_still_holds(
+        self, client: AsyncClient, db: AsyncSession, seeded: None
+    ) -> None:
+        await _customer(db, 2, in_arrears=False)
+        order, _ = await _overdue_credit_order(db, 2)
+        await _applied(db, order, 2, '99.98')
+        draft = await _draft_with_a_line(client, 2)
+
+        confirmed = await client.post(f'/api/v1/sales-orders/{draft}/confirm')
+
+        assert _is_credit_hold(confirmed), confirmed.text
+
+    async def test_a_credit_note_lowers_the_debt_against_the_limit(
+        self, client: AsyncClient, db: AsyncSession, seeded: None
+    ) -> None:
+        """1,500 owed less a 600 credit note is 900, inside a 1,000 limit."""
+        await _credit_customer(db, 4, limit='1000')
+        await _outstanding_credit_order(db, 4, amount='1500')
+        query = select(SalesOrderDetail).join(SalesOrder).where(SalesOrder.customer == 4)
+        order = (await db.execute(query)).scalar_one()
+        invoice = await seed_invoice(db, [('1500', order.sales_order_detail_id)])
+        await seed_credit_note(db, invoice, '600.00')
+
+        created = await client.post(
+            '/api/v1/sales-orders', json={'customer': 4, 'payment_terms': 1}
+        )
+
+        assert created.status_code == 201, created.text
