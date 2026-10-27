@@ -1,0 +1,76 @@
+{#- Credit payment and payment in advance tickets, after legacy Views/Payments/TicketCreditPayment
+and TicketPaymentInAdvance.cshtml (#272). Context: print_contexts.payment_ticket_context.
+
+The two legacy views differ only in their title and in the order of the totals: an advance prints
+its total first and its balance last, in bold. The reference is new (#272); legacy printed none. -#}
+{% extends "_ticket_layout.html" %}
+{% block main %}
+<div class="display-label text-right">
+	<label>Folio</label><br>
+	{{ folio }}
+</div>
+<div class="display-label date text-right">
+	<label>Fecha</label><br>
+	{{ date }}
+</div>
+<div class="display-label">
+	<label>Cliente</label><br>
+	{{ customer }}
+</div>
+<div class="display-label">
+	<label>Cajero</label><br>
+	{{ cashier }}
+</div>
+<div class="display-label">
+	<label>Sesión de Caja</label><br>
+	{{ cash_session }}
+</div>
+<table>
+	<tr>
+		<td class="line number">Método de Pago</td>
+		<td class="line text-right">{{ method }}</td>
+	</tr>
+	{% if reference %}
+	<tr>
+		<td class="line number">Referencia</td>
+		<td class="line text-right">{{ reference }}</td>
+	</tr>
+	{% endif %}
+	{% if advance %}
+	<tr>
+		<td class="text-right">Total</td>
+		<td class="number">{{ total }}</td>
+	</tr>
+	{% endif %}
+	{% for application in applications %}
+	<tr>
+		<td class="text-right">Pedido {{ application.order }}</td>
+		<td class="text-right">{{ application.amount }}</td>
+	</tr>
+	{% endfor %}
+	{% if advance %}
+	<tr>
+		<td class="line number total">Saldo</td>
+		<td class="line text-right total">{{ balance }}</td>
+	</tr>
+	{% else %}
+	<tr>
+		<td class="line number">Saldo</td>
+		<td class="line text-right">{{ balance }}</td>
+	</tr>
+	<tr>
+		<td class="total text-right">Total</td>
+		<td class="total number">{{ total }}</td>
+	</tr>
+	{% endif %}
+</table>
+{% if receipt_message %}
+<div class="legend">
+	<p class="text-center">{{ receipt_message }}</p>
+</div>
+{% endif %}
+{% endblock %}
+{% block footer %}
+<img src="{{ barcode }}" alt="{{ payment_id }}">
+<p>{{ payment_id }}</p>
+{% endblock %}

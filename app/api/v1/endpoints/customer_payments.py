@@ -1,11 +1,12 @@
 from decimal import Decimal
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app import rendering
 from app.core.deps import CurrentUser, has_any_privilege, require_privilege
 from app.db.session import get_db
-from app.enums import AccessRight, SystemObject
+from app.enums import AccessRight, PaymentType, SystemObject
 from app.schemas import ListResponse, LocalDateTime
 from app.schemas.customer_payment import (
     ApplicationCreate,
@@ -16,7 +17,7 @@ from app.schemas.customer_payment import (
     RejectionRequest,
     ReversalRequest,
 )
-from app.services import customer_payment_service
+from app.services import customer_payment_service, print_contexts
 
 router = APIRouter()
 
@@ -192,6 +193,32 @@ async def get_customer_payment(
     await customer_payment_service.attach_unapplied(db, payment)
     await customer_payment_service.attach_customer_names(db, [payment])
     return CustomerPaymentResponse.model_validate(payment)
+
+
+@router.get(
+    '/{customer_payment_id}/ticket', response_class=Response, responses=rendering.PDF_RESPONSE
+)
+async def print_customer_payment_ticket(
+    customer_payment_id: int,
+    current: CurrentUser = Depends(_READ),
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    """The customer's proof of a credit payment or a payment in advance (#272).
+
+    Any other type is 409: a cash sale's proof is its order's ticket, and a credit note's ticket
+    belongs to the credit note.
+    """
+    payment = await _visible_payment_or_404(db, current, customer_payment_id)
+    payment_type = PaymentType(payment.payment_type)
+    if payment_type not in print_contexts.PAYMENT_TICKET_TITLES:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f'A {payment_type.name} payment has no ticket; only CREDIT_PAYMENT and '
+            'PAYMENT_IN_ADVANCE do',
+        )
+    template, context = await print_contexts.payment_ticket_context(db, payment)
+    pdf = await rendering.render_pdf(template, context)
+    return rendering.pdf_response(pdf, f'pago-{payment.customer_payment_id:08d}.pdf')
 
 
 @router.get('/{customer_payment_id}/applications', response_model=list[ApplicationResponse])

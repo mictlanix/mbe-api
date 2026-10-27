@@ -520,3 +520,14 @@ async def test_listing_is_allowed_for_own_facility_or_with_the_editor_right(quer
 
     assert response.status_code == status.HTTP_200_OK
     listing.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_another_facilitys_payment_ticket_is_not_found_without_the_editor_right() -> None:
+    """#272 — printing follows the same facility rule as reading (#271)."""
+    get, attach, apps, names = _by_id_patches(_payment(facility=51, payment_type=2))
+    with _clerk(editor=False), get, attach, apps, names:
+        async with await _client() as client:
+            response = await client.get('/api/v1/customer-payments/1/ticket')
+
+    assert response.status_code == status.HTTP_404_NOT_FOUND
