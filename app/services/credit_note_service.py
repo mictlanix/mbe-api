@@ -101,6 +101,7 @@ async def list_credit_notes(
     *,
     current: CurrentUser,
     customer: int | None = None,
+    customer_payment: int | None = None,
     facility: int | None = None,
     open_only: bool = False,
     skip: int = 0,
@@ -117,6 +118,8 @@ async def list_credit_notes(
     query = _notes_query().where(CustomerPayment.facility == (facility or current.facility_id))
     if customer is not None:
         query = query.where(CreditNote.customer == customer)
+    if customer_payment is not None:
+        query = query.where(CreditNote.customer_payment == customer_payment)
     if open_only:
         query = _open(query)
 
