@@ -7,6 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy.exc import IntegrityError
 from starlette.staticfiles import StaticFiles
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from app.api.v1.router import api_router
 from app.core.config import settings
@@ -80,6 +81,47 @@ async def integrity_error_handler(request: Request, exc: IntegrityError) -> JSON
     )
 
 
+class UnhandledErrorMiddleware:
+    """Turn an unhandled exception into a JSON 500 *inside* CORS (#266).
+
+    Starlette builds its own 500 in `ServerErrorMiddleware`, which wraps every other middleware,
+    CORS included. That response has no `Access-Control-Allow-Origin`, so a browser cannot read it
+    and reports a network error instead. An `Exception` handler does not help: Starlette routes it
+    to that same outermost layer. Added before `CORSMiddleware`, this runs inside it.
+
+    The exception is re-raised after the response, as `ServerErrorMiddleware` itself does, so the
+    server still logs the traceback; seeing the response already started, that layer sends nothing.
+    """
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope['type'] != 'http':
+            await self.app(scope, receive, send)
+            return
+
+        started = False
+
+        async def _send(message: Message) -> None:
+            nonlocal started
+            if message['type'] == 'http.response.start':
+                started = True
+            await send(message)
+
+        try:
+            await self.app(scope, receive, _send)
+        except Exception:
+            if not started:
+                response = JSONResponse(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    content={'detail': 'Internal server error'},
+                )
+                await response(scope, receive, send)
+            raise
+
+
+app.add_middleware(UnhandledErrorMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,
