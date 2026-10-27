@@ -463,11 +463,11 @@ description: "Task list for accounts receivable and accounts payable (spec 033)"
 
 ### Tests
 
-- [ ] T055 [P] [US6] Write `tests/unit/test_settle_paid_flags.py` for the pure rule `stale_zero_time(order_date, events: Sequence[datetime]) -> datetime | None`:
+- [X] T055 [P] [US6] Write `tests/unit/test_settle_paid_flags.py` for the pure rule `stale_zero_time(order_date, events: Sequence[datetime]) -> datetime | None`:
   - for an order dated before 2026, None;
   - for one dated 2026 or later, the latest event;
   - with no events, None.
-- [ ] T056 [P] [US6] Write `tests/integration/test_settle_paid_flags.py` for `customer_payment_service.settle_stale_flags(db, *, apply: bool)`:
+- [X] T056 [P] [US6] Write `tests/integration/test_settle_paid_flags.py` for `customer_payment_service.settle_stale_flags(db, *, apply: bool)`:
   - it selects NET_D, completed, not cancelled, unpaid orders with a balance of 0.01 or less, and ignores IMMEDIATE and paid orders;
   - the dry run writes nothing;
   - `apply=True` sets `paid`;
@@ -478,13 +478,13 @@ description: "Task list for accounts receivable and accounts payable (spec 033)"
 
 ### Implementation
 
-- [ ] T057 [US6] Add `stale_zero_time` and `settle_stale_flags` to `app/services/customer_payment_service.py`:
+- [X] T057 [US6] Add `stale_zero_time` and `settle_stale_flags` to `app/services/customer_payment_service.py`:
   - take the candidates from `sales_order_service._credit_candidates` (T006), and keep those with a balance of 0.01 or less;
   - gather each order's event dates in batched queries;
   - return a report: per order, the id, date, balance and new zero time.
 
   T055 and T056 must pass.
-- [ ] T058 [US6] Create `app/jobs/settle_paid_flags.py`, shaped like `app/jobs/expire_orders.py` (`_run` disposes the engine in the same loop):
+- [X] T058 [US6] Create `app/jobs/settle_paid_flags.py`, shaped like `app/jobs/expire_orders.py` (`_run` disposes the engine in the same loop):
   - `python -m app.jobs.settle_paid_flags` is a dry run;
   - `--apply` writes;
   - it prints one line per order (id, date, balance, new zero time or "unset") and a count.

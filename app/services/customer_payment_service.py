@@ -15,17 +15,30 @@ from decimal import Decimal
 from fastapi import HTTPException, status
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 
 from app.core.clock import local_now
 from app.core.config import settings
+from app.core.constants import SYSTEM_EMPLOYEE_ID
 from app.core.deps import CurrentUser
-from app.enums import CurrencyCode, SourceType
+from app.enums import CurrencyCode, FiscalDocumentType, SourceType
 from app.models.core import Employee
 from app.models.customer import Customer
-from app.models.sales import CustomerPayment, SalesOrder, SalesOrderPayment
+from app.models.fiscal import FiscalDocument, FiscalDocumentDetail, FiscalDocumentRelation
+from app.models.sales import (
+    CustomerPayment,
+    CustomerRefund,
+    SalesOrder,
+    SalesOrderDetail,
+    SalesOrderPayment,
+)
 from app.schemas.customer_payment import ApplicationCreate, CustomerPaymentCreate
-from app.services import incidences, sales_order_service, totals
+from app.services import fiscal_document_service, incidences, sales_order_service, totals
 from app.services import inventory_documents as inv
+
+#: The first year whose orders the stale-flag correction gives a zero time (spec 033, FR-012).
+STALE_ZERO_TIME_FROM = 2026
+STALE_FLAG_REASON = 'Paid flag corrected: balance is settled (spec 033)'
 
 # ── Decision rules (pure) ─────────────────────────────────────────────────────
 
@@ -120,6 +133,18 @@ def reopen(order: object, before: Decimal, after: Decimal) -> None:
     """
     if before <= totals.SETTLED < after:
         order.paid = False
+
+
+def stale_zero_time(order_date: datetime, events: Sequence[datetime]) -> datetime | None:
+    """The zero time the stale-flag correction gives an order: when its balance reached zero, its
+    latest application, refund or credit note (spec 033, FR-012).
+
+    Only from 2026 on: the zero time dates an order's commission month (spec 025), and the audit's
+    decision 4 keeps earlier orders out of commissions.
+    """
+    if order_date.year < STALE_ZERO_TIME_FROM or not events:
+        return None
+    return max(events)
 
 
 def is_barcode_or_id(term: str) -> bool:
@@ -681,3 +706,89 @@ async def payments_with_credit(
         payment.__dict__['unapplied'] = Decimal(left)
         payments.append(payment)
     return payments
+
+
+# ── One-time correction (spec 033, FR-012) ────────────────────────────────────
+
+
+async def _settled_at(db: AsyncSession, order_ids: Sequence[int]) -> dict[int, list[datetime]]:
+    """Per order, the dates of what brought its balance down: live applications, completed
+    refunds, and live credit notes against its invoices."""
+    events: dict[int, list[datetime]] = {oid: [] for oid in order_ids}
+    if not order_ids:
+        return events
+    applied = select(SalesOrderPayment.sales_order, func.max(SalesOrderPayment.date)).where(
+        SalesOrderPayment.sales_order.in_(order_ids), SalesOrderPayment.cancelled.is_(False)
+    )
+    refunded = select(CustomerRefund.sales_order, func.max(CustomerRefund.date)).where(
+        CustomerRefund.sales_order.in_(order_ids),
+        CustomerRefund.completed.is_(True),
+        CustomerRefund.cancelled.is_(False),
+    )
+    invoice, note = aliased(FiscalDocument), aliased(FiscalDocument)
+    credited = (
+        select(SalesOrderDetail.sales_order, func.max(note.issued))
+        .join(
+            FiscalDocumentDetail,
+            FiscalDocumentDetail.order_detail == SalesOrderDetail.sales_order_detail_id,
+        )
+        .join(invoice, invoice.fiscal_document_id == FiscalDocumentDetail.document)
+        .join(FiscalDocumentRelation, FiscalDocumentRelation.relation == invoice.fiscal_document_id)
+        .join(note, note.fiscal_document_id == FiscalDocumentRelation.document)
+        .where(
+            SalesOrderDetail.sales_order.in_(order_ids),
+            invoice.type == FiscalDocumentType.INVOICE,
+            fiscal_document_service.live(invoice),
+            note.type == FiscalDocumentType.CREDIT_NOTE,
+            fiscal_document_service.live(note),
+        )
+    )
+    for query, column in (
+        (applied, SalesOrderPayment.sales_order),
+        (refunded, CustomerRefund.sales_order),
+        (credited, SalesOrderDetail.sales_order),
+    ):
+        for order_id, when in (await db.execute(query.group_by(column))).all():
+            if when is not None:
+                events[order_id].append(when)
+    return events
+
+
+async def settle_stale_flags(db: AsyncSession, *, apply: bool) -> list[dict]:
+    """Flag paid the credit orders that owe nothing but are still flagged unpaid (spec 033, FR-012;
+    257 on mbe_dev), one incidence each, by the system employee. Without `apply`, only report.
+
+    Rerunnable: an order it flags is no longer a candidate, so a second run finds nothing. A zero
+    time already on an order is kept, as `settle` keeps it.
+    """
+    candidates = await sales_order_service._credit_candidates(db)
+    stale = [(order, b) for order, b in candidates if b.balance <= totals.SETTLED]
+    events = await _settled_at(db, [order.sales_order_id for order, _ in stale])
+    report = []
+    for order, balance in stale:
+        zero_time = stale_zero_time(order.date, events[order.sales_order_id])
+        report.append(
+            {
+                'sales_order_id': order.sales_order_id,
+                'date': order.date,
+                'balance': balance.balance,
+                'zero_time': zero_time,
+            }
+        )
+        if not apply:
+            continue
+        order.paid = True
+        unset = order.balance_zeroed_time is None or order.balance_zeroed_time.year < 1900
+        if zero_time is not None and unset:
+            order.balance_zeroed_time = zero_time
+        incidences.record(
+            db,
+            source=SourceType.SALES_ORDER,
+            instance_id=order.sales_order_id,
+            updater=SYSTEM_EMPLOYEE_ID,
+            reason=STALE_FLAG_REASON,
+            context=f'Balance {balance.balance}; zero time {zero_time or "left unset"}',
+        )
+    if apply:
+        await db.commit()
+    return report
