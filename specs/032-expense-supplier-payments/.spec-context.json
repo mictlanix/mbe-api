@@ -470,5 +470,59 @@
       "at": "2026-10-27T07:51:39.828Z"
     }
   ],
-  "currentTask": "T051"
+  "currentTask": "T051",
+  "verified": [
+    {
+      "what": "full test suite",
+      "command": "uv run pytest -q -p no:cacheprovider",
+      "source": "derived",
+      "exitCode": 0,
+      "durationSeconds": 142.8,
+      "result": "........................................................................ [ 98%] · ................................................................         [100%] · 5680 passed in 137.31s (0:02:17)"
+    },
+    {
+      "what": "ruff check",
+      "command": "uv run ruff check app tests migrations",
+      "source": "derived",
+      "exitCode": 0,
+      "durationSeconds": 0.4,
+      "result": "All checks passed!"
+    },
+    {
+      "what": "migration 029 applied to mbe_dev",
+      "result": "columns, unique (facility, serial), FKs, purchase_order_payment and supplier_balance_cutoff (cutoff NULL) checked read-only; 5 legacy rows backfilled; recorded in schema_migrations with migrate mark"
+    },
+    {
+      "what": "deployed to the dev instance (:8765)",
+      "result": "3d51bb8; health 200; OpenAPI lists 8 voucher paths, 6 supplier-payment paths and GET /purchase-orders/{order_id}/payments"
+    },
+    {
+      "what": "SC-001 expected cash vs independent SQL",
+      "result": "50 closed sessions with vouchers (10318-10429): 0 mismatches"
+    },
+    {
+      "what": "US1-US6 live flows on dev",
+      "result": "confirm drops expected cash by 150.50; void voided=true, not counted, incidence 14; ticket PDF, 409 when voided; cash payment facility 54 serial 1, cut -30, cancel restores; reverse credit 10; cancel restores PO 11045 balance 71594.53, incidences 15; supplier 205 summary 19 POs"
+    },
+    {
+      "what": "SC-002 closed cut never changes",
+      "result": "3 sessions: two with close winning (20/20 409), one with close 40 ms late (confirm 10x200, void 7/3, create 6/4, cancel 6/4); expected at close = after = SQL (893.00); 0 rows changed after close"
+    },
+    {
+      "what": "SC-003 concurrent applications",
+      "result": "20 x 10.00 on a 100.00 payment and PO 11045: 10 succeeded, 10 x 409; credit 0.00; PO balance dropped exactly 100"
+    },
+    {
+      "what": "SC-004 concurrent serials",
+      "result": "20 payments in facility 54 at once: all 201, serials 12-31 distinct and consecutive"
+    },
+    {
+      "what": "SC-006 timings",
+      "result": "voucher create/line/confirm and supplier balance all <= 14 ms; no 5xx in any live call"
+    },
+    {
+      "what": "live-check cleanup",
+      "result": "test vouchers, supplier payments, applications, incidences 14/15 and sessions 10440-10442 deleted; cutoff reset to NULL; session 10439 left closed (approved)"
+    }
+  ]
 }
