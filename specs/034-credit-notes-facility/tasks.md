@@ -198,12 +198,12 @@ No setup: no dependency, setting, enum or migration is added (research R9).
 
 ## Phase 7: Polish & Cross-Cutting Concerns
 
-- [ ] T025 [P] Update `docs/specs/02-sales.md`:
+- [X] T025 [P] Update `docs/specs/02-sales.md`:
   - **Customer Payments:** add an "API (spec 034)" note: apply and reverse follow the payment's facility; verification is company-wide; `/unverified` covers every facility;
   - **Credit notes:** amount and remaining come from the backing payment, paid back in cash reads 0, the open pool, the facility rule, and the refund writer's shape;
   - **Sales Orders:** the facility rule on the list and writes, with 101;
   - **Credit notes, spec 011's FR-070:** a note's remaining is now its backing payment's unapplied amount, not "the amount issued less applications". Spec 011 stays as the historical record.
-- [ ] T026 [P] Add to `CHANGELOG.md` under `[Unreleased]`:
+- [X] T026 [P] Add to `CHANGELOG.md` under `[Unreleased]`:
   - **Fixed:**
     - credit note balances on legacy data (#277);
     - open-only paging (#278);
