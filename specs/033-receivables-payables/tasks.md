@@ -520,7 +520,7 @@ description: "Task list for accounts receivable and accounts payable (spec 033)"
   - step 10: cleanup.
 
   Record the figures in `.spec-context.json` verifications. Done on 2026-10-27, except step 9: the user chose not to send email. Step 5's first run found the locks didn't serialize (fixed in a426fff, rerun clean).
-- [ ] T063 After confirmation, comment on mictlanix/mbe-roadmap#51 (CFDI cancellation): cancelling a credit note must lock the related orders, read their balance before and after, and call `customer_payment_service.reopen` (spec 033 FR-011, research R3).
+- [X] T063 After confirmation, comment on mictlanix/mbe-roadmap#51 (CFDI cancellation): cancelling a credit note must lock the related orders, read their balance before and after, and call `customer_payment_service.reopen` (spec 033 FR-011, research R3).
 
 ---
 

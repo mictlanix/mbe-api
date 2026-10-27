@@ -3,7 +3,7 @@
   "specName": "Accounts Receivable and Accounts Payable",
   "branch": "033-receivables-payables",
   "currentStep": "implement",
-  "status": "implementing",
+  "status": "implemented",
   "history": [
     {
       "step": "specify",
@@ -541,9 +541,32 @@
       "kind": "complete",
       "by": "extension",
       "at": "2026-10-27T20:36:41.363Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T062",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-10-27T21:17:13.971Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T063",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-10-27T21:17:13.971Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-10-27T21:17:13.971Z"
     }
   ],
-  "currentTask": "T062",
+  "currentTask": "T061",
   "verified": [
     {
       "what": "full test suite",
@@ -596,6 +619,10 @@
     {
       "what": "FR-005a and scope",
       "result": "payment 300789 unapplied 0; customer credit $18,837,400.32 across 317 customers; scoped user (no 101) sees facility 51 only, 403 on facility 47, same limit figures as admin; hold gate releases 68 of 199 flag-held customers"
+    },
+    {
+      "what": "note on mictlanix/mbe-roadmap#51",
+      "result": "posted 2026-10-27: CFDI cancellation must lock invoice then orders, read balances before and after, and call customer_payment_service.reopen (https://github.com/mictlanix/mbe-roadmap/issues/51#issuecomment-6453783454)"
     }
   ],
   "concerns": [
