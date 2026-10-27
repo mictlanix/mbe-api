@@ -54,5 +54,47 @@
       "by": "extension",
       "at": "2026-10-27T23:02:13.013Z"
     }
+  ],
+  "verified": [
+    {
+      "what": "full test suite",
+      "command": "uv run pytest -q -p no:cacheprovider",
+      "source": "derived",
+      "exitCode": 0,
+      "durationSeconds": 337.2,
+      "result": "........................................................................ [ 98%] · ...............................................................          [100%] · 5895 passed in 329.17s (0:05:29)"
+    },
+    {
+      "what": "ruff check",
+      "command": "uv run ruff check app tests migrations",
+      "source": "derived",
+      "exitCode": 0,
+      "durationSeconds": 0.6,
+      "result": "All checks passed!"
+    },
+    {
+      "what": "deployed to dev (xolotl :8765)",
+      "result": "034-credit-notes-facility at b39bb8f, /health ok, 0 migrations pending"
+    },
+    {
+      "what": "before (dev on main's code)",
+      "result": "open_only limit=100: 0 items, total 984 (#278); note 990 remaining 0 (#277); clerk carmengodinez (facility 51, no 100/101) lists facility 8's orders (200) and reads facility 8's note 990 (200); verifier carolnavarrete's unverified list: her facility only, 18,261"
+    },
+    {
+      "what": "SC-001 credit note balances",
+      "result": "all 984 notes: amount = backing payment's amount, remaining = its unapplied amount floored at 0, 0 mismatches; notes 158 and 462 read 0 and refunded_to_customer; note 990 reads 27.00 and 3.00"
+    },
+    {
+      "what": "SC-002 open-only paging",
+      "result": "per facility at limit 7 and at 100: 137 open notes listed, 137 distinct, the same set as SQL's spendable pool, every total equal to SQL's per-facility count"
+    },
+    {
+      "what": "SC-004 facility rule as a clerk",
+      "result": "carmengodinez (facility 51): credit notes ?facility=8 403, own list facility 51 only, note 990 404; apply and reverse on a facility-8 payment 404 'Payment not found' (the facility check, before the service); PUT a facility-8 order 404; GET that order and its ticket 200; sales orders ?facility=8 403. Administrators: 200 on another facility's orders and notes"
+    },
+    {
+      "what": "SC-005 verification company-wide",
+      "result": "carolnavarrete (108 read, no 100): unverified total 295,302 = SQL's count across all facilities; facility=8 narrows to 59,891 = SQL"
+    }
   ]
 }
