@@ -3,7 +3,7 @@
   "specName": "Purchase Requests, Purchase Orders and Average Cost",
   "branch": "031-purchase-requests-orders",
   "currentStep": "implement",
-  "status": "implementing",
+  "status": "completed",
   "history": [
     {
       "step": "specify",
@@ -309,7 +309,70 @@
       "kind": "complete",
       "by": "extension",
       "at": "2026-10-27T01:35:56.247Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T033",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-10-27T03:52:31.583Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T034",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-10-27T03:52:31.584Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T035",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-10-27T03:52:31.584Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-10-27T03:52:31.584Z"
     }
   ],
-  "currentTask": "T033"
+  "currentTask": null,
+  "verified": [
+    {
+      "what": "pytest on merged main (ed60311)",
+      "command": "uv run pytest -q",
+      "source": "derived",
+      "exitCode": 0,
+      "durationSeconds": 190.9,
+      "result": "........................................................................ [ 99%] · ...................................                                      [100%] · 5363 passed in 184.88s (0:03:04)"
+    },
+    {
+      "what": "ruff check on merged main",
+      "command": "uv run ruff check app tests migrations",
+      "source": "derived",
+      "exitCode": 0,
+      "durationSeconds": 0.7,
+      "result": "All checks passed!"
+    },
+    {
+      "what": "Migration 028 applied to mbe_dev (approved): purchase_request approver/approval_time, purchase_order_detail request-line index and FK, product_cost_change; re-run is a no-op"
+    },
+    {
+      "what": "Deployed to the dev instance (xolotl :8765); new routes answer 401 without a token; redeployed with the to-purchase fix"
+    },
+    {
+      "what": "Live checks on dev (SC-001..SC-006): serials 568-587 consecutive under 20 concurrent submits; each request line on exactly one live PO line under 20 concurrent calls; double confirm 200/409 with one receipt per warehouse; cost 1524.4927 equals the formula and cancel restores; concurrent receipts in two facilities chained; 212-line PO confirm 0.05 s, receipt 0.2 s; PDF correct; cost and stock unchanged for 222 products; no 5xx"
+    }
+  ],
+  "concerns": [
+    {
+      "note": "Email send not run live at the user's request; covered by integration tests"
+    }
+  ]
 }
