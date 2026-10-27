@@ -66,6 +66,10 @@ The copy's last voucher is from 2026-09-29; voucher figures are for the 24 month
 
 - Q: How do purchase orders confirmed before the cutover count in PO and supplier balances? → A: Only POs confirmed on or after a cutoff date set at go-live count. Older POs show no balance and accept no applications, so supplier balances start clean (FR-020).
 - Q: Which cash session does a cash supplier payment come out of? → A: The caller's open session, as for vouchers. Whoever records a cash payment must have an open session, and the cash leaves their drawer and their cut (FR-012).
+- Q: Who may edit, confirm and void an expense voucher? → A: Only the voucher's creator (its cashier) edits and confirms it, into their own open session. Any user with delete on 82 in the voucher's facility may void a confirmed voucher with a reason while its session is open (FR-002, FR-003, FR-004).
+- Q: Is a PO's balance based on what was ordered or what was received? → A: What was ordered. The balance is the PO's total (spec 031, tax added) minus live applications, fixed once confirmed; receipts do not change it. Shortfalls are for accounts payable (#79) (FR-018).
+- Q: How is the balance cutoff date set? → A: In a numbered database migration at go-live. There is no setting or route to change it; changing it means another migration (FR-020).
+- Q: Which right do voiding a voucher, reversing an application and cancelling a payment require? → A: Delete: on 82 for voiding a voucher, on 21 for reversing an application or cancelling a payment. Cancelling one's own draft voucher needs only update on 82 (FR-004, FR-015, FR-016).
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -84,6 +88,7 @@ A cashier pays a small expense out of the drawer: fuel, sand for a delivery, off
 3. **Given** a caller with no open session, **When** they create or confirm a voucher, **Then** it is refused.
 4. **Given** a draft totalling 0 or with no lines, **When** it is confirmed, **Then** it is refused.
 5. **Given** a draft created in a session that has since closed, **When** its cashier confirms it in their new session, **Then** it belongs to the new session.
+7. **Given** another user's draft, **When** a user edits or confirms it, **Then** it is refused.
 6. **Given** a line with an amount of 0 or less, **When** it is added or changed, **Then** it is refused with a message (not silently ignored).
 
 ---
@@ -172,9 +177,9 @@ Staff see, for a supplier, each open PO with its total, applied amount and balan
 
 ### Edge Cases
 
-- A voucher's draft from a closed session, confirmed by a different cashier: it belongs to the confirming caller's session. Only the facility's users with the right can edit or confirm it.
+- A voucher's draft from a closed session: only its creator can confirm it, into their current open session, or cancel it.
 - A caller with two open sessions (one cashier has two today): the newest is used, as for customer refunds.
-- A stale session (opened on an earlier day): vouchers and cash payments follow the same rule as customer refunds.
+- A stale session (opened on an earlier day) counts as open, as it does for customer refunds: vouchers and cash payments go into it until it is closed.
 - A PO whose receipts were cancelled or partly received: its total is still what was ordered; receipts do not change the balance.
 - A payment applied in full to a PO and then reversed: the PO is open again.
 - A payment amount of 0 or less, or an application of 0 or less: refused.
@@ -188,9 +193,9 @@ Staff see, for a supplier, each open PO with its total, applied amount and balan
 **Expense vouchers (ExpenseTicket, 82)**
 
 - **FR-001**: Users with create on 82 MUST be able to create a voucher only while they have an open cash session. The voucher is a draft in that session's facility, with the caller as creator and cashier.
-- **FR-002**: On a draft, users with update on 82 MUST be able to change the comment and add, change and remove lines. A line has an expense category from the catalog, an amount above 0 (two decimals), and an optional note of up to 500 characters. The note defaults to the category's comment.
-- **FR-003**: Confirming MUST require the caller's open cash session and a total above 0. The voucher then belongs to the caller's session open at that moment, and is read-only except for void.
-- **FR-004**: A confirmed voucher MUST be voidable, with update on 82 and a required reason, only while its session is open. The reason is recorded as an incidence of the voucher. A draft is cancelled without a reason.
+- **FR-002**: On a draft, only its creator (its cashier), holding update on 82, MUST be able to change the comment and add, change and remove lines. A line has an expense category from the catalog, an amount above 0 (two decimals), and an optional note of up to 500 characters. The note defaults to the category's comment.
+- **FR-003**: Only the voucher's creator MAY confirm it. Confirming MUST require the caller's open cash session and a total above 0. The voucher then belongs to the caller's session open at that moment, and is read-only except for void.
+- **FR-004**: A confirmed voucher MUST be voidable by any user with delete on 82 in its facility (not only its cashier), with a required reason, only while its session is open. The reason is recorded as an incidence of the voucher. A draft is cancelled by its creator, with update on 82, without a reason.
 - **FR-005**: Once its session is closed, a voucher MUST NOT change. Voiding and confirming MUST be serialized with closing the session, so a closed session's figures never change.
 - **FR-006**: The cash cut MUST subtract the session's confirmed, non-voided vouchers, as it does today.
 - **FR-007**: "Set cashier" MUST NOT be built: the cashier is always the caller whose session the voucher is in.
@@ -199,17 +204,17 @@ Staff see, for a supplier, each open PO with its total, applied amount and balan
 
 **Supplier payments (SupplierPayment, 21)**
 
-- **FR-010**: Users with create on 21 MUST be able to record a payment: supplier, amount above 0, payment method (the SAT methods already used by customer payments), date (default now, not in the future), reference (up to 50 characters) and note (up to 500).
+- **FR-010**: Users with create on 21 MUST be able to record a payment: supplier, amount above 0, payment method (the SAT methods already used by customer payments), date (default now, not in the future; always now for a cash payment), reference (up to 50 characters) and note (up to 500).
 - **FR-011**: A cash payment MUST come out of a cash session, as in FR-012. Other methods MUST NOT be tied to a session.
 - **FR-012**: A cash payment MUST require the caller's open cash session and belongs to it; without one it is refused. The session's cut MUST subtract its cash payments as a separate figure, shown on the cut and its print. Voiding and cancelling are serialized with closing the session, as in FR-005.
 - **FR-013**: A payment MUST get the next serial of its facility under spec 027's lock, distinct and consecutive under concurrency. Its facility is its session's for a cash payment, and the caller's otherwise.
 - **FR-014**: Users with update on 21 MUST be able to apply a payment's credit to one or more confirmed, non-cancelled POs of the same supplier, at recording or later. Each application is above 0 and at most both the payment's credit and the PO's balance.
-- **FR-015**: Applications MUST be kept, never deleted. Reversing one needs update on 21 and a reason, recorded as an incidence of the payment; its amount returns to the payment's credit and the PO's balance.
-- **FR-016**: Cancelling a payment MUST need update on 21 and a reason. It reverses every live application, and is refused for a cash payment whose session is closed. A cancelled payment accepts nothing further.
+- **FR-015**: Applications MUST be kept, never deleted. Reversing one needs delete on 21 and a reason, recorded as an incidence of the payment; its amount returns to the payment's credit and the PO's balance.
+- **FR-016**: Cancelling a payment MUST need delete on 21 and a reason. It reverses every live application, and is refused for a cash payment whose session is closed. A cancelled payment accepts nothing further.
 - **FR-017**: Applications and cancels MUST NOT let a payment's credit or a PO's balance go below 0, even when made at the same moment.
-- **FR-018**: A PO's balance MUST be its total (spec 031, tax added) minus its live applications. A payment's credit is its amount minus its live applications, 0 once cancelled.
+- **FR-018**: A PO's balance MUST be its ordered total (spec 031, tax added) minus its live applications; confirming or cancelling receipts does not change it. A payment's credit is its amount minus its live applications, 0 once cancelled.
 - **FR-019**: Users with read on 21 MUST be able to see a PO's balance and its applications; list payments filtered by supplier, facility, date range, method and state; and see a supplier's summary: the POs with a balance, the payments with credit, and the totals owed and credit. Which POs count is set by FR-020.
-- **FR-020**: Only POs confirmed on or after the balance cutoff date MUST count: they have a balance and accept applications. The cutoff is one company-wide date, set at go-live by an administrator. Older POs show no balance, are left out of supplier summaries, and refuse applications. Until the date is set, no PO accepts applications.
+- **FR-020**: Only POs confirmed on or after the balance cutoff date MUST count: they have a balance and accept applications. The cutoff is one company-wide date, written by a numbered migration at go-live; no route sets or changes it. Older POs show no balance, are left out of supplier summaries, and refuse applications. Until that migration runs, no PO accepts applications, and payments are all credit.
 - **FR-021**: A payment MUST NOT be edited. A wrong payment is cancelled and recorded again.
 - **FR-022**: Supplier payments have no facility limit on reading or applying, as POs have none (spec 031). Recording and cancelling a cash payment follow its session.
 
@@ -242,7 +247,7 @@ Staff see, for a supplier, each open PO with its total, applied amount and balan
 - **No company bank accounts.** Spec 021's bank accounts are the supplier's; a payment's source is a cash session or nothing. Recording which company account paid is out of scope.
 - **Supplier returns** are not modelled; none exist. Balances ignore them.
 - **Incidences** for vouchers and supplier payments use two new incidence sources.
-- **The cutoff date** is a single setting, not per supplier or facility. A PO's confirmation time decides which side of it the PO falls.
+- **The cutoff date** is a single company-wide value, not per supplier or facility, held in the database and written by migration. A PO's confirmation time decides which side of it the PO falls.
 - **Facility of a non-cash payment** is the caller's. An administrator without a facility names one.
 - **The 5 legacy payments** keep their rows and get no serial. They are history, not credit: nothing can be applied from them.
 - **Cutover.** Only the new MBE records vouchers and supplier payments after cutover.
