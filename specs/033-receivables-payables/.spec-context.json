@@ -3,7 +3,7 @@
   "specName": "Accounts Receivable and Accounts Payable",
   "branch": "033-receivables-payables",
   "currentStep": "implement",
-  "status": "implemented",
+  "status": "completed",
   "history": [
     {
       "step": "specify",
@@ -566,7 +566,7 @@
       "at": "2026-10-27T21:17:13.971Z"
     }
   ],
-  "currentTask": "T061",
+  "currentTask": null,
   "verified": [
     {
       "what": "full test suite",
