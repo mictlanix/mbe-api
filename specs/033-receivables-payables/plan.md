@@ -77,7 +77,7 @@
   - `customer_refund_service.py`: settle on confirm;
   - `invoice_service.py`: settle on a credit note's confirm;
   - `supplier_payment_service.py`: batch open POs, due dates;
-  - `print_contexts.py`: statement context; the payment ticket reads `unapplied_amount` (after merging `origin/main` for #275);
+  - `print_contexts.py`: statement context; the payment ticket reads `unapplied_amount` (#275, merged from main);
   - `enums.py`: `SourceType.SUPPLIER`.
 - **Docs:** `07-administration.md` §1–2, and the CHANGELOG.
 

@@ -109,9 +109,9 @@ After both locks they read `unapplied_amount` and `order_balances` and check the
 - the apply check: an application's `amount + amount_change` must not exceed the unapplied amount. Today only `amount` is compared;
 - the drill-down's payments that can be applied;
 - the customer credit (R7);
-- the payment ticket. #275 is on main after this branch's base: `print_contexts` computes `allocated = Σ(amount + amount_change)` itself (`print_contexts.py:687` on main). It switches to `unapplied_amount`, so the ticket and the API share one figure.
+- the payment ticket (#275): `print_contexts` computes `allocated = Σ(amount + amount_change)` itself. It switches to `unapplied_amount`, so the ticket and the API share one figure.
 
-The branch merges `origin/main` first, to pick up #270, #271 and #275.
+`origin/main` (#270, #271, #275) was merged into the branch on 2026-10-27, during the second plan run.
 
 **Measured:**
 - 38,523 live applications carry change. 432 of them are on credit payments (type 2) and the rest are on cash sales.
@@ -127,6 +127,9 @@ The branch merges `origin/main` first, to pick up #270, #271 and #275.
 **Decision:** no new apply route. The view calls the existing `POST /customer-payments/{id}/applications` and `POST /supplier-payments/{id}/applications`, under their own privileges (CustomerPayments create; SupplierPayment update). The customer route gains the balance check (R4) and the refusal of a settled order.
 
 The drill-down lists the payments that can be applied: those with credit above 0.01, of the same party and in the same currency.
+- **Which facilities' payments the list shows:** #271's rule. That's the caller's facility, unless they're an administrator or hold PaymentsEditor read (100), the same rule as `GET /customer-payments`. Showing other facilities' payments in the drill-down would undo #271.
+- **The party's credit figure** stays company-wide: it's one number, and the statement shows it in full.
+- **The apply route** itself still takes any facility's payment by id (`_payment_or_404`, not `_visible_payment_or_404`), as #271 left it.
 
 **Rationale:**
 - One path to an application means one place for the guards.

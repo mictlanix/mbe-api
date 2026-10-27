@@ -64,7 +64,7 @@ The drill-down.
 ```
 
 - **`documents`:** open documents in scope, oldest due first; documents without a due date come last.
-- **`payments`:** the party's payments with credit above 0.01, the ones that can be applied (FR-020). On AP they come from spec 032.
+- **`payments`:** the party's payments with credit above 0.01, the ones that can be applied (FR-020). On AR they're limited to the caller's facility unless they're an administrator or hold PaymentsEditor read (#271's rule). On AP they come from spec 032 and cover every facility.
 - **AP shape:**
   - `serial` is null, and `facility` and `salesperson` are omitted;
   - `linked` lists confirmed receipts, labelled with facility code and serial;
