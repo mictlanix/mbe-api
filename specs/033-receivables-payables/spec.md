@@ -351,8 +351,9 @@ The orders that are paid off but still flagged unpaid are corrected once. Each g
   - it's in another currency;
   - it's above the payment's unapplied amount;
   - it's above the document's balance;
-  - the document isn't open;
-  - the document is outside the caller's scope.
+  - nothing is owed on the document: it's flagged paid, or its balance is 0.01 or less.
+
+  The drill-down offers only documents in the caller's scope. The payment services themselves keep accepting an order of another facility: 816 of the 5,646 credit-order applications in 2026 (14%) were made by another facility's payment. These refusals apply to cash sales too: they aren't AR documents, but they're paid through the same service.
 - **FR-022**: Concurrent applications MUST NOT take a document's balance or a payment's unapplied amount below zero, on either side. The customer side gets the locking spec 032 gave the supplier side.
 - **FR-023**: A party's statement MUST render as a PDF with spec 019's printing, from one template with the side as its variable. It shows:
   - the party and the date;
