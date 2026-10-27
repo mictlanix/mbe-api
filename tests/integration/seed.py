@@ -226,6 +226,24 @@ async def seed_baseline(db: AsyncSession) -> None:
     await db.commit()
 
 
+async def seed_facility(db: AsyncSession, facility_id: int = 2, code: str = 'F2') -> int:
+    """A second store beside the baseline's facility 1, for scope tests."""
+    db.add(
+        Facility(
+            facility_id=facility_id,
+            code=code,
+            name='Sucursal',
+            type=FacilityType.STORE,
+            location=POSTAL_CODE,
+            address=1,
+            taxpayer=ISSUER_RFC,
+            status=EntityStatus.ACTIVE,
+        )
+    )
+    await db.commit()
+    return facility_id
+
+
 async def seed_sales_order(
     db: AsyncSession, *, completed: bool = False, paid: bool = False
 ) -> int:

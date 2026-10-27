@@ -666,10 +666,10 @@ async def payment_ticket_context(db: AsyncSession, payment: CustomerPayment) -> 
     """A credit payment's or advance's ticket, after legacy `TicketCreditPayment` and
     `TicketPaymentInAdvance`. `payment.payment_type` must be a key of `PAYMENT_TICKET_TITLES`.
 
-    Reversed applications are neither printed nor deducted. The balance deducts the change handed
-    back as well as the applied amount, as legacy's `Balance` does: it is the customer's proof of
-    payment, and change already returned is not money they still hold here. `unapplied` on the API
-    counts that change as unapplied, so the two differ when change was given.
+    Reversed applications are neither printed nor deducted. The balance is the payment's
+    `unapplied_amount`, which deducts the change handed back as well as the applied amount, as
+    legacy's `Balance` does: change already returned is not money the customer still holds here
+    (spec 033, FR-005a).
     """
     money = formatting.money
     payment_type = PaymentType(payment.payment_type)
@@ -684,7 +684,7 @@ async def payment_ticket_context(db: AsyncSession, payment: CustomerPayment) -> 
         for a in await customer_payment_service.list_applications(db, payment.customer_payment_id)
         if not a.cancelled
     ]
-    allocated = sum((a.amount + a.amount_change for a in applications), Decimal(0))
+    balance = await customer_payment_service.unapplied_amount(db, payment.customer_payment_id)
     payment_id = formatting.pad8(payment.customer_payment_id)
     context = {
         'header': header,
@@ -701,7 +701,7 @@ async def payment_ticket_context(db: AsyncSession, payment: CustomerPayment) -> 
             {'order': formatting.pad8(a.sales_order), 'amount': money(a.amount)}
             for a in applications
         ],
-        'balance': money(payment.amount - allocated),
+        'balance': money(balance),
         'total': money(payment.amount),
         'receipt_message': facility.receipt_message or None,
         'payment_id': payment_id,

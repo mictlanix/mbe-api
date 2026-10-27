@@ -11,20 +11,28 @@ tests need to exercise directly, and keeping them free of I/O is what makes that
 """
 
 from collections.abc import Iterable, Sequence
+from dataclasses import dataclass
 from datetime import date, datetime, timedelta
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 
 from fastapi import HTTPException, status
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 
 from app.core.clock import local_now
 from app.core.config import settings
 from app.core.constants import COST_PRICE_LIST_ID
 from app.core.deps import CurrentUser
-from app.enums import CurrencyCode, FulfillmentType, OrderOrigin, PaymentTerms
+from app.enums import CurrencyCode, FiscalDocumentType, FulfillmentType, OrderOrigin, PaymentTerms
 from app.models.core import ExchangeRate, Facility, Warehouse
 from app.models.customer import Customer
+from app.models.fiscal import (
+    FiscalDocument,
+    FiscalDocumentDetail,
+    FiscalDocumentRelation,
+    FiscalDocumentXml,
+)
 from app.models.product import Product, ProductPrice
 from app.models.sales import (
     CustomerRefund,
@@ -43,8 +51,10 @@ from app.schemas.sales_order import (
 )
 from app.schemas.sat_catalog import SatUnitOfMeasurementResponse
 from app.services import (
+    cfdi_invoice,
     customer_discount_service,
     documents,
+    fiscal_document_service,
     image_service,
     stock_ledger,
     totals,
@@ -373,6 +383,266 @@ async def refunded_by_order(db: AsyncSession, order_ids: Sequence[int]) -> dict[
 async def refunded_amount(db: AsyncSession, sales_order_id: int) -> Decimal:
     """`refunded_by_order` for one order."""
     return (await refunded_by_order(db, [sales_order_id])).get(sales_order_id, Decimal(0))
+
+
+#: A balance at or below this is settled, the current system's rule for setting `paid` (spec 033).
+SETTLED = Decimal('0.01')
+
+
+def credit_note_shares(amount: Decimal, parts: dict[int, Decimal]) -> dict[int, Decimal]:
+    """`amount` shared out in proportion to `parts`, in cents (spec 033, research R2).
+
+    The order with the highest id takes the rounding remainder, so the shares always add up to the
+    note: a cent lost to rounding would be a cent the invoice's orders still owe.
+    """
+    whole = sum(parts.values(), Decimal(0))
+    if whole <= 0:
+        return {}
+    ids = sorted(parts)
+    shares = {
+        oid: (amount * parts[oid] / whole).quantize(totals.CENTS, rounding=ROUND_HALF_UP)
+        for oid in ids[:-1]
+    }
+    shares[ids[-1]] = (amount - sum(shares.values(), Decimal(0))).quantize(totals.CENTS)
+    return shares
+
+
+def _fiscal_line_total(line: FiscalDocumentDetail) -> Decimal:
+    """A CFDI line's total as the stamped document computes it."""
+    return cfdi_invoice.line_amounts(
+        cfdi_invoice.InvoiceLineData(
+            product_service=line.product_service or '',
+            product_code=line.product_code,
+            quantity=line.quantity,
+            unit=line.unit_of_measurement or '',
+            unit_name=line.unit_of_measurement_name,
+            description=line.product_name,
+            price=line.price,
+            discount_rate=line.discount,
+            tax_rate=line.tax_rate,
+            tax_included=line.tax_included,
+        )
+    ).total
+
+
+async def _fiscal_lines_by_order(
+    db: AsyncSession, document_ids: Iterable[int]
+) -> dict[int, dict[int | None, Decimal]]:
+    """Per document, its line totals summed by the sales order each line was copied from. Lines
+    added by hand carry no order line and sum under `None`."""
+    rows = (
+        await db.execute(
+            select(FiscalDocumentDetail, SalesOrderDetail.sales_order)
+            .outerjoin(
+                SalesOrderDetail,
+                SalesOrderDetail.sales_order_detail_id == FiscalDocumentDetail.order_detail,
+            )
+            .where(FiscalDocumentDetail.document.in_(list(document_ids)))
+        )
+    ).all()
+    by_document: dict[int, dict[int | None, Decimal]] = {}
+    for line, order_id in rows:
+        sums = by_document.setdefault(line.document, {})
+        sums[order_id] = sums.get(order_id, Decimal(0)) + _fiscal_line_total(line)
+    return by_document
+
+
+async def _credited_by_order(db: AsyncSession, order_ids: Sequence[int]) -> dict[int, Decimal]:
+    """Each order's share of the live credit notes against its invoices (spec 033, research R2).
+
+    A note line copied from an order's line counts in full for that order. The rest of the note,
+    its stamped total less those lines, is shared out by each order's part of the invoice: only 1
+    of the 115 live note lines in mbe_dev keeps its order line, so the share is what applies in
+    practice. The parts span every order on the invoice, not just `order_ids`, so an order's figure
+    doesn't depend on which other orders were asked about.
+    """
+    if not order_ids:
+        return {}
+
+    invoice = aliased(FiscalDocument)
+    invoices = set(
+        (
+            await db.execute(
+                select(FiscalDocumentDetail.document)
+                .join(
+                    SalesOrderDetail,
+                    SalesOrderDetail.sales_order_detail_id == FiscalDocumentDetail.order_detail,
+                )
+                .join(invoice, invoice.fiscal_document_id == FiscalDocumentDetail.document)
+                .where(
+                    SalesOrderDetail.sales_order.in_(order_ids),
+                    invoice.type == FiscalDocumentType.INVOICE,
+                    fiscal_document_service.live(invoice),
+                )
+                .distinct()
+            )
+        )
+        .scalars()
+        .all()
+    )
+    if not invoices:
+        return {}
+
+    note = aliased(FiscalDocument)
+    note_rows = (
+        await db.execute(
+            select(note.fiscal_document_id, FiscalDocumentRelation.relation, FiscalDocumentXml.data)
+            .join(
+                FiscalDocumentRelation, FiscalDocumentRelation.document == note.fiscal_document_id
+            )
+            .join(
+                FiscalDocumentXml,
+                FiscalDocumentXml.fiscal_document_xml_id == note.fiscal_document_id,
+            )
+            .where(
+                FiscalDocumentRelation.relation.in_(invoices),
+                note.type == FiscalDocumentType.CREDIT_NOTE,
+                fiscal_document_service.live(note),
+            )
+            .order_by(note.fiscal_document_id, FiscalDocumentRelation.fiscal_document_relation_id)
+        )
+    ).all()
+    notes: dict[int, tuple[int, Decimal]] = {}
+    for note_id, related, xml in note_rows:
+        # A credit note relates one invoice (spec 028); the first relation stands for it.
+        notes.setdefault(note_id, (related, fiscal_document_service.xml_total(xml) or Decimal(0)))
+    if not notes:
+        return {}
+
+    parts = await _fiscal_lines_by_order(db, invoices)
+    traced = await _fiscal_lines_by_order(db, notes)
+    wanted = set(order_ids)
+    credited: dict[int, Decimal] = {}
+    for note_id, (related, note_total) in notes.items():
+        lines = {oid: amount for oid, amount in traced.get(note_id, {}).items() if oid is not None}
+        untraced = max(note_total - sum(lines.values(), Decimal(0)), Decimal(0))
+        invoice_parts = {
+            oid: amount for oid, amount in parts.get(related, {}).items() if oid is not None
+        }
+        for oid, share in credit_note_shares(untraced, invoice_parts).items():
+            lines[oid] = lines.get(oid, Decimal(0)) + share
+        for oid, amount in lines.items():
+            if oid in wanted:
+                credited[oid] = credited.get(oid, Decimal(0)) + amount
+    return credited
+
+
+@dataclass(frozen=True)
+class OrderBalance:
+    """What an order says and what is still owed on it (spec 033, FR-002)."""
+
+    totals: totals.DocumentTotals
+    refunded: Decimal
+    credited: Decimal
+    applied: Decimal
+    balance: Decimal
+
+    @property
+    def total(self) -> Decimal:
+        return self.totals.total
+
+
+async def order_balances(db: AsyncSession, orders: Sequence[SalesOrder]) -> dict[int, OrderBalance]:
+    """The one balance rule for sales orders, batched over `orders` (spec 033, FR-001).
+
+    Total, less completed refunds, less the order's share of live credit notes, less live
+    applications, floored at zero. Change handed back is not subtracted: it is money the payment
+    returned, not money the order received (research R14).
+    """
+    ids = [order.sales_order_id for order in orders]
+    if not ids:
+        return {}
+
+    lines_by_order: dict[int, list[totals.Line]] = {oid: [] for oid in ids}
+    rows = (
+        (await db.execute(select(SalesOrderDetail).where(SalesOrderDetail.sales_order.in_(ids))))
+        .scalars()
+        .all()
+    )
+    for row in rows:
+        lines_by_order[row.sales_order].append(
+            totals.Line(
+                quantity=row.quantity,
+                price=row.price,
+                discount_rate=row.discount_rate,
+                tax_rate=row.tax_rate,
+                tax_included=row.tax_included,
+            )
+        )
+
+    applied_rows = (
+        await db.execute(
+            select(SalesOrderPayment.sales_order, func.sum(SalesOrderPayment.amount))
+            .where(
+                SalesOrderPayment.sales_order.in_(ids),
+                SalesOrderPayment.cancelled.is_(False),
+            )
+            .group_by(SalesOrderPayment.sales_order)
+        )
+    ).all()
+    applied_by = {oid: amount or Decimal(0) for oid, amount in applied_rows}
+    refunded_by = await refunded_by_order(db, ids)
+    credited_by = await _credited_by_order(db, ids)
+
+    balances = {}
+    for oid in ids:
+        computed = totals.document_totals(lines_by_order[oid])
+        applied = applied_by.get(oid, Decimal(0))
+        refunded = refunded_by.get(oid, Decimal(0))
+        credited = credited_by.get(oid, Decimal(0))
+        balances[oid] = OrderBalance(
+            totals=computed,
+            refunded=refunded,
+            credited=credited,
+            applied=applied,
+            balance=totals.remaining(computed.total, [refunded, credited, applied]),
+        )
+    return balances
+
+
+async def _credit_candidates(
+    db: AsyncSession,
+    *,
+    customer: int | None = None,
+    facility: int | None = None,
+    due_before: datetime | None = None,
+) -> list[tuple[SalesOrder, OrderBalance]]:
+    """Credit orders not flagged paid, with their balances: the one customer-side selector.
+
+    The flag closes an order whatever it computes (spec 033, clarification Q1), which keeps the
+    16,405 legacy paid orders out and the set small. `payment_terms == NET_D` is load-bearing:
+    `derive_due_date` makes an immediate-terms order due on its own date (#207).
+    """
+    query = select(SalesOrder).where(
+        SalesOrder.payment_terms == PaymentTerms.NET_D,
+        SalesOrder.completed.is_(True),
+        SalesOrder.cancelled.is_(False),
+        SalesOrder.paid.is_(False),
+    )
+    if customer is not None:
+        query = query.where(SalesOrder.customer == customer)
+    if facility is not None:
+        query = query.where(SalesOrder.facility == facility)
+    if due_before is not None:
+        query = query.where(SalesOrder.due_date < due_before)
+    orders = list((await db.execute(query.order_by(SalesOrder.sales_order_id))).scalars().all())
+    balances = await order_balances(db, orders)
+    return [(order, balances[order.sales_order_id]) for order in orders]
+
+
+async def open_credit_orders(
+    db: AsyncSession,
+    *,
+    customer: int | None = None,
+    facility: int | None = None,
+    due_before: datetime | None = None,
+) -> list[tuple[SalesOrder, OrderBalance]]:
+    """The customer side's open documents: credit orders not flagged paid that still owe more than
+    `SETTLED` (spec 033, FR-007). The credit check, the AR view and statements read them."""
+    candidates = await _credit_candidates(
+        db, customer=customer, facility=facility, due_before=due_before
+    )
+    return [(order, balance) for order, balance in candidates if balance.balance > SETTLED]
 
 
 async def attach_summary_totals(db: AsyncSession, orders: Sequence[SalesOrder]) -> None:

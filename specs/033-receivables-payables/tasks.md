@@ -40,7 +40,7 @@ description: "Task list for accounts receivable and accounts payable (spec 033)"
 
 **Purpose**: the one enum value.
 
-- [ ] T001 Add `SUPPLIER = 16` to `SourceType` in `app/enums.py`, after `SUPPLIER_PAYMENT = 15`. Comment it like the 10–15 entries: `# API-only, like 10–15: a supplier account statement emailed (spec 033).` (research R12).
+- [X] T001 Add `SUPPLIER = 16` to `SourceType` in `app/enums.py`, after `SUPPLIER_PAYMENT = 15`. Comment it like the 10–15 entries: `# API-only, like 10–15: a supplier account statement emailed (spec 033).` (research R12).
 
 ---
 
@@ -50,14 +50,14 @@ description: "Task list for accounts receivable and accounts payable (spec 033)"
 
 ### Customer balance (FR-002, FR-003; research R1, R2)
 
-- [ ] T002 [P] Write the test first, in `tests/unit/test_order_balances.py`, for a pure helper `credit_note_shares(amount: Decimal, parts: dict[int, Decimal]) -> dict[int, Decimal]`. Cases:
+- [X] T002 [P] Write the test first, in `tests/unit/test_order_balances.py`, for a pure helper `credit_note_shares(amount: Decimal, parts: dict[int, Decimal]) -> dict[int, Decimal]`. Cases:
   - the amount is split in proportion to `parts`, each share rounded to cents;
   - the order with the highest id takes the rounding remainder, so the shares sum to `amount` exactly (100 split three ways over equal parts gives 33.33, 33.33, 33.34);
   - a single order takes the whole amount;
   - `parts` that sum to 0 or less give `{}`;
   - an amount of 0 gives every order 0.
-- [ ] T003 Implement `credit_note_shares` in `app/services/sales_order_service.py`, near `refunded_by_order`, so T002 passes.
-- [ ] T004 Write the test first, in `tests/integration/test_order_balances.py`, for `order_balances(db, orders)`. Use `seed_sales_order` and `seed_fiscal_document` from `tests/integration/seed.py`. Cases:
+- [X] T003 Implement `credit_note_shares` in `app/services/sales_order_service.py`, near `refunded_by_order`, so T002 passes.
+- [X] T004 Write the test first, in `tests/integration/test_order_balances.py`, for `order_balances(db, orders)`. Use `seed_sales_order` and `seed_fiscal_document` from `tests/integration/seed.py`. Cases:
   - total minus live applications. A cancelled application doesn't count, and `amount_change` is never subtracted (research R14, "Not changed");
   - completed, non-cancelled refunds are deducted. Draft and cancelled refunds aren't;
   - a live credit note (type 100) related to an invoice of the order is deducted;
@@ -66,7 +66,7 @@ description: "Task list for accounts receivable and accounts payable (spec 033)"
   - a cancelled note doesn't count, and neither does a draft with no XML (`fiscal_document_service.live`);
   - deductions above the total give a balance of 0, never negative;
   - several orders in one call give the same figures as one call per order.
-- [ ] T005 Implement in `app/services/sales_order_service.py` so T004 passes:
+- [X] T005 Implement in `app/services/sales_order_service.py` so T004 passes:
   - A frozen dataclass `OrderBalance` with:
     - `totals`: the `totals.document_totals` result, so callers don't fetch the lines again;
     - `total`, `refunded`, `credited`, `applied` and `balance`.
@@ -81,7 +81,7 @@ description: "Task list for accounts receivable and accounts payable (spec 033)"
       - a traced note line goes to its order in full (its total by `cfdi_invoice.line_amounts`);
       - the rest of the note goes through `credit_note_shares`. Each order's part is the sum of that invoice's line totals for that order's lines;
     - `balance = totals.remaining(total, [refunded, credited, applied])`.
-- [ ] T006 Add `open_credit_orders(db, *, customer: int | None = None, facility: int | None = None, due_before: datetime | None = None) -> list[tuple[SalesOrder, OrderBalance]]` to `app/services/sales_order_service.py` (FR-007, research R5):
+- [X] T006 Add `open_credit_orders(db, *, customer: int | None = None, facility: int | None = None, due_before: datetime | None = None) -> list[tuple[SalesOrder, OrderBalance]]` to `app/services/sales_order_service.py` (FR-007, research R5):
   - a private `_credit_candidates(db, *, customer=None, facility=None, due_before=None) -> list[tuple[SalesOrder, OrderBalance]]` selects `payment_terms == NET_D`, completed, not cancelled and `paid` false, filtered by the arguments that are given, and runs `order_balances` on them. It's the one customer-side selector: the stale-flag job (T057) reads it too;
   - `open_credit_orders` keeps the candidates with a balance above 0.01.
 
@@ -93,16 +93,16 @@ description: "Task list for accounts receivable and accounts payable (spec 033)"
 
 ### Unapplied amount counts change (FR-005a; research R14)
 
-- [ ] T007 [P] Write the tests first, in `tests/integration/test_payment_flow.py` (the unit file has no database fixture):
+- [X] T007 [P] Write the tests first, in `tests/integration/test_payment_flow.py` (the unit file has no database fixture):
   - `unapplied_amount` and `attach_summary_unapplied` both give `amount − Σ(amount + amount_change)` over non-cancelled applications;
   - the payment-300789 shape gives 0: 600, with 530 applied and 70 change;
   - a cancelled application's change doesn't count.
-- [ ] T008 Change `unapplied_amount` and `attach_summary_unapplied` in `app/services/customer_payment_service.py`:
+- [X] T008 Change `unapplied_amount` and `attach_summary_unapplied` in `app/services/customer_payment_service.py`:
   - sum `SalesOrderPayment.amount + SalesOrderPayment.amount_change`;
   - update the docstring of `unapplied_amount` to say that change handed back can't be applied again, as the ticket and the current system's `Balance` count it.
 
   T007 must pass.
-- [ ] T009 In `app/services/print_contexts.py`, make `payment_ticket_context` print `balance` from `customer_payment_service.unapplied_amount(db, payment.customer_payment_id)`:
+- [X] T009 In `app/services/print_contexts.py`, make `payment_ticket_context` print `balance` from `customer_payment_service.unapplied_amount(db, payment.customer_payment_id)`:
   - drop the local `allocated` sum;
   - remove the docstring sentence saying `unapplied` and the ticket differ.
 
@@ -110,7 +110,7 @@ description: "Task list for accounts receivable and accounts payable (spec 033)"
 
 ### Shared view core and schemas (FR-014, FR-015; research R6, R7)
 
-- [ ] T010 [P] Write the tests first, in `tests/unit/test_accounts.py`, for the pure core of `app/services/accounts_service.py`:
+- [X] T010 [P] Write the tests first, in `tests/unit/test_accounts.py`, for the pure core of `app/services/accounts_service.py`:
   - `days_past_due(due: datetime | None, today: date) -> int`: 0 with no due date or a due date of today or later; otherwise local days;
   - `bucket(days: int) -> str`: `current` for 0, `1-30`, `31-60`, `61-90`, `90+`, with the edges 30/31, 60/61 and 90/91;
   - `summarize(documents, *, credit, credit_limit, owed_company)`:
@@ -121,13 +121,13 @@ description: "Task list for accounts receivable and accounts payable (spec 033)"
     - `utilization = owed_company / limit` (4 decimals), and `available_credit = limit − owed_company`, which can be negative;
     - with a limit of 0 or None, both are None;
     - a customer with a 50,000 limit and 40,000 owed company-wide gets 0.8000 and 10,000, whatever `owed` is (US2 scenario 3).
-- [ ] T011 Implement the pure core in `app/services/accounts_service.py` so T010 passes:
+- [X] T011 Implement the pure core in `app/services/accounts_service.py` so T010 passes:
   - a frozen dataclass `Document` in the shared `OpenDocument` shape (data-model.md);
   - `BUCKETS = ('current', '1-30', '31-60', '61-90', '90+')`;
   - `days_past_due`, `bucket` and `summarize`. `summarize` returns a dict with `PartySummary`'s figures.
 
   Use `local_now()` for today in callers, never inside the pure functions.
-- [ ] T012 [P] Create `app/schemas/accounts.py` with the shapes in `contracts/accounts.md`:
+- [X] T012 [P] Create `app/schemas/accounts.py` with the shapes in `contracts/accounts.md`:
   - `Buckets`, with the aliases `1-30`, `31-60`, `61-90` and `90+`;
   - `PartySummary`, with `sales_agent` and `sales_agent_name` optional;
   - `LinkedDocument`, `OpenDocument` and `AccountPayment`;

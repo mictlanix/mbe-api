@@ -37,14 +37,14 @@ class CustomerPaymentResponse(BaseModel):
     cash_session: int | None
     payment_type: PaymentType
     verifier: int | None
-    # Derived: amount less its non-cancelled applications (never stored)
+    # Derived: amount less its non-cancelled applications and their change (never stored)
     unapplied: Decimal
 
 
 class ApplicationCreate(BaseModel):
     sales_order: int
     amount: Decimal = Field(gt=0)
-    # Change handed back on a cash tender; does not consume the payment's unapplied amount
+    # Change handed back on a cash tender; it consumes the payment's unapplied amount too (spec 033)
     amount_change: Decimal = Field(default=Decimal(0), ge=0)
 
 

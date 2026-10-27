@@ -6,6 +6,8 @@ paid. Each of those is a read of rows the previous request wrote, which is exact
 cannot represent.
 """
 
+from decimal import Decimal
+
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -348,6 +350,50 @@ async def test_a_paid_sale_is_refunded_as_a_credit_note(
     assert notes.json()['total'] == 1
     # Nothing drawn against it yet, so the whole refund is available. Compared numerically: the
     # credit note carries its column's scale, which is wider than the money the order reports.
-    from decimal import Decimal
-
     assert Decimal(notes.json()['items'][0]['remaining']) == Decimal(total)
+
+
+async def _payment_with_change(client: AsyncClient, db: AsyncSession) -> tuple[int, int]:
+    """Payment 300789's shape: 600 tendered, 530 applied, 70 handed back. Returns the payment
+    and its application."""
+    order_id, _ = await _completed_order_with_total(client, db)
+    payment = await client.post(
+        '/api/v1/customer-payments',
+        json={'customer': 1, 'amount': '600', 'method': PaymentMethod.CASH},
+    )
+    payment_id = payment.json()['customer_payment_id']
+    applied = await client.post(
+        f'/api/v1/customer-payments/{payment_id}/applications',
+        json={'sales_order': order_id, 'amount': '530', 'amount_change': '70'},
+    )
+    assert applied.status_code == 201, applied.text
+    return payment_id, applied.json()['sales_order_payment_id']
+
+
+async def test_change_handed_back_is_not_unapplied(
+    client: AsyncClient, db: AsyncSession, seeded: None
+) -> None:
+    """Spec 033 FR-005a: 600 − 530 − 70 = 0, as the payment's ticket says (#275)."""
+    payment_id, _ = await _payment_with_change(client, db)
+
+    read = await client.get(f'/api/v1/customer-payments/{payment_id}')
+    listed = await client.get('/api/v1/customer-payments', params={'customer': 1})
+
+    assert read.status_code == 200, read.text
+    assert Decimal(read.json()['unapplied']) == 0
+    row = next(r for r in listed.json()['items'] if r['customer_payment_id'] == payment_id)
+    assert Decimal(row['unapplied']) == 0
+
+
+async def test_a_reversed_applications_change_counts_again(
+    client: AsyncClient, db: AsyncSession, seeded: None
+) -> None:
+    payment_id, application_id = await _payment_with_change(client, db)
+
+    await client.post(
+        f'/api/v1/customer-payments/{payment_id}/applications/{application_id}/reverse',
+        json={'reason': 'Cobro duplicado'},
+    )
+
+    read = await client.get(f'/api/v1/customer-payments/{payment_id}')
+    assert Decimal(read.json()['unapplied']) == Decimal('600')

@@ -84,13 +84,19 @@ def is_barcode_or_id(term: str) -> bool:
 
 
 async def unapplied_amount(db: AsyncSession, customer_payment_id: int) -> Decimal:
-    """The payment's amount less every non-cancelled application. Never stored."""
+    """The payment's amount less every non-cancelled application and the change it handed back.
+    Never stored.
+
+    Change is money the payment returned to the customer, so it can't be applied again. The
+    payment's ticket and the current system's `Balance` subtract it too, and so does the customer's
+    credit (spec 033, FR-005a): payment 300789 in mbe_dev is 600, 530 applied, 70 handed back, 0.
+    """
     payment = await db.get(CustomerPayment, customer_payment_id)
     if payment is None:
         return Decimal(0)
     applied = (
         await db.execute(
-            select(func.sum(SalesOrderPayment.amount)).where(
+            select(func.sum(SalesOrderPayment.amount + SalesOrderPayment.amount_change)).where(
                 SalesOrderPayment.customer_payment == customer_payment_id,
                 SalesOrderPayment.cancelled.is_(False),
             )
@@ -116,7 +122,10 @@ async def attach_summary_unapplied(db: AsyncSession, payments: Sequence[Customer
 
     rows = (
         await db.execute(
-            select(SalesOrderPayment.customer_payment, func.sum(SalesOrderPayment.amount))
+            select(
+                SalesOrderPayment.customer_payment,
+                func.sum(SalesOrderPayment.amount + SalesOrderPayment.amount_change),
+            )
             .where(
                 SalesOrderPayment.customer_payment.in_(ids),
                 SalesOrderPayment.cancelled.is_(False),
