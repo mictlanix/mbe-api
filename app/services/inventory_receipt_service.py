@@ -148,7 +148,10 @@ async def attach_derived(db: AsyncSession, receipt: InventoryReceipt) -> Invento
             # The response's figure only: no history, so nothing writes it back to the row.
             set_committed_value(line, 'quantity_ordered', ordered[order_line])
         line.__dict__['quantity_received_elsewhere'] = elsewhere.get(order_line, Decimal(0))
-    receipt.__dict__['warnings'] = over_receipt_warnings(lines, ordered, elsewhere)
+    # The cost warnings of the confirm or cancel that returned this receipt, if any (spec 031).
+    receipt.__dict__['warnings'] = over_receipt_warnings(
+        lines, ordered, elsewhere
+    ) + receipt.__dict__.get('cost_warnings', [])
     return receipt
 
 
@@ -164,6 +167,17 @@ async def create(
 async def update(
     db: AsyncSession, receipt_id: int, data: ReceiptUpdate, *, current: CurrentUser
 ) -> InventoryReceipt:
+    """A receipt of a purchase order keeps its warehouse: its lines are that warehouse's order
+    lines, and the complementary receipt finds it by order and warehouse (spec 031, R7). The
+    order link is never changed once set, so the plain read is current."""
+    if data.warehouse is not None:
+        existing = await db.get(InventoryReceipt, receipt_id)
+        if (
+            existing is not None
+            and existing.purchase_order is not None
+            and data.warehouse != existing.warehouse
+        ):
+            raise _refuse("A purchase order's receipt keeps its warehouse")
     receipt = await inv.update_header(db, inv.RECEIPT, receipt_id, data, current=current)
     return await attach_derived(db, receipt)
 
@@ -300,13 +314,17 @@ async def complementary_receipt(
         if source.cancelled:
             raise _refuse('The receipt is cancelled')
 
+        # Non-stockable order lines get no receipt line, as on confirm; confirming one would be
+        # refused (spec 031, R7).
         order_lines = (
             (
                 await db.execute(
                     select(PurchaseOrderDetail)
+                    .join(Product, Product.product_id == PurchaseOrderDetail.product)
                     .where(
                         PurchaseOrderDetail.purchase_order == order_id,
                         PurchaseOrderDetail.warehouse == source.warehouse,
+                        Product.stockable.is_(True),
                     )
                     .order_by(PurchaseOrderDetail.purchase_order_detail_id)
                 )

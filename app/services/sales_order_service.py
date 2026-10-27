@@ -157,9 +157,7 @@ def assert_can_cancel(order: object, *, live_applications: Sequence[object]) -> 
         )
 
     if live_applications:
-        ids = ', '.join(
-            str(getattr(a, 'sales_order_payment_id', '?')) for a in live_applications
-        )
+        ids = ', '.join(str(getattr(a, 'sales_order_payment_id', '?')) for a in live_applications)
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=(
@@ -169,7 +167,6 @@ def assert_can_cancel(order: object, *, live_applications: Sequence[object]) -> 
 
 
 # ── Context resolution ────────────────────────────────────────────────────────
-
 
 
 def _point_sale(current: CurrentUser, requested: int | None) -> int:
@@ -315,9 +312,7 @@ async def attach_derived(db: AsyncSession, order: SalesOrder) -> SalesOrder:
     return order
 
 
-async def refunded_by_order(
-    db: AsyncSession, order_ids: Sequence[int]
-) -> dict[int, Decimal]:
+async def refunded_by_order(db: AsyncSession, order_ids: Sequence[int]) -> dict[int, Decimal]:
     """What has been handed back on each order, in one query for the whole page (#223).
 
     Goods a customer returned are goods they do not owe for, and nothing else in the data records
@@ -368,9 +363,9 @@ async def refunded_by_order(
     for (order_id, _refund_id), lines in lines_by_refund.items():
         # Per refund, then summed: each is its own document and rounds once, exactly as the
         # refund endpoints report it. Totalling every line of every refund in one go would drift.
-        refunded[order_id] = refunded.get(order_id, Decimal(0)) + totals.document_totals(
-            lines
-        ).total
+        refunded[order_id] = (
+            refunded.get(order_id, Decimal(0)) + totals.document_totals(lines).total
+        )
 
     return refunded
 
@@ -393,11 +388,7 @@ async def attach_summary_totals(db: AsyncSession, orders: Sequence[SalesOrder]) 
 
     lines_by_order: dict[int, list[totals.Line]] = {oid: [] for oid in ids}
     rows = (
-        (
-            await db.execute(
-                select(SalesOrderDetail).where(SalesOrderDetail.sales_order.in_(ids))
-            )
-        )
+        (await db.execute(select(SalesOrderDetail).where(SalesOrderDetail.sales_order.in_(ids))))
         .scalars()
         .all()
     )
@@ -593,9 +584,7 @@ async def _customer_credit_debt(db: AsyncSession, customer_id: int) -> Decimal:
         return Decimal(0)
 
     await attach_summary_totals(db, orders)
-    return sum(
-        (order.__dict__['balance'] * order.exchange_rate for order in orders), Decimal(0)
-    )
+    return sum((order.__dict__['balance'] * order.exchange_rate for order in orders), Decimal(0))
 
 
 async def _assert_within_credit_limit(
@@ -914,9 +903,7 @@ async def list_orders(
         both(SalesOrder.paid.is_(True))
     if search:
         if search.isdigit():
-            both(
-                or_(SalesOrder.sales_order_id == int(search), SalesOrder.serial == int(search))
-            )
+            both(or_(SalesOrder.sales_order_id == int(search), SalesOrder.serial == int(search)))
         else:
             # Matching the override alone matched a column that is null on the rows a cashier is
             # looking for, so a name search returned nothing and read as "no results" (#172). The
@@ -987,9 +974,7 @@ async def update_order(
         terms = PaymentTerms(changes['payment_terms'])
         customer = await _customer_or_404(db, order.customer)
         order.payment_terms = int(terms)
-        order.due_date = derive_due_date(
-            order.date, terms, credit_days=customer.credit_days or 0
-        )
+        order.due_date = derive_due_date(order.date, terms, credit_days=customer.credit_days or 0)
     # Asserted on the state the order ends the request in, rather than inside either branch above
     # (#219). Moving a NET_D order onto a customer in arrears revisited the salesperson and the
     # prices and never the credit, so the terms survived the move unchallenged; and a request that
@@ -1004,8 +989,7 @@ async def update_order(
     if 'currency' in changes and changes['currency'] is not None:
         await _change_currency(db, order, CurrencyCode(changes['currency']))
 
-    for field in ('promise_date', 'contact', 'ship_to', 'recipient',
-                  'customer_name', 'comment'):
+    for field in ('promise_date', 'contact', 'ship_to', 'recipient', 'customer_name', 'comment'):
         if field in changes:
             setattr(order, field, changes[field])
     # Last, so an explicit value beats the customer's; `is not None` because the column is NOT
@@ -1052,9 +1036,7 @@ async def _reprice_lines(db: AsyncSession, order: SalesOrder, customer: Customer
     lines = (
         (
             await db.execute(
-                select(SalesOrderDetail).where(
-                    SalesOrderDetail.sales_order == order.sales_order_id
-                )
+                select(SalesOrderDetail).where(SalesOrderDetail.sales_order == order.sales_order_id)
             )
         )
         .scalars()
@@ -1081,9 +1063,7 @@ async def _reprice_lines(db: AsyncSession, order: SalesOrder, customer: Customer
         line.price = listed.get(line.product, Decimal(0))
 
 
-async def _change_currency(
-    db: AsyncSession, order: SalesOrder, currency: CurrencyCode
-) -> None:
+async def _change_currency(db: AsyncSession, order: SalesOrder, currency: CurrencyCode) -> None:
     """FR-020 — the header rate and every line move together, never a mixed-currency order."""
     rate = await _exchange_rate(db, currency, order.date)
     order.currency = currency
@@ -1092,9 +1072,7 @@ async def _change_currency(
     lines = (
         (
             await db.execute(
-                select(SalesOrderDetail).where(
-                    SalesOrderDetail.sales_order == order.sales_order_id
-                )
+                select(SalesOrderDetail).where(SalesOrderDetail.sales_order == order.sales_order_id)
             )
         )
         .scalars()
@@ -1206,9 +1184,7 @@ async def remove_line(
     return await attach_derived(db, order)
 
 
-async def get_line(
-    db: AsyncSession, order: SalesOrder, line_id: int
-) -> SalesOrderDetail | None:
+async def get_line(db: AsyncSession, order: SalesOrder, line_id: int) -> SalesOrderDetail | None:
     line = await db.get(SalesOrderDetail, line_id)
     if line is None or line.sales_order != order.sales_order_id:
         return None
@@ -1218,9 +1194,7 @@ async def get_line(
 # ── Transitions ───────────────────────────────────────────────────────────────
 
 
-async def confirm_order(
-    db: AsyncSession, order: SalesOrder, *, current: CurrentUser
-) -> SalesOrder:
+async def confirm_order(db: AsyncSession, order: SalesOrder, *, current: CurrentUser) -> SalesOrder:
     """Assign the folio, commit the stock, freeze the document — one transaction (FR-017)."""
     documents.assert_editable(order)
     # Before the folio and before the reservation: this is the act that extends credit, and until
@@ -1240,9 +1214,7 @@ async def confirm_order(
     lines = list(
         (
             await db.execute(
-                select(SalesOrderDetail).where(
-                    SalesOrderDetail.sales_order == order.sales_order_id
-                )
+                select(SalesOrderDetail).where(SalesOrderDetail.sales_order == order.sales_order_id)
             )
         )
         .scalars()
@@ -1324,9 +1296,7 @@ async def confirm_order(
     return await attach_derived(db, order)
 
 
-async def cancel_order(
-    db: AsyncSession, order: SalesOrder, *, current: CurrentUser
-) -> SalesOrder:
+async def cancel_order(db: AsyncSession, order: SalesOrder, *, current: CurrentUser) -> SalesOrder:
     """Retire the order and give back the stock it took (FR-019, FR-019a, FR-019b)."""
     employee = current.employee_id
     assert_can_cancel(order, live_applications=await live_applications(db, order.sales_order_id))

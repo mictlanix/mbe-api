@@ -165,7 +165,6 @@ async def attach_summary_totals(db: AsyncSession, quotes: Sequence[SalesQuote]) 
 # ── Header ────────────────────────────────────────────────────────────────────
 
 
-
 async def _customer_or_404(db: AsyncSession, customer_id: int) -> Customer:
     customer = await db.get(Customer, customer_id)
     if customer is None:
@@ -341,9 +340,7 @@ async def update_quote(
 # ── Lines ─────────────────────────────────────────────────────────────────────
 
 
-async def get_line(
-    db: AsyncSession, quote: SalesQuote, line_id: int
-) -> SalesQuoteDetail | None:
+async def get_line(db: AsyncSession, quote: SalesQuote, line_id: int) -> SalesQuoteDetail | None:
     line = await db.get(SalesQuoteDetail, line_id)
     if line is None or line.sales_quote != quote.sales_quote_id:
         return None
@@ -453,9 +450,7 @@ async def remove_line(
 # ── Transitions ───────────────────────────────────────────────────────────────
 
 
-async def confirm_quote(
-    db: AsyncSession, quote: SalesQuote, *, current: CurrentUser
-) -> SalesQuote:
+async def confirm_quote(db: AsyncSession, quote: SalesQuote, *, current: CurrentUser) -> SalesQuote:
     """Assign the folio and freeze the offer (FR-032)."""
     documents.assert_editable(quote)
     quote.serial = await documents.assign_folio(db, SalesQuote, facility=quote.facility)
@@ -596,9 +591,7 @@ async def duplicate_quote(
     lines = (
         (
             await db.execute(
-                select(SalesQuoteDetail).where(
-                    SalesQuoteDetail.sales_quote == quote.sales_quote_id
-                )
+                select(SalesQuoteDetail).where(SalesQuoteDetail.sales_quote == quote.sales_quote_id)
             )
         )
         .scalars()
@@ -708,9 +701,7 @@ async def convert_to_order(
     lines = (
         (
             await db.execute(
-                select(SalesQuoteDetail).where(
-                    SalesQuoteDetail.sales_quote == quote.sales_quote_id
-                )
+                select(SalesQuoteDetail).where(SalesQuoteDetail.sales_quote == quote.sales_quote_id)
             )
         )
         .scalars()

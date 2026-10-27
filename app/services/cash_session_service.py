@@ -75,7 +75,6 @@ _ORDERINGS = {
 # ── Context ───────────────────────────────────────────────────────────────────
 
 
-
 def _drawer(current: CurrentUser, requested: int | None) -> int:
     drawer = requested if requested is not None else current.cash_drawer_id
     if drawer is None:
@@ -347,14 +346,10 @@ async def attach_summary_amounts(db: AsyncSession, sessions: Sequence[CashSessio
     ).all()
     by_session: dict[int, list[dict]] = {sid: [] for sid in ids}
     for sid, method, amount in payment_rows:
-        by_session.setdefault(sid, []).append(
-            {'method': method, 'total': amount or Decimal(0)}
-        )
+        by_session.setdefault(sid, []).append({'method': method, 'total': amount or Decimal(0)})
 
     for session in sessions:
-        session.__dict__['opening_amount'] = opening.get(
-            session.cash_session_id, Decimal(0)
-        )
+        session.__dict__['opening_amount'] = opening.get(session.cash_session_id, Decimal(0))
         session.__dict__['payments_by_method'] = by_session.get(session.cash_session_id, [])
 
 
@@ -383,7 +378,10 @@ async def open_session(
         )
 
     session = CashSession(
-        start=local_now(), end=None, cashier=cashier, cash_drawer=drawer_id,
+        start=local_now(),
+        end=None,
+        cashier=cashier,
+        cash_drawer=drawer_id,
         cash_supervisor=None,
     )
     db.add(session)

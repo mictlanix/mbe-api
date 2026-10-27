@@ -424,6 +424,8 @@ async def test_an_over_receipt_warns_on_save_read_and_confirm_and_still_confirms
     client, db, seeded
 ):
     setup = await seed.setup_inventory(db)
+    # Confirming a PO's receipt averages cost into the cost list (spec 031), which must exist.
+    await seed.cost(db, setup.stockable, '10')
     order, (po_line,) = await seed.purchase_order(db, lines=[(setup.stockable, '10', 1)])
     await _linked(db, order, [(po_line, '6')], completed=True)
     receipt = await _linked(db, order, [(po_line, '4')])

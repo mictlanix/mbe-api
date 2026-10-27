@@ -37,7 +37,6 @@ from app.services import delivery_events, documents, stock_ledger
 TERMINAL = delivery_events.TERMINAL
 
 
-
 def open_quantity(line: DeliveryOrderDetail) -> Decimal:
     """Ordered less what is delivered, returned, or already claimed by a trip (FR-026)."""
     return (
@@ -96,8 +95,7 @@ def narrow_to_requested(
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail=(
-                    f'Line {item.sales_order_detail} is not an undelivered line of this sales '
-                    f'order'
+                    f'Line {item.sales_order_detail} is not an undelivered line of this sales order'
                 ),
             )
         line, remaining = found
@@ -262,9 +260,7 @@ async def create_from_sales_order(
     sales_lines = list(
         (
             await db.execute(
-                select(SalesOrderDetail).where(
-                    SalesOrderDetail.sales_order == sales_order_id
-                )
+                select(SalesOrderDetail).where(SalesOrderDetail.sales_order == sales_order_id)
             )
         )
         .scalars()
@@ -294,9 +290,7 @@ async def create_from_sales_order(
         # address when there is one: a counter pickup is a counter pickup because of where the goods
         # end up, not because of what the sale's header happened to say.
         detected = await _is_facility_address(db, destination)
-        fulfillment_type = (
-            FulfillmentType.PICKUP if detected else FulfillmentType.DELIVERY
-        )
+        fulfillment_type = FulfillmentType.PICKUP if detected else FulfillmentType.DELIVERY
     fallback = await _fallback_warehouse(db, order.facility)
     now = local_now()
 
@@ -451,11 +445,13 @@ async def list_orders(
         # filter is how a caller narrows that.
         both(
             DeliveryOrder.delivery_order_id.in_(
-                select(DeliveryOrderDetail.delivery_order).join(
+                select(DeliveryOrderDetail.delivery_order)
+                .join(
                     SalesOrderDetail,
                     SalesOrderDetail.sales_order_detail_id
                     == DeliveryOrderDetail.sales_order_detail,
-                ).where(SalesOrderDetail.sales_order == sales_order)
+                )
+                .where(SalesOrderDetail.sales_order == sales_order)
             )
         )
     if date_from is not None:
@@ -684,9 +680,7 @@ def _branch_target(order: DeliveryOrder) -> S:
     )
 
 
-async def confirm(
-    db: AsyncSession, order: DeliveryOrder, *, current: CurrentUser
-) -> DeliveryOrder:
+async def confirm(db: AsyncSession, order: DeliveryOrder, *, current: CurrentUser) -> DeliveryOrder:
     """Number the document and put it into the flow (FR-017 – FR-020)."""
     assert_editable(order)
     employee = current.employee_id
@@ -713,9 +707,7 @@ async def confirm(
     order.rejection_reason = None
 
     target = (
-        S.PENDING_APPROVAL
-        if settings.delivery_order_approval_required
-        else _branch_target(order)
+        S.PENDING_APPROVAL if settings.delivery_order_approval_required else _branch_target(order)
     )
     delivery_events.transition(db, order, target, employee=employee)
 
@@ -946,9 +938,7 @@ async def refresh_sales_order_delivered(db: AsyncSession, sales_order_id: int) -
     lines = (
         (
             await db.execute(
-                select(SalesOrderDetail).where(
-                    SalesOrderDetail.sales_order == sales_order_id
-                )
+                select(SalesOrderDetail).where(SalesOrderDetail.sales_order == sales_order_id)
             )
         )
         .scalars()
@@ -987,9 +977,7 @@ async def delivery_coverage(db: AsyncSession, sales_order_id: int) -> list[dict[
     lines = (
         (
             await db.execute(
-                select(SalesOrderDetail).where(
-                    SalesOrderDetail.sales_order == sales_order_id
-                )
+                select(SalesOrderDetail).where(SalesOrderDetail.sales_order == sales_order_id)
             )
         )
         .scalars()

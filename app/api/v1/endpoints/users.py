@@ -104,7 +104,5 @@ async def recover_password(
     user = await user_service.get_user(db, user_id)
     if user is None:
         raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail='User not found')
-    token, expires_at = await user_service.initiate_recovery(
-        db, user, updater=current.employee_id
-    )
+    token, expires_at = await user_service.initiate_recovery(db, user, updater=current.employee_id)
     return RecoverPasswordAdminResponse(recovery_token=token, expires_at=expires_at.isoformat())

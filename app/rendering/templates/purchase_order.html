@@ -1,0 +1,85 @@
+{#- Purchase order document (orden de compra), spec 031 (FR-040). The current system's print view
+was broken, so this is laid out like sales_quote.html.
+Context: print_contexts.purchase_order_context. Prices are before tax; IVA is added. -#}
+{% extends "_print_layout.html" %}
+{% block main %}
+<div>
+	<div style="float: left; width: 49.5%;">
+		<h2 class="uppercase">Proveedor</h2>
+		<p><span class="mylabel">Nombre</span></p>
+		<p>{{ supplier }}<br>{{ supplier_code }}</p>
+		{% if supplier_address %}
+		<p><span class="mylabel">Dirección</span></p>
+		<p>{% for line in supplier_address %}{{ line }}{% if not loop.last %}<br>{% endif %}{% endfor %}</p>
+		{% endif %}
+		{% if comment %}
+		<p><span class="mylabel">Comentario</span></p>
+		<p>{{ comment }}</p>
+		{% endif %}
+	</div>
+	<div style="float: right; width: 49.5%; text-align: right;">
+		<h2 class="text-right uppercase">Orden de compra {{ order_id }}</h2>
+		<p><span class="mylabel">Fecha</span></p>
+		<p>{{ date }}</p>
+		{% if estimated_receipt_date %}
+		<p><span class="mylabel">Fecha estimada de entrega</span></p>
+		<p>{{ estimated_receipt_date }}</p>
+		{% endif %}
+	</div>
+	<div style="clear: both;"></div>
+</div>
+
+<div style="margin-top: 5mm; min-height: 2.2mm; border-top: #333 solid 1px; border-bottom: #333 solid 3px;"></div>
+
+<table style="border-spacing: 0 4px; border-collapse: separate;">
+	<thead>
+		<tr>
+			<th class="text-center" style="width: 18%;">Código</th>
+			<th class="text-center" style="width: 40%;">Descripción</th>
+			<th class="text-center" style="width: 12%;">Almacén</th>
+			<th class="text-center" style="width: 10%;">Cantidad</th>
+			<th class="text-center" style="width: 10%;">Precio</th>
+			<th class="text-center" style="width: 10%;">Importe</th>
+		</tr>
+	</thead>
+	<tbody>
+		{% for line in lines %}
+		<tr class="alt">
+			<td class="text-center">{{ line.code }}</td>
+			<td class="text-center">{{ line.name }}</td>
+			<td class="text-center">{{ line.warehouse }}</td>
+			<td class="nowrap text-right">{{ line.quantity }}</td>
+			<td class="nowrap text-right">{{ line.price }}</td>
+			<td class="nowrap text-right">{{ line.amount }}</td>
+		</tr>
+		{% endfor %}
+	</tbody>
+</table>
+
+<div style="min-height: 2.2mm; border-top: #333 solid 3px; border-bottom: #333 solid 1px;"></div>
+
+<table>
+	<tfoot>
+		<tr>
+			<td rowspan="3" class="text-center" style="width: 83.33%; vertical-align: middle;">
+				<p class="amount-words">{{ amount_in_words }}</p>
+			</td>
+			<td class="nowrap text-right">Subtotal</td>
+			<td class="nowrap text-right">{{ subtotal }}</td>
+		</tr>
+		<tr>
+			<td class="nowrap text-right">IVA</td>
+			<td class="nowrap text-right">{{ taxes }}</td>
+		</tr>
+		<tr>
+			<td class="nowrap text-right">Total</td>
+			<td class="nowrap text-right">{{ total }}</td>
+		</tr>
+	</tfoot>
+</table>
+
+<div style="margin-top: 15mm; text-align: center;">
+	<p><span class="mylabel">Elaborada por</span></p>
+	<p>{{ creator }}</p>
+</div>
+{% endblock %}

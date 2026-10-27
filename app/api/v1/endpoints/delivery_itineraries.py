@@ -378,9 +378,7 @@ async def close_stop(
     try:
         filename = await image_service.save_proof_image(await image.read(), settings.pod_dir)
     except ValueError as e:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(e)
-        ) from e
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(e)) from e
 
     await delivery_itinerary_service.close_stop(
         db,

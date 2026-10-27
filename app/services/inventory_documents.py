@@ -44,7 +44,7 @@ from app.models.inventory import (
 )
 from app.models.product import Product
 from app.schemas.sales_order import derive_status
-from app.services import documents, stock_ledger, warehouse_service
+from app.services import documents, purchase_cost_service, stock_ledger, warehouse_service
 from app.services.delivery_itinerary_service import _pos_warehouse
 
 # ── Kinds ─────────────────────────────────────────────────────────────────────
@@ -560,9 +560,16 @@ async def confirm_simple(
 
     Any refusal rolls back, so no serial is consumed. Should the `(facility, serial)` unique index
     ever fire, the global `IntegrityError` handler answers 409 (R1).
+
+    A receipt of a purchase order also averages its products' cost (spec 031, R5): their cost rows
+    are locked right after the document and warehouses, and the averaging reads on hand before
+    this receipt's entries are staged. Its warnings are kept on `cost_warnings`.
     """
     async with busy_as_conflict(db):
         document = await begin_locked(db, kind, document_id, stock=True)
+        costed = kind is RECEIPT and document.purchase_order is not None
+        if costed:
+            await purchase_cost_service.lock(db, document_id)
         # Another facility learns nothing about the document's state or lines.
         assert_facility(current, document.facility)
         documents.assert_editable(document)
@@ -598,6 +605,11 @@ async def confirm_simple(
         outbound = kind is ISSUE
         if outbound:
             await assert_available(db, per_product_totals(lines), document.warehouse)
+        cost_warnings = (
+            await purchase_cost_service.apply(db, document, lines, current=current)
+            if costed
+            else []
+        )
 
         for line in lines:
             stock_ledger.post_movement(
@@ -616,6 +628,7 @@ async def confirm_simple(
         _touch(document, current)
         await db.commit()
     await db.refresh(document)
+    document.__dict__['cost_warnings'] = cost_warnings
     return document
 
 
@@ -625,9 +638,21 @@ async def cancel(db: AsyncSession, kind: Kind, document_id: int, *, current: Cur
 
     The ledger pre-read runs for a draft too: it can be confirmed between the pre-read and the
     document lock. Transfer lines keep `quantity_received`; the reversal is in the ledger.
+
+    A confirmed receipt of a purchase order restores the cost it changed, where no later change
+    touched it, and warns otherwise (spec 031, R6); the warnings are kept on `cost_warnings`.
     """
+    cost_warnings: list[str] = []
     async with busy_as_conflict(db):
         document = await begin_locked(db, kind, document_id, stock=True, ledger=True)
+        costed = (
+            kind is RECEIPT and document.purchase_order is not None and bool(document.completed)
+        )
+        if costed:
+            # The same cost-row locks as the confirm: a confirmed receipt's lines are frozen, and
+            # every product it changed is on one of them. A locking read of `product_cost_change`
+            # instead would gap-lock past the newest receipt and deadlock with its inserts.
+            await purchase_cost_service.lock(db, document_id)
         assert_facility(current, document.facility)
         if document.completed and not kind.cancellable_when_completed:
             raise HTTPException(
@@ -662,6 +687,8 @@ async def cancel(db: AsyncSession, kind: Kind, document_id: int, *, current: Cur
                 by_warehouse[warehouse][product] = quantity
             for warehouse in sorted(by_warehouse):
                 await assert_available(db, by_warehouse[warehouse], warehouse)
+            if costed:
+                cost_warnings = await purchase_cost_service.restore(db, document, current=current)
 
             for movement in reversal:
                 stock_ledger.post_movement(
@@ -680,6 +707,7 @@ async def cancel(db: AsyncSession, kind: Kind, document_id: int, *, current: Cur
         _touch(document, current)
         await db.commit()
     await db.refresh(document)
+    document.__dict__['cost_warnings'] = cost_warnings
     return document
 
 

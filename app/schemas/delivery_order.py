@@ -31,7 +31,9 @@ class DeliveryOrderLineResponse(BaseModel):
         child order a partial delivery creates, or by the requeue that puts them back in play.
         """
         return (
-            self.quantity - self.delivered_quantity - self.returned_quantity
+            self.quantity
+            - self.delivered_quantity
+            - self.returned_quantity
             - self.committed_quantity
         )
 

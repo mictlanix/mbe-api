@@ -23,6 +23,9 @@ class PurchaseRequest(Base):
     completed: Mapped[bool | None] = mapped_column(Boolean)
     cancelled: Mapped[bool | None] = mapped_column(Boolean)
     approved: Mapped[bool] = mapped_column(Boolean)
+    # Migration 028 (spec 031, FR-005): set on approve, cleared on reject
+    approver: Mapped[int | None] = mapped_column(Integer, ForeignKey('employee.employee_id'))
+    approval_time: Mapped[datetime | None] = mapped_column(DateTime)
 
 
 class PurchaseRequestDetail(Base):
@@ -81,6 +84,31 @@ class PurchaseOrderDetail(Base):
     purchase_request_detail: Mapped[int | None] = mapped_column(
         Integer, ForeignKey('purchase_request_detail.purchase_request_detail_id')
     )
+
+
+class ProductCostChange(Base):
+    """One average-cost step, or the restore of one on cancel (spec 031, migration 028)."""
+
+    __tablename__ = 'product_cost_change'
+
+    product_cost_change_id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    product: Mapped[int] = mapped_column(Integer, ForeignKey('product.product_id'))
+    receipt: Mapped[int] = mapped_column(
+        Integer, ForeignKey('inventory_receipt.inventory_receipt_id')
+    )
+    purchase_order_detail: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey('purchase_order_detail.purchase_order_detail_id')
+    )
+    previous_cost: Mapped[Decimal] = mapped_column(Numeric(18, 4))
+    new_cost: Mapped[Decimal] = mapped_column(Numeric(18, 4))
+    quantity_on_hand: Mapped[Decimal | None] = mapped_column(Numeric(18, 4))
+    quantity_received: Mapped[Decimal | None] = mapped_column(Numeric(18, 4))
+    unit_cost: Mapped[Decimal | None] = mapped_column(Numeric(18, 7))
+    reverted_change: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey('product_cost_change.product_cost_change_id')
+    )
+    creation_time: Mapped[datetime] = mapped_column(DateTime)
+    creator: Mapped[int] = mapped_column(Integer, ForeignKey('employee.employee_id'))
 
 
 class ExpenseVoucher(Base):
