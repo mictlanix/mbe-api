@@ -27,7 +27,7 @@ description: "Task list for expense vouchers and supplier payments (spec 032)"
 
 **Purpose**: the schema and the enum values every story uses.
 
-- [ ] T001 Write `migrations/029_supplier_payments.sql`, idempotent, in the style of `migrations/028_purchasing.sql` (research R11):
+- [X] T001 Write `migrations/029_supplier_payments.sql`, idempotent, in the style of `migrations/028_purchasing.sql` (research R11):
   - `supplier_payment` gains, guarded by information_schema checks:
     - `facility` INT NULL with an FK to `facility`, and `serial` INT NULL;
     - `UNIQUE (facility, serial)`;
@@ -42,8 +42,8 @@ description: "Task list for expense vouchers and supplier payments (spec 032)"
     - `applier` (FK employee) and `date DATETIME NOT NULL`;
     - `cancelled TINYINT(1) NOT NULL DEFAULT 0`.
   - `CREATE TABLE IF NOT EXISTS supplier_balance_cutoff (supplier_balance_cutoff_id INT PRIMARY KEY, cutoff DATETIME NULL)`, then `INSERT IGNORE` the row `(1, NULL)`.
-- [ ] T002 [P] Write `migrations/029_supplier_payments_rollback.sql`: drop the two tables, the unique key, the FKs, the index and the added `supplier_payment` columns, each guarded so it can run twice.
-- [ ] T003 [P] Add `EXPENSE_VOUCHER = 14` and `SUPPLIER_PAYMENT = 15` to `SourceType` in `app/enums.py`, after `FISCAL_DOCUMENT = 13`, commented like the 10–13 entries (research R9).
+- [X] T002 [P] Write `migrations/029_supplier_payments_rollback.sql`: drop the two tables, the unique key, the FKs, the index and the added `supplier_payment` columns, each guarded so it can run twice.
+- [X] T003 [P] Add `EXPENSE_VOUCHER = 14` and `SUPPLIER_PAYMENT = 15` to `SourceType` in `app/enums.py`, after `FISCAL_DOCUMENT = 13`, commented like the 10–13 entries (research R9).
 
 ---
 
@@ -51,19 +51,19 @@ description: "Task list for expense vouchers and supplier payments (spec 032)"
 
 **Purpose**: the models, and the session-row lock that vouchers and cash payments both rely on.
 
-- [ ] T004 Add to `SupplierPayment` in `app/models/supplier.py`, matching T001:
+- [X] T004 Add to `SupplierPayment` in `app/models/supplier.py`, matching T001:
   - `facility`, `serial` and `cash_session`, all nullable;
   - `cancelled: Mapped[bool]` with a `False` default;
   - `creation_time`, `updater` and `modification_time`, all nullable.
-- [ ] T005 [P] Add to `app/models/purchases.py`, matching T001:
+- [X] T005 [P] Add to `app/models/purchases.py`, matching T001:
   - `PurchaseOrderPayment` (`__tablename__ = 'purchase_order_payment'`);
   - `SupplierBalanceCutoff` (`__tablename__ = 'supplier_balance_cutoff'`).
-- [ ] T006 Write the test first, in `tests/unit/test_cash_session_service.py`: `close_session` re-reads its row under a lock and answers 409 "Session is already closed" when the re-read row has `end` set, even if the object passed in still shows it open. Simulate this by setting `end` through a separate statement before the call.
-- [ ] T007 Change `close_session` in `app/services/cash_session_service.py` (research R2):
+- [X] T006 Write the test first, in `tests/unit/test_cash_session_service.py`: `close_session` re-reads its row under a lock and answers 409 "Session is already closed" when the re-read row has `end` set, even if the object passed in still shows it open. Simulate this by setting `end` through a separate statement before the call.
+- [X] T007 Change `close_session` in `app/services/cash_session_service.py` (research R2):
   - before checking `end`, re-select the session row with `.with_for_update()` and `execution_options(populate_existing=True)`;
   - check `end` on the re-read row;
   - change nothing else.
-- [ ] T008 Add a shared helper `lock_open_session(db, cash_session_id) -> CashSession` to `app/services/cash_session_service.py`:
+- [X] T008 Add a shared helper `lock_open_session(db, cash_session_id) -> CashSession` to `app/services/cash_session_service.py`:
   - it selects the row with `FOR UPDATE` and `populate_existing`;
   - it raises 409 "The cash session is closed" when `end` is set, and 404 when the row is missing.
 

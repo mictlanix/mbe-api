@@ -73,6 +73,16 @@ class SupplierPayment(Base):
     reference: Mapped[str | None] = mapped_column(String(50))
     comment: Mapped[str | None] = mapped_column(String(500))
     creator: Mapped[int] = mapped_column(Integer, ForeignKey('employee.employee_id'))
+    # Migration 029 (spec 032). NULL `facility` and `serial` mark the legacy rows.
+    facility: Mapped[int | None] = mapped_column(Integer, ForeignKey('facility.facility_id'))
+    serial: Mapped[int | None] = mapped_column(Integer)
+    cash_session: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey('cash_session.cash_session_id')
+    )
+    cancelled: Mapped[bool] = mapped_column(Boolean, default=False, server_default='0')
+    creation_time: Mapped[datetime | None] = mapped_column(DateTime)
+    updater: Mapped[int | None] = mapped_column(Integer, ForeignKey('employee.employee_id'))
+    modification_time: Mapped[datetime | None] = mapped_column(DateTime)
 
 
 class SupplierReturn(Base):

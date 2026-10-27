@@ -11,13 +11,26 @@ from unittest.mock import AsyncMock
 
 import pytest
 from fastapi import HTTPException
+from sqlalchemy import update
+from sqlalchemy.dialects import mysql
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.pool import StaticPool
 
 from app.core.deps import CurrentUser
-from app.schemas.cash_session import CashSessionSort, CashSessionStatus, SessionState
+from app.db.base import Base
+from app.models.core import CashSession
+from app.schemas.cash_session import (
+    CashSessionClose,
+    CashSessionSort,
+    CashSessionStatus,
+    SessionState,
+)
 from app.services.cash_session_service import (
     _drawer,
     _status_clause,
+    close_session,
     list_sessions,
+    lock_open_session,
     session_state,
 )
 
@@ -272,3 +285,136 @@ class TestListFacets:
     async def test_the_default_ordering_is_unchanged(self) -> None:
         """Newest id first, as the list has always returned."""
         assert 'cash_session_id desc' in await self._page_sql()
+
+
+# ── The session-row lock (spec 032, research R2) ──────────────────────────────
+
+
+@pytest.fixture
+async def db():  # noqa: ANN201
+    """An in-memory database with the one table these tests touch.
+
+    SQLite renders no `FOR UPDATE`, so what this proves is the re-read; the lock itself is pinned
+    on the compiled MySQL statement.
+    """
+    engine = create_async_engine('sqlite+aiosqlite://', poolclass=StaticPool)
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all, tables=[CashSession.__table__])
+    async with async_sessionmaker(engine, expire_on_commit=False)() as session:
+        yield session
+    await engine.dispose()
+
+
+async def _open_session(db: AsyncSession) -> CashSession:
+    session = CashSession(
+        start=datetime(2026, 7, 25, 9), end=None, cashier=7, cash_drawer=5, cash_supervisor=None
+    )
+    db.add(session)
+    await db.commit()
+    return session
+
+
+async def _close_behind_its_back(db: AsyncSession, session: CashSession) -> None:
+    """Set `end` the way a concurrent close would: without touching the loaded object."""
+    await db.execute(
+        update(CashSession)
+        .where(CashSession.cash_session_id == session.cash_session_id)
+        .values(end=datetime(2026, 7, 25, 18), cash_supervisor=7)
+        .execution_options(synchronize_session=False)
+    )
+    await db.commit()
+    assert session.end is None
+
+
+def _cashier() -> CurrentUser:
+    return CurrentUser(
+        user_id='t',
+        session_version=1,
+        administrator=False,
+        facility_id=1,
+        employee_id=7,
+        cash_drawer_id=5,
+    )
+
+
+def _locked_sql(db: AsyncMock) -> tuple[str, dict]:
+    statement = db.execute.await_args_list[0].args[0]
+    return str(statement.compile(dialect=mysql.dialect())), statement.get_execution_options()
+
+
+class TestCloseRereadsUnderTheLock:
+    """A close must decide on the row it holds locked, not on the one the endpoint read (R2)."""
+
+    @pytest.mark.asyncio
+    async def test_a_row_closed_since_it_was_read_is_refused(self, db: AsyncSession) -> None:
+        session = await _open_session(db)
+        await _close_behind_its_back(db, session)
+
+        with pytest.raises(HTTPException) as exc:
+            await close_session(db, session, CashSessionClose(), current=_cashier())
+
+        assert exc.value.status_code == 409
+        assert exc.value.detail == 'Session is already closed'
+        assert session.end == datetime(2026, 7, 25, 18)
+
+    @pytest.mark.asyncio
+    async def test_the_reread_locks_the_row_and_refreshes_it(self) -> None:
+        closed = SimpleNamespace(cash_session_id=3, end=datetime(2026, 7, 25, 18))
+        db = AsyncMock()
+        db.execute = AsyncMock(return_value=SimpleNamespace(scalar_one=lambda: closed))
+
+        with pytest.raises(HTTPException):
+            await close_session(
+                db,
+                SimpleNamespace(cash_session_id=3, end=None),
+                CashSessionClose(),
+                current=_cashier(),
+            )
+
+        sql, options = _locked_sql(db)
+        assert sql.rstrip().upper().endswith('FOR UPDATE')
+        assert options.get('populate_existing') is True
+
+
+class TestLockOpenSession:
+    """The shared gate for vouchers and cash supplier payments: lock, re-read, then check `end`."""
+
+    @pytest.mark.asyncio
+    async def test_an_open_session_is_returned_locked(self, db: AsyncSession) -> None:
+        session = await _open_session(db)
+
+        locked = await lock_open_session(db, session.cash_session_id)
+
+        assert locked is session
+        assert locked.end is None
+
+    @pytest.mark.asyncio
+    async def test_a_session_closed_since_it_was_read_is_refused(self, db: AsyncSession) -> None:
+        session = await _open_session(db)
+        await _close_behind_its_back(db, session)
+
+        with pytest.raises(HTTPException) as exc:
+            await lock_open_session(db, session.cash_session_id)
+
+        assert exc.value.status_code == 409
+        assert exc.value.detail == 'The cash session is closed'
+
+    @pytest.mark.asyncio
+    async def test_an_unknown_session_is_404(self, db: AsyncSession) -> None:
+        with pytest.raises(HTTPException) as exc:
+            await lock_open_session(db, 999)
+
+        assert exc.value.status_code == 404
+        assert exc.value.detail == 'Cash session not found'
+
+    @pytest.mark.asyncio
+    async def test_the_row_is_locked_and_refreshed(self) -> None:
+        db = AsyncMock()
+        db.execute = AsyncMock(return_value=SimpleNamespace(scalar_one_or_none=lambda: None))
+
+        with pytest.raises(HTTPException):
+            await lock_open_session(db, 3)
+
+        sql, options = _locked_sql(db)
+        assert sql.rstrip().upper().endswith('FOR UPDATE')
+        assert options.get('populate_existing') is True

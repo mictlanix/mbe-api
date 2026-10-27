@@ -195,6 +195,11 @@ class SourceType(IntEnum):
     COMMISSION = 12
     # API-only, like 10–12: a CFDI emailed to its recipient (spec 028).
     FISCAL_DOCUMENT = 13
+    # API-only, like 10–13: an expense voucher voided (spec 032).
+    EXPENSE_VOUCHER = 14
+    # API-only, like 10–14: a supplier payment cancelled, or one of its applications reversed
+    # (spec 032).
+    SUPPLIER_PAYMENT = 15
 
 
 class CommissionScheme(IntEnum):

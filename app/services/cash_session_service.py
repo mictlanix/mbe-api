@@ -122,6 +122,36 @@ async def get_session(db: AsyncSession, cash_session_id: int) -> CashSession | N
     return await db.get(CashSession, cash_session_id)
 
 
+def _locked(cash_session_id: int):  # noqa: ANN202
+    """The session row, `FOR UPDATE` and re-read over whatever this unit of work already holds.
+
+    Every drawer operation and the close take this lock first, so whichever runs first wins and a
+    closed session's figures never change (spec 032, research R2).
+    """
+    return (
+        select(CashSession)
+        .where(CashSession.cash_session_id == cash_session_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+
+
+async def lock_open_session(db: AsyncSession, cash_session_id: int) -> CashSession:
+    """Lock the session row and require it still open, before any other lock is taken.
+
+    Voucher confirm and void, and cash supplier payment create and cancel, go through this. A close
+    that got the lock first has set `end`, which the re-read sees (spec 032, research R2).
+    """
+    session = (await db.execute(_locked(cash_session_id))).scalar_one_or_none()
+    if session is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Cash session not found')
+    if session.end is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail='The cash session is closed'
+        )
+    return session
+
+
 async def opening_amount(db: AsyncSession, cash_session_id: int) -> Decimal:
     total = (
         await db.execute(
@@ -408,6 +438,7 @@ async def close_session(
     """Record the denomination counts and end the shift (FR-052)."""
     employee = current.employee_id
 
+    session = (await db.execute(_locked(session.cash_session_id))).scalar_one()
     if session.end is not None:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT, detail='Session is already closed'
