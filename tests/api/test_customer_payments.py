@@ -452,14 +452,15 @@ def _by_id_patches(payment: SimpleNamespace):  # noqa: ANN202
         patch(
             'app.services.customer_payment_service.list_applications', AsyncMock(return_value=[])
         ),
+        patch('app.services.customer_payment_service.attach_customer_names', AsyncMock()),
     )
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize('path', _BY_ID)
 async def test_another_facilitys_payment_is_not_found_without_the_editor_right(path) -> None:
-    get, attach, apps = _by_id_patches(_payment(facility=51))
-    with _clerk(editor=False), get, attach, apps:
+    get, attach, apps, names = _by_id_patches(_payment(facility=51))
+    with _clerk(editor=False), get, attach, apps, names:
         async with await _client() as client:
             response = await client.get(path)
 
@@ -470,8 +471,8 @@ async def test_another_facilitys_payment_is_not_found_without_the_editor_right(p
 @pytest.mark.asyncio
 @pytest.mark.parametrize('path', _BY_ID)
 async def test_the_editor_right_reads_another_facilitys_payment(path) -> None:
-    get, attach, apps = _by_id_patches(_payment(facility=51))
-    with _clerk(editor=True), get, attach, apps:
+    get, attach, apps, names = _by_id_patches(_payment(facility=51))
+    with _clerk(editor=True), get, attach, apps, names:
         async with await _client() as client:
             response = await client.get(path)
 
@@ -481,8 +482,8 @@ async def test_the_editor_right_reads_another_facilitys_payment(path) -> None:
 @pytest.mark.asyncio
 @pytest.mark.parametrize('path', _BY_ID)
 async def test_an_own_facility_payment_needs_no_editor_right(path) -> None:
-    get, attach, apps = _by_id_patches(_payment(facility=1))
-    with _clerk(editor=False) as editor_check, get, attach, apps:
+    get, attach, apps, names = _by_id_patches(_payment(facility=1))
+    with _clerk(editor=False) as editor_check, get, attach, apps, names:
         async with await _client() as client:
             response = await client.get(path)
 
