@@ -101,6 +101,7 @@ async def list_credit_notes(
     *,
     current: CurrentUser,
     customer: int | None = None,
+    facility: int | None = None,
     open_only: bool = False,
     skip: int = 0,
     limit: int = 20,
@@ -111,7 +112,9 @@ async def list_credit_notes(
     the first 100 came back empty, total 984 (#278). It was the only list that filtered after
     paging (spec 034, FR-008).
     """
-    query = _notes_query()
+    # A note is its backing payment, so it keeps to that payment's facility, as `list_payments`
+    # does; the route checks a named other facility (spec 034, FR-013).
+    query = _notes_query().where(CustomerPayment.facility == (facility or current.facility_id))
     if customer is not None:
         query = query.where(CreditNote.customer == customer)
     if open_only:

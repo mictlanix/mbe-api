@@ -874,3 +874,20 @@ async def test_another_facilitys_order_is_still_read_without_101() -> None:
             response = await client.get('/api/v1/sales-orders/1')
 
     assert response.status_code == status.HTTP_418_IM_A_TEAPOT
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('all_stores', [False, True])
+async def test_another_facilitys_list_needs_101(all_stores: bool) -> None:
+    """Spec 034, FR-011: naming another facility, as `GET /customer-payments?facility=` does."""
+    listing = AsyncMock(return_value=([], 0))
+    with (
+        _clerk(all_stores=all_stores),
+        patch('app.services.sales_order_service.list_orders', listing),
+    ):
+        async with await _client() as client:
+            other = await client.get('/api/v1/sales-orders', params={'facility': 51})
+            own = await client.get('/api/v1/sales-orders', params={'facility': 1})
+
+    assert other.status_code == (status.HTTP_200_OK if all_stores else status.HTTP_403_FORBIDDEN)
+    assert own.status_code == status.HTTP_200_OK

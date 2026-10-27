@@ -19,6 +19,7 @@ from app.main import app as fastapi_app
 from app.models.sales import CustomerPayment, SalesOrder, SalesOrderDetail, SalesOrderPayment
 from app.models.user import AccessPrivilege
 from tests.integration.seed import seed_facility, seed_sales_order
+from tests.integration.test_credit_notes_flow import _note
 
 NOW = datetime(2026, 9, 1, 10, 0)
 ALL = int(AccessRight.CREATE | AccessRight.READ | AccessRight.UPDATE | AccessRight.DELETE)
@@ -229,3 +230,70 @@ class TestOrderWrites:
 
         assert updated.status_code == 200, updated.text
         assert applied.status_code == 201, applied.text
+
+
+class TestLists:
+    """US4: lists come from the caller's facility; naming another needs the cross-facility
+    privilege; verification covers every facility."""
+
+    async def test_the_sales_order_list_keeps_to_the_callers_facility(
+        self, client: AsyncClient, db: AsyncSession, world: dict
+    ) -> None:
+        _as(CLERK)
+
+        own = await client.get('/api/v1/sales-orders', params={'limit': 100})
+        other = await client.get('/api/v1/sales-orders', params={'facility': world['other']})
+
+        assert own.status_code == 200, own.text
+        ids = {row['sales_order_id'] for row in own.json()['items']}
+        assert world['here_order'] in ids
+        assert not ids & {world['there_order'], world['draft']}
+        assert other.status_code == 403, other.text
+
+    async def test_credit_notes_keep_to_the_callers_facility(
+        self, client: AsyncClient, db: AsyncSession, world: dict
+    ) -> None:
+        here, _ = await _note(db, world['here_order'], '10', customer=1)
+        there, _ = await _note(db, world['there_order'], '10', customer=1, facility=world['other'])
+        _as(CLERK)
+
+        listed = await client.get('/api/v1/credit-notes', params={'limit': 100})
+        named = await client.get('/api/v1/credit-notes', params={'facility': world['other']})
+        read = await client.get(f'/api/v1/credit-notes/{there}')
+
+        assert [row['credit_note_id'] for row in listed.json()['items']] == [here]
+        assert named.status_code == 403, named.text
+        assert read.status_code == 404, read.text
+
+    async def test_the_unverified_list_covers_every_facility(
+        self, client: AsyncClient, db: AsyncSession, world: dict
+    ) -> None:
+        """FR-012, SC-005: as the current system's verification screen."""
+        _as(CLERK)
+
+        every = await client.get('/api/v1/customer-payments/unverified', params={'limit': 100})
+        narrowed = await client.get(
+            '/api/v1/customer-payments/unverified', params={'facility': world['other']}
+        )
+
+        assert every.status_code == 200, every.text
+        assert {row['facility'] for row in every.json()['items']} == {1, world['other']}
+        assert {row['facility'] for row in narrowed.json()['items']} == {world['other']}
+
+    async def test_the_cross_facility_privileges_open_the_lists(
+        self, client: AsyncClient, db: AsyncSession, world: dict
+    ) -> None:
+        there, _ = await _note(db, world['there_order'], '10', customer=1, facility=world['other'])
+        await _grant(db, SystemObject.PAYMENTS_EDITOR, SystemObject.SEARCH_CREDITS_FROM_ALL_STORES)
+        _as(CLERK)
+        other = {'facility': world['other']}
+
+        orders = await client.get('/api/v1/sales-orders', params=other)
+        notes = await client.get('/api/v1/credit-notes', params=other)
+        read = await client.get(f'/api/v1/credit-notes/{there}')
+
+        assert orders.status_code == 200, orders.text
+        ids = {row['sales_order_id'] for row in orders.json()['items']}
+        assert ids == {world['there_order'], world['draft']}
+        assert [row['credit_note_id'] for row in notes.json()['items']] == [there]
+        assert read.status_code == 200, read.text

@@ -73,6 +73,17 @@ async def list_sales_orders(
     current: CurrentUser = Depends(_READ),
     db: AsyncSession = Depends(get_db),
 ) -> ListResponse[SalesOrderSummary]:
+    if (
+        facility is not None
+        and facility != current.facility_id
+        and not await can_see_every_facility(
+            db, current, SystemObject.SEARCH_CREDITS_FROM_ALL_STORES
+        )
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Another facility's sales orders require SearchCreditsFromAllStores read",
+        )
     items, total = await sales_order_service.list_orders(
         db,
         current=current,

@@ -121,9 +121,7 @@ async def test_open_only_filter_is_passed_through() -> None:
 @pytest.mark.asyncio
 async def test_get_a_single_note() -> None:
     _auth()
-    with patch(
-        'app.services.credit_note_service.get_credit_note', AsyncMock(return_value=_note())
-    ):
+    with patch('app.services.credit_note_service.get_credit_note', AsyncMock(return_value=_note())):
         async with await _client() as client:
             response = await client.get('/api/v1/credit-notes/1')
 
@@ -183,3 +181,67 @@ async def test_a_note_paid_back_in_cash_says_so() -> None:
         '1025.00',
         '0',
     )
+
+
+# ── Facility scope (spec 034, FR-013) ─────────────────────────────────────────
+
+
+def _clerk(*, editor: bool):  # noqa: ANN202
+    """A non-administrator at facility 1 with CreditPayments read, and PaymentsEditor read only
+    when `editor`."""
+    from app.api.v1.endpoints import credit_notes
+
+    clerk = CurrentUser(
+        user_id='clerk', session_version=1, administrator=False, facility_id=1, employee_id=7
+    )
+    app.dependency_overrides[credit_notes._READ] = lambda: clerk
+
+    async def _noop_db():
+        yield None
+
+    app.dependency_overrides[get_db] = _noop_db
+    return patch('app.core.deps.has_any_privilege', AsyncMock(return_value=editor))
+
+
+@pytest.mark.asyncio
+async def test_the_list_defaults_to_the_callers_facility() -> None:
+    listing = AsyncMock(return_value=([], 0))
+    with _clerk(editor=False), patch('app.services.credit_note_service.list_credit_notes', listing):
+        async with await _client() as client:
+            response = await client.get('/api/v1/credit-notes')
+
+    assert response.status_code == status.HTTP_200_OK
+    assert listing.await_args.kwargs['facility'] is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('editor', [False, True])
+async def test_another_facilitys_notes_need_the_editor_right(editor: bool) -> None:
+    listing = AsyncMock(return_value=([], 0))
+    with (
+        _clerk(editor=editor),
+        patch('app.services.credit_note_service.list_credit_notes', listing),
+    ):
+        async with await _client() as client:
+            response = await client.get('/api/v1/credit-notes', params={'facility': 51})
+
+    assert response.status_code == (status.HTTP_200_OK if editor else status.HTTP_403_FORBIDDEN)
+    if editor:
+        assert listing.await_args.kwargs['facility'] == 51
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('editor', [False, True])
+async def test_another_facilitys_note_is_not_found_without_the_editor_right(editor: bool) -> None:
+    with (
+        _clerk(editor=editor),
+        patch(
+            'app.services.credit_note_service.get_credit_note',
+            AsyncMock(return_value=_note(facility=51)),
+        ),
+    ):
+        async with await _client() as client:
+            response = await client.get('/api/v1/credit-notes/1')
+
+    # 404, not 403: a refusal would confirm the note exists at another facility.
+    assert response.status_code == (status.HTTP_200_OK if editor else status.HTTP_404_NOT_FOUND)

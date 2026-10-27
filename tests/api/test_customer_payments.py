@@ -644,3 +644,29 @@ async def test_verification_reaches_any_facilitys_payment(path: str, body, servi
         code = await _write(path, body)
 
     assert code == status.HTTP_418_IM_A_TEAPOT
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('facility', [None, 51])
+async def test_the_unverified_list_covers_every_facility(facility: int | None) -> None:
+    """Spec 034, FR-012: as the current system's verification screen; a named facility narrows."""
+    from app.api.v1.endpoints import customer_payments
+
+    clerk = CurrentUser(
+        user_id='clerk', session_version=1, administrator=False, facility_id=1, employee_id=7
+    )
+    app.dependency_overrides[customer_payments._VERIFY_READ] = lambda: clerk
+
+    async def _noop_db():
+        yield None
+
+    app.dependency_overrides[get_db] = _noop_db
+    listing = AsyncMock(return_value=([], 0))
+    with patch('app.services.customer_payment_service.list_payments', listing):
+        async with await _client() as client:
+            params = {} if facility is None else {'facility': facility}
+            response = await client.get('/api/v1/customer-payments/unverified', params=params)
+
+    assert response.status_code == status.HTTP_200_OK
+    assert listing.await_args.kwargs['cross_facility'] is True
+    assert listing.await_args.kwargs['facility'] == facility

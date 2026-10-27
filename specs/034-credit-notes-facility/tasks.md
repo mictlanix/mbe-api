@@ -171,20 +171,20 @@ No setup: no dependency, setting, enum or migration is added (research R9).
 
 ### Tests
 
-- [ ] T018 [P] [US4] Add to `tests/integration/test_facility_rule.py`, as the scoped clerk (also holding CreditPayments 83 read):
+- [X] T018 [P] [US4] Add to `tests/integration/test_facility_rule.py`, as the scoped clerk (also holding CreditPayments 83 read):
   - `GET /sales-orders?facility=2` → 403; `GET /sales-orders` → facility 1 only (US4 scenario 1);
   - `GET /credit-notes` → only notes whose payment is of facility 1; `?facility=2` → 403; `GET /credit-notes/{facility-2 note}` → 404 (scenario 2);
   - `GET /customer-payments/unverified` → payments of both facilities; `?facility=2` → only facility 2 (scenario 3, SC-005);
   - with 100 and 101 added, `?facility=2` works on sales orders and credit notes, and the facility-2 note reads.
-- [ ] T019 [P] [US4] Extend `tests/api/test_credit_notes.py`: the list passes `facility` (default the caller's) to the service, and answers 403 for another facility without PaymentsEditor (`has_any_privilege` patched); the detail answers 404 for a note of another facility without it.
-- [ ] T020 [P] [US4] Extend `tests/api/test_sales_orders.py`: `GET /sales-orders?facility=<other>` → 403 without 101, and reaches the service with it.
-- [ ] T021 [P] [US4] Extend `tests/api/test_customer_payments.py`: `/unverified` calls `list_payments` with `cross_facility=True`, passing a named `facility` through.
+- [X] T019 [P] [US4] Extend `tests/api/test_credit_notes.py`: the list passes `facility` (default the caller's) to the service, and answers 403 for another facility without PaymentsEditor (`has_any_privilege` patched); the detail answers 404 for a note of another facility without it.
+- [X] T020 [P] [US4] Extend `tests/api/test_sales_orders.py`: `GET /sales-orders?facility=<other>` → 403 without 101, and reaches the service with it.
+- [X] T021 [P] [US4] Extend `tests/api/test_customer_payments.py`: `/unverified` calls `list_payments` with `cross_facility=True`, passing a named `facility` through.
 
 ### Implementation
 
-- [ ] T022 [US4] In `app/api/v1/endpoints/sales_orders.py`, `list_sales_orders`: when `facility` is given, differs from `current.facility_id`, and `not await can_see_every_facility(db, current, SystemObject.SEARCH_CREDITS_FROM_ALL_STORES)`, answer 403 "Another facility's sales orders require SearchCreditsFromAllStores read", as `list_customer_payments` does.
-- [ ] T023 [US4] In `app/api/v1/endpoints/customer_payments.py`, `list_unverified_payments` passes `cross_facility=True` to `list_payments`, with a comment that the current system's verification screen covers every store (FR-012).
-- [ ] T024 [US4] Credit notes and facility:
+- [X] T022 [US4] In `app/api/v1/endpoints/sales_orders.py`, `list_sales_orders`: when `facility` is given, differs from `current.facility_id`, and `not await can_see_every_facility(db, current, SystemObject.SEARCH_CREDITS_FROM_ALL_STORES)`, answer 403 "Another facility's sales orders require SearchCreditsFromAllStores read", as `list_customer_payments` does.
+- [X] T023 [US4] In `app/api/v1/endpoints/customer_payments.py`, `list_unverified_payments` passes `cross_facility=True` to `list_payments`, with a comment that the current system's verification screen covers every store (FR-012).
+- [X] T024 [US4] Credit notes and facility:
   - `app/services/credit_note_service.py`, `list_credit_notes` gains `facility: int | None` and filters `CustomerPayment.facility == (facility or current.facility_id)` in the shared query, before counting;
   - `app/api/v1/endpoints/credit_notes.py`:
     - the list takes `facility: int | None = Query(None)` and answers 403 "Another facility's credit notes require PaymentsEditor read" as T022 does, with PAYMENTS_EDITOR;

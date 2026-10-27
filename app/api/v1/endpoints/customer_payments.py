@@ -117,6 +117,9 @@ async def list_unverified_payments(
         amount_min=amount_min,
         amount_max=amount_max,
         unverified_only=True,
+        # Every facility, narrowed to a named one: the current system's verification screen has no
+        # store filter, and verifiers act company-wide (spec 034, FR-012).
+        cross_facility=True,
         skip=skip,
         limit=limit,
     )
