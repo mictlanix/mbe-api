@@ -378,7 +378,7 @@ description: "Task list for expense vouchers and supplier payments (spec 032)"
   - **Added:** vouchers, supplier payments, applications, balances, migration 029;
   - **Changed:** the cut subtracts cash supplier payments; a session's close waits for in-flight vouchers and payments.
 - [ ] T050 Run `uv run ruff check app tests migrations`, `uv run ruff format --check` on the changed files, and `uv run pytest -q`. Everything is green, and no route answers 500 in the API tests.
-- [ ] T051 Run quickstart.md's local checks and tick off each item. The deployment steps (migration 029, deploy to dev, SC-001 to SC-004, cleanup) wait for the user's confirmation at each step and are not part of implement.
+- [ ] T051 Run quickstart.md's local checks and tick off each item. The deployment steps (migration 029, deploy to dev, SC-001 to SC-004 and SC-006, cleanup) wait for the user's confirmation at each step and are not part of implement.
 
 ---
 
