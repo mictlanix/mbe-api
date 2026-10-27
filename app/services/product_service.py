@@ -239,9 +239,9 @@ async def get_missing_price_facets(
                 stockable=stockable,
                 salable=salable,
                 purchasable=purchasable,
-        perishable=perishable,
-        seriable=seriable,
-        invoiceable=invoiceable,
+                perishable=perishable,
+                seriable=seriable,
+                invoiceable=invoiceable,
                 supplier=supplier,
             )
         )

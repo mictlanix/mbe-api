@@ -145,4 +145,3 @@ class QuoteEmailRequest(BaseModel):
 class QuoteEmailResponse(BaseModel):
     recipients: list[str]
     sent_at: LocalDateTime
-

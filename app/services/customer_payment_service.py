@@ -83,7 +83,6 @@ def is_barcode_or_id(term: str) -> bool:
 # ── Payments ──────────────────────────────────────────────────────────────────
 
 
-
 async def unapplied_amount(db: AsyncSession, customer_payment_id: int) -> Decimal:
     """The payment's amount less every non-cancelled application. Never stored."""
     payment = await db.get(CustomerPayment, customer_payment_id)
@@ -105,9 +104,7 @@ async def attach_unapplied(db: AsyncSession, payment: CustomerPayment) -> Custom
     return payment
 
 
-async def attach_summary_unapplied(
-    db: AsyncSession, payments: Sequence[CustomerPayment]
-) -> None:
+async def attach_summary_unapplied(db: AsyncSession, payments: Sequence[CustomerPayment]) -> None:
     """Unapplied amounts for a whole page in one query.
 
     `attach_unapplied` re-reads the payment and aggregates per call, which is an N+1 when looped
@@ -409,9 +406,7 @@ async def _order_total(db: AsyncSession, order: SalesOrder) -> Decimal:
     lines = (
         (
             await db.execute(
-                select(SalesOrderDetail).where(
-                    SalesOrderDetail.sales_order == order.sales_order_id
-                )
+                select(SalesOrderDetail).where(SalesOrderDetail.sales_order == order.sales_order_id)
             )
         )
         .scalars()
@@ -518,14 +513,11 @@ async def search_outstanding(
     A numeric term matches the order id or its folio; anything else matches the customer's name,
     either salesperson's nickname, or the order's customer-name override.
     """
-    base = (
-        select(SalesOrder)
-        .where(
-            SalesOrder.completed.is_(True),
-            SalesOrder.cancelled.is_(False),
-            SalesOrder.paid.is_(False),
-            SalesOrder.facility == current.facility_id,
-        )
+    base = select(SalesOrder).where(
+        SalesOrder.completed.is_(True),
+        SalesOrder.cancelled.is_(False),
+        SalesOrder.paid.is_(False),
+        SalesOrder.facility == current.facility_id,
     )
     count_q = (
         select(func.count())
@@ -544,9 +536,7 @@ async def search_outstanding(
 
     if search:
         if is_barcode_or_id(search):
-            clause = or_(
-                SalesOrder.sales_order_id == int(search), SalesOrder.serial == int(search)
-            )
+            clause = or_(SalesOrder.sales_order_id == int(search), SalesOrder.serial == int(search))
         else:
             like = f'%{search}%'
             customer_ids = select(Customer.customer_id).where(Customer.name.ilike(like))

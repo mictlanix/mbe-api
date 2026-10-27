@@ -31,6 +31,7 @@ from app.api.v1.endpoints import (
     price_lists,
     product_prices,
     products,
+    purchase_orders,
     purchase_requests,
     sales_orders,
     sales_quotes,
@@ -123,4 +124,7 @@ api_router.include_router(stock.router, prefix='/stock', tags=['stock'])
 api_router.include_router(kardex.router, prefix='/kardex', tags=['kardex'])
 api_router.include_router(
     purchase_requests.router, prefix='/purchase-requests', tags=['purchase-requests']
+)
+api_router.include_router(
+    purchase_orders.router, prefix='/purchase-orders', tags=['purchase-orders']
 )

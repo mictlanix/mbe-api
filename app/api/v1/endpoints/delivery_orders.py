@@ -86,9 +86,7 @@ async def list_approval_queue(
         limit=limit,
     )
     await delivery_order_service.attach_sales_orders(db, items)
-    return ListResponse(
-        items=[DeliveryOrderSummary.model_validate(o) for o in items], total=total
-    )
+    return ListResponse(items=[DeliveryOrderSummary.model_validate(o) for o in items], total=total)
 
 
 @router.post('/approval/{delivery_order_id}/approve', response_model=DeliveryOrderResponse)
@@ -153,9 +151,7 @@ async def list_delivery_orders(
         limit=limit,
     )
     await delivery_order_service.attach_sales_orders(db, items)
-    return ListResponse(
-        items=[DeliveryOrderSummary.model_validate(o) for o in items], total=total
-    )
+    return ListResponse(items=[DeliveryOrderSummary.model_validate(o) for o in items], total=total)
 
 
 @router.post('', response_model=DeliveryOrderResponse, status_code=status.HTTP_201_CREATED)
@@ -320,9 +316,7 @@ async def print_delivery_order_ticket(
                 status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail='No line of this order comes from that warehouse',
             )
-    template, context = await print_contexts.delivery_ticket_context(
-        db, order, warehouse=warehouse
-    )
+    template, context = await print_contexts.delivery_ticket_context(db, order, warehouse=warehouse)
     pdf = await rendering.render_pdf(template, context)
     return rendering.pdf_response(pdf, f'entrega-{order.delivery_order_id:08d}.pdf')
 
@@ -371,9 +365,7 @@ async def confirm_pickup(
     try:
         filename = await image_service.save_proof_image(await image.read(), settings.pod_dir)
     except ValueError as e:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(e)
-        ) from e
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(e)) from e
 
     order = await delivery_order_service.confirm_pickup(
         db,

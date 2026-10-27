@@ -806,9 +806,7 @@ async def _payments_on_delivery(db: AsyncSession, sales_orders: Sequence[SalesOr
     applications = [
         a
         for order in sales_orders
-        for a in await customer_payment_service.list_order_applications(
-            db, order.sales_order_id
-        )
+        for a in await customer_payment_service.list_order_applications(db, order.sales_order_id)
         if not a['cancelled']
     ]
     payments = await _by_id(
@@ -986,9 +984,7 @@ async def _itinerary_data(db: AsyncSession, itinerary: DeliveriesItinerary, titl
     )
     order_ids = {d.delivery_order for d in details.values()}
     orders = await _by_id(db, DeliveryOrder, DeliveryOrder.delivery_order_id, order_ids)
-    sales_ids = {
-        d.sales_order_detail for d in details.values() if d.sales_order_detail is not None
-    }
+    sales_ids = {d.sales_order_detail for d in details.values() if d.sales_order_detail is not None}
     sales_lines = await _by_id(
         db, SalesOrderDetail, SalesOrderDetail.sales_order_detail_id, sales_ids
     )
@@ -1000,9 +996,7 @@ async def _itinerary_data(db: AsyncSession, itinerary: DeliveriesItinerary, titl
     addresses = await _by_id(
         db, Address, Address.address_id, {o.ship_to for o in placed if o.ship_to is not None}
     )
-    units = await sales_order_service.units_by_product(
-        db, {d.product for d in details.values()}
-    )
+    units = await sales_order_service.units_by_product(db, {d.product for d in details.values()})
 
     # The store: the dispatch warehouse's, else the first order's (research R7).
     warehouse = await db.get(Warehouse, itinerary.warehouse) if itinerary.warehouse else None

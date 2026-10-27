@@ -48,8 +48,8 @@ async def list_sales_orders(
     exclude_origin: OrderOrigin | None = Query(
         None,
         description=(
-            'Every order except this workflow\'s, including orders that recorded no origin — '
-            'which is every order raised before #209. The register\'s own list is the caller '
+            "Every order except this workflow's, including orders that recorded no origin — "
+            "which is every order raised before #209. The register's own list is the caller "
             'this exists for: asking for its own workflow instead would drop its whole history.'
         ),
     ),
@@ -167,9 +167,7 @@ async def print_sales_order_ticket(
     return rendering.pdf_response(pdf, f'ticket-{order.sales_order_id:08d}.pdf')
 
 
-@router.get(
-    '/{sales_order_id}/document', response_class=Response, responses=rendering.PDF_RESPONSE
-)
+@router.get('/{sales_order_id}/document', response_class=Response, responses=rendering.PDF_RESPONSE)
 async def print_sales_order_document(
     sales_order_id: int,
     _: CurrentUser = Depends(_READ),

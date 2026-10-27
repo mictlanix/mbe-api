@@ -11,7 +11,6 @@ branch happens *at* approval (FR-024), a plain `{from: {to}}` mapping would let 
 reach `READY_FOR_PICKUP`.
 """
 
-
 from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -58,9 +57,7 @@ def assert_legal(order: DeliveryOrder, to_status: S) -> None:
     if from_status in TERMINAL:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail=(
-                f'{from_status.name} is terminal; cannot move to {to_status.name}'
-            ),
+            detail=(f'{from_status.name} is terminal; cannot move to {to_status.name}'),
         )
 
     if to_status not in LEGAL[from_status]:
@@ -74,8 +71,7 @@ def assert_legal(order: DeliveryOrder, to_status: S) -> None:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=(
-                f'{from_status.name} to {to_status.name} is only valid for a '
-                f'{required.name} order'
+                f'{from_status.name} to {to_status.name} is only valid for a {required.name} order'
             ),
         )
 

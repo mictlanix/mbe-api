@@ -155,4 +155,3 @@ class CommissionPeriodLine(Base):
     full_commission: Mapped[Decimal] = mapped_column(Numeric(22, 2))
     share: Mapped[Decimal | None] = mapped_column(Numeric(9, 6))
     commission: Mapped[Decimal] = mapped_column(Numeric(22, 2))
-

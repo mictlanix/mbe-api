@@ -133,14 +133,14 @@ description: "Task list for purchase requests, purchase orders and average cost"
 
 **Independent Test**: spec US2. Suppliers A (in two facilities) and B give three groups and three draft POs priced from cost; an unmarked line is on none; creating again adds nothing.
 
-- [ ] T011 [P] [US2] Write `tests/unit/test_purchase_orders.py` first, covering T014's pure helpers:
+- [X] T011 [P] [US2] Write `tests/unit/test_purchase_orders.py` first, covering T014's pure helpers:
   - `is_pending(request_status, to_purchase, live_po_line)`;
   - `group_key(product_supplier, line_warehouse_facility, header_warehouse_facility)`, using the header's facility when the line warehouse is NULL;
   - `group_lines(rows)`: line count, and the estimated total with missing cost as 0, ordered by facility then supplier name, with the no-supplier group last;
   - `line_values(product, cost_or_none, quantity, warehouse)`: price = cost or 0 with a warning, tax rate = the product's, the fixed defaults MXN, 1, 0 and `tax_included` 0 (FR-021);
   - `supplier_mismatch_warning(...)`;
   - `split_taken(requested_ids, still_pending_ids)` → `(taken, skipped)`.
-- [ ] T012 [P] [US2] Write `tests/integration/test_purchase_order_lines_flow.py` first, covering US2 scenarios 1, 2, 4, 5 and 6, plus:
+- [X] T012 [P] [US2] Write `tests/integration/test_purchase_order_lines_flow.py` first, covering US2 scenarios 1, 2, 4, 5 and 6, plus:
   - PO create, update and line CRUD, all draft-only; a non-purchasable product gives 422; an in-transit warehouse gives 422; the price defaults to cost; the line warehouse defaults to the caller's point-of-sale warehouse (FR-021);
   - adding a request's lines: only its pending lines; a supplier mismatch warns; a request that is not approved gives 409;
   - to-purchase: draft, submitted and cancelled requests, unmarked lines and lines on a live PO are excluded; the no-supplier group is listed; creating for `supplier = null` gives 422; a second create for the same group gives 409 (nothing pending);
@@ -149,7 +149,7 @@ description: "Task list for purchase requests, purchase orders and average cost"
 
   SQLite can't show row-lock races; the concurrent case is quickstart step 4 (T035).
 - [ ] T013 [P] [US2] Write `tests/api/test_purchase_orders.py` first, covering the create, header update, cancel, line, request-line, to-purchase, list and detail routes: 401, 403 (20), 404, 409 and 422, including 422 for a line with no warehouse when the caller has no point of sale.
-- [ ] T014 [US2] Extend `app/services/purchase_order_service.py` (T004 created it with the state helpers):
+- [X] T014 [US2] Extend `app/services/purchase_order_service.py` (T004 created it with the state helpers):
   - the pure helpers of T011;
   - create; header update (draft-only, refusing changes to fixed fields); line add, update and remove (draft-only), with the line warehouse defaulting to the caller's point-of-sale warehouse via `_pos_warehouse`, and 422 "A warehouse is required" when neither is given (FR-021);
   - `add_request_lines` per research R3: pre-read the request's line ids, commit, lock the PO row, lock those line rows ascending, then read the request header and add the pending lines;
@@ -159,7 +159,7 @@ description: "Task list for purchase requests, purchase orders and average cost"
   - lists per research R11.
 
   Every write runs inside `inv.busy_as_conflict` and starts by committing and locking the PO row `FOR UPDATE` with `populate_existing`, then checking it is a draft, so no edit can land after a concurrent confirm (research R3, R4).
-- [ ] T015 [US2] Create `app/api/v1/endpoints/purchase_orders.py` with these contract routes:
+- [X] T015 [US2] Create `app/api/v1/endpoints/purchase_orders.py` with these contract routes:
   - list, create, get, update;
   - line add, update and delete;
   - `request-lines`, cancel;
@@ -177,12 +177,12 @@ description: "Task list for purchase requests, purchase orders and average cost"
 
 **Independent Test**: spec US3. A PO with lines to W1 (2 products) and W2 (1) confirms into two linked draft receipts; a second confirm gives 409 and there are still two.
 
-- [ ] T016 [P] [US3] Extend `tests/unit/test_purchase_orders.py` first with:
+- [X] T016 [P] [US3] Extend `tests/unit/test_purchase_orders.py` first with:
   - `confirm_refusal(status, supplier, lines)`;
   - `zero_price_warnings(lines)`;
   - `receipts_to_generate(lines, stockable, held)` → `{warehouse: [(line, pending)]}`, ascending: non-stockable lines left out, warehouses with nothing pending left out, pending = ordered − held;
   - `progress(lines, received)` → received and pending, floored at 0 (FR-030).
-- [ ] T017 [P] [US3] Write `tests/integration/test_purchase_order_confirm_flow.py` first, covering US3 scenarios 1–6:
+- [X] T017 [P] [US3] Write `tests/integration/test_purchase_order_confirm_flow.py` first, covering US3 scenarios 1–6:
   - confirm creates receipts in each warehouse's facility, linked to the PO, with lines linked to the PO lines, `quantity` = pending and `quantity_ordered` = ordered;
   - a second confirm gives 409 and no new receipt;
   - after confirm, every header and line edit gives 409, and so does cancel;
@@ -192,7 +192,7 @@ description: "Task list for purchase requests, purchase orders and average cost"
   - a PO with only non-stockable lines confirms with no receipt;
   - a complementary receipt of a PO with a non-stockable line leaves that line out, and the PO shows no receiving progress for it.
 - [ ] T018 [P] [US3] Extend `tests/api/test_purchase_orders.py` first with confirm: 401, 403, 404, 409 (not a draft, no lines, a zero quantity, no supplier) and the `receipts` in the response. Extend `tests/api/test_inventory_receipts.py` with the warehouse-move 409.
-- [ ] T019 [US3] Implement `confirm` in `app/services/purchase_order_service.py` per research R4: commit, lock the PO row, check, read what non-cancelled receipts hold with one grouped query, create the draft receipts and lines ascending by warehouse, then set `completed`, the updater and the time.
+- [X] T019 [US3] Implement `confirm` in `app/services/purchase_order_service.py` per research R4: commit, lock the PO row, check, read what non-cancelled receipts hold with one grouped query, create the draft receipts and lines ascending by warehouse, then set `completed`, the updater and the time.
   - Add the per-line progress to `attach`, reusing the grouped query shape of `inventory_receipt_service._received_elsewhere`; non-stockable lines get `quantity_received` and `quantity_pending` null.
   - In `inventory_receipt_service.complementary_receipt`, leave non-stockable order lines out of the remaining lines, so its draft can be confirmed (it is refused 422 otherwise; mbe_dev has 53 such PO lines).
   - In `app/services/inventory_receipt_service.update`, refuse a warehouse change on a receipt with `purchase_order` with 409 "A purchase order's receipt keeps its warehouse"; the check runs against the locked row inside `inv.update_header` or right before it.

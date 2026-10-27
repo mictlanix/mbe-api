@@ -9,7 +9,6 @@ this feature does not otherwise need.
 so an entry keys to the owning payment and names the application in `content`.
 """
 
-
 from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 

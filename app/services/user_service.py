@@ -129,9 +129,7 @@ def _write_privileges_from(user: User, profile: UserProfile | None) -> None:
     for obj in known:
         entry = existing.get(obj)
         if entry is None:
-            user.privileges.append(
-                AccessPrivilege(system_object=obj, privileges=masks.get(obj, 0))
-            )
+            user.privileges.append(AccessPrivilege(system_object=obj, privileges=masks.get(obj, 0)))
         else:
             entry.privileges = masks.get(obj, 0)
 
@@ -286,9 +284,7 @@ async def change_password(db: AsyncSession, user: User, new_password: str) -> No
     await db.commit()
 
 
-async def initiate_recovery(
-    db: AsyncSession, user: User, *, updater: int
-) -> tuple[str, datetime]:
+async def initiate_recovery(db: AsyncSession, user: User, *, updater: int) -> tuple[str, datetime]:
     """Admin-triggered recovery. Returns a signed time-limited recovery token."""
     token, expires_at = create_recovery_token(user.user_id)
     # Token is self-contained — no temp password stored; user sets new password via /auth/recover.

@@ -224,9 +224,7 @@ class SalesOrderSummary(BaseModel):
     #: The per-document override, exactly as the data dictionary defines it — null on every sale
     #: that did not set one, which is every ordinary sale. Read `customer_display_name` to show a
     #: customer on a row; this field only says whether the document overrides that name.
-    customer_name: str | None = Field(
-        default=None, description=CUSTOMER_NAME_DESCRIPTION
-    )
+    customer_name: str | None = Field(default=None, description=CUSTOMER_NAME_DESCRIPTION)
     #: The customer's own name, joined from `customer` (#172). A list row has no other way to it:
     #: resolving it client-side costs one `GET /customers/{id}` per distinct customer on the page,
     #: and there is no fetch-by-ids to batch that into. `null` only if the customer row is gone.

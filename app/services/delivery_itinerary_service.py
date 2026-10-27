@@ -50,7 +50,6 @@ from app.services import (
 _BUCKETS = ('earlier', 'yesterday', 'today', 'tomorrow', 'day_after', 'later')
 
 
-
 # ── Pending deliveries ────────────────────────────────────────────────────────
 
 
@@ -369,8 +368,7 @@ async def add_stop(
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=(
-                f'Only an order in IN_PREPARATION can be loaded; this one is '
-                f'{S(order.status).name}'
+                f'Only an order in IN_PREPARATION can be loaded; this one is {S(order.status).name}'
             ),
         )
 
@@ -554,10 +552,14 @@ async def _transit_map(
     missing = sorted(dispatch_warehouses - mapping.keys())
     if missing:
         facilities = (
-            await db.execute(
-                select(Warehouse.facility).where(Warehouse.warehouse_id.in_(missing)).distinct()
+            (
+                await db.execute(
+                    select(Warehouse.facility).where(Warehouse.warehouse_id.in_(missing)).distinct()
+                )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
         named = ', '.join(str(f) for f in sorted(facilities)) or 'unknown'
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,

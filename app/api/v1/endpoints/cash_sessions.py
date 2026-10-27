@@ -67,9 +67,7 @@ async def list_cash_sessions(
         skip=skip,
         limit=limit,
     )
-    return ListResponse(
-        items=[CashSessionResponse.model_validate(s) for s in items], total=total
-    )
+    return ListResponse(items=[CashSessionResponse.model_validate(s) for s in items], total=total)
 
 
 @router.post('', response_model=CashSessionResponse, status_code=status.HTTP_201_CREATED)

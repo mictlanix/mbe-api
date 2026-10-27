@@ -23,9 +23,7 @@ async def assign_folio(db: AsyncSession, model: type, *, facility: int) -> int:
     """
     locked = (
         await db.execute(
-            select(Facility.facility_id)
-            .where(Facility.facility_id == facility)
-            .with_for_update()
+            select(Facility.facility_id).where(Facility.facility_id == facility).with_for_update()
         )
     ).scalar_one_or_none()
 

@@ -128,7 +128,6 @@ def reconcile_lines(
 # ── Context ───────────────────────────────────────────────────────────────────
 
 
-
 # ── Derived values ────────────────────────────────────────────────────────────
 
 
@@ -270,9 +269,7 @@ async def attach_summary_totals(db: AsyncSession, refunds: Sequence[CustomerRefu
     rows = (
         (
             await db.execute(
-                select(CustomerRefundDetail).where(
-                    CustomerRefundDetail.customer_refund.in_(ids)
-                )
+                select(CustomerRefundDetail).where(CustomerRefundDetail.customer_refund.in_(ids))
             )
         )
         .scalars()

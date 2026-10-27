@@ -82,9 +82,7 @@ async def get_sales_quote(
     return SalesQuoteResponse.model_validate(quote)
 
 
-@router.get(
-    '/{sales_quote_id}/document', response_class=Response, responses=rendering.PDF_RESPONSE
-)
+@router.get('/{sales_quote_id}/document', response_class=Response, responses=rendering.PDF_RESPONSE)
 async def print_sales_quote_document(
     sales_quote_id: int,
     _: CurrentUser = Depends(_READ),

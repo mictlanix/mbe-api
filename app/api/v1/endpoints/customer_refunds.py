@@ -49,9 +49,7 @@ async def list_customer_refunds(
         skip=skip,
         limit=limit,
     )
-    return ListResponse(
-        items=[CustomerRefundSummary.model_validate(r) for r in items], total=total
-    )
+    return ListResponse(items=[CustomerRefundSummary.model_validate(r) for r in items], total=total)
 
 
 @router.post('', response_model=CustomerRefundResponse, status_code=status.HTTP_201_CREATED)
