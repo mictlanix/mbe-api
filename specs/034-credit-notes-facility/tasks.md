@@ -105,7 +105,7 @@ No setup: no dependency, setting, enum or migration is added (research R9).
 
 ### Tests
 
-- [ ] T010 [US2] Add to `tests/integration/test_credit_notes_flow.py`:
+- [X] T010 [US2] Add to `tests/integration/test_credit_notes_flow.py`:
   - 5 open notes, 3 spent, 1 paid back in cash and 2 of the walk-in customer, interleaved by id;
   - `open_only=true&limit=2` pages 2, 2, 1 with `total` 5, every open note once and newest first;
   - without `open_only`, `total` counts all 11;
@@ -114,14 +114,14 @@ No setup: no dependency, setting, enum or migration is added (research R9).
 
 ### Implementation
 
-- [ ] T011 [US2] In `app/services/credit_note_service.py`, `list_credit_notes`:
+- [X] T011 [US2] In `app/services/credit_note_service.py`, `list_credit_notes`:
   - when `open_only`, add the open condition (FR-004) to the query: the remaining expression `> totals.SETTLED`, `CreditNote.cash_session.is_(None)`, and `CreditNote.customer != settings.default_customer_id`;
   - count with `select(func.count()).select_from(query.subquery())`, so the count and the page share every clause;
   - order by `credit_note_id` descending, then offset and limit;
   - remove the Python filter.
 
   T010 must pass.
-- [ ] T012 [US2] Record the FR-008 check in the docstring of `list_credit_notes`: it was the only list that filtered after paging (research R3). No other list changes.
+- [X] T012 [US2] Record the FR-008 check in the docstring of `list_credit_notes`: it was the only list that filtered after paging (research R3). No other list changes.
 
 **Checkpoint**: US1 and US2 make the MVP that unblocks roadmap#28.
 

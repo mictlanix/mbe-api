@@ -13,6 +13,7 @@ import pytest
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.deps import CurrentUser
 from app.enums import CurrencyCode, EntityStatus, PaymentType
 from app.models.customer import Customer
 from app.models.sales import (
@@ -21,6 +22,7 @@ from app.models.sales import (
     CustomerRefund,
     SalesOrderPayment,
 )
+from app.services import credit_note_service
 from tests.integration.seed import seed_facility, seed_sales_order
 
 NOW = datetime(2026, 9, 29, 12, 55)
@@ -187,3 +189,98 @@ class TestBalances:
         detail = await _read(client, note)
         for key in ('amount', 'remaining', 'refunded', 'refunded_to_customer', 'facility'):
             assert row[key] == detail[key], key
+
+
+class TestOpenOnly:
+    """US2 (#278): the open filter runs in the query, before counting and paging."""
+
+    async def _pool(self, client: AsyncClient, db: AsyncSession, order: int) -> list[int]:
+        """5 open notes among 2 spent, 1 paid back in cash and 2 of the walk-in customer,
+        interleaved by id. Returns the open ones, newest first."""
+        session = await _session(client)
+        open_ = []
+        for kind in ('open', 'spent', 'walk-in', 'open', 'cash', 'open', 'spent', 'open'):
+            if kind == 'walk-in':
+                await _note(db, order, '10', customer=1)
+            elif kind == 'cash':
+                await _note(db, order, '10', refunded='10', cash_session=session)
+            else:
+                note, payment = await _note(db, order, '10')
+                if kind == 'spent':
+                    await _apply(db, order, payment, '10')
+                else:
+                    open_.append(note)
+        await _note(db, order, '10', customer=1)
+        note, _ = await _note(db, order, '10')
+        open_.append(note)
+        return sorted(open_, reverse=True)
+
+    async def test_pages_are_full_and_total_counts_open_notes(
+        self, client: AsyncClient, db: AsyncSession, ledger: dict
+    ) -> None:
+        open_ = await self._pool(client, db, ledger['order'])
+
+        pages, seen = [], []
+        for skip in (0, 2, 4):
+            page = await client.get(URL, params={'open_only': 'true', 'limit': 2, 'skip': skip})
+            assert page.status_code == 200, page.text
+            pages.append(page.json())
+            seen += [row['credit_note_id'] for row in page.json()['items']]
+
+        assert [len(p['items']) for p in pages] == [2, 2, 1]
+        assert {p['total'] for p in pages} == {5}
+        assert seen == open_, 'each open note once, newest first'
+        everything = await client.get(URL, params={'limit': 100})
+        assert everything.json()['total'] == 10
+
+    async def test_a_customer_filter_counts_only_their_open_notes(
+        self, client: AsyncClient, db: AsyncSession, ledger: dict
+    ) -> None:
+        await self._pool(client, db, ledger['order'])
+
+        walk_in = await client.get(URL, params={'open_only': 'true', 'customer': 1})
+        customer = await client.get(URL, params={'open_only': 'true', 'customer': CUSTOMER})
+
+        assert walk_in.json()['total'] == 0, "the walk-in customer's notes are never open"
+        assert customer.json()['total'] == 5
+
+
+class TestTheOpenRule:
+    """FR-004 called directly, one case per branch: the rule is SQL, so it runs against SQLite."""
+
+    async def _open_ids(self, db: AsyncSession) -> set[int]:
+        admin = CurrentUser(
+            user_id='tester', session_version=1, administrator=True, facility_id=1, employee_id=1
+        )
+        notes, _ = await credit_note_service.list_credit_notes(
+            db, current=admin, open_only=True, limit=100
+        )
+        return {note.credit_note_id for note in notes}
+
+    async def test_more_than_a_cent_left_is_open(
+        self, client: AsyncClient, db: AsyncSession, ledger: dict
+    ) -> None:
+        cent, cent_payment = await _note(db, ledger['order'], '10')
+        await _apply(db, ledger['order'], cent_payment, '9.99')
+        two, two_payment = await _note(db, ledger['order'], '10')
+        await _apply(db, ledger['order'], two_payment, '9.98')
+
+        opened = await self._open_ids(db)
+
+        assert cent not in opened, '0.01 left is settled'
+        assert two in opened
+
+    async def test_paid_back_in_cash_is_never_open(
+        self, client: AsyncClient, db: AsyncSession, ledger: dict
+    ) -> None:
+        session = await _session(client)
+        note, _ = await _note(db, ledger['order'], '10', refunded='10', cash_session=session)
+
+        assert note not in await self._open_ids(db)
+
+    async def test_the_walk_in_customers_notes_are_never_open(
+        self, client: AsyncClient, db: AsyncSession, ledger: dict
+    ) -> None:
+        note, _ = await _note(db, ledger['order'], '10', customer=1)
+
+        assert note not in await self._open_ids(db)

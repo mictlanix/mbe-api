@@ -105,7 +105,12 @@ async def list_credit_notes(
     skip: int = 0,
     limit: int = 20,
 ) -> tuple[Sequence[CreditNote], int]:
-    """Notes newest first. `open_only` filters in the query, so the page and `total` agree."""
+    """Notes newest first. `open_only` filters in the query, so the page and `total` agree.
+
+    It used to filter the page in Python after `offset/limit`, with `total` counting every note:
+    the first 100 came back empty, total 984 (#278). It was the only list that filtered after
+    paging (spec 034, FR-008).
+    """
     query = _notes_query()
     if customer is not None:
         query = query.where(CreditNote.customer == customer)
