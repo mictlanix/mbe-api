@@ -172,7 +172,7 @@ class TestConfirmReservesRatherThanConsuming:
     """
 
     def test_confirm_reserves_and_posts_no_ledger_entry(self) -> None:
-        source = inspect.getsource(sales_order_service.confirm_order)
+        source = inspect.getsource(sales_order_service._confirm_locked)
         assert 'stock_ledger.reserve(' in source
         assert 'post_movement' not in source
 
@@ -183,7 +183,7 @@ class TestConfirmReservesRatherThanConsuming:
 
     def test_confirm_checks_availability_not_raw_on_hand(self) -> None:
         """The paired half of the change. Without it, FR-055 silently oversells."""
-        source = inspect.getsource(sales_order_service.confirm_order)
+        source = inspect.getsource(sales_order_service._confirm_locked)
         assert 'stock_ledger.available(' in source
         assert 'stock_ledger.on_hand(' not in source
 

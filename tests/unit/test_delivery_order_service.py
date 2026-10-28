@@ -155,7 +155,7 @@ class TestTransitionsRouteThroughTheChokepoint:
 
     @pytest.mark.parametrize(
         'name',
-        ['confirm', 'approve', 'reject', 'requeue', 'cancel', 'mark_ready_for_pickup',
+        ['_confirm_locked', 'approve', 'reject', 'requeue', 'cancel', 'mark_ready_for_pickup',
          'confirm_pickup'],
     )
     def test_every_lifecycle_function_calls_transition(self, name: str) -> None:
