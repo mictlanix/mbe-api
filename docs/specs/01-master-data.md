@@ -237,6 +237,13 @@ Vendor entities for purchasing goods.
 ### Sub-Panels
 `GET /suppliers/{id}`, `POST` and `PUT` return the four sub-panels; the list does not.
 
+Each panel is returned only to a caller who may read it, and is `[]` otherwise: bank accounts to
+`BankAccounts` (13), contacts to `Contacts` (12), addresses to `Addresses` (11) and agreements to
+`Suppliers` (3), each with the read right. Administrators read all four. On `POST` and `PUT`, a
+list (`addresses`, `contacts`, `bank_accounts`) for a panel the caller cannot read is ignored, as if
+it had not been sent: `PUT` leaves those links as they are and `POST` writes none. The response
+shape does not change.
+
 - **Addresses** (`supplier_address`), **Contacts** (`supplier_contact`) and **Bank Accounts**
   (`supplier_bank_account`): sent on `POST` and `PUT` as id lists (`addresses`, `contacts`,
   `bank_accounts`). Each list replaces that link set: omitted leaves it alone, `[]` clears it, and

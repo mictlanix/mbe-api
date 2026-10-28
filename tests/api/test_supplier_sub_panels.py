@@ -208,6 +208,51 @@ async def test_link_lists_are_passed_through_on_put() -> None:
     assert (data.addresses, data.contacts, data.bank_accounts) == ([9], [], None)
 
 
+# ── Caller ────────────────────────────────────────────────────────────────────
+# Which panels the caller reads is decided in the service, and tested against real rows in
+# tests/integration/test_supplier_panels_flow.py; here only that the caller is handed over.
+
+
+@pytest.mark.asyncio
+async def test_the_caller_reaches_the_service_on_get_post_and_put() -> None:
+    _auth()
+    reading = AsyncMock(return_value=_detail())
+    creating = AsyncMock(return_value=_detail())
+    updating = AsyncMock(return_value=_detail())
+    with (
+        patch(_SUPPLIER + 'get_supplier_detail', reading),
+        patch(_SUPPLIER + 'create_supplier', creating),
+        patch(_SUPPLIER + 'get_supplier', AsyncMock(return_value=_supplier())),
+        patch(_SUPPLIER + 'update_supplier', updating),
+    ):
+        async with await _client() as c:
+            await c.get('/api/v1/suppliers/1')
+            await c.post('/api/v1/suppliers', json={'code': 'S', 'name': 'S'})
+            await c.put('/api/v1/suppliers/1', json={'name': 'S'})
+
+    for call in (reading, creating, updating):
+        assert call.await_args.args[-1].user_id == 'tester'
+
+
+@pytest.mark.asyncio
+async def test_a_user_without_suppliers_read_still_cannot_use_the_agreements_route() -> None:
+    """The panel rule narrows the detail; the nested route keeps its own gate."""
+    app.dependency_overrides[get_current_user] = lambda: CurrentUser(
+        user_id='tester', session_version=1, administrator=False, facility_id=None, employee_id=7
+    )
+
+    async def _db_without_privileges():
+        yield SimpleNamespace(
+            execute=AsyncMock(return_value=SimpleNamespace(scalar_one_or_none=lambda: None))
+        )
+
+    app.dependency_overrides[get_db] = _db_without_privileges
+    async with await _client() as c:
+        r = await c.get('/api/v1/suppliers/1/agreements')
+
+    assert r.status_code == 403
+
+
 # ── Agreements ────────────────────────────────────────────────────────────────
 
 _PERIOD = {'start': '2026-01-01', 'end': '2026-12-31'}
