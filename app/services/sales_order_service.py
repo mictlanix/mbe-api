@@ -1099,6 +1099,7 @@ async def list_orders(
 async def update_order(
     db: AsyncSession, order: SalesOrder, data: SalesOrderUpdate, *, current: CurrentUser
 ) -> SalesOrder:
+    order = await _lock_for_edit(db, order.sales_order_id)
     employee = current.employee_id
     changes = data.model_dump(exclude_unset=True)
 
@@ -1257,6 +1258,7 @@ async def _change_currency(db: AsyncSession, order: SalesOrder, currency: Curren
 async def add_line(
     db: AsyncSession, order: SalesOrder, data: SalesOrderLineCreate, *, current: CurrentUser
 ) -> SalesOrder:
+    order = await _lock_for_edit(db, order.sales_order_id)
     documents.assert_editable(order)
     employee = current.employee_id
 
@@ -1315,7 +1317,9 @@ async def update_line(
     *,
     current: CurrentUser,
 ) -> SalesOrder:
+    order = await _lock_for_edit(db, order.sales_order_id)
     documents.assert_editable(order)
+    line = await _reread_line(db, line.sales_order_detail_id)
     employee = current.employee_id
     changes = data.model_dump(exclude_unset=True)
 
@@ -1343,13 +1347,39 @@ async def update_line(
 async def remove_line(
     db: AsyncSession, order: SalesOrder, line: SalesOrderDetail, *, current: CurrentUser
 ) -> SalesOrder:
+    order = await _lock_for_edit(db, order.sales_order_id)
     documents.assert_editable(order)
+    line = await _reread_line(db, line.sales_order_detail_id)
     order.updater = current.employee_id
     order.modification_time = local_now()
     await db.delete(line)
     await db.commit()
     await db.refresh(order)
     return await attach_derived(db, order)
+
+
+async def _lock_for_edit(db: AsyncSession, sales_order_id: int) -> SalesOrder:
+    """Commit, then hold the order row for the rest of the edit (spec 035, research R3, FR-019).
+
+    The route's copy was read before a confirmation it then waited on may have committed; the
+    locked re-read sees the order completed, so the edit is refused instead of landing on it.
+    """
+    await db.commit()
+    return await _lock_order(db, sales_order_id)
+
+
+async def _reread_line(db: AsyncSession, line_id: int) -> SalesOrderDetail:
+    """The line as it is now, under the order's lock: the route's copy predates the commit."""
+    line = (
+        await db.execute(
+            select(SalesOrderDetail)
+            .where(SalesOrderDetail.sales_order_detail_id == line_id)
+            .execution_options(populate_existing=True)
+        )
+    ).scalar_one_or_none()
+    if line is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Line not found')
+    return line
 
 
 async def get_line(db: AsyncSession, order: SalesOrder, line_id: int) -> SalesOrderDetail | None:

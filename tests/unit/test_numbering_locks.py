@@ -17,6 +17,7 @@ from fastapi import HTTPException
 from sqlalchemy.exc import OperationalError
 
 from app.enums import ItineraryStatus, StopOutcome
+from app.schemas.sales_order import SalesOrderLineCreate, SalesOrderLineUpdate, SalesOrderUpdate
 from app.services import (
     customer_refund_service,
     delivery_itinerary_service,
@@ -48,15 +49,16 @@ class StepSession(FakeSession):
     `objects` answers `db.get(model, key)` by `(table name, key)`.
     """
 
-    def __init__(self, respond, objects: dict | None = None) -> None:  # noqa: ANN001
+    def __init__(self, respond, objects: dict | None = None, *, stop: bool = True) -> None:  # noqa: ANN001
         super().__init__(respond)
         self.objects = objects or {}
         self.flushes = 0
+        self.stop = stop
 
     async def execute(self, statement):  # noqa: ANN001, ANN201
         result = await super().execute(statement)
         sql = self.log[-1] = ' '.join(self.log[-1].split())
-        if COMMIT in self.log and sql.startswith('SELECT') and not is_lock(sql):
+        if self.stop and COMMIT in self.log and sql.startswith('SELECT') and not is_lock(sql):
             raise StopAtFirstRead(sql)
         return result
 
@@ -507,3 +509,81 @@ async def test_close_stop_deadlock_is_a_409():
 
     assert exc.value.detail == 'The warehouse is busy, retry'
     assert db.log[-1] == ROLLBACK
+
+
+# ── Sales order edits (T024; research R3) ─────────────────────────────────────
+
+_LINE = _line(9)
+
+
+def _edit(name: str):  # noqa: ANN202
+    order = _order()
+    return {
+        'update_order': lambda db, o=order: sales_order_service.update_order(
+            db, o, SalesOrderUpdate(comment='x'), current=CASHIER
+        ),
+        'add_line': lambda db, o=order: sales_order_service.add_line(
+            db, o, SalesOrderLineCreate(product=1), current=CASHIER
+        ),
+        'update_line': lambda db, o=order: sales_order_service.update_line(
+            db, o, _LINE, SalesOrderLineUpdate(comment='x'), current=CASHIER
+        ),
+        'remove_line': lambda db, o=order: sales_order_service.remove_line(
+            db, o, _LINE, current=CASHIER
+        ),
+    }[name]
+
+
+EDITS = ['update_order', 'add_line', 'update_line', 'remove_line']
+
+
+@pytest.mark.parametrize('name', EDITS)
+async def test_an_edit_commits_then_locks_the_order_before_anything_else(name):
+    objects = {
+        ('product', 1): SimpleNamespace(product_id=1, min_order_qty=1),
+        ('customer', 300): SimpleNamespace(customer_id=300, price_list=1),
+    }
+    db = StepSession(responder({'sales_order': [_order()], 'sales_order_detail': [_LINE]}), objects)
+
+    with pytest.raises(StopAtFirstRead) as stop:
+        await _edit(name)(db)
+
+    commit, locked = assert_order(db.log, f'^{COMMIT}$', r'FROM sales_order WHERE .* FOR UPDATE$')
+    assert commit == 0
+    assert db.statements[locked - 1].get_execution_options()['populate_existing'] is True
+    assert not any('FROM facility' in sql or 'FROM warehouse' in sql for sql in db.log)
+    if name in ('update_line', 'remove_line'):
+        # The line handed in was read before the commit: it is re-read under the order's lock.
+        assert 'FROM sales_order_detail WHERE sales_order_detail.sales_order_detail_id = 109' in (
+            str(stop.value)
+        )
+        assert db.statements[-1].get_execution_options()['populate_existing'] is True
+
+
+@pytest.mark.parametrize('name', EDITS)
+async def test_an_edit_that_waited_behind_a_confirmation_is_refused(name):
+    """FR-019: the copy in hand is a draft; the locked row is completed."""
+    db = StepSession(
+        responder({'sales_order': [_order(completed=True)], 'sales_order_detail': [_LINE]})
+    )
+
+    with pytest.raises(HTTPException) as exc:
+        await _edit(name)(db)
+
+    assert exc.value.status_code == 409
+    assert exc.value.detail == 'Document is completed and can no longer be edited'
+    # Nothing written; the request's session rolls the lock back when it closes, as today.
+    assert db.added == []
+    assert db.flushes == 0
+
+
+@pytest.mark.parametrize('name', ['update_line', 'remove_line'])
+async def test_a_line_deleted_meanwhile_is_a_404(name):
+    db = StepSession(responder({'sales_order': [_order()], 'sales_order_detail': []}), stop=False)
+
+    with pytest.raises(HTTPException) as exc:
+        await _edit(name)(db)
+
+    assert exc.value.status_code == 404
+    assert exc.value.detail == 'Line not found'
+    assert db.added == []

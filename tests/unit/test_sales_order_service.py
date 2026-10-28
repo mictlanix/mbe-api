@@ -613,6 +613,8 @@ class TestCustomerChangeGuard:
             ),
             patch.object(sales_order_service, '_reprice_lines', reprice),
             patch.object(sales_order_service, 'attach_derived', AsyncMock(return_value=order)),
+            # The order lock (spec 035) is pinned in test_numbering_locks.py.
+            patch.object(sales_order_service, '_lock_for_edit', AsyncMock(return_value=order)),
         ):
             await sales_order_service.update_order(
                 AsyncMock(),
