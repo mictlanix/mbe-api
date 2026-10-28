@@ -54,7 +54,13 @@ async def _visible_payment_or_404(  # noqa: ANN202
 @router.get('', response_model=ListResponse[CustomerPaymentResponse])
 async def list_customer_payments(
     customer: int | None = Query(None),
-    search: str | None = Query(None, description="Matches part of the customer's name."),
+    search: str | None = Query(
+        None,
+        description=(
+            "All digits: the payment's id or its serial (the folio on its ticket). Otherwise, "
+            "part of the customer's name."
+        ),
+    ),
     cash_session: int | None = Query(None),
     facility: int | None = Query(None),
     date_from: LocalDateTime | None = Query(None),

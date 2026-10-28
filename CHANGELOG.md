@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Fixed
+- **Supplier sub-panels follow their own read privileges** (mictlanix/mbe-roadmap#152, spec 035). `GET /suppliers/{id}`, `POST` and `PUT` return bank accounts, contacts, addresses and agreements only to callers with Bank Accounts (13), Contacts (12), Addresses (11) or Suppliers (3) read, and an empty list otherwise; administrators get all four. The detail keeps its lookup gate, which the product, pricing and sales filter chips use. On create and update, a link list for a panel the caller cannot read is ignored.
+- **Concurrent confirmations get consecutive folios** (mictlanix/mbe-roadmap#153, spec 035). Sales orders, quotes, delivery orders (and an itinerary's split children) and refunds lock their document, then the facility row, before any other read, so `MAX(serial)` sees every earlier confirmation. A simultaneous second confirmation no longer fails with the generic 409 "The request conflicts with existing data".
+- **A sales order confirmation no longer oversells** (mictlanix/mbe-roadmap#153, spec 035). It locks its lines' warehouses, ascending and after the facility, before reading availability, so it queues behind another confirmation or an inventory issue on the same warehouse; the later one gets "Insufficient stock". A second confirm of one order is refused as already completed, and so is a header or line edit that waited behind the confirmation. A deadlock or lock timeout answers 409 "The warehouse is busy, retry".
+
+### Changed
+- **Customer payments carry a folio** (mictlanix/mbe-roadmap#153, spec 035). Every payment the API writes, refund payouts included, takes its facility's next payment serial, continuing the current system's per-store sequence; `CustomerPaymentResponse` gains `serial`. A numeric `search` on `GET /customer-payments` matches the payment's id or its serial within the list's facility scope. A payment or refund whose cash session was closed in between answers 409 "The cash session is closed" instead of landing in the counted drawer.
+- **Migration 030** gives the 20 payments the API wrote with serial 0 their facility's next serials in id order, and adds indexes on `customer_payment (facility, serial)`, `lot_serial_tracking (source, reference)` and `lot_serial_rqmt (source, reference)`.
+
 ### Changed
 - **The facility rule on payment writes, sales orders and credit notes** (mictlanix/mbe-roadmap#156, spec 034). It was left over from #271. Without the cross-facility privilege, a clerk's records stay in their own facility:
   - **Payments:** applying a payment and reversing an application answer 404 for another facility's payment without PaymentsEditor (100) read. The order may be of any facility. In mbe_dev, about 2% of 2026's applications (613 of 28,270) were made by someone working at another facility that day.

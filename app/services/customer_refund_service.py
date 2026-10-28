@@ -39,6 +39,7 @@ from app.services import (
     cash_session_service,
     customer_payment_service,
     documents,
+    inventory_documents,
     sales_order_service,
     stock_ledger,
     totals,
@@ -478,7 +479,13 @@ async def confirm_refund(
     payout: RefundPayout,
     current: CurrentUser,
 ) -> CustomerRefund:
-    """Restock the goods, number the document, and pay the customer back (FR-063, FR-065)."""
+    """Restock the goods, number the document, and pay the customer back (FR-063, FR-065).
+
+    Spec 035's numbering rule (research R2, R3): pre-read the cashier's open session, commit away
+    the request's snapshot, then lock the session, the refund, the source order, its lines, the
+    facility and the lines' warehouses, and only then read. The session goes first because the
+    payout's foreign key takes a share lock on it, as cash supplier payments already order it.
+    """
     documents.assert_editable(refund)
     employee = current.employee_id
 
@@ -488,6 +495,29 @@ async def confirm_refund(
             status_code=status.HTTP_409_CONFLICT,
             detail='An open cash session is required to confirm a refund',
         )
+    session_id = session.cash_session_id
+
+    await db.commit()
+    async with inventory_documents.busy_as_conflict(db):
+        return await _confirm_locked(
+            db, refund.customer_refund_id, payout=payout, session_id=session_id, employee=employee
+        )
+
+
+async def _confirm_locked(
+    db: AsyncSession, refund_id: int, *, payout: RefundPayout, session_id: int, employee: int
+) -> CustomerRefund:
+    # A close that got the session first has set `end`: 409 "The cash session is closed".
+    await cash_session_service.lock_open_session(db, session_id)
+    refund = (
+        await db.execute(
+            select(CustomerRefund)
+            .where(CustomerRefund.customer_refund_id == refund_id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+    ).scalar_one()
+    documents.assert_editable(refund)
 
     # Lock the source order so two clerks cannot together refund more than was sold (R2)
     order = (
@@ -495,6 +525,7 @@ async def confirm_refund(
             select(SalesOrder)
             .where(SalesOrder.sales_order_id == refund.sales_order)
             .with_for_update()
+            .execution_options(populate_existing=True)
         )
     ).scalar_one_or_none()
     if order is None:
@@ -503,14 +534,19 @@ async def confirm_refund(
     lines = list(
         (
             await db.execute(
-                select(CustomerRefundDetail).where(
-                    CustomerRefundDetail.customer_refund == refund.customer_refund_id
-                )
+                select(CustomerRefundDetail)
+                .where(CustomerRefundDetail.customer_refund == refund.customer_refund_id)
+                .with_for_update(read=True)
+                .execution_options(populate_existing=True)
             )
         )
         .scalars()
         .all()
     )
+    await documents.lock_facility(db, refund.facility)
+    warehouses = {line.warehouse for line in lines if line.warehouse is not None}
+    if warehouses:
+        await inventory_documents.lock_warehouses(db, warehouses)
 
     # A line short only because another refund got there first is trimmed (FR-063); one short
     # because its units went onto a live invoice is refused (FR-011).
@@ -577,7 +613,7 @@ async def confirm_refund(
         order=order,
         amount=refund_total,
         payout=payout,
-        session_id=session.cash_session_id,
+        session_id=session_id,
         employee=employee,
     )
 
@@ -602,8 +638,13 @@ async def _pay_customer_back(
     session_id: int,
     employee: int,
 ) -> None:
-    """Return the full refund total as cash or store credit (FR-065)."""
+    """Return the full refund total as cash or store credit (FR-065).
+
+    The payment is numbered in the refund facility's payment sequence (spec 035, FR-012), under
+    the facility lock `confirm_refund` already holds.
+    """
     now = local_now()
+    serial = await documents.assign_folio(db, CustomerPayment, facility=refund.facility)
 
     payment = CustomerPayment(
         customer=refund.customer,
@@ -616,7 +657,7 @@ async def _pay_customer_back(
         cash_session=session_id,
         reference=f'Refund {refund.customer_refund_id}',
         facility=refund.facility,
-        serial=0,
+        serial=serial,
         creator=employee,
         updater=employee,
         verifier=None,

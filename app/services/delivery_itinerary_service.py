@@ -20,6 +20,7 @@ from decimal import Decimal
 from fastapi import HTTPException, status
 from sqlalchemy import Select, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import InstrumentedAttribute
 
 from app.core.clock import local_now
 from app.core.deps import CurrentUser
@@ -690,7 +691,102 @@ async def close_stop(
     Seven things in one transaction: validate, store the proof, settle each order, split any
     remainder into a child order, post the inventory, update sales-order coverage, and close the
     itinerary if this was its last unresolved stop.
+
+    Spec 035's numbering rule (research R5): the facilities and warehouses the step writes to are
+    pre-read as plain columns, fixed once the itinerary has departed. Then the step commits away
+    its snapshot and locks the itinerary, the stop, those facilities ascending and those warehouses
+    ascending, before any other read. A split child's folio is then current, a second close of
+    this stop finds it resolved, and two stops of one itinerary agree on which one is last.
     """
+    # Here, not at the top: inventory_documents imports this module.
+    from app.services import documents, inventory_documents
+
+    facilities, warehouses = await _stop_lock_sets(db, stop.deliveries_itinerary_stop_id)
+    await db.commit()
+    async with inventory_documents.busy_as_conflict(db):
+        itinerary = await _lock_row(
+            db, DeliveriesItinerary.deliveries_itinerary_id, itinerary.deliveries_itinerary_id
+        )
+        stop = await _lock_row(
+            db,
+            DeliveriesItineraryStop.deliveries_itinerary_stop_id,
+            stop.deliveries_itinerary_stop_id,
+        )
+        for facility in sorted(facilities):
+            await documents.lock_facility(db, facility)
+        if warehouses:
+            await inventory_documents.lock_warehouses(db, warehouses)
+        return await _close_locked(
+            db,
+            itinerary,
+            stop,
+            outcomes=outcomes,
+            receiver_name=receiver_name,
+            receiver_id_shown=receiver_id_shown,
+            image_file=image_file,
+            current=current,
+        )
+
+
+async def _stop_lock_sets(db: AsyncSession, stop_id: int) -> tuple[set[int], set[int]]:
+    """The delivery orders' facilities, and every warehouse closing the stop posts to (R5).
+
+    Dispatch warehouses, the in-transit warehouse of each one's facility (the mapping the body
+    posts through, which follows the dispatch warehouse rather than the delivery order), and the
+    sales lines' warehouses `_reclaim_reservation` re-reserves in. Scalars only: no entity read
+    here outlives the commit.
+    """
+    rows = (
+        await db.execute(
+            select(
+                DeliveryOrder.facility, DeliveryOrderDetail.warehouse, SalesOrderDetail.warehouse
+            )
+            .select_from(DeliveriesItineraryDetail)
+            .join(
+                DeliveryOrderDetail,
+                DeliveryOrderDetail.delivery_order_detail_id
+                == DeliveriesItineraryDetail.delivery_order_detail,
+            )
+            .join(
+                DeliveryOrder, DeliveryOrder.delivery_order_id == DeliveryOrderDetail.delivery_order
+            )
+            .outerjoin(
+                SalesOrderDetail,
+                SalesOrderDetail.sales_order_detail_id == DeliveryOrderDetail.sales_order_detail,
+            )
+            .where(DeliveriesItineraryDetail.deliveries_itinerary_stop == stop_id)
+        )
+    ).all()
+    facilities = {facility for facility, _, _ in rows}
+    dispatch = {warehouse for _, warehouse, _ in rows if warehouse is not None}
+    sales = {warehouse for _, _, warehouse in rows if warehouse is not None}
+    transit = await warehouse_service.transit_warehouses_for(db, dispatch)
+    return facilities, dispatch | set(transit.values()) | sales
+
+
+async def _lock_row(db: AsyncSession, key: InstrumentedAttribute, value: int):  # noqa: ANN202
+    """The row `FOR UPDATE`, re-read over the copy the route loaded before the commit."""
+    return (
+        await db.execute(
+            select(key.class_)
+            .where(key == value)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+    ).scalar_one()
+
+
+async def _close_locked(
+    db: AsyncSession,
+    itinerary: DeliveriesItinerary,
+    stop: DeliveriesItineraryStop,
+    *,
+    outcomes: list[dict[str, object]],
+    receiver_name: str,
+    receiver_id_shown: str,
+    image_file: str,
+    current: CurrentUser,
+) -> DeliveriesItineraryStop:
     employee = current.employee_id
 
     if ItineraryStatus(itinerary.status) is not ItineraryStatus.DEPARTED:
@@ -847,9 +943,20 @@ async def close_stop(
     stop.arrival_time = local_now()
     stop.proof_of_delivery = proof.proof_of_delivery_id
 
+    # Re-read over the copies the route loaded before the commit: a stop closed by the request
+    # this one waited on is resolved in the database but still pending in those copies.
+    siblings = (
+        await db.execute(
+            select(DeliveriesItineraryStop)
+            .where(
+                DeliveriesItineraryStop.deliveries_itinerary == itinerary.deliveries_itinerary_id
+            )
+            .execution_options(populate_existing=True)
+        )
+    ).scalars()
     remaining = [
         s
-        for s in await stops_of(db, itinerary.deliveries_itinerary_id)
+        for s in siblings
         if s.deliveries_itinerary_stop_id != stop.deliveries_itinerary_stop_id
         and StopOutcome(s.outcome) is StopOutcome.PENDING
     ]

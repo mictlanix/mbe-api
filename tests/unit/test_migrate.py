@@ -148,3 +148,13 @@ class TestRealCorpus:
         versions = [m.version for m in discover(Path('migrations'))]
         assert '015_access_privilege_unique_rollback' not in versions
         assert '016_user_password_width_rollback' not in versions
+
+    def test_030_is_discovered_and_ordered_after_029(self):
+        """Spec 035. Its SQL (an `UPDATE … JOIN` with a window function, `CREATE INDEX IF NOT
+        EXISTS`) is MariaDB's and cannot run on SQLite; it is verified on mbe_dev instead."""
+        versions = [m.version for m in discover(Path('migrations'))]
+        assert versions.index('030_serials_ledger_index') > versions.index('029_supplier_payments')
+
+    def test_030_rollback_is_not_applied_automatically(self):
+        versions = [m.version for m in discover(Path('migrations'))]
+        assert '030_serials_ledger_index_rollback' not in versions

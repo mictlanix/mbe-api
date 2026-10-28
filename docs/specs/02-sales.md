@@ -228,6 +228,8 @@ Full sales order management for credit customers and pre-invoiced sales. Support
 6. Posts `InventoryHelpers.ChangeNotification` (negative quantity) for each stockable line with a warehouse
 7. Sets `IsCompleted = true`
 
+**API (spec 035):** confirming commits the request's snapshot, then locks the order, its lines (`FOR SHARE`), the facility row and the lines' warehouses in ascending id order, and only then runs the checks, reads availability and assigns the serial. Two confirmations therefore never share a folio or sell the same units: the later one sees the earlier one's reservation and gets "Insufficient stock". A second confirm of the same order, and a header or line edit that waited behind the confirmation, get 409 "Document is completed and can no longer be edited". A deadlock or lock timeout answers 409 "The warehouse is busy, retry".
+
 **API additions (spec 023):**
 - **Back-office orders** (`origin = 1`) are refused with 409, naming each missing item, unless they have:
   - a `fulfillment_intent`;
@@ -294,6 +296,7 @@ Record and manage payments received from customers. The payments list is scoped 
 - **Apply to Order**: creates `sales_order_payment` record; marks order `IsPaid = true` when fully covered
 - **Verify**: supervisor confirms receipt (`verifier` field set to employee)
 - **Unapply**: cancels `sales_order_payment` application (`cancelled = 1`)
+- **API (spec 035):** every payment the API writes, refund payouts included, takes `MAX(serial) + 1` of its facility's payments under the cash session and facility locks, continuing the current system's per-store sequence; the response carries `serial` and the ticket prints it. A numeric `search` on `GET /customer-payments` matches the id or the serial within the list's facility scope. A payment whose cash session was closed in between answers 409 "The cash session is closed".
 - **API (spec 034):** applying a payment and reversing an application answer 404 for another facility's payment unless the caller is an administrator or holds PaymentsEditor (100) read, as reading it does since #271. The order may be of any facility.
 - **API (spec 033):** a payment's `unapplied` is its amount less its live applications and the change they handed back, as the payment ticket shows. An application locks the payment and the order, and is refused above the order's balance (422) or on an order already settled (409); `amount + amount_change` must fit what the payment has left. `paid` follows the one order balance (07-administration §1): set at 0.01 or less, cleared only when a reversal takes it back above.
 
@@ -354,6 +357,8 @@ Process product returns from customers. Generates credit note or cash refund.
 5. If `refund.Total ≥ order.Balance`: marks `sales_order.IsPaid = true`, sets `BalanceZeroedTime`
 6. If cashback (`refund.Total > order.Balance`): creates a `CreditNote` + associated `CustomerPayment` with `PaymentType.CreditNote`
 7. Sets `IsCompleted = true`, assigns `Serial = MAX(serial FOR facility) + 1`
+
+**API (spec 035):** confirming locks the cashier's cash session first, then the refund, the source order, the refund lines, the facility row and the lines' warehouses, before any other read. A session closed in between answers 409 "The cash session is closed". The payout payment (cash or credit note) is numbered in the facility's payment sequence.
 
 ### Cancel Action
 - Blocked if `IsCompleted = true`

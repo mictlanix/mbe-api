@@ -3,6 +3,8 @@ from collections.abc import Sequence
 from sqlalchemy import delete, func, insert, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.deps import CurrentUser
+from app.enums import AccessRight, SystemObject
 from app.models.core import Address, BankAccount, Contact
 from app.models.supplier import (
     Supplier,
@@ -11,12 +13,37 @@ from app.models.supplier import (
     supplier_bank_account,
     supplier_contact,
 )
+from app.models.user import AccessPrivilege
 from app.schemas.supplier import SupplierCreate, SupplierUpdate
 from app.services.references import assert_not_referenced, assert_unique
 
+# Each sub-panel answers to its own read privilege (spec 035 FR-001): the object that owns the
+# rows, and for the agreements, Suppliers itself.
+_PANELS = frozenset(
+    {
+        SystemObject.BANK_ACCOUNTS,
+        SystemObject.CONTACTS,
+        SystemObject.ADDRESSES,
+        SystemObject.SUPPLIERS,
+    }
+)
+
+
+async def readable_panels(db: AsyncSession, user: CurrentUser) -> frozenset[SystemObject]:
+    """The sub-panels `user` may read, from one query. Administrators read all four, no query."""
+    if user.administrator:
+        return _PANELS
+    rows = await db.execute(
+        select(AccessPrivilege.system_object, AccessPrivilege.privileges).where(
+            AccessPrivilege.user_id == user.user_id,
+            AccessPrivilege.system_object.in_([int(p) for p in _PANELS]),
+        )
+    )
+    return frozenset(SystemObject(obj) for obj, mask in rows.all() if mask & AccessRight.READ)
+
 
 async def _get_links(
-    db: AsyncSession, supplier_id: int
+    db: AsyncSession, supplier_id: int, panels: frozenset[SystemObject] = _PANELS
 ) -> tuple[list[Address], list[Contact], list[BankAccount], list[SupplierAgreement]]:
     """A supplier's linked addresses, contacts and bank accounts, and its agreements (#13).
 
@@ -25,63 +52,75 @@ async def _get_links(
     agreements are read only here; they are written through their own routes.
 
     Attached to the detail response only, never to the list — a page of suppliers must not cost
-    four queries per row.
+    four queries per row. Only the panels in `panels` are queried; the rest come back empty.
     """
-    addresses = (
-        (
-            await db.execute(
-                select(Address)
-                .join(supplier_address, supplier_address.c['address'] == Address.address_id)
-                .where(supplier_address.c['supplier'] == supplier_id)
-                .order_by(Address.address_id)
-            )
-        )
-        .scalars()
-        .all()
-    )
-    contacts = (
-        (
-            await db.execute(
-                select(Contact)
-                .join(supplier_contact, supplier_contact.c['contact'] == Contact.contact_id)
-                .where(supplier_contact.c['supplier'] == supplier_id)
-                .order_by(Contact.contact_id)
-            )
-        )
-        .scalars()
-        .all()
-    )
-    bank_accounts = (
-        (
-            await db.execute(
-                select(BankAccount)
-                .join(
-                    supplier_bank_account,
-                    supplier_bank_account.c['bank_account'] == BankAccount.bank_account_id,
+    addresses: Sequence[Address] = []
+    contacts: Sequence[Contact] = []
+    bank_accounts: Sequence[BankAccount] = []
+    agreements: Sequence[SupplierAgreement] = []
+    if SystemObject.ADDRESSES in panels:
+        addresses = (
+            (
+                await db.execute(
+                    select(Address)
+                    .join(supplier_address, supplier_address.c['address'] == Address.address_id)
+                    .where(supplier_address.c['supplier'] == supplier_id)
+                    .order_by(Address.address_id)
                 )
-                .where(supplier_bank_account.c['supplier'] == supplier_id)
-                .order_by(BankAccount.bank_account_id)
             )
+            .scalars()
+            .all()
         )
-        .scalars()
-        .all()
-    )
-    agreements = (
-        (
-            await db.execute(
-                select(SupplierAgreement)
-                .where(SupplierAgreement.supplier == supplier_id)
-                .order_by(SupplierAgreement.start, SupplierAgreement.supplier_agreement_id)
+    if SystemObject.CONTACTS in panels:
+        contacts = (
+            (
+                await db.execute(
+                    select(Contact)
+                    .join(supplier_contact, supplier_contact.c['contact'] == Contact.contact_id)
+                    .where(supplier_contact.c['supplier'] == supplier_id)
+                    .order_by(Contact.contact_id)
+                )
             )
+            .scalars()
+            .all()
         )
-        .scalars()
-        .all()
-    )
+    if SystemObject.BANK_ACCOUNTS in panels:
+        bank_accounts = (
+            (
+                await db.execute(
+                    select(BankAccount)
+                    .join(
+                        supplier_bank_account,
+                        supplier_bank_account.c['bank_account'] == BankAccount.bank_account_id,
+                    )
+                    .where(supplier_bank_account.c['supplier'] == supplier_id)
+                    .order_by(BankAccount.bank_account_id)
+                )
+            )
+            .scalars()
+            .all()
+        )
+    if SystemObject.SUPPLIERS in panels:
+        agreements = (
+            (
+                await db.execute(
+                    select(SupplierAgreement)
+                    .where(SupplierAgreement.supplier == supplier_id)
+                    .order_by(SupplierAgreement.start, SupplierAgreement.supplier_agreement_id)
+                )
+            )
+            .scalars()
+            .all()
+        )
     return list(addresses), list(contacts), list(bank_accounts), list(agreements)
 
 
-async def _attach_links(db: AsyncSession, supplier: Supplier) -> None:
-    addresses, contacts, bank_accounts, agreements = await _get_links(db, supplier.supplier_id)
+async def _attach_links(
+    db: AsyncSession, supplier: Supplier, panels: frozenset[SystemObject]
+) -> None:
+    addresses, contacts, bank_accounts, agreements = await _get_links(
+        db, supplier.supplier_id, panels
+    )
     # Written under separate keys for consistency with the customer detail, though these four
     # shadow no mapped column.
     supplier.__dict__['addresses'] = addresses
@@ -132,6 +171,20 @@ async def _set_links(
             )
 
 
+def _sent_links(
+    data: SupplierCreate | SupplierUpdate, panels: frozenset[SystemObject]
+) -> dict[str, list[int] | None]:
+    """The link lists the caller sent, with one for a panel they cannot read treated as not sent.
+
+    Otherwise a caller could change links they are not allowed to see (spec 035 FR-003).
+    """
+    return {
+        'addresses': data.addresses if SystemObject.ADDRESSES in panels else None,
+        'contacts': data.contacts if SystemObject.CONTACTS in panels else None,
+        'bank_accounts': data.bank_accounts if SystemObject.BANK_ACCOUNTS in panels else None,
+    }
+
+
 async def list_suppliers(
     db: AsyncSession,
     *,
@@ -161,14 +214,16 @@ async def get_supplier(db: AsyncSession, supplier_id: int) -> Supplier | None:
     return await db.get(Supplier, supplier_id)
 
 
-async def get_supplier_detail(db: AsyncSession, supplier_id: int) -> Supplier | None:
+async def get_supplier_detail(
+    db: AsyncSession, supplier_id: int, user: CurrentUser
+) -> Supplier | None:
     supplier = await db.get(Supplier, supplier_id)
     if supplier is not None:
-        await _attach_links(db, supplier)
+        await _attach_links(db, supplier, await readable_panels(db, user))
     return supplier
 
 
-async def create_supplier(db: AsyncSession, data: SupplierCreate) -> Supplier:
+async def create_supplier(db: AsyncSession, data: SupplierCreate, user: CurrentUser) -> Supplier:
     await assert_unique(db, Supplier, Supplier.code, data.code, label='Supplier code')
     supplier = Supplier(
         code=data.code,
@@ -180,20 +235,17 @@ async def create_supplier(db: AsyncSession, data: SupplierCreate) -> Supplier:
     )
     db.add(supplier)
     await db.flush()  # get supplier_id before writing the junction rows
-    await _set_links(
-        db,
-        supplier.supplier_id,
-        addresses=data.addresses,
-        contacts=data.contacts,
-        bank_accounts=data.bank_accounts,
-    )
+    panels = await readable_panels(db, user)
+    await _set_links(db, supplier.supplier_id, **_sent_links(data, panels))
     await db.commit()
     await db.refresh(supplier)
-    await _attach_links(db, supplier)
+    await _attach_links(db, supplier, panels)
     return supplier
 
 
-async def update_supplier(db: AsyncSession, supplier: Supplier, data: SupplierUpdate) -> Supplier:
+async def update_supplier(
+    db: AsyncSession, supplier: Supplier, data: SupplierUpdate, user: CurrentUser
+) -> Supplier:
     if data.code is not None:
         await assert_unique(
             db,
@@ -214,16 +266,11 @@ async def update_supplier(db: AsyncSession, supplier: Supplier, data: SupplierUp
         supplier.credit_days = data.credit_days
     if data.comment is not None:
         supplier.comment = data.comment
-    await _set_links(
-        db,
-        supplier.supplier_id,
-        addresses=data.addresses,
-        contacts=data.contacts,
-        bank_accounts=data.bank_accounts,
-    )
+    panels = await readable_panels(db, user)
+    await _set_links(db, supplier.supplier_id, **_sent_links(data, panels))
     await db.commit()
     await db.refresh(supplier)
-    await _attach_links(db, supplier)
+    await _attach_links(db, supplier, panels)
     return supplier
 
 

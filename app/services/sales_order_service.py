@@ -56,6 +56,7 @@ from app.services import (
     documents,
     fiscal_document_service,
     image_service,
+    inventory_documents,
     stock_ledger,
     totals,
     warehouse_service,
@@ -1098,6 +1099,7 @@ async def list_orders(
 async def update_order(
     db: AsyncSession, order: SalesOrder, data: SalesOrderUpdate, *, current: CurrentUser
 ) -> SalesOrder:
+    order = await _lock_for_edit(db, order.sales_order_id)
     employee = current.employee_id
     changes = data.model_dump(exclude_unset=True)
 
@@ -1256,6 +1258,7 @@ async def _change_currency(db: AsyncSession, order: SalesOrder, currency: Curren
 async def add_line(
     db: AsyncSession, order: SalesOrder, data: SalesOrderLineCreate, *, current: CurrentUser
 ) -> SalesOrder:
+    order = await _lock_for_edit(db, order.sales_order_id)
     documents.assert_editable(order)
     employee = current.employee_id
 
@@ -1314,7 +1317,9 @@ async def update_line(
     *,
     current: CurrentUser,
 ) -> SalesOrder:
+    order = await _lock_for_edit(db, order.sales_order_id)
     documents.assert_editable(order)
+    line = await _reread_line(db, line.sales_order_detail_id)
     employee = current.employee_id
     changes = data.model_dump(exclude_unset=True)
 
@@ -1342,13 +1347,39 @@ async def update_line(
 async def remove_line(
     db: AsyncSession, order: SalesOrder, line: SalesOrderDetail, *, current: CurrentUser
 ) -> SalesOrder:
+    order = await _lock_for_edit(db, order.sales_order_id)
     documents.assert_editable(order)
+    line = await _reread_line(db, line.sales_order_detail_id)
     order.updater = current.employee_id
     order.modification_time = local_now()
     await db.delete(line)
     await db.commit()
     await db.refresh(order)
     return await attach_derived(db, order)
+
+
+async def _lock_for_edit(db: AsyncSession, sales_order_id: int) -> SalesOrder:
+    """Commit, then hold the order row for the rest of the edit (spec 035, research R3, FR-019).
+
+    The route's copy was read before a confirmation it then waited on may have committed; the
+    locked re-read sees the order completed, so the edit is refused instead of landing on it.
+    """
+    await db.commit()
+    return await _lock_order(db, sales_order_id)
+
+
+async def _reread_line(db: AsyncSession, line_id: int) -> SalesOrderDetail:
+    """The line as it is now, under the order's lock: the route's copy predates the commit."""
+    line = (
+        await db.execute(
+            select(SalesOrderDetail)
+            .where(SalesOrderDetail.sales_order_detail_id == line_id)
+            .execution_options(populate_existing=True)
+        )
+    ).scalar_one_or_none()
+    if line is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Line not found')
+    return line
 
 
 async def get_line(db: AsyncSession, order: SalesOrder, line_id: int) -> SalesOrderDetail | None:
@@ -1362,8 +1393,58 @@ async def get_line(db: AsyncSession, order: SalesOrder, line_id: int) -> SalesOr
 
 
 async def confirm_order(db: AsyncSession, order: SalesOrder, *, current: CurrentUser) -> SalesOrder:
-    """Assign the folio, commit the stock, freeze the document — one transaction (FR-017)."""
+    """Assign the folio, commit the stock, freeze the document — one transaction (FR-017).
+
+    Spec 035's numbering rule (research R2, R4): commit away the request's snapshot, then lock the
+    order, its lines, the facility and the stocked lines' warehouses, and only then read. The
+    `MAX(serial)` and the availability read after the locks see every earlier holder's commit, so
+    two confirmations neither share a folio nor sell the same units, and a second confirm of this
+    order waits on its row and finds it completed.
+    """
+    await db.commit()
+    async with inventory_documents.busy_as_conflict(db):
+        return await _confirm_locked(db, order.sales_order_id, current=current)
+
+
+async def _lock_order(db: AsyncSession, sales_order_id: int) -> SalesOrder:
+    """The order row `FOR UPDATE`, re-read over whatever copy the session holds (spec 035, R3)."""
+    order = (
+        await db.execute(
+            select(SalesOrder)
+            .where(SalesOrder.sales_order_id == sales_order_id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+    ).scalar_one_or_none()
+    if order is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Sales order not found')
+    return order
+
+
+async def _confirm_locked(
+    db: AsyncSession, sales_order_id: int, *, current: CurrentUser
+) -> SalesOrder:
+    order = await _lock_order(db, sales_order_id)
     documents.assert_editable(order)
+    # A locking read returns current rows and opens no snapshot. Every line with a warehouse is
+    # locked, stocked or not: a superset is harmless, and stocked-ness is a plain read (R4).
+    lines = list(
+        (
+            await db.execute(
+                select(SalesOrderDetail)
+                .where(SalesOrderDetail.sales_order == order.sales_order_id)
+                .with_for_update(read=True)
+                .execution_options(populate_existing=True)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    await documents.lock_facility(db, order.facility)
+    warehouses = {line.warehouse for line in lines if line.warehouse is not None}
+    if warehouses:
+        await inventory_documents.lock_warehouses(db, warehouses)
+
     # Before the folio and before the reservation: this is the act that extends credit, and until
     # #219 nothing checked it here. Creation and an explicit terms change were both guarded, but a
     # customer who fell behind after capture, an order moved onto a customer in arrears, and a
@@ -1378,15 +1459,6 @@ async def confirm_order(db: AsyncSession, order: SalesOrder, *, current: Current
             )
     employee = current.employee_id
 
-    lines = list(
-        (
-            await db.execute(
-                select(SalesOrderDetail).where(SalesOrderDetail.sales_order == order.sales_order_id)
-            )
-        )
-        .scalars()
-        .all()
-    )
     if not lines:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT, detail='Cannot confirm an order with no lines'

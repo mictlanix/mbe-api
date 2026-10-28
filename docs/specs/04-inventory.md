@@ -26,6 +26,8 @@ Issues, transfers and cancels check **available stock**: on-hand stock minus res
 ### Serial Safety
 A step that moves stock locks the document's header row, then the warehouses involved in ascending id order, including the document's facility's in-transit warehouse. Only after those locks does it read stock and, for confirm and dispatch, `MAX(serial)` for the facility. The transit warehouse row is the facility's numbering lock, so concurrent confirms in one facility get consecutive serials, and a refused confirm consumes none. If another request holds the locks too long, or the database picks the step as a deadlock victim, the answer is 409 "The warehouse is busy, retry".
 
+Sales order and refund confirmations, and closing an itinerary stop, take the same warehouse locks (spec 035), after their own document and their facility row, so they queue with these steps on a shared warehouse.
+
 ### Ledger Posting
 Entries are posted append-only through `stock_ledger.post_movement` with `TransactionType` InventoryIssue (3), InventoryReceipt (4) or InventoryTransfer (5), and the document id as `reference`. Lot, serial and expiry are null.
 

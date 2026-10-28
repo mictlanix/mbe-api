@@ -45,20 +45,20 @@ async def list_suppliers(
 @router.post('', response_model=SupplierDetailResponse, status_code=status.HTTP_201_CREATED)
 async def create_supplier(
     data: SupplierCreate,
-    _: CurrentUser = Depends(_CREATE),
+    current: CurrentUser = Depends(_CREATE),
     db: AsyncSession = Depends(get_db),
 ) -> SupplierDetailResponse:
-    supplier = await supplier_service.create_supplier(db, data)
+    supplier = await supplier_service.create_supplier(db, data, current)
     return SupplierDetailResponse.model_validate(supplier)
 
 
 @router.get('/{supplier_id}', response_model=SupplierDetailResponse)
 async def get_supplier(
     supplier_id: int,
-    _: CurrentUser = Depends(_LOOKUP),
+    current: CurrentUser = Depends(_LOOKUP),
     db: AsyncSession = Depends(get_db),
 ) -> SupplierDetailResponse:
-    supplier = await supplier_service.get_supplier_detail(db, supplier_id)
+    supplier = await supplier_service.get_supplier_detail(db, supplier_id, current)
     if supplier is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Supplier not found')
     return SupplierDetailResponse.model_validate(supplier)
@@ -68,13 +68,13 @@ async def get_supplier(
 async def update_supplier(
     supplier_id: int,
     data: SupplierUpdate,
-    _: CurrentUser = Depends(_UPDATE),
+    current: CurrentUser = Depends(_UPDATE),
     db: AsyncSession = Depends(get_db),
 ) -> SupplierDetailResponse:
     supplier = await supplier_service.get_supplier(db, supplier_id)
     if supplier is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Supplier not found')
-    supplier = await supplier_service.update_supplier(db, supplier, data)
+    supplier = await supplier_service.update_supplier(db, supplier, data, current)
     return SupplierDetailResponse.model_validate(supplier)
 
 

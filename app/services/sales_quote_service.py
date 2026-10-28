@@ -34,6 +34,7 @@ from app.services import (
     customer_discount_service,
     documents,
     incidences,
+    inventory_documents,
     mail,
     print_contexts,
     sales_order_service,
@@ -451,13 +452,27 @@ async def remove_line(
 
 
 async def confirm_quote(db: AsyncSession, quote: SalesQuote, *, current: CurrentUser) -> SalesQuote:
-    """Assign the folio and freeze the offer (FR-032)."""
-    documents.assert_editable(quote)
-    quote.serial = await documents.assign_folio(db, SalesQuote, facility=quote.facility)
-    quote.completed = True
-    quote.updater = current.employee_id
-    quote.modification_time = local_now()
+    """Assign the folio and freeze the offer (FR-032).
+
+    Spec 035's numbering rule (research R2): commit away the request's snapshot, lock the quote,
+    then the facility, so the `MAX(serial)` read after them is current.
+    """
     await db.commit()
+    async with inventory_documents.busy_as_conflict(db, detail='The facility is busy, retry'):
+        quote = (
+            await db.execute(
+                select(SalesQuote)
+                .where(SalesQuote.sales_quote_id == quote.sales_quote_id)
+                .with_for_update()
+                .execution_options(populate_existing=True)
+            )
+        ).scalar_one()
+        documents.assert_editable(quote)
+        quote.serial = await documents.assign_folio(db, SalesQuote, facility=quote.facility)
+        quote.completed = True
+        quote.updater = current.employee_id
+        quote.modification_time = local_now()
+        await db.commit()
     await db.refresh(quote)
     return await attach_derived(db, quote)
 

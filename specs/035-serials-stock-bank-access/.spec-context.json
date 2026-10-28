@@ -1,0 +1,478 @@
+{
+  "workflow": "speckit",
+  "specName": "Supplier Sub-Panels by Privilege, Race-Safe Serials and Stock",
+  "branch": "035-serials-stock-bank-access",
+  "currentStep": "implement",
+  "status": "implementing",
+  "history": [
+    {
+      "step": "specify",
+      "substep": null,
+      "kind": "start",
+      "by": "extension",
+      "at": "2026-10-28T01:40:30.000Z"
+    },
+    {
+      "step": "specify",
+      "substep": null,
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-10-28T01:49:36.951Z"
+    },
+    {
+      "step": "plan",
+      "substep": null,
+      "kind": "start",
+      "by": "extension",
+      "at": "2026-10-28T06:41:31.380Z"
+    },
+    {
+      "step": "plan",
+      "substep": null,
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-10-28T08:26:57.569Z"
+    },
+    {
+      "step": "tasks",
+      "substep": null,
+      "kind": "start",
+      "by": "extension",
+      "at": "2026-10-28T09:22:34.411Z"
+    },
+    {
+      "step": "tasks",
+      "substep": null,
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-10-28T09:25:09.405Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "kind": "start",
+      "by": "extension",
+      "at": "2026-10-28T09:40:55.244Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T001",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-10-28T14:15:58.308Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T002",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-10-28T14:15:58.308Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T003",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-10-28T14:15:58.308Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T004",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-10-28T14:15:58.308Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T005",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-10-28T14:15:58.308Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T006",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-10-28T14:15:58.308Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T007",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-10-28T14:15:58.308Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T008",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-10-28T14:15:58.308Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T009",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-10-28T14:15:58.308Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T010",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-10-28T14:15:58.308Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T011",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-10-28T14:15:58.308Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T012",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-10-28T14:15:58.308Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T013",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-10-28T14:15:58.308Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T014",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-10-28T14:15:58.308Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T015",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-10-28T14:15:58.308Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T016",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-10-28T14:15:58.308Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T017",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-10-28T14:15:58.308Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T018",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-10-28T14:15:58.308Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T019",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-10-28T14:15:58.308Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T020",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-10-28T14:15:58.308Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T021",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-10-28T14:15:58.308Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T022",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-10-28T14:15:58.308Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T023",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-10-28T14:15:58.308Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T024",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-10-28T14:15:58.308Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T025",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-10-28T14:15:58.309Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T026",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-10-28T14:15:58.309Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T027",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-10-28T14:15:58.309Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T028",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-10-28T14:15:58.309Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T029",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-10-28T14:15:58.309Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T030",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-10-28T14:15:58.309Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T031",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-10-28T14:15:58.309Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T032",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-10-28T14:15:58.309Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T033",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-10-28T14:15:58.309Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T034",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-10-28T14:15:58.309Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T035",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-10-28T14:15:58.309Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T036",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-10-28T14:15:58.309Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T037",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-10-28T14:15:58.309Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T038",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-10-28T14:15:58.309Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T039",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-10-28T14:15:58.309Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T040",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-10-28T14:15:58.309Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T041",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-10-28T14:15:58.309Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T042",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-10-28T14:15:58.309Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T043",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-10-28T14:15:58.309Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T044",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-10-28T14:15:58.309Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T045",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-10-28T14:15:58.309Z"
+    }
+  ],
+  "verified": [
+    {
+      "what": "ruff check",
+      "command": "uv run ruff check app tests migrations",
+      "source": "derived",
+      "exitCode": 0,
+      "durationSeconds": 0.4,
+      "result": "All checks passed!"
+    },
+    {
+      "what": "full test suite",
+      "command": "uv run pytest -q -p no:cacheprovider",
+      "source": "derived",
+      "exitCode": 0,
+      "durationSeconds": 165.0,
+      "result": "........................................................................ [ 99%] · .                                                                        [100%] · 5977 passed in 158.56s (0:02:38)"
+    },
+    {
+      "what": "deployed to dev (xolotl :8765)",
+      "result": "035-serials-stock-bank-access at dac7638, /docs 200, no 500s in uvicorn.log during the races"
+    },
+    {
+      "what": "migration 030 on mbe_dev (SC-006)",
+      "result": "applied in 1.7 s; serial-0 payments 20 -> 0; ids 300815-300834 now 18714-18733 in id order; checksum of the other 295,329 payment serials unchanged (634120868019170); 3 indexes present; second run changed 0 rows"
+    },
+    {
+      "what": "supplier panels on dev (SC-001)",
+      "result": "supplier 10, before: despinoza (Products read only) 1/1/1/1 bank/contacts/addresses/agreements; after: despinoza 0/0/0/0, hildamontes (Suppliers+Addresses+Contacts, no Bank Accounts) 0/1/1/1, admin 1/1/1/1"
+    },
+    {
+      "what": "20 concurrent order confirmations, plus 5 quotes and 2 refunds (SC-003, US2 sc. 2)",
+      "result": "before (034 code): orders 4x200 + 16x409 generic, quotes 1x200 + 4x409, refunds 1x200 + 1x409, payout serial 0; after: 20/5/2 all 200, each type consecutive from its facility-51 max, payouts 18734-18735"
+    },
+    {
+      "what": "20 concurrent customer payments (SC-004)",
+      "result": "after: 20x201, serials 18734-18753 distinct and consecutive (before: every API payment 0)"
+    },
+    {
+      "what": "last units and double confirm (SC-005, FR-019)",
+      "result": "double confirm: before 3/3 runs 2x200 with 2 reservation rows; after 3/3 runs 1x200 + 1x409 Document is completed, 1 serial, 1 reservation. Last 5 units: before and after, 2 orders and 8 orders gave 1x200 and the rest Insufficient stock, availability 0 (the old code did not oversell in these runs)"
+    },
+    {
+      "what": "order vs inventory issue for the last 5 units (US3 sc. 2)",
+      "result": "after: order 200, issue 409 Not enough stock (0 available, 5 required), availability 0"
+    },
+    {
+      "what": "ledger lookup plan (SC-007, FR-023)",
+      "result": "before: index scan, 670,388 rows read; after: ref on lot_serial_tracking_source_reference_idx, 2 rows. Payment MAX(serial): before ref on facility idx ~37k rows, after optimized away. lot_serial_rqmt by source/reference: ref, 1 row"
+    },
+    {
+      "what": "race cleanup",
+      "result": "every race script deleted its own rows; 0 left; no T035 test customers remain"
+    }
+  ],
+  "concerns": [
+    {
+      "note": "SC-005 before-state not reproduced: on the pre-035 code the last-units pair (and an 8-order burst) never oversold on dev; the later orders already saw the first reservation. The flaw it targets was reproduced through the double confirm (2x200, 2 reservations). The fix is argued from REPEATABLE READ (research R2, R4) and pinned by the lock-order tests."
+    }
+  ],
+  "currentTask": "T046"
+}

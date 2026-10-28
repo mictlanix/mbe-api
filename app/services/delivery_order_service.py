@@ -681,8 +681,32 @@ def _branch_target(order: DeliveryOrder) -> S:
 
 
 async def confirm(db: AsyncSession, order: DeliveryOrder, *, current: CurrentUser) -> DeliveryOrder:
-    """Number the document and put it into the flow (FR-017 – FR-020)."""
+    """Number the document and put it into the flow (FR-017 – FR-020).
+
+    Spec 035's numbering rule (research R2): commit away the request's snapshot, lock the delivery
+    order, then the facility, so the `MAX(serial)` read after them is current. No stock moves.
+    """
+    # Here, not at the top: inventory_documents imports this module through the itinerary service.
+    from app.services import inventory_documents
+
+    await db.commit()
+    async with inventory_documents.busy_as_conflict(db, detail='The facility is busy, retry'):
+        return await _confirm_locked(db, order.delivery_order_id, current=current)
+
+
+async def _confirm_locked(
+    db: AsyncSession, delivery_order_id: int, *, current: CurrentUser
+) -> DeliveryOrder:
+    order = (
+        await db.execute(
+            select(DeliveryOrder)
+            .where(DeliveryOrder.delivery_order_id == delivery_order_id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+    ).scalar_one()
     assert_editable(order)
+    await documents.lock_facility(db, order.facility)
     employee = current.employee_id
 
     lines = await lines_of(db, order.delivery_order_id)
