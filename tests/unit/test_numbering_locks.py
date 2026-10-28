@@ -17,8 +17,10 @@ from fastapi import HTTPException
 from sqlalchemy.exc import OperationalError
 
 from app.enums import ItineraryStatus, StopOutcome
+from app.schemas.customer_payment import CustomerPaymentCreate
 from app.schemas.sales_order import SalesOrderLineCreate, SalesOrderLineUpdate, SalesOrderUpdate
 from app.services import (
+    customer_payment_service,
     customer_refund_service,
     delivery_itinerary_service,
     delivery_order_service,
@@ -587,3 +589,99 @@ async def test_a_line_deleted_meanwhile_is_a_404(name):
     assert exc.value.status_code == 404
     assert exc.value.detail == 'Line not found'
     assert db.added == []
+
+
+# ── Customer payment create (T028; research R6) ───────────────────────────────
+
+
+def _payment_session(*, session_id: int | None = 77, end=None, busy_on: str | None = None):  # noqa: ANN202
+    """The pre-read returns the open session's id; its lock returns the session row."""
+    locked = SimpleNamespace(cash_session_id=session_id, cashier=8, end=end)
+
+    def respond(sql: str) -> list:
+        table = _table(sql)
+        if busy_on is not None and table == busy_on and is_lock(sql):
+            raise busy(1213)
+        if table == 'cash_session':
+            return [locked] if is_lock(sql) else ([session_id] if session_id else [])
+        if table == 'facility':
+            return [(51,)]
+        return []
+
+    customer = {('customer', 300): SimpleNamespace(customer_id=300)}
+    return StepSession(respond, customer)
+
+
+def _payment() -> CustomerPaymentCreate:
+    return CustomerPaymentCreate(customer=300, amount=Decimal(100), method=1, payment_type=1)
+
+
+async def test_create_payment_pre_reads_commits_locks_session_then_facility_then_numbers():
+    db = _payment_session()
+
+    with pytest.raises(StopAtFirstRead) as stop:
+        await customer_payment_service.create_payment(db, _payment(), current=CASHIER)
+
+    commit, _, _ = assert_order(
+        db.log,
+        f'^{COMMIT}$',
+        r'FROM cash_session WHERE cash_session\.cash_session_id = 77 FOR UPDATE$',
+        r'FROM facility WHERE facility\.facility_id = 51 FOR UPDATE$',
+    )
+    assert any('FROM cash_session' in sql and not is_lock(sql) for sql in db.log[:commit])
+    # The first ordinary read after the locks is the folio's MAX, scoped to the facility.
+    assert 'max(customer_payment.serial)' in str(stop.value)
+    assert 'customer_payment.facility = 51' in str(stop.value)
+
+
+async def test_create_payment_without_a_session_locks_only_the_facility():
+    db = _payment_session(session_id=None)
+
+    with pytest.raises(StopAtFirstRead):
+        await customer_payment_service.create_payment(db, _payment(), current=CASHIER)
+
+    assert not any('FROM cash_session' in sql and is_lock(sql) for sql in db.log)
+    assert_order(db.log, f'^{COMMIT}$', r'FROM facility WHERE .* FOR UPDATE$')
+
+
+async def test_create_payment_numbers_the_payment_from_the_facility_max(monkeypatch):
+    db = _payment_session()
+    db.stop = False
+    inner = db.respond
+    db.respond = lambda sql: [18713] if 'max(' in sql else inner(sql)
+    monkeypatch.setattr(
+        customer_payment_service, 'attach_unapplied', lambda _db, payment: _done(payment)
+    )
+
+    payment = await customer_payment_service.create_payment(db, _payment(), current=CASHIER)
+
+    assert payment.serial == 18714
+    assert payment.cash_session == 77
+    assert db.log[-1] == COMMIT
+
+
+async def _done(value):  # noqa: ANN001, ANN202
+    return value
+
+
+async def test_create_payment_into_a_session_closed_meanwhile_is_refused():
+    db = _payment_session(end='2026-10-28 12:00')
+
+    with pytest.raises(HTTPException) as exc:
+        await customer_payment_service.create_payment(db, _payment(), current=CASHIER)
+
+    assert exc.value.status_code == 409
+    assert exc.value.detail == 'The cash session is closed'
+    assert db.added == []
+    assert db.log[-1] == ROLLBACK
+
+
+async def test_create_payment_busy_facility_is_a_409():
+    db = _payment_session(busy_on='facility')
+
+    with pytest.raises(HTTPException) as exc:
+        await customer_payment_service.create_payment(db, _payment(), current=CASHIER)
+
+    assert exc.value.detail == 'The facility is busy, retry'
+    assert db.added == []
+    assert db.log[-1] == ROLLBACK

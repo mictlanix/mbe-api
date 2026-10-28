@@ -34,6 +34,9 @@ class CustomerPaymentResponse(BaseModel):
     reference: str | None
     date: LocalDateTime
     facility: int
+    #: The folio on the payment's ticket: its facility's payment sequence, shared with the current
+    #: system (spec 035). 0 only on payments written before this API numbered them.
+    serial: int
     cash_session: int | None
     payment_type: PaymentType
     verifier: int | None

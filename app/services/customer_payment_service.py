@@ -33,7 +33,14 @@ from app.models.sales import (
     SalesOrderPayment,
 )
 from app.schemas.customer_payment import ApplicationCreate, CustomerPaymentCreate
-from app.services import fiscal_document_service, incidences, sales_order_service, totals
+from app.services import (
+    cash_session_service,
+    documents,
+    fiscal_document_service,
+    incidences,
+    sales_order_service,
+    totals,
+)
 from app.services import inventory_documents as inv
 
 #: The first year whose orders the stale-flag correction gives a zero time (spec 033, FR-012).
@@ -223,6 +230,13 @@ async def attach_customer_names(db: AsyncSession, payments: Sequence[CustomerPay
 async def create_payment(
     db: AsyncSession, data: CustomerPaymentCreate, *, current: CurrentUser
 ) -> CustomerPayment:
+    """Record a payment numbered in its facility's payment sequence (spec 035, research R6).
+
+    The current system numbers every payment per store and prints and searches by that folio;
+    this continues its sequence. Spec 035's numbering rule: pre-read, commit away the snapshot,
+    lock the cashier's session (the insert's foreign key takes a share lock on it, so it goes
+    first, as cash supplier payments do) and the facility, and only then read `MAX(serial)`.
+    """
     employee = current.employee_id
 
     if await db.get(Customer, data.customer) is None:
@@ -231,27 +245,34 @@ async def create_payment(
     now = data.date or local_now()
     session_id = await _open_session_id(db, employee)
 
-    payment = CustomerPayment(
-        customer=data.customer,
-        amount=data.amount,
-        method=int(data.method),
-        commission=None,
-        payment_charge=data.payment_charge,
-        date=now,
-        cash_session=session_id,
-        reference=data.reference,
-        facility=current.facility_id,
-        serial=0,
-        creator=employee,
-        updater=employee,
-        verifier=None,
-        creation_time=now,
-        modification_time=now,
-        currency=data.currency if data.currency is not None else settings.default_currency,
-        payment_type=int(data.payment_type),
-    )
-    db.add(payment)
     await db.commit()
+    async with inv.busy_as_conflict(db, detail='The facility is busy, retry'):
+        if session_id is not None:
+            # A close that got the session first has set `end`: 409 "The cash session is
+            # closed", rather than a payment recorded into a drawer already counted.
+            await cash_session_service.lock_open_session(db, session_id)
+        serial = await documents.assign_folio(db, CustomerPayment, facility=current.facility_id)
+        payment = CustomerPayment(
+            customer=data.customer,
+            amount=data.amount,
+            method=int(data.method),
+            commission=None,
+            payment_charge=data.payment_charge,
+            date=now,
+            cash_session=session_id,
+            reference=data.reference,
+            facility=current.facility_id,
+            serial=serial,
+            creator=employee,
+            updater=employee,
+            verifier=None,
+            creation_time=now,
+            modification_time=now,
+            currency=data.currency if data.currency is not None else settings.default_currency,
+            payment_type=int(data.payment_type),
+        )
+        db.add(payment)
+        await db.commit()
     await db.refresh(payment)
     return await attach_unapplied(db, payment)
 
@@ -328,7 +349,12 @@ async def list_payments(
         both(CustomerPayment.amount <= amount_max)
     if reference:
         both(CustomerPayment.reference.ilike(f'%{reference}%'))
-    if search:
+    if search and is_barcode_or_id(search):
+        # A folio from a ticket, or the id: the current system's `Id == n || Serial == n`, within
+        # this list's facility scope (spec 035, FR-014).
+        number = int(search)
+        both(or_(CustomerPayment.customer_payment_id == number, CustomerPayment.serial == number))
+    elif search:
         named = select(Customer.customer_id).where(Customer.name.ilike(f'%{search}%'))
         both(CustomerPayment.customer.in_(named))
     if unverified_only or verified is False:

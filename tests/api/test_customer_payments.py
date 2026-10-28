@@ -56,6 +56,7 @@ def _payment(**overrides) -> SimpleNamespace:
         reference=None,
         date='2026-07-25T00:00:00',
         facility=1,
+        serial=18714,
         cash_session=None,
         payment_type=1,
         verifier=None,
@@ -108,10 +109,13 @@ async def test_apply_requires_authentication() -> None:
 @pytest.mark.asyncio
 async def test_record_a_payment() -> None:
     _auth()
-    with patch(
-        'app.services.customer_payment_service.create_payment',
-        AsyncMock(return_value=_payment()),
-    ), patch('app.services.customer_payment_service.attach_customer_names', AsyncMock()):
+    with (
+        patch(
+            'app.services.customer_payment_service.create_payment',
+            AsyncMock(return_value=_payment()),
+        ),
+        patch('app.services.customer_payment_service.attach_customer_names', AsyncMock()),
+    ):
         async with await _client() as client:
             response = await client.post(
                 '/api/v1/customer-payments',
@@ -146,17 +150,38 @@ async def test_list_does_not_implicitly_scope_to_a_cash_session() -> None:
     assert listing.await_args.kwargs['cash_session'] is None
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize('search', ['18714', 'Acme'])
+async def test_the_search_reaches_the_service_unchanged(search: str) -> None:
+    """Spec 035, T029 — an all-digits search is the id or the serial, otherwise the customer's name.
+
+    The service decides which; the endpoint must hand it the text as typed. The real matching,
+    inside the facility scope, is in `tests/integration/test_numbering_flow.py`.
+    """
+    _auth()
+    listing = AsyncMock(return_value=([], 0))
+    with patch('app.services.customer_payment_service.list_payments', listing):
+        async with await _client() as client:
+            response = await client.get('/api/v1/customer-payments', params={'search': search})
+
+    assert response.status_code == status.HTTP_200_OK
+    assert listing.await_args.kwargs['search'] == search
+
+
 # ── Applying ──────────────────────────────────────────────────────────────────
 
 
 @pytest.mark.asyncio
 async def test_apply_a_payment_to_an_order() -> None:
     _auth()
-    with patch(
-        'app.services.customer_payment_service.get_payment', AsyncMock(return_value=_payment())
-    ), patch(
-        'app.services.customer_payment_service.apply_payment',
-        AsyncMock(return_value=_application()),
+    with (
+        patch(
+            'app.services.customer_payment_service.get_payment', AsyncMock(return_value=_payment())
+        ),
+        patch(
+            'app.services.customer_payment_service.apply_payment',
+            AsyncMock(return_value=_application()),
+        ),
     ):
         async with await _client() as client:
             response = await client.post(
@@ -176,10 +201,13 @@ async def test_applying_to_a_draft_order_is_409() -> None:
         status_code=status.HTTP_409_CONFLICT,
         detail='Only a completed order can be paid; confirm it first',
     )
-    with patch(
-        'app.services.customer_payment_service.get_payment', AsyncMock(return_value=_payment())
-    ), patch(
-        'app.services.customer_payment_service.apply_payment', AsyncMock(side_effect=conflict)
+    with (
+        patch(
+            'app.services.customer_payment_service.get_payment', AsyncMock(return_value=_payment())
+        ),
+        patch(
+            'app.services.customer_payment_service.apply_payment', AsyncMock(side_effect=conflict)
+        ),
     ):
         async with await _client() as client:
             response = await client.post(
@@ -196,10 +224,13 @@ async def test_a_settled_or_busy_order_is_409(detail: str) -> None:
     """Spec 033 FR-021, FR-022: the service's refusal reaches the caller as it is."""
     _auth()
     conflict = HTTPException(status_code=status.HTTP_409_CONFLICT, detail=detail)
-    with patch(
-        'app.services.customer_payment_service.get_payment', AsyncMock(return_value=_payment())
-    ), patch(
-        'app.services.customer_payment_service.apply_payment', AsyncMock(side_effect=conflict)
+    with (
+        patch(
+            'app.services.customer_payment_service.get_payment', AsyncMock(return_value=_payment())
+        ),
+        patch(
+            'app.services.customer_payment_service.apply_payment', AsyncMock(side_effect=conflict)
+        ),
     ):
         async with await _client() as client:
             response = await client.post(
@@ -218,9 +249,12 @@ async def test_over_application_is_422() -> None:
         status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
         detail='Amount 500 exceeds the unapplied balance of 290.00',
     )
-    with patch(
-        'app.services.customer_payment_service.get_payment', AsyncMock(return_value=_payment())
-    ), patch('app.services.customer_payment_service.apply_payment', AsyncMock(side_effect=error)):
+    with (
+        patch(
+            'app.services.customer_payment_service.get_payment', AsyncMock(return_value=_payment())
+        ),
+        patch('app.services.customer_payment_service.apply_payment', AsyncMock(side_effect=error)),
+    ):
         async with await _client() as client:
             response = await client.post(
                 '/api/v1/customer-payments/1/applications',
@@ -237,9 +271,12 @@ async def test_cross_currency_application_is_422() -> None:
         status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
         detail='Payment currency does not match the order currency',
     )
-    with patch(
-        'app.services.customer_payment_service.get_payment', AsyncMock(return_value=_payment())
-    ), patch('app.services.customer_payment_service.apply_payment', AsyncMock(side_effect=error)):
+    with (
+        patch(
+            'app.services.customer_payment_service.get_payment', AsyncMock(return_value=_payment())
+        ),
+        patch('app.services.customer_payment_service.apply_payment', AsyncMock(side_effect=error)),
+    ):
         async with await _client() as client:
             response = await client.post(
                 '/api/v1/customer-payments/1/applications',
@@ -253,9 +290,7 @@ async def test_cross_currency_application_is_422() -> None:
 @pytest.mark.asyncio
 async def test_unknown_payment_is_404() -> None:
     _auth()
-    with patch(
-        'app.services.customer_payment_service.get_payment', AsyncMock(return_value=None)
-    ):
+    with patch('app.services.customer_payment_service.get_payment', AsyncMock(return_value=None)):
         async with await _client() as client:
             response = await client.get('/api/v1/customer-payments/999')
 
@@ -299,14 +334,18 @@ async def test_reversal_marks_cancelled_without_deleting() -> None:
     """FR-045 — the application survives as evidence, flagged rather than removed."""
     _auth()
     reversed_app = _application(cancelled=True)
-    with patch(
-        'app.services.customer_payment_service.get_payment', AsyncMock(return_value=_payment())
-    ), patch(
-        'app.services.customer_payment_service.get_application',
-        AsyncMock(return_value=_application()),
-    ), patch(
-        'app.services.customer_payment_service.reverse_application',
-        AsyncMock(return_value=reversed_app),
+    with (
+        patch(
+            'app.services.customer_payment_service.get_payment', AsyncMock(return_value=_payment())
+        ),
+        patch(
+            'app.services.customer_payment_service.get_application',
+            AsyncMock(return_value=_application()),
+        ),
+        patch(
+            'app.services.customer_payment_service.reverse_application',
+            AsyncMock(return_value=reversed_app),
+        ),
     ):
         async with await _client() as client:
             response = await client.post(
@@ -322,10 +361,13 @@ async def test_reversal_marks_cancelled_without_deleting() -> None:
 @pytest.mark.asyncio
 async def test_reversing_an_unknown_application_is_404() -> None:
     _auth()
-    with patch(
-        'app.services.customer_payment_service.get_payment', AsyncMock(return_value=_payment())
-    ), patch(
-        'app.services.customer_payment_service.get_application', AsyncMock(return_value=None)
+    with (
+        patch(
+            'app.services.customer_payment_service.get_payment', AsyncMock(return_value=_payment())
+        ),
+        patch(
+            'app.services.customer_payment_service.get_application', AsyncMock(return_value=None)
+        ),
     ):
         async with await _client() as client:
             response = await client.post(
@@ -340,12 +382,19 @@ async def test_reversing_an_unknown_application_is_404() -> None:
 async def test_applications_listing_includes_cancelled_ones() -> None:
     """FR-073 — the payments editor needs the whole history, not the live subset."""
     _auth()
-    with patch(
-        'app.services.customer_payment_service.get_payment', AsyncMock(return_value=_payment())
-    ), patch(
-        'app.services.customer_payment_service.list_applications',
-        AsyncMock(return_value=[_application(), _application(sales_order_payment_id=10,
-                                                             cancelled=True)]),
+    with (
+        patch(
+            'app.services.customer_payment_service.get_payment', AsyncMock(return_value=_payment())
+        ),
+        patch(
+            'app.services.customer_payment_service.list_applications',
+            AsyncMock(
+                return_value=[
+                    _application(),
+                    _application(sales_order_payment_id=10, cancelled=True),
+                ]
+            ),
+        ),
     ):
         async with await _client() as client:
             response = await client.get('/api/v1/customer-payments/1/applications')
@@ -372,12 +421,16 @@ async def test_unverified_queue_lists_only_unverified() -> None:
 @pytest.mark.asyncio
 async def test_verify_records_the_supervisor() -> None:
     _auth()
-    with patch(
-        'app.services.customer_payment_service.get_payment', AsyncMock(return_value=_payment())
-    ), patch(
-        'app.services.customer_payment_service.verify_payment',
-        AsyncMock(return_value=_payment(verifier=7)),
-    ), patch('app.services.customer_payment_service.attach_customer_names', AsyncMock()):
+    with (
+        patch(
+            'app.services.customer_payment_service.get_payment', AsyncMock(return_value=_payment())
+        ),
+        patch(
+            'app.services.customer_payment_service.verify_payment',
+            AsyncMock(return_value=_payment(verifier=7)),
+        ),
+        patch('app.services.customer_payment_service.attach_customer_names', AsyncMock()),
+    ):
         async with await _client() as client:
             response = await client.post('/api/v1/customer-payments/1/verify')
 
@@ -458,9 +511,7 @@ def _clerk(*, editor: bool):  # noqa: ANN202
         yield None
 
     app.dependency_overrides[get_db] = _noop_db
-    return patch(
-        'app.core.deps.has_any_privilege', AsyncMock(return_value=editor)
-    )
+    return patch('app.core.deps.has_any_privilege', AsyncMock(return_value=editor))
 
 
 _BY_ID = ['/api/v1/customer-payments/1', '/api/v1/customer-payments/1/applications']

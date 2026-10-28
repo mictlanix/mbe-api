@@ -638,8 +638,13 @@ async def _pay_customer_back(
     session_id: int,
     employee: int,
 ) -> None:
-    """Return the full refund total as cash or store credit (FR-065)."""
+    """Return the full refund total as cash or store credit (FR-065).
+
+    The payment is numbered in the refund facility's payment sequence (spec 035, FR-012), under
+    the facility lock `confirm_refund` already holds.
+    """
     now = local_now()
+    serial = await documents.assign_folio(db, CustomerPayment, facility=refund.facility)
 
     payment = CustomerPayment(
         customer=refund.customer,
@@ -652,7 +657,7 @@ async def _pay_customer_back(
         cash_session=session_id,
         reference=f'Refund {refund.customer_refund_id}',
         facility=refund.facility,
-        serial=0,
+        serial=serial,
         creator=employee,
         updater=employee,
         verifier=None,

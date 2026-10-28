@@ -1,6 +1,6 @@
 # Contract changes: Supplier Sub-Panels by Privilege, Race-Safe Serials and Stock
 
-Every route is under `/api/v1`. No route is added or removed, and no request or response shape changes.
+Every route is under `/api/v1`. No route is added or removed, and no request shape changes. One response gains a field: `CustomerPaymentResponse.serial`.
 
 ## `GET /suppliers/{supplier_id}`
 
@@ -29,7 +29,7 @@ The gate is unchanged: Suppliers (3), Products (0) or Pricing (106) read.
 |---|---|
 | `search` | All digits: matches the payment's id or its serial, within the list's facility scope. Anything else: the customer's name, as today. |
 
-**200** `ListResponse[CustomerPaymentResponse]`. `serial` is the payment's folio: a facility sequence number, no longer `0` for the API's payments.
+**200** `ListResponse[CustomerPaymentResponse]`. `CustomerPaymentResponse` gains `serial` (int), on every route that returns it: the payment's folio, a facility sequence number, no longer `0` for the API's payments. It is added, so existing clients are unaffected.
 
 ## `POST /customer-payments`
 

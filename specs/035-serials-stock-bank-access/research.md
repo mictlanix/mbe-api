@@ -205,7 +205,7 @@ The whole step runs inside `busy_as_conflict`.
 - **Search:** `GET /customer-payments?search=<digits>` matches `customer_payment_id = n OR serial = n`, inside the list's existing facility scope.
   - Anything else keeps matching the customer's name.
   - This mirrors `search_outstanding`'s `is_barcode_or_id` rule and the current system's `Id == n || Serial == n`.
-- **The response and tickets** already carry and print a non-zero serial (`CustomerPaymentResponse.serial`; `print_contexts`: `pad8(payment.serial)` on the payment ticket and the statement). No change is needed beyond the number itself.
+- **The tickets** already print a non-zero serial (`print_contexts`: `pad8(payment.serial)` on the payment ticket and the statement). **The response did not carry it** (corrected during implementation: only `OutstandingOrderResponse` had a `serial`), so `CustomerPaymentResponse` gains `serial` (FR-013). The field is added; no client breaks.
 
 **Rationale**:
 - The current system numbers every payment per store, credit-note payments included, and prints and searches by that number. Using the same table's `MAX + 1` per facility continues its sequence.
