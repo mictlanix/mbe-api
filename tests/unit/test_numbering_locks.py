@@ -16,7 +16,12 @@ import pytest
 from fastapi import HTTPException
 from sqlalchemy.exc import OperationalError
 
-from app.services import delivery_order_service, sales_order_service, sales_quote_service
+from app.services import (
+    customer_refund_service,
+    delivery_order_service,
+    sales_order_service,
+    sales_quote_service,
+)
 from tests.unit.test_inventory_locks import COMMIT, ROLLBACK, FakeResult, FakeSession
 
 __all__ = ['COMMIT', 'ROLLBACK', 'FakeResult']
@@ -312,4 +317,95 @@ async def test_confirm_delivery_order_busy_facility_is_a_409():
         await delivery_order_service.confirm(db, order, current=CASHIER)
 
     assert exc.value.detail == 'The facility is busy, retry'
+    assert db.log[-1] == ROLLBACK
+
+
+# ── Customer refund confirm (T015; research R3) ───────────────────────────────
+
+
+def _refund_rows(*, session_end=None, lines=(9, 4)) -> tuple[dict, dict]:
+    session = SimpleNamespace(cash_session_id=77, cashier=8, end=session_end)
+    refund = _draft('customer_refund_id', sales_order=7, customer=300, facility=51)
+    refund_lines = [
+        SimpleNamespace(
+            customer_refund_detail_id=500 + i,
+            customer_refund=12,
+            sales_order_detail=600 + i,
+            product=1,
+            warehouse=warehouse,
+            quantity=Decimal(1),
+        )
+        for i, warehouse in enumerate(lines)
+    ]
+    rows = {
+        'cash_session': [session],
+        'customer_refund': [refund],
+        'sales_order': [_order(completed=True)],
+        'customer_refund_detail': refund_lines,
+        'facility': [(51,)],
+    }
+    objects = {
+        ('sales_order_detail', line.sales_order_detail): SimpleNamespace(
+            sales_order_detail_id=line.sales_order_detail, quantity=Decimal(1)
+        )
+        for line in refund_lines
+    }
+    return rows, objects
+
+
+async def test_confirm_refund_locks_session_refund_order_lines_facility_warehouses_then_reads():
+    rows, objects = _refund_rows()
+    db = StepSession(responder(rows), objects)
+
+    with pytest.raises(StopAtFirstRead):
+        await customer_refund_service.confirm_refund(
+            db, rows['customer_refund'][0], payout=1, current=CASHIER
+        )
+
+    commit = db.log.index(COMMIT)
+    # The pre-read: the cashier's open session, a plain read before the commit.
+    assert any('FROM cash_session' in sql and not is_lock(sql) for sql in db.log[:commit])
+    _, refund, order, lines, _, warehouses = assert_order(
+        db.log,
+        r'FROM cash_session WHERE cash_session\.cash_session_id = 77 FOR UPDATE$',
+        r'FROM customer_refund WHERE .* FOR UPDATE$',
+        r'FROM sales_order WHERE sales_order\.sales_order_id = 7 FOR UPDATE$',
+        r'FROM customer_refund_detail WHERE .* LOCK IN SHARE MODE$',
+        r'FROM facility WHERE facility\.facility_id = 51 FOR UPDATE$',
+        r'FROM warehouse WHERE warehouse\.warehouse_id IN \(4, 9\) .*FOR UPDATE$',
+    )
+    assert commit < db.log.index(
+        next(sql for sql in db.log if 'FROM cash_session' in sql and is_lock(sql))
+    )
+    assert warehouses < first_plain_select(db.log)
+    for i in (refund, order, lines):
+        assert db.statements[i - 1].get_execution_options()['populate_existing'] is True
+
+
+async def test_confirm_refund_into_a_session_closed_meanwhile_is_refused():
+    rows, objects = _refund_rows(session_end='2026-10-28 12:00')
+    db = StepSession(responder(rows), objects)
+
+    with pytest.raises(HTTPException) as exc:
+        await customer_refund_service.confirm_refund(
+            db, rows['customer_refund'][0], payout=1, current=CASHIER
+        )
+
+    assert exc.value.status_code == 409
+    assert exc.value.detail == 'The cash session is closed'
+    assert db.log[-1] == ROLLBACK
+    assert not any('FROM customer_refund ' in sql and is_lock(sql) for sql in db.log)
+
+
+@pytest.mark.parametrize('code', [1213, 1205])
+async def test_confirm_refund_deadlock_or_lock_timeout_is_a_409(code):
+    rows, objects = _refund_rows()
+    db = StepSession(responder(rows, busy_on='warehouse', code=code), objects)
+
+    with pytest.raises(HTTPException) as exc:
+        await customer_refund_service.confirm_refund(
+            db, rows['customer_refund'][0], payout=1, current=CASHIER
+        )
+
+    assert exc.value.detail == 'The warehouse is busy, retry'
     assert db.log[-1] == ROLLBACK
