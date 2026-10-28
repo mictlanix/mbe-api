@@ -1,10 +1,10 @@
-"""Folio assignment and the editability guard, shared by orders, quotes and refunds.
+"""Folio assignment and the editability guard, shared by every document numbered per facility.
 
-Folio assignment matters more than it looks: no unique index exists on `(facility, serial)` on any
-of the three document tables (research R1), so nothing in the database stops two concurrent
-confirmations taking the same number. The guarantee comes from taking a `FOR UPDATE` lock on the
-owning facility row before reading `MAX(serial)`. These tests pin that the lock is actually
-requested — if it silently disappeared, SC-005 would break with no other symptom.
+Folio assignment matters more than it looks. The guarantee comes from taking a `FOR UPDATE` lock on
+the owning facility row before reading `MAX(serial)`; customer payments have no unique
+`(facility, serial)` index behind it at all, and on the other tables a lost race surfaces only as a
+generic 409. These tests pin that the lock is actually requested. Where the lock sits relative to
+the step's other reads is pinned per step in `test_numbering_locks.py` (spec 035).
 """
 
 from types import SimpleNamespace
@@ -13,8 +13,8 @@ from unittest.mock import AsyncMock
 import pytest
 from fastapi import HTTPException
 
-from app.models.sales import CustomerRefund, SalesOrder, SalesQuote
-from app.services.documents import assert_editable, assign_folio
+from app.models.sales import CustomerPayment, CustomerRefund, SalesOrder, SalesQuote
+from app.services.documents import assert_editable, assign_folio, lock_facility
 
 
 def _db(max_serial: int | None) -> AsyncMock:
@@ -29,6 +29,35 @@ def _db(max_serial: int | None) -> AsyncMock:
 
 def _sql(db: AsyncMock, call: int) -> str:
     return str(db.execute.await_args_list[call].args[0]).lower()
+
+
+class TestLockFacility:
+    """The numbering lock on its own (spec 035, research R2).
+
+    A step that numbers takes it before any ordinary read, so the `MAX(serial)` that follows reads
+    past every earlier holder's commit.
+    """
+
+    @pytest.mark.asyncio
+    async def test_locks_the_facility_row_for_update(self) -> None:
+        db = AsyncMock()
+        db.execute = AsyncMock(return_value=SimpleNamespace(scalar_one_or_none=lambda: 5))
+
+        await lock_facility(db, 5)
+
+        assert db.execute.await_count == 1
+        assert 'for update' in _sql(db, 0)
+        assert 'facility' in _sql(db, 0)
+
+    @pytest.mark.asyncio
+    async def test_unknown_facility_is_refused(self) -> None:
+        db = AsyncMock()
+        db.execute = AsyncMock(return_value=SimpleNamespace(scalar_one_or_none=lambda: None))
+
+        with pytest.raises(HTTPException) as exc:
+            await lock_facility(db, 999)
+
+        assert exc.value.status_code == 404
 
 
 class TestAssignFolio:
@@ -65,7 +94,7 @@ class TestAssignFolio:
         assert 'facility' in _sql(db, 1)
 
     @pytest.mark.asyncio
-    @pytest.mark.parametrize('model', [SalesOrder, SalesQuote, CustomerRefund])
+    @pytest.mark.parametrize('model', [SalesOrder, SalesQuote, CustomerRefund, CustomerPayment])
     async def test_works_for_every_document_type(self, model: type) -> None:
         db = _db(max_serial=10)
 

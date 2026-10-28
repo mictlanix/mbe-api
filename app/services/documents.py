@@ -1,8 +1,11 @@
 """Mechanics shared by every sales document: folio assignment, editability, the salesperson.
 
-Sales orders, quotes and refunds all number themselves per facility and all freeze on completion.
-Writing that three times would risk three subtly different behaviours; folio assignment in
-particular has no database constraint behind it, so a divergent copy would break SC-005 silently.
+Sales orders, quotes, delivery orders, refunds, supplier payments and customer payments all number
+themselves per facility. One numbering rule serves them all (spec 035, research R2): a step that
+numbers commits away its opening snapshot, then locks in this order: cash session, its own
+documents, their lines (`FOR SHARE`), the facility rows ascending (`lock_facility`), the warehouses
+ascending (`inventory_documents.lock_warehouses`). Only then does it read, so the plain
+`MAX(serial)` in `assign_folio` sees every earlier holder's commit.
 """
 
 from fastapi import HTTPException, status
@@ -12,14 +15,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.core import Facility
 
 
-async def assign_folio(db: AsyncSession, model: type, *, facility: int) -> int:
-    """Return the next `serial` for `facility`, serialising concurrent callers.
+async def lock_facility(db: AsyncSession, facility: int) -> None:
+    """Take the facility row `FOR UPDATE`: the numbering lock (spec 035, research R2).
 
-    There is no unique index on `(facility, serial)` on any document table (research R1), so
-    `MAX(serial) + 1` on its own would hand the same number to two simultaneous confirmations.
-    Locking the owning facility row first makes them queue instead. InnoDB holds the lock until the
-    surrounding transaction commits, so the caller must run this inside the same transaction that
-    writes the folio.
+    Steps that number take it after their own document rows and before any warehouse, so that no
+    path holds a warehouse and then waits on a facility. A header insert's foreign-key check takes
+    a share lock on the facility before its lines take warehouses.
     """
     locked = (
         await db.execute(
@@ -29,6 +30,23 @@ async def assign_folio(db: AsyncSession, model: type, *, facility: int) -> int:
 
     if locked is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Facility not found')
+
+
+async def assign_folio(db: AsyncSession, model: type, *, facility: int) -> int:
+    """Return the next `serial` for `facility`, serialising concurrent callers.
+
+    `MAX(serial) + 1` on its own would hand the same number to two simultaneous confirmations.
+    Locking the owning facility row first makes them queue instead, and InnoDB holds the lock until
+    the surrounding transaction commits, so the caller must write the folio in this transaction.
+    Most document tables also carry a unique `(facility, serial)` index; customer payments and
+    purchase requests don't, because of the current system's duplicates.
+
+    Precondition: no ordinary read in the transaction before the facility lock. Under REPEATABLE
+    READ the snapshot opens at the first plain read, and a snapshot older than the lock misses the
+    serial the previous holder committed (mictlanix/mbe#45). The lock is a no-op when the step
+    already holds it.
+    """
+    await lock_facility(db, facility)
 
     highest = (
         await db.execute(select(func.max(model.serial)).where(model.facility == facility))
