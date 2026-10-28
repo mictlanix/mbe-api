@@ -3,7 +3,7 @@
   "specName": "Supplier Sub-Panels by Privilege, Race-Safe Serials and Stock",
   "branch": "035-serials-stock-bank-access",
   "currentStep": "implement",
-  "status": "implementing",
+  "status": "completed",
   "history": [
     {
       "step": "specify",
@@ -413,6 +413,21 @@
       "kind": "complete",
       "by": "extension",
       "at": "2026-10-28T14:15:58.309Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T046",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-10-28T17:19:22.466Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-10-28T17:19:22.466Z"
     }
   ],
   "verified": [
@@ -474,5 +489,5 @@
       "note": "SC-005 before-state not reproduced: on the pre-035 code the last-units pair (and an 8-order burst) never oversold on dev; the later orders already saw the first reservation. The flaw it targets was reproduced through the double confirm (2x200, 2 reservations). The fix is argued from REPEATABLE READ (research R2, R4) and pinned by the lock-order tests."
     }
   ],
-  "currentTask": "T046"
+  "currentTask": null
 }
