@@ -16,8 +16,10 @@ import pytest
 from fastapi import HTTPException
 from sqlalchemy.exc import OperationalError
 
+from app.enums import ItineraryStatus, StopOutcome
 from app.services import (
     customer_refund_service,
+    delivery_itinerary_service,
     delivery_order_service,
     sales_order_service,
     sales_quote_service,
@@ -125,6 +127,7 @@ def responder(rows: dict[str, list], *, busy_on: str | None = None, code: int = 
 
 # ── Sales order confirm (T013; research R4) ───────────────────────────────────
 
+
 def _order(**overrides) -> SimpleNamespace:
     values = dict(
         sales_order_id=7,
@@ -220,9 +223,7 @@ async def test_a_second_confirm_waits_on_the_order_then_is_refused_with_no_seria
 @pytest.mark.parametrize('code', [1213, 1205])
 async def test_confirm_order_deadlock_or_lock_timeout_is_a_409(code):
     order = _order()
-    db = StepSession(
-        responder(_order_rows(order, [_line(9)]), busy_on='warehouse', code=code)
-    )
+    db = StepSession(responder(_order_rows(order, [_line(9)]), busy_on='warehouse', code=code))
 
     with pytest.raises(HTTPException) as exc:
         await sales_order_service.confirm_order(db, order, current=CASHIER)
@@ -406,6 +407,103 @@ async def test_confirm_refund_deadlock_or_lock_timeout_is_a_409(code):
         await customer_refund_service.confirm_refund(
             db, rows['customer_refund'][0], payout=1, current=CASHIER
         )
+
+    assert exc.value.detail == 'The warehouse is busy, retry'
+    assert db.log[-1] == ROLLBACK
+
+
+# ── Itinerary stop close (T016; research R5) ──────────────────────────────────
+
+
+def _stop_rows(*, outcome=StopOutcome.PENDING, status=ItineraryStatus.DEPARTED) -> dict:
+    return {
+        # Pre-read: (delivery order facility, dispatch warehouse, sales line warehouse).
+        'deliveries_itinerary_detail': [(8, 20, 21), (3, 30, None), (8, 20, 21)],
+        # Pre-read: dispatch warehouse → its facility's in-transit warehouse.
+        'warehouse': [(20, 25), (30, 35)],
+        'deliveries_itinerary': [SimpleNamespace(deliveries_itinerary_id=4, status=status)],
+        'deliveries_itinerary_stop': [
+            SimpleNamespace(
+                deliveries_itinerary_stop_id=40, deliveries_itinerary=4, outcome=outcome
+            )
+        ],
+        'facility': [(3,)],
+    }
+
+
+async def _close(db: StepSession, rows: dict) -> None:
+    await delivery_itinerary_service.close_stop(
+        db,
+        rows['deliveries_itinerary'][0],
+        rows['deliveries_itinerary_stop'][0],
+        outcomes=[],
+        receiver_name='R',
+        receiver_id_shown='ID',
+        image_file='x.png',
+        current=CASHIER,
+    )
+
+
+async def test_close_stop_pre_reads_commits_then_locks_itinerary_stop_facilities_warehouses():
+    rows = _stop_rows()
+    db = StepSession(responder(rows))
+
+    with pytest.raises(StopAtFirstRead):
+        await _close(db, rows)
+
+    commit = db.log.index(COMMIT)
+    before = db.log[:commit]
+    assert not any(is_lock(sql) for sql in before)
+    assert any('FROM deliveries_itinerary_detail' in sql for sql in before)
+    assert any('in_transit' in sql for sql in before)
+    itinerary, stop, _, _, warehouses = assert_order(
+        db.log[commit:],
+        r'FROM deliveries_itinerary WHERE deliveries_itinerary\.deliveries_itinerary_id = 4 '
+        r'FOR UPDATE$',
+        r'FROM deliveries_itinerary_stop WHERE .*= 40 FOR UPDATE$',
+        r'FROM facility WHERE facility\.facility_id = 3 FOR UPDATE$',
+        r'FROM facility WHERE facility\.facility_id = 8 FOR UPDATE$',
+        # Dispatch 20 and 30, their facilities' transit 25 and 35, the sales line's 21.
+        r'FROM warehouse WHERE warehouse\.warehouse_id IN \(20, 21, 25, 30, 35\) .*FOR UPDATE$',
+    )
+    assert commit + warehouses < first_plain_select(db.log)
+    for i in (itinerary, stop):
+        assert db.statements[commit + i - 1].get_execution_options()['populate_existing'] is True
+
+
+async def test_close_stop_of_a_stop_resolved_meanwhile_is_refused():
+    """The copy in hand is pending; the locked row was closed by the request it waited on."""
+    rows = _stop_rows()
+    pending = rows['deliveries_itinerary_stop'][0]
+    rows['deliveries_itinerary_stop'] = [
+        SimpleNamespace(
+            deliveries_itinerary_stop_id=40, deliveries_itinerary=4, outcome=StopOutcome.DELIVERED
+        )
+    ]
+    db = StepSession(responder(rows))
+
+    with pytest.raises(HTTPException) as exc:
+        await delivery_itinerary_service.close_stop(
+            db,
+            rows['deliveries_itinerary'][0],
+            pending,
+            outcomes=[],
+            receiver_name='R',
+            receiver_id_shown='ID',
+            image_file='x.png',
+            current=CASHIER,
+        )
+
+    assert exc.value.detail == 'This stop is already resolved'
+    assert db.log[-1] == ROLLBACK
+
+
+async def test_close_stop_deadlock_is_a_409():
+    rows = _stop_rows()
+    db = StepSession(responder(rows, busy_on='facility'))
+
+    with pytest.raises(HTTPException) as exc:
+        await _close(db, rows)
 
     assert exc.value.detail == 'The warehouse is busy, retry'
     assert db.log[-1] == ROLLBACK

@@ -199,7 +199,7 @@ class TestDeparture:
         Without this the sales order still owes the customer but holds nothing, so the stock can
         be sold out from under the retry or the partial delivery's child order.
         """
-        closure = inspect.getsource(service.close_stop)
+        closure = inspect.getsource(service._close_locked)
         reclaim = inspect.getsource(service._reclaim_reservation)
 
         assert '_reclaim_reservation(' in closure
@@ -220,28 +220,28 @@ class TestClosure:
         assert 'if not remainder:' in source
 
     def test_closure_releases_the_commitment(self) -> None:
-        source = inspect.getsource(service.close_stop)
+        source = inspect.getsource(service._close_locked)
 
         assert 'order_line.committed_quantity -= entry.committed_quantity' in source
 
     def test_closure_requires_every_line_to_be_accounted_for(self) -> None:
-        source = inspect.getsource(service.close_stop)
+        source = inspect.getsource(service._close_locked)
 
         assert 'Every line on the stop must be accounted for' in source
 
     def test_closure_refuses_delivering_more_than_was_sent(self) -> None:
-        source = inspect.getsource(service.close_stop)
+        source = inspect.getsource(service._close_locked)
 
         assert 'was accepted' in source
 
     def test_a_shortfall_without_a_reason_is_refused(self) -> None:
-        source = inspect.getsource(service.close_stop)
+        source = inspect.getsource(service._close_locked)
 
         assert 'needs a reason code' in source
 
     def test_the_itinerary_closes_only_when_no_stop_is_pending(self) -> None:
         """One failed stop must not block the rest of the trip from closing (FR-050)."""
-        source = inspect.getsource(service.close_stop)
+        source = inspect.getsource(service._close_locked)
 
         assert 'if not remaining:' in source
         assert 'ItineraryStatus.CLOSED' in source
