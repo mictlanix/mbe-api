@@ -8,10 +8,11 @@ ascending (`inventory_documents.lock_warehouses`). Only then does it read, so th
 `MAX(serial)` in `assign_folio` sees every earlier holder's commit.
 """
 
-from fastapi import HTTPException, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.error_codes import ErrorCode
+from app.core.errors import DomainError, not_found
 from app.models.core import Facility
 
 
@@ -29,7 +30,7 @@ async def lock_facility(db: AsyncSession, facility: int) -> None:
     ).scalar_one_or_none()
 
     if locked is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Facility not found')
+        raise not_found(Facility, facility)
 
 
 async def assign_folio(db: AsyncSession, model: type, *, facility: int) -> int:
@@ -62,15 +63,17 @@ def assert_editable(document: object) -> None:
     auditable records rather than by editing the document (SC-007).
     """
     if getattr(document, 'cancelled', False):
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail='Document is cancelled and can no longer be edited',
+        raise DomainError(
+            ErrorCode.DOCUMENT_NOT_EDITABLE,
+            'Document is cancelled and can no longer be edited',
+            {'status': 'cancelled'},
         )
 
     if getattr(document, 'completed', False):
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail='Document is completed and can no longer be edited',
+        raise DomainError(
+            ErrorCode.DOCUMENT_NOT_EDITABLE,
+            'Document is completed and can no longer be edited',
+            {'status': 'completed'},
         )
 
 

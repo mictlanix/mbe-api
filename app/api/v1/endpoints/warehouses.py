@@ -3,6 +3,7 @@ from fastapi import status as http_status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.deps import CurrentUser, require_privilege
+from app.core.errors import not_found
 from app.db.session import get_db
 from app.enums import AccessRight, EntityStatus, SystemObject
 from app.models.core import Warehouse
@@ -25,9 +26,7 @@ async def _addressable(db: AsyncSession, warehouse_id: int) -> Warehouse:
     """
     warehouse = await warehouse_service.get_warehouse(db, warehouse_id)
     if warehouse is None:
-        raise HTTPException(
-            status_code=http_status.HTTP_404_NOT_FOUND, detail='Warehouse not found'
-        )
+        raise not_found(Warehouse, warehouse_id)
     if warehouse.in_transit:
         raise HTTPException(
             status_code=http_status.HTTP_403_FORBIDDEN,

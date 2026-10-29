@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import rendering
 from app.core.deps import CurrentUser, has_any_privilege, require_privilege
+from app.core.errors import not_found
 from app.db.session import get_db
 from app.enums import AccessRight, SystemObject
 from app.models.fiscal import FiscalDocument
@@ -60,9 +61,7 @@ def _conflict(detail: str) -> HTTPException:
 async def _document_or_404(db: AsyncSession, fiscal_document_id: int) -> FiscalDocument:
     document = await fiscal_document_service.get_document(db, fiscal_document_id)
     if document is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail='Fiscal document not found'
-        )
+        raise not_found(FiscalDocument, fiscal_document_id)
     return document
 
 

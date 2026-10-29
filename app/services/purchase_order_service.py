@@ -25,6 +25,7 @@ from app import rendering
 from app.core.clock import local_now
 from app.core.constants import COST_PRICE_LIST_ID
 from app.core.deps import CurrentUser
+from app.core.errors import not_found
 from app.enums import CurrencyCode, SourceType
 from app.models.core import Employee, Warehouse
 from app.models.inventory import InventoryReceipt, InventoryReceiptDetail
@@ -268,14 +269,14 @@ async def costs(db: AsyncSession, products: Iterable[int]) -> dict[int, Decimal]
 async def _supplier(db: AsyncSession, supplier_id: int) -> Supplier:
     supplier = await db.get(Supplier, supplier_id)
     if supplier is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Supplier not found')
+        raise not_found(Supplier, supplier_id)
     return supplier
 
 
 async def _purchasable(db: AsyncSession, product_id: int) -> Product:
     product = await db.get(Product, product_id)
     if product is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Product not found')
+        raise not_found(Product, product_id)
     if not product.purchasable:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
@@ -297,9 +298,7 @@ async def lock_order(db: AsyncSession, order_id: int) -> PurchaseOrder:
         )
     ).scalar_one_or_none()
     if order is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail='Purchase order not found'
-        )
+        raise not_found(PurchaseOrder, order_id)
     return order
 
 
@@ -409,7 +408,7 @@ async def _locked_line(
         )
     ).scalar_one_or_none()
     if line is None or line.purchase_order != order_id:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Line not found')
+        raise not_found(PurchaseOrderDetail, line_id, detail='Line not found')
     return order, line
 
 
@@ -650,9 +649,7 @@ async def add_request_lines(
     """A request's pending lines onto a draft PO: PO row, then its line rows (FR-023, R3)."""
     async with inv.busy_as_conflict(db):
         if await db.get(PurchaseRequest, request_id) is None:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail='Purchase request not found'
-            )
+            raise not_found(PurchaseRequest, request_id)
         ids = (
             (
                 await db.execute(

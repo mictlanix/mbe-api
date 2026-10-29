@@ -29,6 +29,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.clock import local_now
 from app.core.deps import CurrentUser, has_any_privilege
+from app.core.errors import not_found
 from app.enums import AccessRight, SystemObject, TransactionType
 from app.models.core import Warehouse
 from app.models.inventory import (
@@ -236,7 +237,7 @@ async def lock_document(db: AsyncSession, kind: Kind, document_id: int) -> Any:
         )
     ).scalar_one_or_none()
     if document is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f'{kind.label} not found')
+        raise not_found(kind.header, document_id, f'{kind.label} not found')
     return document
 
 
@@ -479,7 +480,7 @@ async def add_line(
 
         row = await db.get(Product, product)
         if row is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Product not found')
+            raise not_found(Product, product)
         if not row.stockable:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
@@ -517,7 +518,7 @@ async def _locked_line(
     documents.assert_editable(document)
     line = await get_line(db, kind, document, line_id)
     if line is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Line not found')
+        raise not_found(kind.line, line_id, 'Line not found')
     return document, line
 
 

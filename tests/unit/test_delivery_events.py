@@ -74,6 +74,12 @@ class TestLegality:
 
         assert exc.value.status_code == 409
         assert 'DRAFT' in exc.value.detail and 'DELIVERED' in exc.value.detail
+        assert exc.value.code == 'state.transition_invalid'
+        assert exc.value.params == {
+            'resource': 'delivery_order',
+            'from': int(S.DRAFT),
+            'to': int(S.DELIVERED),
+        }
 
     @pytest.mark.parametrize('terminal', sorted(TERMINAL, key=lambda s: s.value))
     def test_every_terminal_status_refuses_all_further_moves(self, terminal: S) -> None:
@@ -81,6 +87,10 @@ class TestLegality:
             with pytest.raises(HTTPException) as exc:
                 assert_legal(_order(terminal), target)
             assert exc.value.status_code == 409
+            assert exc.value.code == 'state.transition_invalid'
+            assert exc.value.params == {
+                'resource': 'delivery_order', 'from': int(terminal), 'to': int(target)
+            }
 
     def test_in_transit_cannot_be_cancelled(self) -> None:
         """Goods on the road are resolved at the stop, not by cancelling (FR-007)."""
@@ -108,6 +118,9 @@ class TestFulfillmentTypeRestrictions:
             assert_legal(_order(S.PENDING_APPROVAL, FulfillmentType.DELIVERY), S.APPROVED)
 
         assert 'PICKUP' in exc.value.detail
+        assert exc.value.code == 'state.transition_invalid'
+        assert exc.value.params['required'] == int(FulfillmentType.PICKUP)
+        assert isinstance(exc.value.params['from'], int)
 
     def test_delivery_order_cannot_be_marked_ready_for_pickup(self) -> None:
         with pytest.raises(HTTPException):
@@ -140,6 +153,8 @@ class TestReasons:
             transition(_db(), _order(source), target, employee=7, reason='   ')
 
         assert exc.value.status_code == 422
+        assert exc.value.code == 'delivery_order.reason_required'
+        assert exc.value.params == {'to': int(target)}
 
     def test_reason_is_stored_trimmed(self) -> None:
         db = _db()

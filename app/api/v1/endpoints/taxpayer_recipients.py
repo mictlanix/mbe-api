@@ -1,9 +1,11 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.deps import CurrentUser, require_any_privilege, require_privilege
+from app.core.errors import not_found
 from app.db.session import get_db
 from app.enums import AccessRight, SystemObject
+from app.models.customer import TaxpayerRecipient
 from app.schemas import ListResponse
 from app.schemas.customer import (
     TaxpayerRecipientCreate,
@@ -57,9 +59,7 @@ async def get_taxpayer_recipient(
 ) -> TaxpayerRecipientResponse:
     tr = await taxpayer_recipient_service.get_taxpayer_recipient(db, rfc)
     if tr is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail='Taxpayer recipient not found'
-        )
+        raise not_found(TaxpayerRecipient, rfc)
     return TaxpayerRecipientResponse.model_validate(tr)
 
 
@@ -72,9 +72,7 @@ async def update_taxpayer_recipient(
 ) -> TaxpayerRecipientResponse:
     tr = await taxpayer_recipient_service.get_taxpayer_recipient(db, rfc)
     if tr is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail='Taxpayer recipient not found'
-        )
+        raise not_found(TaxpayerRecipient, rfc)
     tr = await taxpayer_recipient_service.update_taxpayer_recipient(db, tr, data)
     return TaxpayerRecipientResponse.model_validate(tr)
 
@@ -87,7 +85,5 @@ async def delete_taxpayer_recipient(
 ) -> None:
     tr = await taxpayer_recipient_service.get_taxpayer_recipient(db, rfc)
     if tr is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail='Taxpayer recipient not found'
-        )
+        raise not_found(TaxpayerRecipient, rfc)
     await taxpayer_recipient_service.delete_taxpayer_recipient(db, tr)

@@ -126,6 +126,7 @@ async def test_line_and_header_refusals(client, db, seeded):
     assert (await client.put(f'{URL}/{order}', json={'supplier': 999})).status_code == 404
     response = await client.put(f'{URL}/{order}/lines/999', json={'quantity': '1'})
     assert response.status_code == 404
+    assert response.json()['code'] == 'resource.not_found'
 
 
 async def test_a_line_needs_a_warehouse_when_the_caller_has_no_point_of_sale(
@@ -194,6 +195,7 @@ async def test_only_an_approved_requests_lines_are_added(client, db, seeded):
     assert response.status_code == 409
     response = await client.post(f'{URL}/{order}/request-lines', json={'purchase_request': 999})
     assert response.status_code == 404
+    assert response.json()['code'] == 'resource.not_found'
 
 
 async def test_a_line_on_one_po_is_skipped_by_the_next(client, db, seeded):

@@ -1,12 +1,14 @@
 from collections.abc import Sequence
 from dataclasses import dataclass
 
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends
 from fastapi.security import OAuth2PasswordBearer
 from jose import JWTError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.error_codes import ErrorCode
+from app.core.errors import DomainError
 from app.core.security import decode_token
 from app.db.session import get_db
 from app.enums import AccessRight, EntityStatus, SystemObject
@@ -41,9 +43,9 @@ async def get_signed_in_user(
     administrator-issued password needs to get rid of it. Everything else goes through
     `get_current_user`.
     """
-    exc = HTTPException(
-        status_code=status.HTTP_401_UNAUTHORIZED,
-        detail='Invalid or expired credentials',
+    exc = DomainError(
+        ErrorCode.AUTH_NOT_AUTHENTICATED,
+        'Invalid or expired credentials',
         headers={'WWW-Authenticate': 'Bearer'},
     )
     try:
@@ -81,17 +83,13 @@ async def get_current_user(
     """A signed-in user who may use the API. Refused while a password change is pending (#240):
     otherwise the client's prompt could be skipped by calling the API directly."""
     if current_user.must_change_password:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN, detail='password_change_required'
-        )
+        raise DomainError(ErrorCode.AUTH_PASSWORD_CHANGE_REQUIRED, 'password_change_required')
     return current_user
 
 
 def require_admin(current_user: CurrentUser = Depends(get_current_user)) -> CurrentUser:
     if not current_user.administrator:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN, detail='Administrator access required'
-        )
+        raise DomainError(ErrorCode.AUTH_ADMINISTRATOR_REQUIRED, 'Administrator access required')
     return current_user
 
 
@@ -114,13 +112,20 @@ def require_privilege(system_object: SystemObject, right: AccessRight = AccessRi
         )
         priv = result.scalar_one_or_none()
         if priv is None or not (priv.privileges & int(right)):
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN, detail='Insufficient privileges'
-            )
+            raise forbidden(((system_object, right),))
         return current_user
 
     _check.grants = ((system_object, right),)
     return _check
+
+
+def forbidden(grants: Sequence[tuple[SystemObject, AccessRight]]) -> DomainError:
+    """`auth.forbidden`, listing the grants any one of which would have opened the route."""
+    return DomainError(
+        ErrorCode.AUTH_FORBIDDEN,
+        'Insufficient privileges',
+        {'required': [{'system_object': obj, 'right': right} for obj, right in grants]},
+    )
 
 
 async def has_any_privilege(
@@ -164,9 +169,7 @@ def require_any_privilege(*grants: tuple[SystemObject, AccessRight]):
         if current_user.administrator:
             return current_user
         if not await has_any_privilege(db, current_user.user_id, grants):
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN, detail='Insufficient privileges'
-            )
+            raise forbidden(grants)
         return current_user
 
     _check.grants = grants

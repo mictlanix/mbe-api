@@ -18,6 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.clock import local_now, local_today
 from app.core.deps import CurrentUser
+from app.core.errors import not_found
 from app.enums import CashCountType, PaymentMethod, PaymentType
 from app.models.core import CashCount, CashDrawer, CashSession, Employee
 from app.models.purchases import ExpenseVoucher, ExpenseVoucherDetail
@@ -145,7 +146,7 @@ async def lock_open_session(db: AsyncSession, cash_session_id: int) -> CashSessi
     """
     session = (await db.execute(_locked(cash_session_id))).scalar_one_or_none()
     if session is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Cash session not found')
+        raise not_found(CashSession, cash_session_id)
     if session.end is not None:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT, detail='The cash session is closed'
@@ -414,7 +415,7 @@ async def open_session(
     drawer_id = _drawer(current, data.cash_drawer)
 
     if await db.get(CashDrawer, drawer_id) is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Cash drawer not found')
+        raise not_found(CashDrawer, drawer_id)
 
     if await open_session_for_drawer(db, drawer_id) is not None:
         raise HTTPException(

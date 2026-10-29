@@ -262,6 +262,7 @@ async def test_committing_to_an_unknown_stop_is_404() -> None:
             )
 
     assert response.status_code == 404
+    assert response.json()['code'] == 'resource.not_found'
 
 
 # ── Departure ─────────────────────────────────────────────────────────────────

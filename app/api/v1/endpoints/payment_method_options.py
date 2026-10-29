@@ -1,10 +1,12 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, Query
 from fastapi import status as http_status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.deps import CurrentUser, require_any_privilege, require_privilege
+from app.core.errors import not_found
 from app.db.session import get_db
 from app.enums import AccessRight, EntityStatus, SystemObject
+from app.models.core import PaymentMethodOption
 from app.schemas import ListResponse
 from app.schemas.core import (
     PaymentMethodOptionCreate,
@@ -64,9 +66,7 @@ async def get_payment_method_option(
         db, payment_method_option_id
     )
     if pmo is None:
-        raise HTTPException(
-            status_code=http_status.HTTP_404_NOT_FOUND, detail='Payment method option not found'
-        )
+        raise not_found(PaymentMethodOption, payment_method_option_id)
     return PaymentMethodOptionResponse.model_validate(pmo)
 
 
@@ -81,9 +81,7 @@ async def update_payment_method_option(
         db, payment_method_option_id
     )
     if pmo is None:
-        raise HTTPException(
-            status_code=http_status.HTTP_404_NOT_FOUND, detail='Payment method option not found'
-        )
+        raise not_found(PaymentMethodOption, payment_method_option_id)
     pmo = await payment_method_option_service.update_payment_method_option(db, pmo, data)
     return PaymentMethodOptionResponse.model_validate(pmo)
 
@@ -98,7 +96,5 @@ async def delete_payment_method_option(
         db, payment_method_option_id
     )
     if pmo is None:
-        raise HTTPException(
-            status_code=http_status.HTTP_404_NOT_FOUND, detail='Payment method option not found'
-        )
+        raise not_found(PaymentMethodOption, payment_method_option_id)
     await payment_method_option_service.delete_payment_method_option(db, pmo)

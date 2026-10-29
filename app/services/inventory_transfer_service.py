@@ -20,6 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
 from app.core.deps import CurrentUser
+from app.core.errors import not_found
 from app.models.core import Warehouse
 from app.models.inventory import InventoryTransfer, InventoryTransferDetail
 from app.models.product import Product
@@ -81,9 +82,10 @@ def apply_receipt(
         seen.add(line_id)
         line = by_id.get(line_id)
         if line is None:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f'Line {line_id} not found on this transfer',
+            raise not_found(
+                InventoryTransferDetail,
+                line_id,
+                f'Line {line_id} not found on this transfer',
             )
         outstanding = _outstanding(line)
         if quantity > outstanding:
@@ -345,9 +347,7 @@ async def add_sales_order_items(
 
         order = await db.get(SalesOrder, sales_order)
         if order is None:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail='Sales order not found'
-            )
+            raise not_found(SalesOrder, sales_order)
         if not order.completed or order.cancelled:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,

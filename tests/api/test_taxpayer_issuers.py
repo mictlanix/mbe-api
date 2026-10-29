@@ -93,6 +93,7 @@ async def test_get_taxpayer_issuer_returns_404() -> None:
         async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as c:
             r = await c.get('/api/v1/taxpayer-issuers/RFCNOTFOUND')
     assert r.status_code == 404
+    assert r.json()['code'] == 'resource.not_found'
 
 
 @pytest.mark.asyncio
@@ -167,6 +168,7 @@ async def test_update_taxpayer_issuer_returns_404() -> None:
         async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as c:
             r = await c.put('/api/v1/taxpayer-issuers/RFCNOTFOUND', json={'name': 'X'})
     assert r.status_code == 404
+    assert r.json()['code'] == 'resource.not_found'
 
 
 @pytest.mark.asyncio
@@ -197,6 +199,7 @@ async def test_delete_taxpayer_issuer_returns_404() -> None:
         async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as c:
             r = await c.delete('/api/v1/taxpayer-issuers/RFCNOTFOUND')
     assert r.status_code == 404
+    assert r.json()['code'] == 'resource.not_found'
 
 
 @pytest.mark.asyncio

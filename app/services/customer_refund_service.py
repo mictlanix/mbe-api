@@ -22,6 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.clock import local_now
 from app.core.deps import CurrentUser
+from app.core.errors import not_found
 from app.enums import CurrencyCode, PaymentMethod, PaymentType, TransactionType
 from app.models.fiscal import FiscalDocument, FiscalDocumentDetail, FiscalDocumentXml
 from app.models.product import Product
@@ -316,7 +317,7 @@ async def open_refund(
 
     order = await db.get(SalesOrder, sales_order_id)
     if order is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Sales order not found')
+        raise not_found(SalesOrder, sales_order_id)
 
     assert_refundable_order(order)
 
@@ -529,7 +530,7 @@ async def _confirm_locked(
         )
     ).scalar_one_or_none()
     if order is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Sales order not found')
+        raise not_found(SalesOrder, refund.sales_order)
 
     lines = list(
         (

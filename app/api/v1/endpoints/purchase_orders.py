@@ -5,8 +5,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import rendering
 from app.core.deps import CurrentUser, require_privilege
+from app.core.errors import not_found
 from app.db.session import get_db
 from app.enums import AccessRight, SystemObject
+from app.models.purchases import PurchaseOrder
 from app.schemas import ListResponse
 from app.schemas.purchases import (
     AddRequestLines,
@@ -39,9 +41,7 @@ async def _order_or_404(db: AsyncSession, order_id: int):  # noqa: ANN202
     """Header only: the state-changing services read lines after they lock (research R3, R4)."""
     order = await service.get_order(db, order_id)
     if order is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail='Purchase order not found'
-        )
+        raise not_found(PurchaseOrder, order_id)
     return order
 
 

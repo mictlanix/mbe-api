@@ -3,6 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import rendering
 from app.core.deps import CurrentUser, require_privilege
+from app.core.errors import not_found
 from app.db.session import get_db
 from app.enums import AccessRight, SystemObject
 from app.schemas import ListResponse, LocalDateTime
@@ -88,7 +89,7 @@ async def get_cash_session(
 ) -> CashSessionResponse:
     session = await cash_session_service.get_session(db, cash_session_id)
     if session is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Cash session not found')
+        raise not_found('cash_session', cash_session_id)
     await cash_session_service.attach_derived(db, session)
     return CashSessionResponse.model_validate(session)
 
@@ -102,7 +103,7 @@ async def print_cash_session_cut(
     """The "Corte de Caja" of a closed session (#230)."""
     session = await cash_session_service.get_session(db, cash_session_id)
     if session is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Cash session not found')
+        raise not_found('cash_session', cash_session_id)
     if session.end is None:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT, detail='Cash session is not closed'
@@ -122,6 +123,6 @@ async def close_cash_session(
 ) -> CashSessionResponse:
     session = await cash_session_service.get_session(db, cash_session_id)
     if session is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Cash session not found')
+        raise not_found('cash_session', cash_session_id)
     session = await cash_session_service.close_session(db, session, data, current=current)
     return CashSessionResponse.model_validate(session)

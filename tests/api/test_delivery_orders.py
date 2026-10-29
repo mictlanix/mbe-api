@@ -452,6 +452,7 @@ async def test_adding_a_line_to_an_unknown_order_is_404() -> None:
             )
 
     assert response.status_code == 404
+    assert response.json()['code'] == 'resource.not_found'
 
 
 @pytest.mark.asyncio

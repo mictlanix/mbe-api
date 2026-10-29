@@ -180,6 +180,7 @@ async def test_get_facility_returns_404() -> None:
         async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as c:
             r = await c.get('/api/v1/facilities/999')
     assert r.status_code == 404
+    assert r.json()['code'] == 'resource.not_found'
 
 
 @pytest.mark.asyncio
@@ -230,6 +231,7 @@ async def test_update_facility_returns_404() -> None:
         async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as c:
             r = await c.put('/api/v1/facilities/999', json={'name': 'X'})
     assert r.status_code == 404
+    assert r.json()['code'] == 'resource.not_found'
 
 
 @pytest.mark.asyncio
@@ -253,6 +255,7 @@ async def test_delete_facility_returns_404() -> None:
         async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as c:
             r = await c.delete('/api/v1/facilities/999')
     assert r.status_code == 404
+    assert r.json()['code'] == 'resource.not_found'
 
 
 @pytest.mark.asyncio
@@ -401,6 +404,7 @@ async def test_get_warehouse_returns_404() -> None:
         async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as c:
             r = await c.get('/api/v1/warehouses/999')
     assert r.status_code == 404
+    assert r.json()['code'] == 'resource.not_found'
 
 
 # ── Spec 013: in-transit locations are system-owned (FR-010, FR-011, FR-013, FR-013a) ─────────
@@ -461,6 +465,7 @@ async def test_an_id_naming_no_warehouse_is_still_404_not_403() -> None:
         async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as c:
             r = await c.get('/api/v1/warehouses/999999')
     assert r.status_code == 404
+    assert r.json()['code'] == 'resource.not_found'
     assert r.json()['detail'] == 'Warehouse not found'
 
 
@@ -507,6 +512,7 @@ async def test_update_warehouse_returns_404() -> None:
         async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as c:
             r = await c.put('/api/v1/warehouses/999', json={'name': 'X'})
     assert r.status_code == 404
+    assert r.json()['code'] == 'resource.not_found'
 
 
 @pytest.mark.asyncio
@@ -531,6 +537,7 @@ async def test_delete_warehouse_returns_404() -> None:
         async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as c:
             r = await c.delete('/api/v1/warehouses/999')
     assert r.status_code == 404
+    assert r.json()['code'] == 'resource.not_found'
 
 
 @pytest.mark.asyncio
@@ -619,6 +626,7 @@ async def test_get_point_of_sale_returns_404() -> None:
         async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as c:
             r = await c.get('/api/v1/points-of-sale/999')
     assert r.status_code == 404
+    assert r.json()['code'] == 'resource.not_found'
 
 
 @pytest.mark.asyncio
@@ -664,6 +672,7 @@ async def test_update_point_of_sale_returns_404() -> None:
         async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as c:
             r = await c.put('/api/v1/points-of-sale/999', json={'name': 'X'})
     assert r.status_code == 404
+    assert r.json()['code'] == 'resource.not_found'
 
 
 @pytest.mark.asyncio
@@ -691,6 +700,7 @@ async def test_delete_point_of_sale_returns_404() -> None:
         async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as c:
             r = await c.delete('/api/v1/points-of-sale/999')
     assert r.status_code == 404
+    assert r.json()['code'] == 'resource.not_found'
 
 
 @pytest.mark.asyncio
@@ -738,6 +748,7 @@ async def test_get_cash_drawer_returns_404() -> None:
         async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as c:
             r = await c.get('/api/v1/cash-drawers/999')
     assert r.status_code == 404
+    assert r.json()['code'] == 'resource.not_found'
 
 
 @pytest.mark.asyncio
@@ -786,6 +797,7 @@ async def test_update_cash_drawer_returns_404() -> None:
         async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as c:
             r = await c.put('/api/v1/cash-drawers/999', json={'name': 'X'})
     assert r.status_code == 404
+    assert r.json()['code'] == 'resource.not_found'
 
 
 @pytest.mark.asyncio
@@ -815,6 +827,7 @@ async def test_delete_cash_drawer_returns_404() -> None:
         async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as c:
             r = await c.delete('/api/v1/cash-drawers/999')
     assert r.status_code == 404
+    assert r.json()['code'] == 'resource.not_found'
 
 
 @pytest.mark.asyncio
@@ -989,6 +1002,7 @@ async def test_upload_facility_logo_returns_404_when_facility_missing() -> None:
                 files={'file': ('logo.png', _make_png_bytes(), 'image/png')},
             )
     assert r.status_code == 404
+    assert r.json()['code'] == 'resource.not_found'
 
 
 @pytest.mark.asyncio

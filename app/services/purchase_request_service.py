@@ -22,6 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.clock import local_now
 from app.core.config import settings
 from app.core.deps import CurrentUser
+from app.core.errors import not_found
 from app.enums import SourceType
 from app.models.core import Warehouse
 from app.models.product import Product
@@ -244,9 +245,7 @@ async def lock_request(db: AsyncSession, request_id: int) -> PurchaseRequest:
         )
     ).scalar_one_or_none()
     if request is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail='Purchase request not found'
-        )
+        raise not_found(PurchaseRequest, request_id)
     return request
 
 
@@ -287,7 +286,7 @@ def _assert_draft(request: PurchaseRequest) -> None:
 async def _product(db: AsyncSession, product_id: int) -> Product:
     product = await db.get(Product, product_id)
     if product is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Product not found')
+        raise not_found(Product, product_id)
     if not product.purchasable:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
@@ -406,7 +405,7 @@ async def _locked_line(
         )
     ).scalar_one_or_none()
     if line is None or line.purchase_request != request_id:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Line not found')
+        raise not_found(PurchaseRequestDetail, line_id, detail='Line not found')
     return request, line
 
 
@@ -581,7 +580,7 @@ async def mark(
             )
         ).scalar_one_or_none()
         if line is None or line.purchase_request != request_id:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Line not found')
+            raise not_found(PurchaseRequestDetail, line_id, detail='Line not found')
         on_live_po = line_id in await live_order_lines(db, [line_id])
         reason = mark_refusal(_status_of(request), to_purchase, on_live_po=on_live_po)
         if reason is not None:

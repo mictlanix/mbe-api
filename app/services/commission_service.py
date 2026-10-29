@@ -17,6 +17,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.clock import local_now
 from app.core.deps import CurrentUser
+from app.core.error_codes import ErrorCode
+from app.core.errors import DomainError, not_found
 from app.enums import (
     CommissionMovement,
     CommissionPeriodStatus,
@@ -643,14 +645,14 @@ def _audit(db: AsyncSession, current: CurrentUser, instance_id: int, reason: str
     )
 
 
-def _not_found(what: str) -> HTTPException:
-    return HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f'{what} not found')
+def _not_found(resource: type, id: int, what: str) -> HTTPException:
+    return not_found(resource, id, detail=f'{what} not found')
 
 
 async def _get_or_404[T](db: AsyncSession, model: type[T], pk: int, what: str) -> T:
     row = await db.get(model, pk)
     if row is None:
-        raise _not_found(what)
+        raise _not_found(model, pk, what)
     return row
 
 
@@ -783,10 +785,12 @@ async def create_agent(  # noqa: ANN201
     db: AsyncSession, data: CommissionAgentCreate, *, current: CurrentUser
 ):
     if await db.get(Employee, data.employee) is None:
-        raise _not_found('Employee')
+        raise _not_found(Employee, data.employee, 'Employee')
     if await db.get(CommissionAgent, data.employee) is not None:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT, detail='Employee is already an agent'
+        raise DomainError(
+            ErrorCode.RESOURCE_ALREADY_EXISTS,
+            'Employee is already an agent',
+            {'resource': 'commission_agent', 'field': 'employee'},
         )
     db.add(CommissionAgent(employee=data.employee, scheme=int(data.scheme)))
     await db.flush()
@@ -853,9 +857,13 @@ async def create_agent_rate(
         CommissionSalesperson.commission_participation == data.commission_participation,
     )
     if (await db.execute(duplicate)).first() is not None:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail='Rate already exists for this agent, label and participation',
+        raise DomainError(
+            ErrorCode.RESOURCE_ALREADY_EXISTS,
+            'Rate already exists for this agent, label and participation',
+            {
+                'resource': 'commission_salesperson',
+                'field': 'salesperson,commission,commission_participation',
+            },
         )
     row = CommissionSalesperson(
         salesperson=data.salesperson,
@@ -982,7 +990,7 @@ async def delete_product_label(db: AsyncSession, product: int, *, current: Curre
         .first()
     )
     if row is None:
-        raise _not_found('Product commission label')
+        raise _not_found(CommissionProduct, product, 'Product commission label')
     await assert_not_referenced(db, row)
     _audit(db, current, product, 'Product commission label removed', f'label {row.commission}')
     await db.delete(row)

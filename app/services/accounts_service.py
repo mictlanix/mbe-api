@@ -11,12 +11,12 @@ from datetime import date, datetime, timedelta
 from decimal import Decimal
 from typing import Any
 
-from fastapi import HTTPException, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
 from app.core.clock import local_now
+from app.core.errors import not_found
 from app.enums import CurrencyCode, FiscalDocumentType, SourceType
 from app.models.core import Employee, Facility
 from app.models.customer import Customer
@@ -548,9 +548,7 @@ async def detail(
     documents = await side.documents(db, facility=facility, party=party_id)
     rows = await _rows(db, side, documents, scoped=facility is not None, parties=[party_id])
     if party_id not in rows:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail=f'{side.party_label} not found'
-        )
+        raise not_found(side.party_label.lower(), party_id)
     today = local_now().date()
     documents = sorted(
         documents, key=lambda d: (d.due_date is None, d.due_date or datetime.min, d.id)

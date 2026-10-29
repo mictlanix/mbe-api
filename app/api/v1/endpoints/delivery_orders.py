@@ -17,10 +17,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app import rendering
 from app.core.config import settings
 from app.core.deps import CurrentUser, require_privilege
+from app.core.errors import not_found
 from app.db.session import get_db
 from app.enums import AccessRight, DeliveryOrderStatus, FulfillmentType, SystemObject
 from app.models.core import Warehouse
-from app.models.logistics import ProofOfDelivery
+from app.models.logistics import DeliveryOrder, ProofOfDelivery
 from app.schemas import ListResponse, LocalDateTime
 from app.schemas.delivery_order import (
     DeliveryOrderCreate,
@@ -48,9 +49,7 @@ _APPROVAL_UPDATE = require_privilege(SystemObject.DELIVERY_ORDER_APPROVAL, Acces
 async def _order_or_404(db: AsyncSession, delivery_order_id: int):  # noqa: ANN202
     order = await delivery_order_service.get_order(db, delivery_order_id)
     if order is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail='Delivery order not found'
-        )
+        raise not_found(DeliveryOrder, delivery_order_id)
     return order
 
 
@@ -383,13 +382,14 @@ async def confirm_pickup(
 
 async def _proof_or_404(db: AsyncSession, order) -> ProofOfDelivery:  # noqa: ANN001
     if order.proof_of_delivery is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail='This delivery order has no proof of delivery yet',
+        raise not_found(
+            'proof_of_delivery',
+            order.delivery_order_id,
+            'This delivery order has no proof of delivery yet',
         )
     proof = await db.get(ProofOfDelivery, order.proof_of_delivery)
     if proof is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Proof not found')
+        raise not_found(ProofOfDelivery, order.proof_of_delivery, 'Proof not found')
     return proof
 
 
@@ -423,7 +423,7 @@ async def get_proof_image(
 
     path = os.path.join(settings.pod_dir, proof.image_file)
     if not os.path.exists(path):
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail='Proof image is missing from storage'
+        raise not_found(
+            'proof_of_delivery_image', delivery_order_id, 'Proof image is missing from storage'
         )
     return FileResponse(path, media_type='image/png')

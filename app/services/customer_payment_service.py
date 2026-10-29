@@ -21,6 +21,7 @@ from app.core.clock import local_now
 from app.core.config import settings
 from app.core.constants import SYSTEM_EMPLOYEE_ID
 from app.core.deps import CurrentUser
+from app.core.errors import not_found
 from app.enums import CurrencyCode, FiscalDocumentType, SourceType
 from app.models.core import Employee
 from app.models.customer import Customer
@@ -240,7 +241,7 @@ async def create_payment(
     employee = current.employee_id
 
     if await db.get(Customer, data.customer) is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Customer not found')
+        raise not_found(Customer, data.customer)
 
     now = data.date or local_now()
     session_id = await _open_session_id(db, employee)
@@ -451,9 +452,7 @@ async def apply_payment(
         payment = await _lock_payment(db, payment.customer_payment_id)
         order = await _lock_order(db, data.sales_order)
         if order is None:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail='Sales order not found'
-            )
+            raise not_found('sales_order', data.sales_order)
         balance = await _balance(db, order)
 
         assert_order_payable(order)

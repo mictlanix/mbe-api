@@ -21,6 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.clock import local_now
 from app.core.config import settings
 from app.core.deps import CurrentUser
+from app.core.errors import not_found
 from app.enums import DeliveryOrderStatus as S
 from app.enums import FulfillmentType, PaymentTerms, TransactionType
 from app.models.core import Facility, Warehouse
@@ -228,7 +229,7 @@ async def create_from_sales_order(
 
     order = await db.get(SalesOrder, sales_order_id)
     if order is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Sales order not found')
+        raise not_found(SalesOrder, sales_order_id)
     if not order.completed or order.cancelled:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -633,7 +634,7 @@ async def update_line(
 
     line = await db.get(DeliveryOrderDetail, line_id)
     if line is None or line.delivery_order != order.delivery_order_id:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Line not found')
+        raise not_found(DeliveryOrderDetail, line_id, 'Line not found')
 
     if line.sales_order_detail is not None:
         sales_line = await db.get(SalesOrderDetail, line.sales_order_detail)
@@ -659,7 +660,7 @@ async def delete_line(db: AsyncSession, order: DeliveryOrder, line_id: int) -> N
     assert_editable(order)
     line = await db.get(DeliveryOrderDetail, line_id)
     if line is None or line.delivery_order != order.delivery_order_id:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Line not found')
+        raise not_found(DeliveryOrderDetail, line_id, 'Line not found')
     await db.delete(line)
     await db.commit()
 

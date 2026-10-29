@@ -15,6 +15,7 @@ from fastapi import HTTPException, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.errors import not_found
 from app.enums import TransactionType
 from app.models.core import Warehouse
 from app.models.inventory import (
@@ -199,9 +200,9 @@ async def kardex(
 ) -> Kardex:
     start, end = range_bounds(from_, to)
     if await db.get(Product, product) is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Product not found')
+        raise not_found(Product, product)
     if await db.get(Warehouse, warehouse) is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Warehouse not found')
+        raise not_found(Warehouse, warehouse)
 
     ledger = (LotSerialTracking.product == product, LotSerialTracking.warehouse == warehouse)
     opening = (

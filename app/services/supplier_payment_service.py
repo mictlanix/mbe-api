@@ -24,6 +24,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.clock import local_now
 from app.core.deps import CurrentUser
+from app.core.errors import not_found
 from app.enums import PaymentMethod, SourceType
 from app.models.core import CashDrawer, Facility
 from app.models.inventory import InventoryReceipt
@@ -50,10 +51,6 @@ CUTOFF_NOT_SET = 'Balances start at the cutoff, which is not set yet'
 
 def _conflict(reason: str) -> HTTPException:
     return HTTPException(status_code=status.HTTP_409_CONFLICT, detail=reason)
-
-
-def _not_found(what: str) -> HTTPException:
-    return HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f'{what} not found')
 
 
 def _unprocessable(reason: str) -> HTTPException:
@@ -276,7 +273,7 @@ async def _lock_payment(db: AsyncSession, payment_id: int) -> SupplierPayment:
         )
     ).scalar_one_or_none()
     if payment is None:
-        raise _not_found('Supplier payment')
+        raise not_found(SupplierPayment, payment_id)
     return payment
 
 
@@ -298,7 +295,7 @@ async def _lock_orders(db: AsyncSession, po_ids: Iterable[int]) -> dict[int, Pur
         ).scalars()
     }
     if len(orders) != len(ordered):
-        raise _not_found('Purchase order')
+        raise not_found(PurchaseOrder)
     return orders
 
 
@@ -343,7 +340,7 @@ async def create_payment(
     items = data.applications
     async with inv.busy_as_conflict(db):
         if await db.get(Supplier, data.supplier) is None:
-            raise _not_found('Supplier')
+            raise not_found(Supplier, data.supplier)
         session_id = None
         if data.method is PaymentMethod.CASH:
             session = await cash_session_service.open_session_for_cashier(db, current.employee_id)
@@ -429,7 +426,7 @@ async def reverse_application(
     async with inv.busy_as_conflict(db):
         application = await db.get(PurchaseOrderPayment, application_id)
         if application is None or application.supplier_payment != payment_id:
-            raise _not_found('Application')
+            raise not_found(PurchaseOrderPayment, application_id, detail='Application not found')
         await db.commit()
         payment = await _lock_payment(db, payment_id)
         await _lock_orders(db, [application.purchase_order])
@@ -470,7 +467,7 @@ async def cancel_payment(
     async with inv.busy_as_conflict(db):
         payment = await db.get(SupplierPayment, payment_id)
         if payment is None:
-            raise _not_found('Supplier payment')
+            raise not_found(SupplierPayment, payment_id)
         session_id = payment.cash_session
         await db.commit()
 
@@ -648,7 +645,7 @@ async def supplier_balance(db: AsyncSession, supplier_id: int) -> dict[str, Any]
     owed, in credit and net (FR-019). The AP view reads the same two lists (spec 033)."""
     supplier = await db.get(Supplier, supplier_id)
     if supplier is None:
-        raise _not_found('Supplier')
+        raise not_found(Supplier, supplier_id)
     cutoff = await get_cutoff(db)
 
     orders = [

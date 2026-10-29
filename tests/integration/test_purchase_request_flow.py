@@ -134,6 +134,7 @@ async def test_line_refusals(client, db, seeded):
     assert (await _add(client, request, 1, warehouse=999)).status_code == 404
     response = await client.put(f'{URL}/{request}/lines/999', json={'quantity': '1'})
     assert response.status_code == 404
+    assert response.json()['code'] == 'resource.not_found'
 
 
 async def test_a_line_can_be_changed_and_removed_while_a_draft(client, db, seeded):
@@ -354,6 +355,7 @@ async def test_marking_needs_a_submitted_or_approved_request(client, db, seeded)
         f'{URL}/{approved}/lines/{draft_lines[0]}/to-purchase', json={'to_purchase': True}
     )
     assert response.status_code == 404
+    assert response.json()['code'] == 'resource.not_found'
 
 
 async def test_a_line_on_a_live_order_shows_it_and_cannot_be_unmarked(client, db, seeded):

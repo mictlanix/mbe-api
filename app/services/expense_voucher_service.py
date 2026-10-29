@@ -21,6 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.clock import local_now
 from app.core.deps import CurrentUser
+from app.core.errors import not_found
 from app.enums import SourceType
 from app.models.core import CashDrawer, CashSession, Employee, Expense
 from app.models.purchases import ExpenseVoucher, ExpenseVoucherDetail
@@ -218,9 +219,7 @@ async def _lock_voucher(db: AsyncSession, voucher_id: int) -> ExpenseVoucher:
         )
     ).scalar_one_or_none()
     if voucher is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail='Expense voucher not found'
-        )
+        raise not_found(ExpenseVoucher, voucher_id)
     return voucher
 
 
@@ -317,7 +316,7 @@ async def _locked_line(
         )
     ).scalar_one_or_none()
     if line is None or line.expense_voucher != voucher_id:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Line not found')
+        raise not_found(ExpenseVoucherDetail, line_id, detail='Line not found')
     return voucher, line
 
 
@@ -365,9 +364,7 @@ async def confirm_voucher(
     async with inv.busy_as_conflict(db):
         # 1. Pre-reads, then the commit.
         if await db.get(ExpenseVoucher, voucher_id) is None:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail='Expense voucher not found'
-            )
+            raise not_found(ExpenseVoucher, voucher_id)
         session = await cash_session_service.open_session_for_cashier(db, current.employee_id)
         if session is None:
             raise _conflict(_SESSION_REQUIRED)
@@ -427,9 +424,7 @@ async def void_voucher(
         # 1. Pre-reads, then the commit.
         voucher = await db.get(ExpenseVoucher, voucher_id)
         if voucher is None:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail='Expense voucher not found'
-            )
+            raise not_found(ExpenseVoucher, voucher_id)
         inv.assert_facility(current, voucher.facility)
         _assert_voidable(voucher)
         session_id = voucher.cash_session

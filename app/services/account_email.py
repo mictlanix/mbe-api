@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app import rendering
 from app.core.clock import local_now
 from app.core.deps import CurrentUser
+from app.core.errors import not_found
 from app.models.core import Contact
 from app.models.customer import customer_contact
 from app.models.supplier import supplier_contact
@@ -113,9 +114,7 @@ async def email_statement(
     failed send records nothing (502).
     """
     if party_id not in await side.parties(db, [party_id]):
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail=f'{side.party_label} not found'
-        )
+        raise not_found(side.party_label.lower(), party_id)
     addresses = await recipients(db, side, party_id, contact_ids, to)
     template, context = await print_contexts.account_statement_context(
         db, side, party_id, facility=current.facility_id

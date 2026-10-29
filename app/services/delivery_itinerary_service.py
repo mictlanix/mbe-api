@@ -24,6 +24,7 @@ from sqlalchemy.orm import InstrumentedAttribute
 
 from app.core.clock import local_now
 from app.core.deps import CurrentUser
+from app.core.errors import not_found
 from app.enums import DeliveryOrderStatus as S
 from app.enums import (
     FulfillmentType,
@@ -182,7 +183,7 @@ async def create_itinerary(
             )
         ).scalar_one_or_none()
         if locked is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Vehicle not found')
+            raise not_found(Vehicle, vehicle)
 
         existing = (
             await db.execute(
@@ -357,9 +358,7 @@ async def add_stop(
 
     order = await db.get(DeliveryOrder, delivery_order_id)
     if order is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail='Delivery order not found'
-        )
+        raise not_found(DeliveryOrder, delivery_order_id)
     if FulfillmentType(order.fulfillment_type) is FulfillmentType.PICKUP:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -403,9 +402,7 @@ async def _lock_line(db: AsyncSession, line_id: int) -> DeliveryOrderDetail:
         )
     ).scalar_one_or_none()
     if line is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail='Delivery order line not found'
-        )
+        raise not_found(DeliveryOrderDetail, line_id)
     return line
 
 
@@ -478,9 +475,7 @@ async def adjust_commitment(
 
     entry = await db.get(DeliveriesItineraryDetail, line_id)
     if entry is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail='Itinerary line not found'
-        )
+        raise not_found(DeliveriesItineraryDetail, line_id, 'Itinerary line not found')
 
     order_line = await _lock_line(db, entry.delivery_order_detail)
     headroom = delivery_order_service.open_quantity(order_line) + entry.committed_quantity
@@ -504,9 +499,7 @@ async def release_commitment(
 
     entry = await db.get(DeliveriesItineraryDetail, line_id)
     if entry is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail='Itinerary line not found'
-        )
+        raise not_found(DeliveriesItineraryDetail, line_id, 'Itinerary line not found')
 
     order_line = await db.get(DeliveryOrderDetail, entry.delivery_order_detail)
     if order_line is not None:
@@ -520,7 +513,7 @@ async def remove_stop(db: AsyncSession, itinerary: DeliveriesItinerary, stop_id:
 
     stop = await db.get(DeliveriesItineraryStop, stop_id)
     if stop is None or stop.deliveries_itinerary != itinerary.deliveries_itinerary_id:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Stop not found')
+        raise not_found(DeliveriesItineraryStop, stop_id, 'Stop not found')
 
     for line in await lines_of_stop(db, stop_id):
         order_line = await db.get(DeliveryOrderDetail, line.delivery_order_detail)

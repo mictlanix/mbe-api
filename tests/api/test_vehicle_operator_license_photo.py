@@ -167,6 +167,7 @@ async def test_upload_for_an_unknown_operator_is_404(dirs) -> None:
         r = await _post(_png())
 
     assert r.status_code == 404
+    assert r.json()['code'] == 'resource.not_found'
     assert _files(dirs.photos) == []
 
 
@@ -225,6 +226,7 @@ async def test_get_is_404_without_a_photo(dirs) -> None:
         r = await _call('GET')
 
     assert r.status_code == 404
+    assert r.json()['code'] == 'resource.not_found'
 
 
 @pytest.mark.asyncio
@@ -234,6 +236,7 @@ async def test_get_is_404_when_the_file_is_missing(dirs) -> None:
         r = await _call('GET')
 
     assert r.status_code == 404
+    assert r.json()['code'] == 'resource.not_found'
 
 
 @pytest.mark.asyncio
@@ -256,6 +259,7 @@ async def test_delete_photo_is_404_without_one(dirs) -> None:
         r = await _call('DELETE')
 
     assert r.status_code == 404
+    assert r.json()['code'] == 'resource.not_found'
 
 
 @pytest.mark.asyncio

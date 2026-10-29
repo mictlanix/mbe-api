@@ -90,6 +90,7 @@ async def test_an_override_of_another_customer_is_not_reachable(
     r = await client.delete(f'/api/v1/customers/999/discounts/{discount_id}')
 
     assert r.status_code == 404
+    assert r.json()['code'] == 'resource.not_found'
 
 
 async def test_removing_the_override_leaves_none(

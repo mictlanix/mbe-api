@@ -1,10 +1,12 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, Query
 from fastapi import status as http_status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.deps import CurrentUser, require_any_privilege, require_privilege
+from app.core.errors import not_found
 from app.db.session import get_db
 from app.enums import AccessRight, EntityStatus, SystemObject
+from app.models.core import Employee
 from app.schemas import ListResponse
 from app.schemas.core import EmployeeCreate, EmployeeResponse, EmployeeUpdate
 from app.services import employee_service
@@ -59,7 +61,7 @@ async def get_employee(
 ) -> EmployeeResponse:
     employee = await employee_service.get_employee(db, employee_id)
     if employee is None:
-        raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail='Employee not found')
+        raise not_found(Employee, employee_id)
     return EmployeeResponse.model_validate(employee)
 
 
@@ -72,7 +74,7 @@ async def update_employee(
 ) -> EmployeeResponse:
     employee = await employee_service.get_employee(db, employee_id)
     if employee is None:
-        raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail='Employee not found')
+        raise not_found(Employee, employee_id)
     employee = await employee_service.update_employee(db, employee, data)
     return EmployeeResponse.model_validate(employee)
 
@@ -85,5 +87,5 @@ async def delete_employee(
 ) -> None:
     employee = await employee_service.get_employee(db, employee_id)
     if employee is None:
-        raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail='Employee not found')
+        raise not_found(Employee, employee_id)
     await employee_service.delete_employee(db, employee)

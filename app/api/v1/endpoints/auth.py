@@ -1,9 +1,11 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, status
 from fastapi.security import OAuth2PasswordRequestForm
 from jose import JWTError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.deps import CurrentUser, get_signed_in_user
+from app.core.error_codes import ErrorCode
+from app.core.errors import DomainError, not_found
 from app.core.password_policy import current_policy
 from app.core.security import create_access_token, decode_token
 from app.db.session import get_db
@@ -22,9 +24,9 @@ async def login(
 ) -> TokenResponse:
     user = await user_service.authenticate_user(db, form_data.username, form_data.password)
     if user is None:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail='Invalid username or password',
+        raise DomainError(
+            ErrorCode.AUTH_INVALID_CREDENTIALS,
+            'Invalid username or password',
             headers={'WWW-Authenticate': 'Bearer'},
         )
     facility_id = user.settings.facility_id if user.settings else None
@@ -40,7 +42,7 @@ async def get_me(
     """Return the authenticated caller's own profile, settings, and privileges."""
     user = await user_service.get_user(db, current_user.user_id)
     if user is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='User not found')
+        raise not_found(User)
     return UserResponse.model_validate(user)
 
 
@@ -56,8 +58,8 @@ async def confirm_recovery(
     db: AsyncSession = Depends(get_db),
 ) -> None:
     """Complete an admin-triggered password recovery using a signed recovery token."""
-    bad_token = HTTPException(
-        status_code=status.HTTP_400_BAD_REQUEST, detail='Invalid or expired recovery token'
+    bad_token = DomainError(
+        ErrorCode.AUTH_RECOVERY_TOKEN_INVALID, 'Invalid or expired recovery token'
     )
     try:
         payload = decode_token(data.recovery_token)
@@ -71,7 +73,7 @@ async def confirm_recovery(
 
     user = await db.get(User, user_id)
     if user is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='User not found')
+        raise not_found(User)
 
     await user_service.complete_recovery(db, user, data.new_password)
 
@@ -85,13 +87,11 @@ async def change_password(
     """Change the authenticated user's own password (requires old password verification)."""
     user = await db.get(User, current_user.user_id)
     if user is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='User not found')
+        raise not_found(User)
 
     from app.core.security import verify_password
 
     if not verify_password(data.old_password, user.password):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST, detail='Incorrect current password'
-        )
+        raise DomainError(ErrorCode.AUTH_INCORRECT_CURRENT_PASSWORD, 'Incorrect current password')
 
     await user_service.change_password(db, user, data.new_password)

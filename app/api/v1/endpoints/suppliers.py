@@ -1,9 +1,11 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.deps import CurrentUser, require_any_privilege, require_privilege
+from app.core.errors import not_found
 from app.db.session import get_db
 from app.enums import AccessRight, SystemObject
+from app.models.supplier import Supplier, SupplierAgreement
 from app.schemas import ListResponse
 from app.schemas.supplier import (
     SupplierAgreementCreate,
@@ -60,7 +62,7 @@ async def get_supplier(
 ) -> SupplierDetailResponse:
     supplier = await supplier_service.get_supplier_detail(db, supplier_id, current)
     if supplier is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Supplier not found')
+        raise not_found(Supplier, supplier_id)
     return SupplierDetailResponse.model_validate(supplier)
 
 
@@ -73,7 +75,7 @@ async def update_supplier(
 ) -> SupplierDetailResponse:
     supplier = await supplier_service.get_supplier(db, supplier_id)
     if supplier is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Supplier not found')
+        raise not_found(Supplier, supplier_id)
     supplier = await supplier_service.update_supplier(db, supplier, data, current)
     return SupplierDetailResponse.model_validate(supplier)
 
@@ -86,20 +88,20 @@ async def delete_supplier(
 ) -> None:
     supplier = await supplier_service.get_supplier(db, supplier_id)
     if supplier is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Supplier not found')
+        raise not_found(Supplier, supplier_id)
     await supplier_service.delete_supplier(db, supplier)
 
 
 async def _require_supplier(db: AsyncSession, supplier_id: int) -> None:
     if await supplier_service.get_supplier(db, supplier_id) is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Supplier not found')
+        raise not_found(Supplier, supplier_id)
 
 
 async def _require_agreement(db: AsyncSession, supplier_id: int, agreement_id: int):
     await _require_supplier(db, supplier_id)
     agreement = await supplier_agreement_service.get_agreement(db, supplier_id, agreement_id)
     if agreement is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Agreement not found')
+        raise not_found(SupplierAgreement, agreement_id, detail='Agreement not found')
     return agreement
 
 

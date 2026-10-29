@@ -11,7 +11,13 @@ from pydantic import BaseModel
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.core.error_codes import ErrorCode
-from app.core.errors import DomainError, http_exception_handler, not_found, problem_body
+from app.core.errors import (
+    FRAMEWORK_CODES,
+    DomainError,
+    http_exception_handler,
+    not_found,
+    problem_body,
+)
 from app.models.customer import Customer
 from tests.problem import assert_problem
 
@@ -155,3 +161,45 @@ async def test_a_framework_exception_is_coded_by_status() -> None:
     async with AsyncClient(transport=ASGITransport(app=_app()), base_url='http://t') as c:
         r = await c.get('/plain')
     assert_problem(r, 401, 'auth.not_authenticated')
+
+
+# ── Through the real app: framework errors (T012) ─────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_framework_errors_through_the_app() -> None:
+    from app.main import app
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url='http://t') as c:
+        unknown = await c.get('/api/v1/no-such-route')
+        wrong_method = await c.patch('/api/v1/health')
+        no_token = await c.get('/api/v1/customers/1')
+
+    assert_problem(unknown, 404, 'request.route_not_found')
+    assert_problem(wrong_method, 405, 'request.method_not_allowed')
+    assert_problem(no_token, 401, 'auth.not_authenticated')
+    assert no_token.headers['www-authenticate'] == 'Bearer'
+
+
+@pytest.mark.asyncio
+async def test_an_unparseable_body_and_a_failed_validation() -> None:
+    from app.main import app
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url='http://t') as c:
+        malformed = await c.post(
+            '/api/v1/auth/recover',
+            content=b'{not json',
+            headers={'content-type': 'application/json'},
+        )
+        invalid = await c.post('/api/v1/auth/recover', json={})
+
+    # FastAPI reports an unparseable JSON body as a validation error (`json_invalid`), so both
+    # keep FastAPI's list shape and content type: request validation is not a Problem.
+    for response in (malformed, invalid):
+        assert response.status_code == 422
+        assert response.headers['content-type'] == 'application/json'
+        assert isinstance(response.json()['detail'], list)
+
+
+def test_a_framework_400_is_request_malformed() -> None:
+    assert FRAMEWORK_CODES[400] is ErrorCode.REQUEST_MALFORMED

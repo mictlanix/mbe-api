@@ -1,11 +1,13 @@
 from datetime import date
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.deps import CurrentUser, require_privilege
+from app.core.errors import not_found
 from app.db.session import get_db
 from app.enums import AccessRight, SystemObject
+from app.models.supplier import SupplierPayment
 from app.schemas import ListResponse
 from app.schemas.customer_payment import ReversalRequest
 from app.schemas.supplier_payments import (
@@ -85,9 +87,7 @@ async def get_supplier_payment(
 ) -> SupplierPaymentResponse:
     payment = await service.get_payment(db, payment_id)
     if payment is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail='Supplier payment not found'
-        )
+        raise not_found(SupplierPayment, payment_id)
     return SupplierPaymentResponse.model_validate(payment)
 
 

@@ -5,8 +5,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import rendering
 from app.core.deps import CurrentUser, require_privilege
+from app.core.errors import not_found
 from app.db.session import get_db
 from app.enums import AccessRight, SystemObject
+from app.models.purchases import ExpenseVoucher
 from app.schemas import ListResponse
 from app.schemas.customer_payment import ReversalRequest
 from app.schemas.expense_vouchers import (
@@ -34,9 +36,7 @@ async def _voucher_or_404(db: AsyncSession, voucher_id: int, current: CurrentUse
     """Another facility's voucher answers 403 to a non-administrator (FR-008)."""
     voucher = await service.get_voucher(db, voucher_id)
     if voucher is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail='Expense voucher not found'
-        )
+        raise not_found(ExpenseVoucher, voucher_id)
     inv.assert_facility(current, voucher.facility)
     return voucher
 

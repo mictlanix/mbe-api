@@ -1,10 +1,12 @@
-from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Body, Depends, Query, status
 from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.deps import CurrentUser, require_privilege
+from app.core.errors import not_found
 from app.db.session import get_db
 from app.enums import AccessRight, SystemObject
+from app.models.inventory import InventoryCount
 from app.schemas import ListResponse
 from app.schemas.inventory import (
     CountConfirm,
@@ -31,7 +33,7 @@ async def _count_or_404(db: AsyncSession, count_id: int):  # noqa: ANN202
     """Header only: the state-changing services load lines after they lock (research R2)."""
     count = await inv.get_document(db, inv.COUNT, count_id)
     if count is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Count not found')
+        raise not_found(InventoryCount, count_id, 'Count not found')
     return count
 
 

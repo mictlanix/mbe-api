@@ -2,8 +2,10 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.deps import CurrentUser, require_privilege
+from app.core.errors import not_found
 from app.db.session import get_db
 from app.enums import AccessRight, SystemObject
+from app.models.inventory import InventoryTransfer
 from app.schemas import ListResponse
 from app.schemas.inventory import (
     InTransitResponse,
@@ -105,7 +107,7 @@ async def get_inventory_transfer(
 ) -> InventoryTransferResponse:
     transfer = await inv.get_document(db, inv.TRANSFER, inventory_transfer_id)
     if transfer is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Transfer not found')
+        raise not_found(InventoryTransfer, inventory_transfer_id, 'Transfer not found')
     return await _response(db, transfer)
 
 

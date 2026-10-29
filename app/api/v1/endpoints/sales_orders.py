@@ -3,6 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import rendering
 from app.core.deps import CurrentUser, can_see_every_facility, require_privilege
+from app.core.errors import not_found
 from app.db.session import get_db
 from app.enums import AccessRight, OrderOrigin, SystemObject
 from app.schemas import ListResponse, LocalDateTime
@@ -30,7 +31,7 @@ _PAYMENTS_READ = require_privilege(SystemObject.CUSTOMER_PAYMENTS, AccessRight.R
 async def _order_or_404(db: AsyncSession, sales_order_id: int):  # noqa: ANN202
     order = await sales_order_service.get_order(db, sales_order_id)
     if order is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Sales order not found')
+        raise not_found('sales_order', sales_order_id)
     return order
 
 
@@ -44,7 +45,7 @@ async def _writable_order_or_404(  # noqa: ANN202
     if order.facility != current.facility_id and not await can_see_every_facility(
         db, current, SystemObject.SEARCH_CREDITS_FROM_ALL_STORES
     ):
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Sales order not found')
+        raise not_found('sales_order', sales_order_id)
     return order
 
 
@@ -251,7 +252,7 @@ async def update_sales_order_line(
     order = await _writable_order_or_404(db, current, sales_order_id)
     line = await sales_order_service.get_line(db, order, line_id)
     if line is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Line not found')
+        raise not_found('sales_order_line', line_id, detail='Line not found')
     order = await sales_order_service.update_line(db, order, line, data, current=current)
     return SalesOrderResponse.model_validate(order)
 
@@ -266,6 +267,6 @@ async def remove_sales_order_line(
     order = await _writable_order_or_404(db, current, sales_order_id)
     line = await sales_order_service.get_line(db, order, line_id)
     if line is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Line not found')
+        raise not_found('sales_order_line', line_id, detail='Line not found')
     order = await sales_order_service.remove_line(db, order, line, current=current)
     return SalesOrderResponse.model_validate(order)

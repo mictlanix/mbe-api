@@ -1,9 +1,11 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from fastapi import APIRouter, Depends, Query, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.deps import CurrentUser, require_privilege
+from app.core.errors import not_found
 from app.db.session import get_db
 from app.enums import AccessRight, SystemObject
+from app.models.inventory import InventoryReceipt
 from app.schemas import ListResponse
 from app.schemas.inventory import (
     InventoryReceiptResponse,
@@ -28,7 +30,7 @@ async def _receipt_or_404(db: AsyncSession, receipt_id: int):  # noqa: ANN202
     """Header only: the state-changing services load lines after they lock (research R2)."""
     receipt = await inv.get_document(db, inv.RECEIPT, receipt_id)
     if receipt is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Receipt not found')
+        raise not_found(InventoryReceipt, receipt_id, 'Receipt not found')
     return receipt
 
 

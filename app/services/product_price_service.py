@@ -5,6 +5,8 @@ from fastapi import HTTPException, status
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.error_codes import ErrorCode
+from app.core.errors import DomainError, not_found
 from app.models.product import PriceList, Product, ProductPrice
 from app.schemas.product_price import (
     ProductPriceBulkItem,
@@ -105,10 +107,10 @@ async def get_product_price(db: AsyncSession, product_price_id: int) -> ProductP
 
 async def create_product_price(db: AsyncSession, data: ProductPriceCreate) -> ProductPrice:
     if await db.get(Product, data.product) is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Product not found')
+        raise not_found(Product, data.product)
     pl = await db.get(PriceList, data.price_list)
     if pl is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Price list not found')
+        raise not_found(PriceList, data.price_list)
     assert_not_cost_list(data.price_list, detail=COST_LIST_READ_ONLY)
 
     existing = (
@@ -120,9 +122,10 @@ async def create_product_price(db: AsyncSession, data: ProductPriceCreate) -> Pr
         )
     ).scalar_one_or_none()
     if existing is not None:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail='Price already exists for this product and price list',
+        raise DomainError(
+            ErrorCode.RESOURCE_ALREADY_EXISTS,
+            'Price already exists for this product and price list',
+            {'resource': 'product_price', 'field': 'product,price_list'},
         )
 
     pp = ProductPrice(

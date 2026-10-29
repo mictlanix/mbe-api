@@ -122,6 +122,7 @@ class TestListAndRead:
         ):
             response = await client.get(f'{BASE}/999')
         assert response.status_code == 404
+        assert response.json()['code'] == 'resource.not_found'
         assert response.json()['detail'] == 'Profile not found'
 
 
@@ -189,6 +190,7 @@ class TestUpdateAndDelete:
         with patch('app.services.user_profile_service.get_profile', AsyncMock(return_value=None)):
             response = await client.put(f'{BASE}/999', json={'name': 'X'})
         assert response.status_code == 404
+        assert response.json()['code'] == 'resource.not_found'
 
     @pytest.mark.asyncio
     async def test_delete_returns_204(self, client: AsyncClient) -> None:
@@ -207,6 +209,7 @@ class TestUpdateAndDelete:
         with patch('app.services.user_profile_service.get_profile', AsyncMock(return_value=None)):
             response = await client.delete(f'{BASE}/999')
         assert response.status_code == 404
+        assert response.json()['code'] == 'resource.not_found'
 
 
 class TestApply:
@@ -255,6 +258,7 @@ class TestApply:
         with patch('app.services.user_profile_service.get_profile', AsyncMock(return_value=None)):
             response = await client.post(f'{BASE}/999/apply/jdoe')
         assert response.status_code == 404
+        assert response.json()['code'] == 'resource.not_found'
         assert response.json()['detail'] == 'Profile not found'
 
     @pytest.mark.asyncio
@@ -268,6 +272,7 @@ class TestApply:
         ):
             response = await client.post(f'{BASE}/1/apply/nobody')
         assert response.status_code == 404
+        assert response.json()['code'] == 'resource.not_found'
         assert response.json()['detail'] == 'User not found'
 
     @pytest.mark.asyncio

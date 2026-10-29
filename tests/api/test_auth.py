@@ -14,6 +14,7 @@ from app.main import app
 from app.models.core import CashDrawer, Facility, PointSale
 from app.models.user import User, UserSettings
 from app.schemas.user import UserResponse
+from tests.problem import assert_problem
 
 
 def _make_user(
@@ -174,7 +175,8 @@ async def test_auth_me_requires_authentication() -> None:
     async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as client:
         response = await client.get('/api/v1/auth/me')
 
-    assert response.status_code == 401
+    assert_problem(response, 401, 'auth.not_authenticated')
+    assert response.headers['www-authenticate'] == 'Bearer'
 
 
 @pytest.mark.asyncio
@@ -188,7 +190,8 @@ async def test_auth_me_rejects_stale_session_version() -> None:
     async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as client:
         response = await client.get('/api/v1/auth/me', headers={'Authorization': f'Bearer {token}'})
 
-    assert response.status_code == 401
+    assert_problem(response, 401, 'auth.not_authenticated')
+    assert response.json()['detail'] == 'Invalid or expired credentials'
 
 
 @pytest.mark.asyncio
@@ -304,3 +307,66 @@ async def test_user_admin_routes_pass_the_acting_employee_as_updater() -> None:
     assert mock_update.await_args.kwargs['updater'] == 7
     assert mock_delete.await_args.kwargs['updater'] == 7
     assert mock_recover.await_args.kwargs['updater'] == 7
+
+
+# ── Coded refusals (spec 036) ─────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_login_with_a_wrong_password_is_invalid_credentials() -> None:
+    app.dependency_overrides[get_db] = _db_override(None)
+    with patch(
+        'app.services.user_service.authenticate_user', new=AsyncMock(return_value=None)
+    ):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as c:
+            response = await c.post(
+                '/api/v1/auth/login', data={'username': 'jdoe', 'password': 'nope'}
+            )
+
+    body = assert_problem(response, 401, 'auth.invalid_credentials')
+    assert body['detail'] == 'Invalid username or password'
+    assert response.headers['www-authenticate'] == 'Bearer'
+
+
+@pytest.mark.asyncio
+async def test_a_bad_recovery_token_is_coded() -> None:
+    app.dependency_overrides[get_db] = _db_override(None)
+    async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as c:
+        response = await c.post(
+            '/api/v1/auth/recover',
+            json={'recovery_token': 'not-a-jwt', 'new_password': 'Abcdef12345!xyz'},
+        )
+
+    assert_problem(response, 400, 'auth.recovery_token_invalid')
+
+
+@pytest.mark.asyncio
+async def test_a_wrong_current_password_is_coded() -> None:
+    user = _make_user()
+    app.dependency_overrides[get_signed_in_user] = lambda: CurrentUser(
+        user_id='jdoe', session_version=1, administrator=False, facility_id=None, employee_id=7
+    )
+    app.dependency_overrides[get_db] = _db_override(user)
+    with patch('app.core.security.verify_password', return_value=False):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as c:
+            response = await c.post(
+                '/api/v1/auth/change-password',
+                json={'old_password': 'wrong', 'new_password': 'Abcdef12345!xyz'},
+            )
+
+    assert_problem(response, 400, 'auth.incorrect_current_password')
+
+
+@pytest.mark.asyncio
+async def test_a_missing_own_profile_is_not_found_without_an_id() -> None:
+    app.dependency_overrides[get_signed_in_user] = lambda: CurrentUser(
+        user_id='ghost', session_version=1, administrator=False, facility_id=None, employee_id=7
+    )
+    app.dependency_overrides[get_db] = _db_override(None)
+    with patch('app.services.user_service.get_user', new=AsyncMock(return_value=None)):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as c:
+            response = await c.get('/api/v1/auth/me')
+
+    body = assert_problem(response, 404, 'resource.not_found')
+    assert body['params'] == {'resource': 'user'}
+    assert body['detail'] == 'User not found'

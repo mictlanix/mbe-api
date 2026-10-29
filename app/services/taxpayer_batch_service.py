@@ -11,6 +11,8 @@ from fastapi import HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.error_codes import ErrorCode
+from app.core.errors import DomainError, not_found
 from app.models.fiscal import FiscalDocument, TaxpayerBatch, TaxpayerIssuer
 from app.schemas.fiscal import (
     BatchAccount,
@@ -90,8 +92,10 @@ async def _assert_series_free(
     if exclude is not None:
         query = query.where(TaxpayerBatch.taxpayer_batch_id != exclude)
     if (await db.execute(query)).first() is not None:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT, detail='The issuer already has this series'
+        raise DomainError(
+            ErrorCode.RESOURCE_ALREADY_EXISTS,
+            'The issuer already has this series',
+            {'resource': 'taxpayer_batch', 'field': 'batch'},
         )
 
 
@@ -113,9 +117,7 @@ async def create_batch(
     db: AsyncSession, taxpayer: str, data: TaxpayerBatchCreate
 ) -> TaxpayerBatchResponse:
     if await db.get(TaxpayerIssuer, taxpayer) is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail='Taxpayer issuer not found'
-        )
+        raise not_found(TaxpayerIssuer, taxpayer)
     await _assert_series_free(db, taxpayer, data.batch)
     batch = TaxpayerBatch(
         taxpayer=taxpayer, batch=data.batch, type=data.type, template=write_template(data.template)

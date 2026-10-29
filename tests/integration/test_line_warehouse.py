@@ -76,6 +76,7 @@ async def test_a_line_from_an_unknown_warehouse_is_404(client: AsyncClient, seed
     )
 
     assert response.status_code == 404, response.text
+    assert response.json()['code'] == 'resource.not_found'
     assert response.json()['detail'] == 'Warehouse not found'
 
 
@@ -128,5 +129,6 @@ async def test_a_refund_line_into_an_in_transit_location_is_refused(
     )
 
     assert unknown.status_code == 404, unknown.text
+    assert unknown.json()['code'] == 'resource.not_found'
     assert in_transit.status_code == 422, in_transit.text
     assert in_transit.json()['detail'] == 'Warehouse 2 is an in-transit location'

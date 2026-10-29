@@ -16,6 +16,8 @@ from fastapi import HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.error_codes import ErrorCode
+from app.core.errors import DomainError
 from app.models.customer import CustomerDiscount
 from app.models.product import Product
 from app.schemas.customer import CustomerDiscountCreate, CustomerDiscountUpdate
@@ -85,9 +87,10 @@ async def create_discount(
         )
     ).first()
     if duplicate is not None:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail='Customer already has a discount for this product',
+        raise DomainError(
+            ErrorCode.RESOURCE_ALREADY_EXISTS,
+            'Customer already has a discount for this product',
+            {'resource': 'customer_discount', 'field': 'product'},
         )
     discount = CustomerDiscount(customer=customer_id, product=data.product, discount=data.discount)
     db.add(discount)

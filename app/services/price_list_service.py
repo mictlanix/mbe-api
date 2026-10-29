@@ -5,6 +5,7 @@ from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.constants import COST_PRICE_LIST_ID
+from app.core.errors import not_found
 from app.models.customer import Customer
 from app.models.product import PriceList
 from app.schemas.product import PriceListCreate, PriceListUpdate
@@ -154,9 +155,8 @@ async def delete_price_list(
                 detail='Cannot replace a price list with itself',
             )
         if await db.get(PriceList, replacement_id) is None:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail='Replacement price list not found',
+            raise not_found(
+                PriceList, replacement_id, detail='Replacement price list not found'
             )
         await db.execute(
             update(Customer)

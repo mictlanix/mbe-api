@@ -21,6 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.clock import local_now
 from app.core.deps import CurrentUser
+from app.core.errors import not_found
 from app.enums import CurrencyCode, EntityStatus, FiscalDocumentType, PaymentMethod, PaymentTerms
 from app.models.core import Facility
 from app.models.customer import Customer, TaxpayerRecipient, customer_taxpayer
@@ -243,7 +244,7 @@ async def _line_or_404(
 ) -> FiscalDocumentDetail:
     line = await db.get(FiscalDocumentDetail, line_id)
     if line is None or line.document != document.fiscal_document_id:
-        raise _error(status.HTTP_404_NOT_FOUND, 'Line not found')
+        raise not_found(FiscalDocumentDetail, line_id, detail='Line not found')
     return line
 
 
@@ -274,7 +275,7 @@ async def _new_document(
         raise _unprocessable('Taxpayer issuer not found')
     customer = await db.get(Customer, customer_id)
     if customer is None:
-        raise _error(status.HTTP_404_NOT_FOUND, 'Customer not found')
+        raise not_found(Customer, customer_id)
     recipient = await _linked_recipient(db, customer.customer_id, recipient_rfc)
 
     if batch is not None:
@@ -407,7 +408,7 @@ async def add_sales_order(
     _require_type(document, FiscalDocumentType.INVOICE)
     order = await db.get(SalesOrder, sales_order_id)
     if order is None:
-        raise _error(status.HTTP_404_NOT_FOUND, 'Sales order not found')
+        raise not_found(SalesOrder, sales_order_id)
     if not order.completed or order.cancelled:
         raise _unprocessable('The sales order is not completed or is cancelled')
 
@@ -471,7 +472,7 @@ async def add_manual_line(
     _require_draft(document)
     product = await db.get(Product, product_id)
     if product is None:
-        raise _error(status.HTTP_404_NOT_FOUND, 'Product not found')
+        raise not_found(Product, product_id)
     customer = await db.get(Customer, document.customer)
     price = (
         await db.execute(
@@ -846,7 +847,9 @@ async def add_relation(
     _require_type(document, FiscalDocumentType.INVOICE)
     target = await db.get(FiscalDocument, data.relation)
     if target is None:
-        raise _error(status.HTTP_404_NOT_FOUND, 'Related document not found')
+        raise not_found(
+            FiscalDocument, data.relation, detail='Related document not found'
+        )
     same_parties = target.issuer == document.issuer and target.recipient == document.recipient
     if not same_parties or not _qualifies(target, data.type):
         raise _unprocessable(f'The related document does not qualify for relation type {data.type}')
@@ -887,7 +890,7 @@ async def remove_relation(
     _require_draft(document)
     relation = await db.get(FiscalDocumentRelation, relation_id)
     if relation is None or relation.document != document.fiscal_document_id:
-        raise _error(status.HTTP_404_NOT_FOUND, 'Relation not found')
+        raise not_found(FiscalDocumentRelation, relation_id)
     await db.delete(relation)
     _touch(document, current)
     await db.commit()
@@ -1080,7 +1083,7 @@ async def create_payment_receipt(
     if data.customer_payment is not None:
         payment = await db.get(CustomerPayment, data.customer_payment)
         if payment is None:
-            raise _error(status.HTTP_404_NOT_FOUND, 'Customer payment not found')
+            raise not_found(CustomerPayment, data.customer_payment)
         if payment.customer != data.customer:
             raise _unprocessable('The payment belongs to another customer')
         backed = (
@@ -1154,7 +1157,7 @@ async def add_paid_invoice(
     _require_type(document, FiscalDocumentType.PAYMENT_RECEIPT)
     invoice = await db.get(FiscalDocument, data.invoice)
     if invoice is None:
-        raise _error(status.HTTP_404_NOT_FOUND, 'Invoice not found')
+        raise not_found(FiscalDocument, data.invoice, detail='Invoice not found')
     others = await _paid_relations(db, document.fiscal_document_id)
     await _pay_invoice(db, document, invoice, data.amount, others)
     _touch(document, current)
@@ -1166,7 +1169,9 @@ async def _paid_relation_or_404(
 ) -> FiscalDocumentRelation:
     relation = await db.get(FiscalDocumentRelation, relation_id)
     if relation is None or relation.document != document.fiscal_document_id:
-        raise _error(status.HTTP_404_NOT_FOUND, 'Paid invoice not found')
+        raise not_found(
+            FiscalDocumentRelation, relation_id, detail='Paid invoice not found'
+        )
     return relation
 
 
@@ -1325,7 +1330,7 @@ async def create_credit_note(db: AsyncSession, current: CurrentUser, data: Credi
     """A credit note draft for one stamped invoice, copying its parties, form and usage."""
     invoice = await db.get(FiscalDocument, data.invoice)
     if invoice is None:
-        raise _error(status.HTTP_404_NOT_FOUND, 'Invoice not found')
+        raise not_found(FiscalDocument, data.invoice, detail='Invoice not found')
     if not _creditable(invoice):
         raise _unprocessable('The invoice cannot be credited')
     facility = await db.get(Facility, invoice.facility)
@@ -1408,7 +1413,7 @@ async def add_invoice_line(
     invoice = await _credited_invoice(db, document)
     source = await db.get(FiscalDocumentDetail, data.line)
     if source is None or source.document != invoice.fiscal_document_id:
-        raise _error(status.HTTP_404_NOT_FOUND, 'Invoice line not found')
+        raise not_found(FiscalDocumentDetail, data.line, detail='Invoice line not found')
     quantity = data.quantity if data.quantity is not None else source.quantity
     if quantity > source.quantity:
         raise _unprocessable(f"Quantity exceeds the invoice line's {source.quantity:f}")

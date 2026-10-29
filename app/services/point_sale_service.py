@@ -4,6 +4,7 @@ from fastapi import HTTPException, status
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.errors import not_found
 from app.enums import EntityStatus
 from app.models.core import Facility, PointSale, Warehouse
 from app.schemas.core import PointSaleCreate, PointSaleUpdate
@@ -72,7 +73,7 @@ async def _validate_warehouse_facility(db: AsyncSession, facility: int, warehous
     """Reject a warehouse that belongs to a facility other than the point of sale's."""
     row = await db.get(Warehouse, warehouse)
     if row is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Warehouse not found')
+        raise not_found(Warehouse, warehouse)
     if row.facility != facility:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,

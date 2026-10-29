@@ -1,10 +1,12 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, Query
 from fastapi import status as http_status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.deps import CurrentUser, require_privilege
+from app.core.errors import not_found
 from app.db.session import get_db
 from app.enums import AccessRight, AddressType, EntityStatus, SystemObject
+from app.models.core import Address
 from app.schemas import ListResponse
 from app.schemas.core import AddressCreate, AddressResponse, AddressUpdate
 from app.services import address_service
@@ -46,7 +48,7 @@ async def get_address(
 ) -> AddressResponse:
     address = await address_service.get_address(db, address_id)
     if address is None:
-        raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail='Address not found')
+        raise not_found(Address, address_id)
     return AddressResponse.model_validate(address)
 
 
@@ -59,7 +61,7 @@ async def update_address(
 ) -> AddressResponse:
     address = await address_service.get_address(db, address_id)
     if address is None:
-        raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail='Address not found')
+        raise not_found(Address, address_id)
     address = await address_service.update_address(db, address, data)
     return AddressResponse.model_validate(address)
 
@@ -72,5 +74,5 @@ async def delete_address(
 ) -> None:
     address = await address_service.get_address(db, address_id)
     if address is None:
-        raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail='Address not found')
+        raise not_found(Address, address_id)
     await address_service.delete_address(db, address)

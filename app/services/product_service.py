@@ -7,6 +7,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings
 from app.core.constants import COST_PRICE_LIST_ID
+from app.core.error_codes import ErrorCode
+from app.core.errors import DomainError, not_found
 from app.enums import EntityStatus, SourceType
 from app.models.core import Label
 from app.models.product import PriceList, Product, ProductPrice, product_label
@@ -390,8 +392,10 @@ async def _check_code_unique(db: AsyncSession, code: str, exclude_id: int | None
         q = q.where(Product.product_id != exclude_id)
     existing = (await db.execute(q)).scalar_one_or_none()
     if existing is not None:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT, detail='Product code already exists'
+        raise DomainError(
+            ErrorCode.RESOURCE_ALREADY_EXISTS,
+            'Product code already exists',
+            {'resource': 'product', 'field': 'code'},
         )
 
 
@@ -563,13 +567,9 @@ async def _load_merge_pair(db: AsyncSession, req: ProductMergeRequest) -> tuple[
     canonical = await db.get(Product, req.product_id)
     duplicate = await db.get(Product, req.duplicate_id)
     if canonical is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail='Canonical product not found'
-        )
+        raise not_found(Product, req.product_id, detail='Canonical product not found')
     if duplicate is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail='Duplicate product not found'
-        )
+        raise not_found(Product, req.duplicate_id, detail='Duplicate product not found')
     return canonical, duplicate
 
 

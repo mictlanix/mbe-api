@@ -7,8 +7,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.deps import CurrentUser, require_privilege
+from app.core.errors import not_found
 from app.db.session import get_db
 from app.enums import AccessRight, EntityStatus, SystemObject
+from app.models.core import VehicleOperator
 from app.schemas import ListResponse
 from app.schemas.core import VehicleOperatorCreate, VehicleOperatorResponse, VehicleOperatorUpdate
 from app.services import image_service, vehicle_operator_service
@@ -57,9 +59,7 @@ async def get_vehicle_operator(
 ) -> VehicleOperatorResponse:
     vo = await vehicle_operator_service.get_vehicle_operator(db, vehicle_operator_id)
     if vo is None:
-        raise HTTPException(
-            status_code=http_status.HTTP_404_NOT_FOUND, detail='Vehicle operator not found'
-        )
+        raise not_found(VehicleOperator, vehicle_operator_id)
     return VehicleOperatorResponse.model_validate(vo)
 
 
@@ -72,9 +72,7 @@ async def update_vehicle_operator(
 ) -> VehicleOperatorResponse:
     vo = await vehicle_operator_service.get_vehicle_operator(db, vehicle_operator_id)
     if vo is None:
-        raise HTTPException(
-            status_code=http_status.HTTP_404_NOT_FOUND, detail='Vehicle operator not found'
-        )
+        raise not_found(VehicleOperator, vehicle_operator_id)
     vo = await vehicle_operator_service.update_vehicle_operator(
         db, vo, data, updater_id=current.employee_id
     )
@@ -89,9 +87,7 @@ async def delete_vehicle_operator(
 ) -> None:
     vo = await vehicle_operator_service.get_vehicle_operator(db, vehicle_operator_id)
     if vo is None:
-        raise HTTPException(
-            status_code=http_status.HTTP_404_NOT_FOUND, detail='Vehicle operator not found'
-        )
+        raise not_found(VehicleOperator, vehicle_operator_id)
     photo = await vehicle_operator_service.delete_vehicle_operator(db, vo)
     if photo is not None:
         await image_service.delete_image(settings.license_photos_dir, photo)
@@ -106,9 +102,7 @@ async def upload_license_photo(
 ) -> VehicleOperatorResponse:
     vo = await vehicle_operator_service.get_vehicle_operator(db, vehicle_operator_id)
     if vo is None:
-        raise HTTPException(
-            status_code=http_status.HTTP_404_NOT_FOUND, detail='Vehicle operator not found'
-        )
+        raise not_found(VehicleOperator, vehicle_operator_id)
     content = await file.read()
     try:
         filename = await image_service.save_proof_image(content, settings.license_photos_dir)
@@ -137,18 +131,13 @@ async def get_license_photo(
     """
     vo = await vehicle_operator_service.get_vehicle_operator(db, vehicle_operator_id)
     if vo is None:
-        raise HTTPException(
-            status_code=http_status.HTTP_404_NOT_FOUND, detail='Vehicle operator not found'
-        )
+        raise not_found(VehicleOperator, vehicle_operator_id)
     if vo.license_photo is None:
-        raise HTTPException(
-            status_code=http_status.HTTP_404_NOT_FOUND, detail='License photo not found'
-        )
+        raise not_found('license_photo', vehicle_operator_id)
     path = os.path.join(settings.license_photos_dir, vo.license_photo)
     if not os.path.exists(path):
-        raise HTTPException(
-            status_code=http_status.HTTP_404_NOT_FOUND,
-            detail='License photo is missing from storage',
+        raise not_found(
+            'license_photo', vehicle_operator_id, 'License photo is missing from storage'
         )
     return FileResponse(path, media_type='image/png')
 
@@ -161,13 +150,9 @@ async def delete_license_photo(
 ) -> None:
     vo = await vehicle_operator_service.get_vehicle_operator(db, vehicle_operator_id)
     if vo is None:
-        raise HTTPException(
-            status_code=http_status.HTTP_404_NOT_FOUND, detail='Vehicle operator not found'
-        )
+        raise not_found(VehicleOperator, vehicle_operator_id)
     if vo.license_photo is None:
-        raise HTTPException(
-            status_code=http_status.HTTP_404_NOT_FOUND, detail='License photo not found'
-        )
+        raise not_found('license_photo', vehicle_operator_id)
     previous = await vehicle_operator_service.clear_license_photo(db, vo)
     if previous is not None:
         await image_service.delete_image(settings.license_photos_dir, previous)

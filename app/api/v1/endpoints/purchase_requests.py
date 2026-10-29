@@ -1,11 +1,13 @@
 from datetime import date
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.deps import CurrentUser, require_privilege
+from app.core.errors import not_found
 from app.db.session import get_db
 from app.enums import AccessRight, SystemObject
+from app.models.purchases import PurchaseRequest
 from app.schemas import ListResponse
 from app.schemas.purchases import (
     BulkApprove,
@@ -37,9 +39,7 @@ async def _request_or_404(db: AsyncSession, request_id: int):  # noqa: ANN202
     """Header only: the state-changing services read lines after they lock (research R3)."""
     request = await service.get_request(db, request_id)
     if request is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail='Purchase request not found'
-        )
+        raise not_found(PurchaseRequest, request_id)
     return request
 
 

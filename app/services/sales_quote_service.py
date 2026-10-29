@@ -18,6 +18,7 @@ from app import rendering
 from app.core.clock import local_now
 from app.core.config import settings
 from app.core.deps import CurrentUser
+from app.core.errors import not_found
 from app.enums import CurrencyCode, OrderOrigin, PaymentTerms, SourceType
 from app.models.core import Employee, Facility
 from app.models.customer import Customer
@@ -169,7 +170,7 @@ async def attach_summary_totals(db: AsyncSession, quotes: Sequence[SalesQuote]) 
 async def _customer_or_404(db: AsyncSession, customer_id: int) -> Customer:
     customer = await db.get(Customer, customer_id)
     if customer is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Customer not found')
+        raise not_found(Customer, customer_id)
     return customer
 
 
@@ -370,7 +371,7 @@ async def add_line(
 
     product = await db.get(Product, data.product)
     if product is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Product not found')
+        raise not_found(Product, data.product)
 
     customer = await _customer_or_404(db, quote.customer)
     quantity = data.quantity if data.quantity is not None else Decimal(product.min_order_qty)

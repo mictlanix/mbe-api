@@ -129,6 +129,7 @@ async def test_upload_image_returns_404_when_product_missing() -> None:
                 files={'file': ('photo.png', _make_png_bytes(), 'image/png')},
             )
     assert r.status_code == 404
+    assert r.json()['code'] == 'resource.not_found'
 
 
 @pytest.mark.asyncio
