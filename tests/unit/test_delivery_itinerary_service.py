@@ -13,9 +13,10 @@ from decimal import Decimal
 from types import SimpleNamespace
 
 import pytest
-from fastapi import HTTPException
 
 from app.core.errors import DomainError
+from app.enums import DeliveryOrderStatus as S
+from app.enums import FulfillmentType, ItineraryStatus, StopOutcome
 from app.services import delivery_itinerary_service as service
 
 
@@ -49,10 +50,12 @@ class TestAssertOpen:
 
     @pytest.mark.parametrize('status', [1, 2, 3])
     def test_anything_else_is_refused(self, status: int) -> None:
-        with pytest.raises(HTTPException) as exc:
+        with pytest.raises(DomainError) as exc:
             service.assert_open(SimpleNamespace(status=status))
 
         assert exc.value.status_code == 409
+        assert exc.value.code == 'itinerary.not_open'
+        assert exc.value.params == {'status': status}
 
 
 class TestTheGuard:
@@ -96,22 +99,26 @@ class TestTheGuard:
     async def test_committing_beyond_the_open_quantity_states_what_is_available(self) -> None:
         db = _db(_order_line(ordered='10', committed='4'))
 
-        with pytest.raises(HTTPException) as exc:
+        with pytest.raises(DomainError) as exc:
             await service.commit_line(
                 db, _itinerary(), _stop(), delivery_order_detail=11, quantity=Decimal('7')
             )
 
         assert exc.value.status_code == 422
         assert '6' in exc.value.detail
+        assert exc.value.code == 'delivery_order_line.quantity_unavailable'
+        assert exc.value.params == {'available': '6', 'requested': '7'}
 
     @pytest.mark.asyncio
     async def test_a_fully_committed_line_has_nothing_left(self) -> None:
         db = _db(_order_line(ordered='10', committed='10'))
 
-        with pytest.raises(HTTPException) as exc:
+        with pytest.raises(DomainError) as exc:
             await service.commit_line(db, _itinerary(), _stop(), delivery_order_detail=11)
 
         assert exc.value.status_code == 422
+        assert exc.value.code == 'delivery_order_line.nothing_to_load'
+        assert exc.value.params == {}
 
     @pytest.mark.asyncio
     async def test_two_concurrent_commitments_cannot_both_take_the_same_quantity(self) -> None:
@@ -136,7 +143,7 @@ class TestTheGuard:
 
         outcomes = [first, second]
         succeeded = [o for o in outcomes if not isinstance(o, Exception)]
-        refused = [o for o in outcomes if isinstance(o, HTTPException)]
+        refused = [o for o in outcomes if isinstance(o, DomainError)]
 
         assert len(succeeded) == 1
         assert len(refused) == 1
@@ -356,12 +363,14 @@ class TestPerFacilityTransit:
             service.warehouse_service, 'transit_warehouses_for', _async_return({12: 21})
         )
 
-        with pytest.raises(HTTPException) as exc:
+        with pytest.raises(DomainError) as exc:
             asyncio.run(service._transit_map(db, self._entries(12, 17)))
 
         assert exc.value.status_code == 422
         assert 'no in-transit location' in exc.value.detail
         assert '53' in exc.value.detail, 'the offending facility must be named'
+        assert exc.value.code == 'facility.no_in_transit_location'
+        assert exc.value.params == {'facility_ids': [53]}
 
     def test_no_entries_needs_no_lookup(self, monkeypatch) -> None:
         db, _ = self._db({})
@@ -401,6 +410,165 @@ class TestDepartOvercommitted:
             'message': 'Lines are committed beyond what remains',
             'lines': [9],
         }
+
+
+class TestRefusalsWithCodes:
+    @pytest.mark.asyncio
+    async def test_adjusting_past_the_headroom_states_what_is_available(self) -> None:
+        line = _order_line(ordered='10', committed='4')
+        db = _db(line)
+        entry = SimpleNamespace(delivery_order_detail=11, committed_quantity=Decimal('4'))
+
+        async def get(_model, _id):  # noqa: ANN001, ANN202
+            return entry
+
+        db.get = get
+
+        with pytest.raises(DomainError) as exc:
+            await service.adjust_commitment(db, _itinerary(), 3, Decimal('11'))
+
+        assert exc.value.status_code == 422
+        assert exc.value.code == 'delivery_order_line.quantity_unavailable'
+        assert exc.value.params == {'available': '10', 'requested': '11'}
+
+    @pytest.mark.asyncio
+    async def test_a_vehicle_with_an_open_itinerary_is_refused(self) -> None:
+        results = iter(
+            [
+                SimpleNamespace(scalar_one_or_none=lambda: 4),
+                SimpleNamespace(first=lambda: (77,)),
+            ]
+        )
+
+        class _Db:
+            async def execute(self, _statement):  # noqa: ANN001, ANN202
+                return next(results)
+
+        with pytest.raises(DomainError) as exc:
+            await service.create_itinerary(
+                _Db(), current=SimpleNamespace(employee_id=1), vehicle=4
+            )
+
+        assert exc.value.status_code == 409
+        assert exc.value.code == 'vehicle.open_itinerary_exists'
+        assert exc.value.params == {'vehicle_id': 4, 'itinerary_id': 77}
+
+    @pytest.mark.asyncio
+    async def test_a_counter_pickup_cannot_ride_a_trip(self) -> None:
+        order = SimpleNamespace(fulfillment_type=FulfillmentType.PICKUP, status=S.IN_PREPARATION)
+
+        async def get(_model, _id):  # noqa: ANN001, ANN202
+            return order
+
+        with pytest.raises(DomainError) as exc:
+            await service.add_stop(SimpleNamespace(get=get), _itinerary(), 5)
+
+        assert exc.value.status_code == 409
+        assert exc.value.code == 'delivery_order.pickup_not_loadable'
+        assert exc.value.params == {}
+
+    @pytest.mark.asyncio
+    async def test_only_an_order_in_preparation_can_be_loaded(self) -> None:
+        order = SimpleNamespace(fulfillment_type=FulfillmentType.DELIVERY, status=S.APPROVED)
+
+        async def get(_model, _id):  # noqa: ANN001, ANN202
+            return order
+
+        with pytest.raises(DomainError) as exc:
+            await service.add_stop(SimpleNamespace(get=get), _itinerary(), 5)
+
+        assert exc.value.status_code == 409
+        assert exc.value.code == 'delivery_order.not_in_preparation'
+        assert exc.value.params == {'status': S.APPROVED.value}
+
+    def test_departing_with_nothing_committed_is_refused(self, monkeypatch) -> None:
+        monkeypatch.setattr(service, 'stops_of', _async_return([]))
+
+        with pytest.raises(DomainError) as exc:
+            asyncio.run(
+                service.depart(
+                    SimpleNamespace(), _itinerary(), current=SimpleNamespace(employee_id=1)
+                )
+            )
+
+        assert exc.value.status_code == 409
+        assert exc.value.code == 'itinerary.nothing_committed'
+        assert exc.value.params == {}
+
+
+class TestCloseStopRefusals:
+    @staticmethod
+    def _close(itinerary, stop, outcomes, monkeypatch, entries=None):  # noqa: ANN001, ANN205
+        entry = SimpleNamespace(
+            deliveries_itinerary_detail_id=5, sent_quantity=Decimal('5'), committed_quantity=5
+        )
+        monkeypatch.setattr(service, 'lines_of_stop', _async_return(entries or [entry]))
+        return asyncio.run(
+            service._close_locked(
+                SimpleNamespace(),
+                itinerary,
+                stop,
+                outcomes=outcomes,
+                receiver_name='Ana',
+                receiver_id_shown='INE',
+                image_file='x.png',
+                current=SimpleNamespace(employee_id=1),
+            )
+        )
+
+    @staticmethod
+    def _departed() -> SimpleNamespace:
+        return SimpleNamespace(status=ItineraryStatus.DEPARTED)
+
+    @staticmethod
+    def _pending() -> SimpleNamespace:
+        return SimpleNamespace(deliveries_itinerary_stop_id=10, outcome=StopOutcome.PENDING)
+
+    def test_an_itinerary_that_has_not_departed_has_no_stops_to_close(self, monkeypatch) -> None:
+        with pytest.raises(DomainError) as exc:
+            self._close(_itinerary(), self._pending(), [], monkeypatch)
+
+        assert exc.value.status_code == 409
+        assert exc.value.code == 'itinerary.not_departed'
+        assert exc.value.params == {'status': ItineraryStatus.OPEN.value}
+
+    def test_a_stop_already_resolved_is_refused(self, monkeypatch) -> None:
+        stop = SimpleNamespace(deliveries_itinerary_stop_id=10, outcome=StopOutcome.DELIVERED)
+
+        with pytest.raises(DomainError) as exc:
+            self._close(self._departed(), stop, [], monkeypatch)
+
+        assert exc.value.status_code == 409
+        assert exc.value.code == 'itinerary.stop_already_resolved'
+        assert exc.value.params == {}
+
+    def test_every_line_must_be_accounted_for(self, monkeypatch) -> None:
+        with pytest.raises(DomainError) as exc:
+            self._close(self._departed(), self._pending(), [], monkeypatch)
+
+        assert exc.value.status_code == 422
+        assert exc.value.code == 'itinerary.stop_lines_incomplete'
+        assert exc.value.params == {}
+
+    def test_accepting_more_than_was_sent_is_refused(self, monkeypatch) -> None:
+        outcomes = [{'line': 5, 'delivered_quantity': '6'}]
+
+        with pytest.raises(DomainError) as exc:
+            self._close(self._departed(), self._pending(), outcomes, monkeypatch)
+
+        assert exc.value.status_code == 422
+        assert exc.value.code == 'itinerary.stop_delivered_exceeds_sent'
+        assert exc.value.params == {'line_id': 5, 'sent': '5', 'delivered': '6'}
+
+    def test_a_shortfall_needs_a_reason_code(self, monkeypatch) -> None:
+        outcomes = [{'line': 5, 'delivered_quantity': '3'}]
+
+        with pytest.raises(DomainError) as exc:
+            self._close(self._departed(), self._pending(), outcomes, monkeypatch)
+
+        assert exc.value.status_code == 422
+        assert exc.value.code == 'itinerary.stop_shortfall_needs_reason'
+        assert exc.value.params == {'line_id': 5}
 
 
 def _async_return(value):

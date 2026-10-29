@@ -1,7 +1,6 @@
 from collections.abc import Sequence
 from typing import Any
 
-from fastapi import HTTPException, status
 from sqlalchemy import Row, Select, delete, func, insert, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -559,9 +558,8 @@ async def _load_merge_pair(db: AsyncSession, req: ProductMergeRequest) -> tuple[
     Shared with the preview so a preview that answers has the same pair a merge would act on.
     """
     if req.product_id == req.duplicate_id:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail='Cannot merge a product with itself',
+        raise DomainError(
+            ErrorCode.PRODUCT_MERGE_WITH_ITSELF, 'Cannot merge a product with itself'
         )
 
     canonical = await db.get(Product, req.product_id)

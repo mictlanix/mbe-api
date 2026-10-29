@@ -7,7 +7,6 @@ print template can still change (FR-001, FR-002).
 
 import json
 
-from fastapi import HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -132,9 +131,10 @@ async def update_batch(
 ) -> TaxpayerBatchResponse:
     renamed = data.batch != batch.batch
     if (renamed or data.type != batch.type) and await _in_use(db, batch.taxpayer, batch.batch):
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail='The series is in use: only its template can change',
+        raise DomainError(
+            ErrorCode.TAXPAYER_BATCH_IN_USE,
+            'The series is in use: only its template can change',
+            {'action': 'update'},
         )
     if renamed:
         await _assert_series_free(db, batch.taxpayer, data.batch, exclude=batch.taxpayer_batch_id)
@@ -147,9 +147,10 @@ async def update_batch(
 
 async def delete_batch(db: AsyncSession, batch: TaxpayerBatch) -> None:
     if await _in_use(db, batch.taxpayer, batch.batch):
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail='The series is in use and cannot be deleted',
+        raise DomainError(
+            ErrorCode.TAXPAYER_BATCH_IN_USE,
+            'The series is in use and cannot be deleted',
+            {'action': 'delete'},
         )
     await db.delete(batch)
     await db.commit()

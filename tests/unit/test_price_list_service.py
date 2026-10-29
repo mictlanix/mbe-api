@@ -160,6 +160,8 @@ async def test_a_list_cannot_replace_itself() -> None:
         400,
         'Cannot replace a price list with itself',
     )
+    assert exc.value.code == 'price_list.replace_with_itself'
+    assert exc.value.params == {}
     db.execute.assert_not_awaited()
 
 
@@ -289,6 +291,8 @@ async def test_deleting_the_cost_list_is_refused_before_anything_is_written() ->
 
     assert refused.value.status_code == 400
     assert refused.value.detail == 'The cost price list cannot be deleted'
+    assert refused.value.code == 'price_list.cost_not_deletable'
+    assert refused.value.params == {}
     db.execute.assert_not_called()
     db.commit.assert_not_called()
 
@@ -306,4 +310,6 @@ async def test_retiring_onto_the_cost_list_is_refused_before_the_customer_move()
 
     assert refused.value.status_code == 400
     assert refused.value.detail == COST_LIST_NOT_ASSIGNABLE
+    assert refused.value.code == 'price_list.cost_not_assignable'
+    assert refused.value.params == {}
     db.execute.assert_not_called()

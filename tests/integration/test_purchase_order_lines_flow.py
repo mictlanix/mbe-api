@@ -16,6 +16,7 @@ from app.models.purchases import PurchaseOrder, PurchaseOrderDetail, PurchaseReq
 from app.schemas.purchases import OrderLineAdd
 from app.services import purchase_order_service as service
 from tests.integration import inventory_seed as seed
+from tests.problem import assert_problem
 
 URL = '/api/v1/purchase-orders'
 
@@ -114,9 +115,9 @@ async def test_line_and_header_refusals(client, db, seeded):
     order = await _order(client, a)
 
     post = f'{URL}/{order}/lines'
-    assert (
-        await client.post(post, json={'product': unbuyable, 'quantity': '1'})
-    ).status_code == 422
+    response = await client.post(post, json={'product': unbuyable, 'quantity': '1'})
+    body = assert_problem(response, 422, 'product.not_purchasable')
+    assert body['params'] == {'product_id': unbuyable, 'product_code': 'NOBUY'}
     assert (await client.post(post, json={'product': 999, 'quantity': '1'})).status_code == 404
     response = await client.post(
         post, json={'product': 1, 'quantity': '1', 'warehouse': setup.a.transit}
@@ -138,6 +139,8 @@ async def test_a_line_needs_a_warehouse_when_the_caller_has_no_point_of_sale(
     with pytest.raises(HTTPException) as caught:
         await service.add_line(db, order, OrderLineAdd(product=pa, quantity='1'), current=nowhere)
     assert (caught.value.status_code, caught.value.detail) == (422, 'A warehouse is required')
+    assert caught.value.code == 'warehouse.required'
+    assert caught.value.params == {'resource': 'purchase_order'}
 
 
 # ── Lines from one request (FR-023) ───────────────────────────────────────────
@@ -182,7 +185,8 @@ async def test_adding_a_requests_pending_lines(client, db, seeded):
 
     # Again: everything is taken or unmarked.
     response = await client.post(f'{URL}/{order}/request-lines', json={'purchase_request': request})
-    assert response.status_code == 409
+    body = assert_problem(response, 409, 'purchase_order.nothing_to_add')
+    assert body['params'] == {'purchase_request_id': request}
 
 
 async def test_only_an_approved_requests_lines_are_added(client, db, seeded):
@@ -192,7 +196,8 @@ async def test_only_an_approved_requests_lines_are_added(client, db, seeded):
     )
     order = await _order(client, a)
     response = await client.post(f'{URL}/{order}/request-lines', json={'purchase_request': request})
-    assert response.status_code == 409
+    body = assert_problem(response, 409, 'purchase_order.request_not_approved')
+    assert body['params'] == {'purchase_request_id': request}
     response = await client.post(f'{URL}/{order}/request-lines', json={'purchase_request': 999})
     assert response.status_code == 404
     assert response.json()['code'] == 'resource.not_found'
@@ -301,7 +306,8 @@ async def test_to_purchase_groups_by_supplier_and_facility(client, db, seeded):
     response = await client.post(
         f'{URL}/to-purchase', json={'supplier': a, 'facility': setup.b.facility}
     )
-    assert response.status_code == 409
+    body = assert_problem(response, 409, 'purchase_order.nothing_pending')
+    assert body['params'] == {'supplier_id': a, 'facility_id': setup.b.facility}
     body = (await client.get(f'{URL}/to-purchase')).json()
     assert len(body['groups']) == 3
 
@@ -334,6 +340,8 @@ async def test_a_to_purchase_that_lost_the_race_creates_no_po(client, db, seeded
         409,
         'Nothing is pending for this supplier and facility',
     )
+    body = assert_problem(response, 409, 'purchase_order.nothing_pending')
+    assert body['params'] == {'supplier_id': a, 'facility_id': 1}
     assert new_orders == []
 
 
@@ -358,10 +366,11 @@ async def test_cancelling_a_draft_po_keeps_its_lines_and_frees_the_request_lines
     response = await client.post(f'{URL}/{order}/cancel')
     assert (response.status_code, response.json()['status']) == (200, 'cancelled')
     assert response.json()['line_count'] == 1
-    assert (await client.post(f'{URL}/{order}/cancel')).status_code == 409
-    assert (
-        await client.post(f'{URL}/{order}/lines', json={'product': pa, 'quantity': '1'})
-    ).status_code == 409
+    response = await client.post(f'{URL}/{order}/cancel')
+    assert_problem(response, 409, 'purchase_order.already_cancelled')
+    response = await client.post(f'{URL}/{order}/lines', json={'product': pa, 'quantity': '1'})
+    body = assert_problem(response, 409, 'document.not_editable')
+    assert body['params'] == {'status': 'cancelled'}
 
     again = await _order(client, a)
     response = await client.post(f'{URL}/{again}/request-lines', json={'purchase_request': request})
@@ -389,4 +398,6 @@ async def test_lists_default_to_the_callers_live_orders(client, db, seeded):
     assert (await client.get(URL, params={'status': 'completed'})).json()['total'] == 1
     assert (await client.get(URL, params={'id': mine})).json()['total'] == 1
     assert (await client.get(URL, params={'creator': 1, 'all': 'true'})).json()['total'] == 2
-    assert (await client.get(URL, params={'status': 'approved'})).status_code == 422
+    response = await client.get(URL, params={'status': 'approved'})
+    body = assert_problem(response, 422, 'status_filter.unsupported')
+    assert body['params'] == {'resource': 'purchase_order', 'status': 'approved'}

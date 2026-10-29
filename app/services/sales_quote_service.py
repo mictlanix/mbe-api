@@ -10,7 +10,6 @@ from collections.abc import Sequence
 from datetime import datetime, timedelta
 from decimal import Decimal
 
-from fastapi import HTTPException, status
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -459,7 +458,9 @@ async def confirm_quote(db: AsyncSession, quote: SalesQuote, *, current: Current
     then the facility, so the `MAX(serial)` read after them is current.
     """
     await db.commit()
-    async with inventory_documents.busy_as_conflict(db, detail='The facility is busy, retry'):
+    async with inventory_documents.busy_as_conflict(
+        db, detail='The facility is busy, retry', resource='facility'
+    ):
         quote = (
             await db.execute(
                 select(SalesQuote)
@@ -551,9 +552,8 @@ async def email_quote(
     try:
         await mailer.send(message)
     except mail.MailError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f'The email could not be sent: {exc}',
+        raise DomainError(
+            ErrorCode.EMAIL_SEND_FAILED, f'The email could not be sent: {exc}'
         ) from exc
 
     sent_at = local_now()

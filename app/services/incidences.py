@@ -9,10 +9,11 @@ this feature does not otherwise need.
 so an entry keys to the owning payment and names the application in `content`.
 """
 
-from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.clock import local_now
+from app.core.error_codes import ErrorCode
+from app.core.errors import DomainError
 from app.enums import SourceType
 from app.models.incidence import Incidence
 
@@ -32,9 +33,8 @@ def record(
     reversal, and an empty string would satisfy a merely-present check while explaining nothing.
     """
     if not reason or not reason.strip():
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail='A reason is required and cannot be blank',
+        raise DomainError(
+            ErrorCode.INCIDENCE_REASON_REQUIRED, 'A reason is required and cannot be blank'
         )
 
     entry = Incidence(

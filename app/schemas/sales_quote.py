@@ -2,6 +2,7 @@ import re
 from decimal import Decimal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic_core import PydanticCustomError
 
 from app.enums import CurrencyCode, PaymentTerms
 from app.schemas import CUSTOMER_DISPLAY_NAME_DESCRIPTION, LocalDateTime
@@ -135,7 +136,11 @@ class QuoteEmailRequest(BaseModel):
         for raw in value:
             address = raw.strip()
             if len(address) > 254 or not _EMAIL.match(address):
-                raise ValueError(f'Not a valid email address: {raw!r}')
+                raise PydanticCustomError(
+                    'email_address_invalid',
+                    f'Not a valid email address: {raw!r}',
+                    {'value': raw},
+                )
             if address.lower() not in seen:
                 seen.add(address.lower())
                 addresses.append(address)

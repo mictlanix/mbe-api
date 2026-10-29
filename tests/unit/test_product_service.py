@@ -117,6 +117,8 @@ async def test_preview_merge_refuses_the_pairs_a_merge_refuses() -> None:
     with pytest.raises(HTTPException) as exc:
         await preview_merge(_merge_db(Product(product_id=1), Product(product_id=1)), same)
     assert exc.value.status_code == 400
+    assert exc.value.code == 'product.merge_with_itself'
+    assert exc.value.params == {}
 
     pair = ProductMergeRequest(product_id=1, duplicate_id=2)
     with pytest.raises(HTTPException) as exc:

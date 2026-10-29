@@ -1,7 +1,5 @@
 from collections.abc import Sequence
 
-from fastapi import HTTPException
-from fastapi import status as http_status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import load_only
@@ -73,15 +71,17 @@ async def create_taxpayer_certificate(
     a holder, the two must agree.
     """
     if parsed.taxpayer is not None and parsed.taxpayer != taxpayer.upper():
-        raise HTTPException(
-            status_code=http_status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail=f'Certificate belongs to {parsed.taxpayer}, not to {taxpayer.upper()}',
+        raise DomainError(
+            ErrorCode.TAXPAYER_CERTIFICATE_HOLDER_MISMATCH,
+            f'Certificate belongs to {parsed.taxpayer}, not to {taxpayer.upper()}',
+            {'certificate_taxpayer': parsed.taxpayer, 'taxpayer': taxpayer.upper()},
         )
 
     if await db.get(TaxpayerIssuer, taxpayer.upper()) is None:
-        raise HTTPException(
-            status_code=http_status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail='Taxpayer issuer not found',
+        raise DomainError(
+            ErrorCode.TAXPAYER_ISSUER_UNKNOWN,
+            'Taxpayer issuer not found',
+            {'taxpayer': taxpayer.upper()},
         )
 
     if await db.get(TaxpayerCertificate, parsed.certificate_id) is not None:

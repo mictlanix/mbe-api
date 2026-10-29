@@ -17,7 +17,6 @@ from datetime import date, datetime, time, timedelta
 from decimal import Decimal
 from typing import Any
 
-from fastapi import HTTPException, status
 from sqlalchemy import ColumnElement, and_, exists, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -25,7 +24,8 @@ from app import rendering
 from app.core.clock import local_now
 from app.core.constants import COST_PRICE_LIST_ID
 from app.core.deps import CurrentUser
-from app.core.errors import not_found
+from app.core.error_codes import ErrorCode
+from app.core.errors import DomainError, not_found
 from app.enums import CurrencyCode, SourceType
 from app.models.core import Employee, Warehouse
 from app.models.inventory import InventoryReceipt, InventoryReceiptDetail
@@ -66,9 +66,10 @@ def order_status_clause(value: str) -> ColumnElement[bool]:
         return and_(header.completed.is_(True), header.cancelled.is_(False))
     if value == DocumentStatus.CANCELLED:
         return header.cancelled.is_(True)
-    raise HTTPException(
-        status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-        detail='status must be one of draft, completed, cancelled',
+    raise DomainError(
+        ErrorCode.STATUS_FILTER_UNSUPPORTED,
+        'status must be one of draft, completed, cancelled',
+        {'resource': 'purchase_order', 'status': value},
     )
 
 
@@ -160,16 +161,25 @@ def split_taken(requested: Sequence[int], still_pending: set[int]) -> tuple[list
 
 def confirm_refusal(
     state: DocumentStatus, supplier: int | None, lines: Sequence[Any]
-) -> str | None:
+) -> tuple[ErrorCode, str, dict[str, Any]] | None:
+    """`(code, reason, params)` for the caller to raise as `DomainError(*refusal)` (research R8)."""
     if state is not DocumentStatus.DRAFT:
-        return 'Only a draft purchase order can be confirmed'
+        return (
+            ErrorCode.DOCUMENT_NOT_EDITABLE,
+            'Only a draft purchase order can be confirmed',
+            {'status': state},
+        )
     if supplier is None:
-        return 'The purchase order has no supplier'
+        return ErrorCode.PURCHASE_ORDER_NO_SUPPLIER, 'The purchase order has no supplier', {}
     if not lines:
-        return 'The purchase order has no lines'
+        return ErrorCode.PURCHASE_ORDER_NO_LINES, 'The purchase order has no lines', {}
     for line in lines:
         if line.quantity <= 0:
-            return f'Line {line.product_code} has no quantity'
+            return (
+                ErrorCode.PURCHASE_ORDER_LINE_WITHOUT_QUANTITY,
+                f'Line {line.product_code} has no quantity',
+                {'product_code': line.product_code},
+            )
     return None
 
 
@@ -232,8 +242,6 @@ def order_totals(lines: Iterable[Any]) -> tuple[Decimal, Decimal, Decimal]:
     return computed.subtotal, computed.tax_total, computed.total
 
 
-def _conflict(reason: str) -> HTTPException:
-    return HTTPException(status_code=status.HTTP_409_CONFLICT, detail=reason)
 
 
 # ── Reads ─────────────────────────────────────────────────────────────────────
@@ -278,9 +286,10 @@ async def _purchasable(db: AsyncSession, product_id: int) -> Product:
     if product is None:
         raise not_found(Product, product_id)
     if not product.purchasable:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail=f'Product {product.code} is not purchasable',
+        raise DomainError(
+            ErrorCode.PRODUCT_NOT_PURCHASABLE,
+            f'Product {product.code} is not purchasable',
+            {'product_id': product.product_id, 'product_code': product.code},
         )
     return product
 
@@ -305,8 +314,13 @@ async def lock_order(db: AsyncSession, order_id: int) -> PurchaseOrder:
 async def _begin_draft(db: AsyncSession, order_id: int) -> PurchaseOrder:
     await db.commit()
     order = await lock_order(db, order_id)
-    if order_status(order.completed, order.cancelled) is not DocumentStatus.DRAFT:
-        raise _conflict('Only a draft purchase order can be changed')
+    state = order_status(order.completed, order.cancelled)
+    if state is not DocumentStatus.DRAFT:
+        raise DomainError(
+            ErrorCode.DOCUMENT_NOT_EDITABLE,
+            'Only a draft purchase order can be changed',
+            {'status': state},
+        )
     return order
 
 
@@ -378,9 +392,10 @@ async def add_line(
         product = await _purchasable(db, data.product)
         warehouse = data.warehouse or await _pos_warehouse(db, current)
         if warehouse is None:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-                detail='A warehouse is required',
+            raise DomainError(
+                ErrorCode.WAREHOUSE_REQUIRED,
+                'A warehouse is required',
+                {'resource': 'purchase_order'},
             )
         await warehouse_service.assert_sellable(db, warehouse)
         cost = (await costs(db, [product.product_id])).get(product.product_id)
@@ -446,9 +461,15 @@ async def cancel(db: AsyncSession, order_id: int, *, current: CurrentUser) -> Pu
         order = await lock_order(db, order_id)
         state = order_status(order.completed, order.cancelled)
         if state is DocumentStatus.CANCELLED:
-            raise _conflict('The purchase order is already cancelled')
+            raise DomainError(
+                ErrorCode.PURCHASE_ORDER_ALREADY_CANCELLED,
+                'The purchase order is already cancelled',
+            )
         if state is DocumentStatus.COMPLETED:
-            raise _conflict('A confirmed purchase order cannot be cancelled')
+            raise DomainError(
+                ErrorCode.PURCHASE_ORDER_CONFIRMED_CANNOT_CANCEL,
+                'A confirmed purchase order cannot be cancelled',
+            )
         order.cancelled = True
         _touch(order, current)
         await db.commit()
@@ -666,10 +687,18 @@ async def add_request_lines(
 
         lines, header_warehouses, states = await _locked_request_lines(db, ids)
         if states.get(request_id, RequestStatus.APPROVED) is not RequestStatus.APPROVED:
-            raise _conflict("Only an approved request's lines can be ordered")
+            raise DomainError(
+                ErrorCode.PURCHASE_ORDER_REQUEST_NOT_APPROVED,
+                "Only an approved request's lines can be ordered",
+                {'purchase_request_id': request_id},
+            )
         pending, skipped = await _still_pending(db, lines, states)
         if not pending:
-            raise _conflict('Nothing left to add from this request')
+            raise DomainError(
+                ErrorCode.PURCHASE_ORDER_NOTHING_TO_ADD,
+                'Nothing left to add from this request',
+                {'purchase_request_id': request_id},
+            )
         warnings = await _add_pending_lines(db, order, pending, header_warehouses)
         _touch(order, current)
         await db.commit()
@@ -694,7 +723,11 @@ async def create_from_group(
             for row in (await db.execute(query.where(facility_column == facility))).all()
         ]
         if not ids:
-            raise _conflict('Nothing is pending for this supplier and facility')
+            raise DomainError(
+                ErrorCode.PURCHASE_ORDER_NOTHING_PENDING,
+                'Nothing is pending for this supplier and facility',
+                {'supplier_id': supplier, 'facility_id': facility},
+            )
         await db.commit()
         await requests.lock_request_lines(db, ids)
 
@@ -702,7 +735,11 @@ async def create_from_group(
         # Re-checked before the PO exists, so a call that lost the race uses up no PO number.
         pending, skipped = await _still_pending(db, lines, states)
         if not pending:
-            raise _conflict('Nothing is pending for this supplier and facility')
+            raise DomainError(
+                ErrorCode.PURCHASE_ORDER_NOTHING_PENDING,
+                'Nothing is pending for this supplier and facility',
+                {'supplier_id': supplier, 'facility_id': facility},
+            )
         order = _new_order(supplier, current)
         db.add(order)
         await db.flush()
@@ -742,11 +779,11 @@ async def confirm(db: AsyncSession, order_id: int, *, current: CurrentUser) -> P
         await db.commit()
         order = await lock_order(db, order_id)
         lines = await _lines(db, order_id)
-        reason = confirm_refusal(
+        refusal = confirm_refusal(
             order_status(order.completed, order.cancelled), order.supplier, lines
         )
-        if reason is not None:
-            raise _conflict(reason)
+        if refusal is not None:
+            raise DomainError(*refusal)
 
         products = {
             product.product_id: product
@@ -932,7 +969,11 @@ async def attach(db: AsyncSession, order: PurchaseOrder) -> PurchaseOrder:
 def assert_printable(order: PurchaseOrder) -> None:
     """FR-043: only a confirmed purchase order is printed or emailed."""
     if order_status(order.completed, order.cancelled) is not DocumentStatus.COMPLETED:
-        raise _conflict('Only a confirmed purchase order can be printed or emailed')
+        raise DomainError(
+            ErrorCode.PURCHASE_ORDER_NOT_CONFIRMED,
+            'Only a confirmed purchase order can be printed or emailed',
+            {'purchase_order_id': order.purchase_order_id},
+        )
 
 
 async def document(db: AsyncSession, order: PurchaseOrder) -> tuple[bytes, dict]:
@@ -986,9 +1027,8 @@ async def email_order(
     try:
         await mailer.send(message)
     except mail.MailError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f'The email could not be sent: {exc}',
+        raise DomainError(
+            ErrorCode.EMAIL_SEND_FAILED, f'The email could not be sent: {exc}'
         ) from exc
 
     sent_at = local_now()

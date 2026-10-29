@@ -11,6 +11,7 @@ from httpx import ASGITransport, AsyncClient
 from app.core.deps import CurrentUser, get_current_user
 from app.db.session import get_db
 from app.main import app
+from tests.problem import assert_problem
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
 
@@ -511,7 +512,7 @@ async def test_merge_preview_refuses_a_self_merge() -> None:
     _auth()
     async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as c:
         r = await c.get('/api/v1/products/merge/preview?product_id=3&duplicate_id=3')
-    assert r.status_code == 400
+    assert_problem(r, 400, 'product.merge_with_itself')
     assert r.json()['detail'] == 'Cannot merge a product with itself'
 
 

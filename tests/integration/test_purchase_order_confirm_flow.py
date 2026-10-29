@@ -9,6 +9,7 @@ from sqlalchemy import select
 
 from app.models.inventory import InventoryReceipt, InventoryReceiptDetail
 from tests.integration import inventory_seed as seed
+from tests.problem import assert_problem
 
 URL = '/api/v1/purchase-orders'
 RECEIPTS = '/api/v1/inventory-receipts'
@@ -133,13 +134,16 @@ async def test_confirm_takes_what_live_receipts_already_hold(client, db, seeded)
 async def test_confirm_refusals(client, db, seeded):
     setup, vendor, _ = await _setup(db)
     empty, _ = await seed.purchase_order(db, lines=[], completed=False, supplier=vendor)
-    assert (await client.post(f'{URL}/{empty}/confirm')).status_code == 409
+    assert_problem(await client.post(f'{URL}/{empty}/confirm'), 409, 'purchase_order.no_lines')
     orphan, _ = await seed.purchase_order(db, lines=[(setup.stockable, '1', 1)], completed=False)
-    assert (await client.post(f'{URL}/{orphan}/confirm')).status_code == 409
+    assert_problem(await client.post(f'{URL}/{orphan}/confirm'), 409, 'purchase_order.no_supplier')
     zero, _ = await seed.purchase_order(
         db, lines=[(setup.stockable, '0', 1)], completed=False, supplier=vendor
     )
-    assert (await client.post(f'{URL}/{zero}/confirm')).status_code == 409
+    body = assert_problem(
+        await client.post(f'{URL}/{zero}/confirm'), 409, 'purchase_order.line_without_quantity'
+    )
+    assert body['params'] == {'product_code': 'INV'}
     assert (await client.post(f'{URL}/999/confirm')).status_code == 404
 
 
@@ -160,15 +164,23 @@ async def test_a_confirmed_po_is_read_only(client, db, seeded):
     )
     await client.post(f'{URL}/{order}/confirm')
 
-    assert (await client.put(f'{URL}/{order}', json={'comment': 'x'})).status_code == 409
+    response = await client.put(f'{URL}/{order}', json={'comment': 'x'})
+    body = assert_problem(response, 409, 'document.not_editable')
+    assert body['params'] == {'status': 'completed'}
     response = await client.post(
         f'{URL}/{order}/lines', json={'product': setup.stockable, 'quantity': '1'}
     )
-    assert response.status_code == 409
+    assert_problem(response, 409, 'document.not_editable')
     response = await client.put(f'{URL}/{order}/lines/{lines[0]}', json={'quantity': '2'})
-    assert response.status_code == 409
-    assert (await client.delete(f'{URL}/{order}/lines/{lines[0]}')).status_code == 409
-    assert (await client.post(f'{URL}/{order}/cancel')).status_code == 409
+    assert_problem(response, 409, 'document.not_editable')
+    response = await client.delete(f'{URL}/{order}/lines/{lines[0]}')
+    assert_problem(response, 409, 'document.not_editable')
+    response = await client.post(f'{URL}/{order}/cancel')
+    assert_problem(response, 409, 'purchase_order.confirmed_cannot_cancel')
+    # Confirming again: the order is no longer a draft.
+    response = await client.post(f'{URL}/{order}/confirm')
+    body = assert_problem(response, 409, 'document.not_editable')
+    assert body['params'] == {'status': 'completed'}
 
 
 async def test_receiving_progress_and_the_complementary_receipt(client, db, seeded):
@@ -213,6 +225,7 @@ async def test_a_receipt_of_a_po_keeps_its_warehouse(client, db, seeded):
     )
     assert response.status_code == 409
     assert response.json()['detail'] == "A purchase order's receipt keeps its warehouse"
+    assert response.json()['code'] == 'inventory_receipt.warehouse_fixed'
 
     # A hand-made receipt can still move.
     hand = (await client.post(RECEIPTS, json={'warehouse': 1})).json()['inventory_receipt_id']

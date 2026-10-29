@@ -17,7 +17,6 @@ from collections.abc import Sequence
 from datetime import date as date_type
 from decimal import Decimal
 
-from fastapi import HTTPException, status
 from sqlalchemy import Select, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import InstrumentedAttribute
@@ -135,12 +134,11 @@ async def get_itinerary(db: AsyncSession, itinerary_id: int) -> DeliveriesItiner
 
 def assert_open(itinerary: DeliveriesItinerary) -> None:
     if ItineraryStatus(itinerary.status) is not ItineraryStatus.OPEN:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=(
-                f'This itinerary is {ItineraryStatus(itinerary.status).name} and accepts no '
-                f'further changes'
-            ),
+        raise DomainError(
+            ErrorCode.ITINERARY_NOT_OPEN,
+            f'This itinerary is {ItineraryStatus(itinerary.status).name} and accepts no '
+            f'further changes',
+            {'status': ItineraryStatus(itinerary.status)},
         )
 
 
@@ -195,9 +193,10 @@ async def create_itinerary(
             )
         ).first()
         if existing is not None:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail=f'Vehicle {vehicle} already has an open itinerary ({existing[0]})',
+            raise DomainError(
+                ErrorCode.VEHICLE_OPEN_ITINERARY_EXISTS,
+                f'Vehicle {vehicle} already has an open itinerary ({existing[0]})',
+                {'vehicle_id': vehicle, 'itinerary_id': existing[0]},
             )
 
     now = local_now()
@@ -361,16 +360,15 @@ async def add_stop(
     if order is None:
         raise not_found(DeliveryOrder, delivery_order_id)
     if FulfillmentType(order.fulfillment_type) is FulfillmentType.PICKUP:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail='A counter-pickup order is handed over in store, never loaded onto a trip',
+        raise DomainError(
+            ErrorCode.DELIVERY_ORDER_PICKUP_NOT_LOADABLE,
+            'A counter-pickup order is handed over in store, never loaded onto a trip',
         )
     if S(order.status) is not S.IN_PREPARATION:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=(
-                f'Only an order in IN_PREPARATION can be loaded; this one is {S(order.status).name}'
-            ),
+        raise DomainError(
+            ErrorCode.DELIVERY_ORDER_NOT_IN_PREPARATION,
+            f'Only an order in IN_PREPARATION can be loaded; this one is {S(order.status).name}',
+            {'status': S(order.status)},
         )
 
     highest = (
@@ -424,14 +422,15 @@ async def commit_line(
 
     requested = remaining if quantity is None else quantity
     if requested <= 0:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail='This line has nothing left to load',
+        raise DomainError(
+            ErrorCode.DELIVERY_ORDER_LINE_NOTHING_TO_LOAD,
+            'This line has nothing left to load',
         )
     if requested > remaining:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail=f'Only {remaining} is available on this line; {requested} was requested',
+        raise DomainError(
+            ErrorCode.DELIVERY_ORDER_LINE_QUANTITY_UNAVAILABLE,
+            f'Only {remaining} is available on this line; {requested} was requested',
+            {'available': remaining, 'requested': requested},
         )
 
     entry = DeliveriesItineraryDetail(
@@ -481,9 +480,10 @@ async def adjust_commitment(
     order_line = await _lock_line(db, entry.delivery_order_detail)
     headroom = delivery_order_service.open_quantity(order_line) + entry.committed_quantity
     if quantity > headroom:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail=f'Only {headroom} is available on this line; {quantity} was requested',
+        raise DomainError(
+            ErrorCode.DELIVERY_ORDER_LINE_QUANTITY_UNAVAILABLE,
+            f'Only {headroom} is available on this line; {quantity} was requested',
+            {'available': headroom, 'requested': quantity},
         )
 
     order_line.committed_quantity += quantity - entry.committed_quantity
@@ -556,9 +556,10 @@ async def _transit_map(
             .all()
         )
         named = ', '.join(str(f) for f in sorted(facilities)) or 'unknown'
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail=f'Facility {named} has no in-transit location',
+        raise DomainError(
+            ErrorCode.FACILITY_NO_IN_TRANSIT_LOCATION,
+            f'Facility {named} has no in-transit location',
+            {'facility_ids': sorted(facilities)},
         )
     return mapping
 
@@ -591,9 +592,9 @@ async def depart(
                     orders[order_line.delivery_order] = order
 
     if not entries or all(entry.committed_quantity <= 0 for entry, _ in entries):
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail='Nothing is committed to this itinerary',
+        raise DomainError(
+            ErrorCode.ITINERARY_NOTHING_COMMITTED,
+            'Nothing is committed to this itinerary',
         )
 
     overcommitted = [
@@ -784,13 +785,14 @@ async def _close_locked(
     employee = current.employee_id
 
     if ItineraryStatus(itinerary.status) is not ItineraryStatus.DEPARTED:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail='Only a departed itinerary has stops to close',
+        raise DomainError(
+            ErrorCode.ITINERARY_NOT_DEPARTED,
+            'Only a departed itinerary has stops to close',
+            {'status': ItineraryStatus(itinerary.status)},
         )
     if StopOutcome(stop.outcome) is not StopOutcome.PENDING:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT, detail='This stop is already resolved'
+        raise DomainError(
+            ErrorCode.ITINERARY_STOP_ALREADY_RESOLVED, 'This stop is already resolved'
         )
 
     entries = {
@@ -799,23 +801,25 @@ async def _close_locked(
     }
     stated = {int(o['line']): o for o in outcomes}
     if set(stated) != set(entries):
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail='Every line on the stop must be accounted for',
+        raise DomainError(
+            ErrorCode.ITINERARY_STOP_LINES_INCOMPLETE,
+            'Every line on the stop must be accounted for',
         )
 
     for line_id, outcome in stated.items():
         entry = entries[line_id]
         delivered = Decimal(str(outcome['delivered_quantity']))
         if delivered > entry.sent_quantity:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-                detail=f'Line {line_id} was sent {entry.sent_quantity}; {delivered} was accepted',
+            raise DomainError(
+                ErrorCode.ITINERARY_STOP_DELIVERED_EXCEEDS_SENT,
+                f'Line {line_id} was sent {entry.sent_quantity}; {delivered} was accepted',
+                {'line_id': line_id, 'sent': entry.sent_quantity, 'delivered': delivered},
             )
         if delivered < entry.sent_quantity and outcome.get('reason_code') is None:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-                detail=f'Line {line_id} fell short and needs a reason code',
+            raise DomainError(
+                ErrorCode.ITINERARY_STOP_SHORTFALL_NEEDS_REASON,
+                f'Line {line_id} fell short and needs a reason code',
+                {'line_id': line_id},
             )
 
     proof = delivery_order_service.build_proof(

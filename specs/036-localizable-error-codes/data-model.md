@@ -26,7 +26,7 @@ Served as `application/problem+json`, with response headers kept (`WWW-Authentic
 
 - **Shape:** a StrEnum member whose value is `<domain>.<condition>` (lower snake case) and which carries `.status`, its one HTTP status.
 - **Lifecycle:** active, or deprecated (kept, never removed, never reused). No member is deprecated at launch.
-- **Size at launch:** 240 members (research R10).
+- **Size at launch:** 241 members (research R10).
 - **Invariants:** they're tested.
   - The value matches the pattern.
   - The status is 400–599.

@@ -190,7 +190,7 @@ def _documented_codes() -> dict[str, int]:
 
 def test_the_parser_still_finds_the_error_codes() -> None:
     """Pinned, so a reformatted table fails here rather than checking nothing."""
-    assert len(_documented_codes()) == 240
+    assert len(_documented_codes()) == 241
 
 
 def test_the_error_code_document_matches_the_catalog() -> None:

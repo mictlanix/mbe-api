@@ -12,6 +12,8 @@ from app.core.deps import CurrentUser, get_current_user
 from app.db.session import get_db
 from app.main import app
 from app.services.csd_service import ParsedCsd
+from tests.problem import assert_problem
+from tests.unit.test_csd_service import _PASSWORD, _make_csd
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
 
@@ -154,20 +156,27 @@ async def test_upload_taxpayer_certificate_returns_201() -> None:
 
 
 @pytest.mark.asyncio
-async def test_upload_taxpayer_certificate_rejects_an_invalid_csd() -> None:
+@pytest.mark.parametrize(
+    ('certificate', 'password', 'code'),
+    [
+        (b'not a certificate', _PASSWORD.decode(), 'csd.certificate_unreadable'),
+        (None, 'not-the-password', 'csd.key_unreadable'),
+    ],
+)
+async def test_upload_taxpayer_certificate_rejects_an_invalid_csd(
+    certificate: bytes | None, password: str, code: str
+) -> None:
+    """The real CSD parser answers 422 with a `csd.*` code, and no exception text in params."""
     _auth()
-    with patch(
-        'app.services.csd_service.parse_csd',
-        new=AsyncMock(side_effect=ValueError('Wrong password, or unreadable private key')),
-    ):
-        async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as c:
-            r = await c.post(
-                '/api/v1/taxpayer-certificates',
-                data={'taxpayer': 'RFC123456789A', 'key_password': 'wrong'},
-                files={'certificate': ('csd.cer', b'CERT'), 'key': ('csd.key', b'KEY')},
-            )
-    assert r.status_code == 422
-    assert 'Wrong password' in r.json()['detail']
+    cer, key = _make_csd()
+    async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as c:
+        r = await c.post(
+            '/api/v1/taxpayer-certificates',
+            data={'taxpayer': 'AAA010101AAA', 'key_password': password},
+            files={'certificate': ('csd.cer', certificate or cer), 'key': ('csd.key', key)},
+        )
+    body = assert_problem(r, 422, code)
+    assert body.get('params', {}) == {}
 
 
 @pytest.mark.asyncio

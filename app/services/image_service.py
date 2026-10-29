@@ -16,6 +16,8 @@ import uuid
 from PIL import Image, UnidentifiedImageError
 
 from app.core.config import settings
+from app.core.error_codes import ErrorCode
+from app.core.errors import DomainError
 
 _MAX_BYTES = 2 * 1024 * 1024  # 2 MB
 
@@ -30,13 +32,19 @@ def normalise_to_png(content: bytes, *, max_width: int = _MAX_WIDTH) -> bytes:
     Shared by both callers so the size guard and the format handling cannot drift apart.
     """
     if len(content) > _MAX_BYTES:
-        raise ValueError('Image exceeds maximum allowed size of 2 MB')
+        raise DomainError(
+            ErrorCode.IMAGE_TOO_LARGE,
+            'Image exceeds maximum allowed size of 2 MB',
+            {'max_bytes': _MAX_BYTES},
+        )
 
     try:
         img = Image.open(io.BytesIO(content))
         img.load()
     except UnidentifiedImageError as e:
-        raise ValueError('Unsupported or unrecognizable image format') from e
+        raise DomainError(
+            ErrorCode.IMAGE_UNSUPPORTED_FORMAT, 'Unsupported or unrecognizable image format'
+        ) from e
 
     # Use first frame for animated formats (GIF, WEBP)
     if hasattr(img, 'n_frames') and img.n_frames > 1:

@@ -7,14 +7,14 @@ the party's own contacts, chosen by id, and addresses the user types, at most te
 from collections.abc import Sequence
 from datetime import datetime
 
-from fastapi import HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import rendering
 from app.core.clock import local_now
 from app.core.deps import CurrentUser
-from app.core.errors import not_found
+from app.core.error_codes import ErrorCode
+from app.core.errors import DomainError, not_found
 from app.models.core import Contact
 from app.models.customer import customer_contact
 from app.models.supplier import supplier_contact
@@ -24,8 +24,10 @@ from app.services.sales_quote_service import _recipients_context
 MAX_RECIPIENTS = 10
 
 
-def _unprocessable(detail: str) -> HTTPException:
-    return HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=detail)
+def _unprocessable(
+    code: ErrorCode, detail: str, params: dict[str, object] | None = None
+) -> DomainError:
+    return DomainError(code, detail, params)
 
 
 def merge_recipients(contact_addresses: Sequence[str], typed: Sequence[str]) -> list[str]:
@@ -38,9 +40,15 @@ def merge_recipients(contact_addresses: Sequence[str], typed: Sequence[str]) -> 
             seen.add(address.lower())
             merged.append(address)
     if not merged:
-        raise _unprocessable('Choose at least one contact or type an address')
+        raise _unprocessable(
+            ErrorCode.EMAIL_NO_RECIPIENTS, 'Choose at least one contact or type an address'
+        )
     if len(merged) > MAX_RECIPIENTS:
-        raise _unprocessable(f'At most {MAX_RECIPIENTS} recipients')
+        raise _unprocessable(
+            ErrorCode.EMAIL_TOO_MANY_RECIPIENTS,
+            f'At most {MAX_RECIPIENTS} recipients',
+            {'max': MAX_RECIPIENTS},
+        )
     return merged
 
 
@@ -68,10 +76,18 @@ async def recipients(
         )
         for contact_id in contact_ids:
             if contact_id not in rows:
-                raise _unprocessable(f'Contact {contact_id} is not one of this party')
+                raise _unprocessable(
+                    ErrorCode.EMAIL_CONTACT_NOT_OF_PARTY,
+                    f'Contact {contact_id} is not one of this party',
+                    {'contact_id': contact_id},
+                )
             email = (rows[contact_id] or '').strip()
             if not email:
-                raise _unprocessable(f'Contact {contact_id} has no email address')
+                raise _unprocessable(
+                    ErrorCode.EMAIL_CONTACT_NO_ADDRESS,
+                    f'Contact {contact_id} has no email address',
+                    {'contact_id': contact_id},
+                )
             addresses.append(email)
     return merge_recipients(addresses, typed)
 
@@ -133,9 +149,8 @@ async def email_statement(
     try:
         await mailer.send(message)
     except mail.MailError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f'The email could not be sent: {exc}',
+        raise DomainError(
+            ErrorCode.EMAIL_SEND_FAILED, f'The email could not be sent: {exc}'
         ) from exc
 
     sent_at = local_now()

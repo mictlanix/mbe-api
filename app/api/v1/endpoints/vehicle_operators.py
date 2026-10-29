@@ -1,6 +1,6 @@
 import os
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Depends, File, Query, UploadFile
 from fastapi import status as http_status
 from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -104,10 +104,7 @@ async def upload_license_photo(
     if vo is None:
         raise not_found(VehicleOperator, vehicle_operator_id)
     content = await file.read()
-    try:
-        filename = await image_service.save_proof_image(content, settings.license_photos_dir)
-    except ValueError as exc:
-        raise HTTPException(status_code=http_status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc))
+    filename = await image_service.save_proof_image(content, settings.license_photos_dir)
     previous = await vehicle_operator_service.set_license_photo(db, vo, filename)
     if previous is not None:
         await image_service.delete_image(settings.license_photos_dir, previous)

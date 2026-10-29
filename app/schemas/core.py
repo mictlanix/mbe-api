@@ -10,6 +10,7 @@ from pydantic import (
     field_validator,
     model_validator,
 )
+from pydantic_core import PydanticCustomError
 
 from app.core.clock import local_today
 from app.enums import AddressType, EntityStatus, FacilityType, PaymentMethod
@@ -100,7 +101,7 @@ class ContactCreate(BaseModel):
     @classmethod
     def validate_name(cls, v: str) -> str:
         if not v.strip():
-            raise ValueError('Name must not be blank')
+            raise PydanticCustomError('contact_name_blank', 'Name must not be blank')
         return v
 
 

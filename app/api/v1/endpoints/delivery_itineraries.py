@@ -6,7 +6,6 @@ from fastapi import (
     Depends,
     File,
     Form,
-    HTTPException,
     Query,
     Response,
     UploadFile,
@@ -17,7 +16,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app import rendering
 from app.core.config import settings
 from app.core.deps import CurrentUser, require_privilege
-from app.core.errors import not_found
+from app.core.error_codes import ErrorCode
+from app.core.errors import DomainError, not_found
 from app.db.session import get_db
 from app.enums import AccessRight, ItineraryStatus, SystemObject
 from app.models.logistics import DeliveriesItinerary, DeliveriesItineraryStop
@@ -171,11 +171,13 @@ async def create_itinerary(
 def _assert_printable(itinerary) -> None:  # noqa: ANN001
     """Only a trip that has left has fixed sent quantities to print (spec 026, FR-008)."""
     if itinerary.status == ItineraryStatus.OPEN:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT, detail='Itinerary has not departed'
+        raise DomainError(
+            ErrorCode.ITINERARY_NOT_DEPARTED,
+            'Itinerary has not departed',
+            {'status': ItineraryStatus(itinerary.status)},
         )
     if itinerary.status == ItineraryStatus.CANCELLED:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail='Itinerary is cancelled')
+        raise DomainError(ErrorCode.ITINERARY_CANCELLED, 'Itinerary is cancelled')
 
 
 @router.get('/{itinerary_id}/ticket', response_class=Response, responses=rendering.PDF_RESPONSE)
@@ -372,15 +374,12 @@ async def close_stop(
     try:
         outcomes = json.loads(lines)
     except json.JSONDecodeError as e:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail='`lines` must be a JSON array of per-line outcomes',
+        raise DomainError(
+            ErrorCode.ITINERARY_STOP_LINES_MALFORMED,
+            '`lines` must be a JSON array of per-line outcomes',
         ) from e
 
-    try:
-        filename = await image_service.save_proof_image(await image.read(), settings.pod_dir)
-    except ValueError as e:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(e)) from e
+    filename = await image_service.save_proof_image(await image.read(), settings.pod_dir)
 
     await delivery_itinerary_service.close_stop(
         db,

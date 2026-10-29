@@ -169,6 +169,8 @@ class TestWarehousesToLock:
             inv.warehouses_to_lock(RECEIPT, receipt, TRANSIT, set())
         assert exc.value.status_code == 422
         assert exc.value.detail == 'Facility 7 has no in-transit location'
+        assert exc.value.code == 'facility.no_in_transit_location'
+        assert exc.value.params == {'facility_ids': [7]}
 
 
 # ── The count kind (spec 030, R1) ─────────────────────────────────────────────
@@ -228,5 +230,7 @@ async def test_cancelling_a_confirmed_count_is_409(monkeypatch):
 
     assert exc.value.status_code == 409
     assert exc.value.detail == 'A confirmed count cannot be cancelled'
+    assert exc.value.code == 'inventory_count.confirmed_cannot_cancel'
+    assert exc.value.params == {}
     assert count.cancelled is False
     assert db.rolled_back

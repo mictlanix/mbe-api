@@ -1,9 +1,10 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from fastapi import APIRouter, Depends, Query, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import rendering
 from app.core.deps import CurrentUser, require_privilege
-from app.core.errors import not_found
+from app.core.error_codes import ErrorCode
+from app.core.errors import DomainError, not_found
 from app.db.session import get_db
 from app.enums import AccessRight, SystemObject
 from app.schemas import ListResponse
@@ -107,9 +108,7 @@ async def email_sales_quote(
 ) -> QuoteEmailResponse:
     """Send a confirmed quote's PDF to 1–10 addresses, and record the send (spec 024)."""
     if mailer is None:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail='Email is not configured'
-        )
+        raise DomainError(ErrorCode.EMAIL_NOT_CONFIGURED, 'Email is not configured')
     quote = await _quote_or_404(db, sales_quote_id)
     sent_at = await sales_quote_service.email_quote(
         db, quote, data.to, mailer=mailer, current=current

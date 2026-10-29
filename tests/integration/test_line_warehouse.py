@@ -65,6 +65,8 @@ async def test_a_line_from_an_in_transit_location_is_refused(
 
     assert response.status_code == 422, response.text
     assert response.json()['detail'] == 'Warehouse 2 is an in-transit location'
+    assert response.json()['code'] == 'warehouse.in_transit_location'
+    assert response.json()['params'] == {'warehouse_id': 2}
 
 
 async def test_a_line_from_an_unknown_warehouse_is_404(client: AsyncClient, seeded: None) -> None:

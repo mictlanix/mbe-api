@@ -96,12 +96,20 @@ async def _status_code(call) -> int:
     return exc.value.status_code
 
 
+async def _error(call) -> HTTPException:
+    with pytest.raises(HTTPException) as exc:
+        await call
+    return exc.value
+
+
 # ── Origin and destination (scenario 1, FR-040, FR-009) ───────────────────────
 
 
 async def test_the_same_warehouse_at_both_ends_is_422(db, setup, current_user):
     a = setup.a.warehouse
     assert await _status_code(_draft(db, current_user, a, a)) == 422
+    refused = await _error(_draft(db, current_user, a, a))
+    assert refused.code == 'inventory_transfer.same_warehouse'
 
     transfer_id = await _draft(db, current_user, a, setup.b.warehouse)
     edit = inv.update_header(
@@ -128,6 +136,13 @@ async def test_dispatch_over_the_available_stock_is_409_naming_the_product(db, s
         await svc.dispatch(db, transfer_id, current=current_user)
     assert exc.value.status_code == 409
     assert 'INV' in exc.value.detail
+    assert exc.value.code == 'inventory_document.insufficient_stock'
+    assert exc.value.params == {
+        'product_id': setup.stockable,
+        'warehouse_id': 1,
+        'requested': '7.0000',
+        'available': '6.0000',
+    }
     assert await _entries(db, transfer_id) == []
 
 
@@ -168,6 +183,9 @@ async def test_dispatch_twice_is_409_with_nothing_new_posted(db, setup, current_
 async def test_dispatch_with_no_lines_is_409(db, setup, current_user):
     transfer_id = await _draft(db, current_user, 1, setup.b.warehouse)
     assert await _status_code(svc.dispatch(db, transfer_id, current=current_user)) == 409
+    refused = await _error(svc.dispatch(db, transfer_id, current=current_user))
+    assert refused.code == 'inventory_document.no_lines'
+    assert refused.params == {'resource': 'inventory_transfer'}
 
 
 async def test_dispatch_without_a_transit_warehouse_is_422_and_consumes_no_serial(
@@ -184,6 +202,8 @@ async def test_dispatch_without_a_transit_warehouse_is_422_and_consumes_no_seria
         await svc.dispatch(db, transfer_id, current=current_user)
     assert exc.value.status_code == 422
     assert 'in-transit' in exc.value.detail
+    assert exc.value.code == 'facility.no_in_transit_location'
+    assert exc.value.params == {'facility_ids': [setup.a.facility]}
     assert await _entries(db, transfer_id) == []
 
     await db.execute(
@@ -226,7 +246,10 @@ async def test_a_partial_receive_stays_in_transit_until_the_rest_arrives(
 
     # Scenario 7: more than outstanding.
     over = svc.receive(db, dispatched, [(line_id, D(3))], current=current_user)
-    assert await _status_code(over) == 409
+    refused = await _error(over)
+    assert refused.status_code == 409
+    assert refused.code == 'inventory_transfer.over_received'
+    assert refused.params == {'product_code': 'INV', 'received': '3', 'outstanding': '2.0000'}
 
     await svc.receive(db, dispatched, [(line_id, D(2))], current=current_user)
     view = await _view(db, dispatched)
@@ -236,7 +259,9 @@ async def test_a_partial_receive_stays_in_transit_until_the_rest_arrives(
 
     # The state is re-read after the lock: receiving again finds nothing in transit.
     again = svc.receive(db, dispatched, [(line_id, D(2))], current=current_user)
-    assert await _status_code(again) == 409
+    refused = await _error(again)
+    assert refused.status_code == 409
+    assert refused.code == 'inventory_transfer.not_in_transit'
     assert len(await _entries(db, dispatched)) == posted
 
 
@@ -493,7 +518,10 @@ async def test_sales_order_items_need_a_confirmed_order(db, setup, current_user,
     )
     transfer_id = await _draft(db, current_user, 1, setup.b.warehouse)
     call = svc.add_sales_order_items(db, transfer_id, order, current=current_user)
-    assert await _status_code(call) == 409
+    refused = await _error(call)
+    assert refused.status_code == 409
+    assert refused.code == 'sales_order.not_confirmed'
+    assert refused.params == {'sales_order_id': order}
 
 
 async def test_sales_order_items_of_an_unknown_order_is_404(db, setup, current_user):

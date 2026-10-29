@@ -1,8 +1,9 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.deps import CurrentUser, require_privilege
-from app.core.errors import not_found
+from app.core.error_codes import ErrorCode
+from app.core.errors import DomainError, not_found
 from app.db.session import get_db
 from app.enums import AccessRight, SystemObject
 from app.models.inventory import InventoryTransfer
@@ -76,9 +77,7 @@ async def get_inventory_in_transit(
 ) -> InTransitResponse:
     facility = facility if facility is not None else current.facility_id
     if facility is None:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail='facility is required'
-        )
+        raise DomainError(ErrorCode.FACILITY_REQUIRED, 'facility is required')
     return await inventory_transfer_service.in_transit_view(db, facility)
 
 

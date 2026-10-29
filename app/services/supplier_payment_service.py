@@ -18,13 +18,13 @@ from datetime import date, datetime, timedelta
 from decimal import Decimal
 from typing import Any
 
-from fastapi import HTTPException, status
 from sqlalchemy import ColumnElement, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.clock import local_now
 from app.core.deps import CurrentUser
-from app.core.errors import not_found
+from app.core.error_codes import ErrorCode
+from app.core.errors import DomainError, not_found
 from app.enums import PaymentMethod, SourceType
 from app.models.core import CashDrawer, Facility
 from app.models.inventory import InventoryReceipt
@@ -49,14 +49,6 @@ from app.services.purchase_order_service import order_status, order_totals
 CUTOFF_NOT_SET = 'Balances start at the cutoff, which is not set yet'
 
 
-def _conflict(reason: str) -> HTTPException:
-    return HTTPException(status_code=status.HTTP_409_CONFLICT, detail=reason)
-
-
-def _unprocessable(reason: str) -> HTTPException:
-    return HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=reason)
-
-
 # ── Rules (pure) ──────────────────────────────────────────────────────────────
 
 
@@ -79,9 +71,11 @@ def payment_credit(payment: SupplierPayment, applied: Decimal) -> Decimal:
 
 def _assert_applicable(payment: SupplierPayment) -> None:
     if payment.cancelled:
-        raise _conflict('The payment is cancelled')
+        raise DomainError(ErrorCode.SUPPLIER_PAYMENT_CANCELLED, 'The payment is cancelled')
     if payment.facility is None:
-        raise _conflict('A legacy payment cannot be applied')
+        raise DomainError(
+            ErrorCode.SUPPLIER_PAYMENT_LEGACY_NOT_APPLICABLE, 'A legacy payment cannot be applied'
+        )
 
 
 def _check_applications(
@@ -95,22 +89,40 @@ def _check_applications(
 ) -> None:
     """Refuse the whole call on the first item refused (FR-014, FR-020)."""
     if cutoff is None:
-        raise _conflict(CUTOFF_NOT_SET)
+        raise DomainError(ErrorCode.SUPPLIER_PAYMENT_CUTOFF_NOT_SET, CUTOFF_NOT_SET)
     for item in items:
         order = orders[item.purchase_order]
         po = order.purchase_order_id
         if order_status(order.completed, order.cancelled) is not DocumentStatus.COMPLETED:
-            raise _conflict(f'Purchase order {po} is not confirmed')
+            raise DomainError(
+                ErrorCode.PURCHASE_ORDER_NOT_CONFIRMED,
+                f'Purchase order {po} is not confirmed',
+                {'purchase_order_id': po},
+            )
         if order.supplier != supplier:
-            raise _conflict(f'Purchase order {po} belongs to another supplier')
+            raise DomainError(
+                ErrorCode.SUPPLIER_PAYMENT_ORDER_OTHER_SUPPLIER,
+                f'Purchase order {po} belongs to another supplier',
+                {'purchase_order_id': po},
+            )
         if not po_counts(order, cutoff):
-            raise _conflict(f'Purchase order {po} was confirmed before the cutoff')
+            raise DomainError(
+                ErrorCode.SUPPLIER_PAYMENT_ORDER_BEFORE_CUTOFF,
+                f'Purchase order {po} was confirmed before the cutoff',
+                {'purchase_order_id': po},
+            )
         if item.amount > balances[po]:
-            raise _conflict(
-                f'The amount exceeds the balance of purchase order {po}: {balances[po]}'
+            raise DomainError(
+                ErrorCode.SUPPLIER_PAYMENT_AMOUNT_EXCEEDS_BALANCE,
+                f'The amount exceeds the balance of purchase order {po}: {balances[po]}',
+                {'purchase_order_id': po, 'balance': balances[po]},
             )
     if sum((item.amount for item in items), Decimal(0)) > credit:
-        raise _conflict(f"The amounts exceed the payment's credit: {credit}")
+        raise DomainError(
+            ErrorCode.SUPPLIER_PAYMENT_AMOUNTS_EXCEED_CREDIT,
+            f"The amounts exceed the payment's credit: {credit}",
+            {'credit': credit},
+        )
 
 
 # ── Reads ─────────────────────────────────────────────────────────────────────
@@ -323,10 +335,13 @@ def _non_cash_facility(data: SupplierPaymentCreate, current: CurrentUser) -> int
     """The caller's facility; only an administrator without one names it (research R5)."""
     if data.facility is not None:
         if not current.administrator or current.facility_id is not None:
-            raise _unprocessable('Only an administrator without a facility can name one')
+            raise DomainError(
+                ErrorCode.SUPPLIER_PAYMENT_FACILITY_NOT_NAMEABLE,
+                'Only an administrator without a facility can name one',
+            )
         return data.facility
     if current.facility_id is None:
-        raise _unprocessable('A facility is required')
+        raise DomainError(ErrorCode.FACILITY_REQUIRED, 'A facility is required')
     return current.facility_id
 
 
@@ -345,7 +360,9 @@ async def create_payment(
         if data.method is PaymentMethod.CASH:
             session = await cash_session_service.open_session_for_cashier(db, current.employee_id)
             if session is None:
-                raise _conflict('An open cash session is required')
+                raise DomainError(
+                    ErrorCode.CASH_SESSION_NOT_OPEN, 'An open cash session is required'
+                )
             session_id = session.cash_session_id
             facility = (await db.get(CashDrawer, session.cash_drawer)).facility
         else:
@@ -439,7 +456,11 @@ async def reverse_application(
             )
         ).scalar_one()
         if application.cancelled:
-            raise _conflict('The application is already reversed')
+            raise DomainError(
+                ErrorCode.SUPPLIER_PAYMENT_APPLICATION_ALREADY_REVERSED,
+                'The application is already reversed',
+                {'application_id': application_id},
+            )
         application.cancelled = True
         incidences.record(
             db,
@@ -475,7 +496,9 @@ async def cancel_payment(
             await cash_session_service.lock_open_session(db, session_id)
         payment = await _lock_payment(db, payment_id)
         if payment.cancelled:
-            raise _conflict('The payment is already cancelled')
+            raise DomainError(
+                ErrorCode.SUPPLIER_PAYMENT_ALREADY_CANCELLED, 'The payment is already cancelled'
+            )
         # No application can be added past the payment lock, so these are all of them.
         live = [a for a in await _applications(db, payment_id) if not a.cancelled]
         await _lock_orders(db, [a.purchase_order for a in live])

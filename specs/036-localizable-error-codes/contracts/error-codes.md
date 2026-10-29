@@ -90,7 +90,7 @@ Every code the API serves, with its HTTP status, its `params` and the situation 
 | `delivery_order.not_editable` | 409 | status: enum:DeliveryOrderStatus | Editing a delivery order that is no longer a draft. |
 | `delivery_order.not_failed` | 409 | status: enum:DeliveryOrderStatus | Re-queueing an order that did not fail. |
 | `delivery_order.not_in_preparation` | 409 | status: enum:DeliveryOrderStatus | Loading onto a trip an order that is not IN_PREPARATION. |
-| `delivery_order.not_pending_approval` | 409 | status: enum:DeliveryOrderStatus, action: approve | reject |
+| `delivery_order.not_pending_approval` | 409 | status: enum:DeliveryOrderStatus, action: str (`approve` or `reject`) | Approving or rejecting an order not awaiting approval. |
 | `delivery_order.pickup_not_loadable` | 409 | — | A counter-pickup order cannot be loaded onto a trip. |
 | `delivery_order.proof_incomplete` | 422 | — | Proof of delivery lacks receiver name or identification shown. |
 | `delivery_order.quantity_exceeds_remaining` | 422 | sales_order_line_id: int, remaining: decimal, requested: decimal | Requested quantity is more than the sales line still owes. |
@@ -224,15 +224,16 @@ Every code the API serves, with its HTTP status, its `params` and the situation 
 
 | Code | Status | Params | Situation |
 |---|---|---|---|
-| `inventory_document.already_cancelled` | 409 | resource: inventory_receipt | inventory_issue |
+| `inventory_document.already_cancelled` | 409 | resource: str (`inventory_receipt`, `inventory_issue`, `inventory_transfer` or `inventory_count`) | The document is already cancelled. |
 | `inventory_document.insufficient_stock` | 409 | product_id: int, warehouse_id: int, requested: decimal, available: decimal | A stock-out document would take a product below what is available. |
 | `inventory_document.line_without_quantity` | 422 | product_code: str | Confirming a document with a zero-quantity line. |
-| `inventory_document.no_lines` | 409 | resource: inventory_receipt | inventory_issue |
+| `inventory_document.no_lines` | 409 | resource: str (`inventory_receipt`, `inventory_issue`, `inventory_transfer` or `inventory_count`) | Confirming a document with no lines. |
 
 ## inventory_receipt
 
 | Code | Status | Params | Situation |
 |---|---|---|---|
+| `inventory_receipt.warehouse_fixed` | 409 | — | A purchase order's receipt cannot move to another warehouse: its lines are that warehouse's order lines. |
 | `inventory_receipt.complementary_unavailable` | 409 | reason: str enum (no_purchase_order, purchase_order_cancelled, purchase_order_not_completed, purchase_order_fully_received) | No complementary receipt can be created for this receipt. |
 
 ## inventory_transfer
@@ -270,7 +271,7 @@ Every code the API serves, with its HTTP status, its `params` and the situation 
 
 | Code | Status | Params | Situation |
 |---|---|---|---|
-| `lock.busy` | 409 | resource: warehouse or facility | Another request holds the lock; retry. |
+| `lock.busy` | 409 | resource: str (`warehouse`, `facility` or `sales_order`) | Another request holds the lock; retry. |
 
 ## payment
 
@@ -444,7 +445,7 @@ Every code the API serves, with its HTTP status, its `params` and the situation 
 
 | Code | Status | Params | Situation |
 |---|---|---|---|
-| `taxpayer_batch.in_use` | 409 | action: str (update | delete) |
+| `taxpayer_batch.in_use` | 409 | action: str (`update` or `delete`) | The series (batch) has issued documents. |
 
 ## taxpayer_certificate
 

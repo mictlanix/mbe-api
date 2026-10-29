@@ -14,14 +14,14 @@ from collections.abc import Sequence
 from datetime import datetime, timedelta
 from decimal import Decimal
 
-from fastapi import HTTPException, status
 from sqlalchemy import Select, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.clock import local_now
 from app.core.config import settings
 from app.core.deps import CurrentUser
-from app.core.errors import not_found
+from app.core.error_codes import ErrorCode
+from app.core.errors import DomainError, not_found
 from app.enums import DeliveryOrderStatus as S
 from app.enums import FulfillmentType, PaymentTerms, TransactionType
 from app.models.core import Facility, Warehouse
@@ -53,9 +53,10 @@ def assert_editable(order: DeliveryOrder) -> None:
     every delivery order through instead of failing loudly (research R8).
     """
     if S(order.status) is not S.DRAFT:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=f'A delivery order in {S(order.status).name} can no longer be edited',
+        raise DomainError(
+            ErrorCode.DELIVERY_ORDER_NOT_EDITABLE,
+            f'A delivery order in {S(order.status).name} can no longer be edited',
+            {'status': S(order.status)},
         )
 
 
@@ -82,9 +83,10 @@ def narrow_to_requested(
     seen: set[int] = set()
     for item in requested:
         if item.sales_order_detail in seen:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-                detail=f'Line {item.sales_order_detail} was requested more than once',
+            raise DomainError(
+                ErrorCode.DELIVERY_ORDER_LINE_REPEATED,
+                f'Line {item.sales_order_detail} was requested more than once',
+                {'sales_order_line_id': item.sales_order_detail},
             )
         seen.add(item.sales_order_detail)
 
@@ -93,20 +95,22 @@ def narrow_to_requested(
             # Covers both "not a line of this sale" and "already fully covered elsewhere". The
             # client cannot act differently on the two, and distinguishing them would leak which
             # ids exist.
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-                detail=(
-                    f'Line {item.sales_order_detail} is not an undelivered line of this sales order'
-                ),
+            raise DomainError(
+                ErrorCode.DELIVERY_ORDER_LINE_NOT_DELIVERABLE,
+                f'Line {item.sales_order_detail} is not an undelivered line of this sales order',
+                {'sales_order_line_id': item.sales_order_detail},
             )
         line, remaining = found
         if item.quantity > remaining:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-                detail=(
-                    f'Line {item.sales_order_detail} has {remaining} undelivered, '
-                    f'{item.quantity} requested'
-                ),
+            raise DomainError(
+                ErrorCode.DELIVERY_ORDER_QUANTITY_EXCEEDS_REMAINING,
+                f'Line {item.sales_order_detail} has {remaining} undelivered, '
+                f'{item.quantity} requested',
+                {
+                    'sales_order_line_id': item.sales_order_detail,
+                    'remaining': remaining,
+                    'requested': item.quantity,
+                },
             )
         chosen.append((line, item.quantity))
     return chosen
@@ -172,9 +176,10 @@ async def _fallback_warehouse(db: AsyncSession, facility: int) -> int:
         )
     ).scalar_one_or_none()
     if warehouse is None:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail=f'Facility {facility} has no warehouse to dispatch from',
+        raise DomainError(
+            ErrorCode.FACILITY_NO_DISPATCH_WAREHOUSE,
+            f'Facility {facility} has no warehouse to dispatch from',
+            {'facility_id': facility},
         )
     return warehouse
 
@@ -220,20 +225,18 @@ async def create_from_sales_order(
         # refused: a shipment is one kind or the other, and a mixed *sale* is one that produces a
         # delivery order of each. Recording it on a delivery order would break `_branch_target`,
         # which has no third branch, and the goods would sit in a status nothing advances.
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail=(
-                'MIXED describes a sale, not a delivery order; raise one delivery and one pickup'
-            ),
+        raise DomainError(
+            ErrorCode.DELIVERY_ORDER_MIXED_NOT_ALLOWED,
+            'MIXED describes a sale, not a delivery order; raise one delivery and one pickup',
         )
 
     order = await db.get(SalesOrder, sales_order_id)
     if order is None:
         raise not_found(SalesOrder, sales_order_id)
     if not order.completed or order.cancelled:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail='Only a completed, uncancelled sales order can be delivered',
+        raise DomainError(
+            ErrorCode.DELIVERY_ORDER_SALES_ORDER_NOT_DELIVERABLE,
+            'Only a completed, uncancelled sales order can be delivered',
         )
     # "Paid, or on credit" is a register's rule: at a counter, money precedes handover. It is not
     # a universal one, and this is where the difference shows — an order taken for delivery on
@@ -243,9 +246,9 @@ async def create_from_sales_order(
     if settings.delivery_order_requires_paid_or_credit_sales_order and not (
         order.paid or order.payment_terms == PaymentTerms.NET_D
     ):
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail='This sales order must be paid or on credit terms before it can be delivered',
+        raise DomainError(
+            ErrorCode.DELIVERY_ORDER_SALES_ORDER_UNPAID,
+            'This sales order must be paid or on credit terms before it can be delivered',
         )
 
     # Every line is deliverable. `docs/specs/06-logistics.md` says the set is the lines flagged
@@ -276,9 +279,9 @@ async def create_from_sales_order(
     deliverable = [(line, remaining) for line, remaining in deliverable if remaining > 0]
 
     if not deliverable:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail='This sales order is already fully delivered',
+        raise DomainError(
+            ErrorCode.DELIVERY_ORDER_SALES_ORDER_FULLY_DELIVERED,
+            'This sales order is already fully delivered',
         )
 
     if lines is not None:
@@ -563,9 +566,10 @@ async def add_line(
     # differently on the two, and separating them would leak which ids exist — the same reasoning
     # as `narrow_to_requested`.
     if sale is None or sale.customer != order.customer:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail=f'Line {item.sales_order_detail} is not a deliverable line of this customer',
+        raise DomainError(
+            ErrorCode.DELIVERY_ORDER_LINE_NOT_DELIVERABLE,
+            f'Line {item.sales_order_detail} is not a deliverable line of this customer',
+            {'sales_order_line_id': item.sales_order_detail},
         )
 
     # `first`, not `scalar_one_or_none`: nothing in the schema stops a legacy row set carrying the
@@ -585,23 +589,28 @@ async def add_line(
     if existing is not None:
         # Refused rather than folded into the existing row, so that the caller's quantity always
         # means what it says: `PUT .../lines/{existing}` is the one way to change an amount.
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=(
-                f'Line {item.sales_order_detail} is already on this delivery order as line '
-                f'{existing}'
-            ),
+        raise DomainError(
+            ErrorCode.DELIVERY_ORDER_LINE_ALREADY_PRESENT,
+            f'Line {item.sales_order_detail} is already on this delivery order as line '
+            f'{existing}',
+            {
+                'sales_order_line_id': item.sales_order_detail,
+                'delivery_order_line_id': existing,
+            },
         )
 
     covered = await _covered_quantities(db, sales_line.sales_order)
     elsewhere = covered.get(item.sales_order_detail, Decimal(0))
     if elsewhere + item.quantity > sales_line.quantity:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail=(
-                f'The sales order line has {sales_line.quantity - elsewhere} left to '
-                f'deliver; {item.quantity} was requested'
-            ),
+        raise DomainError(
+            ErrorCode.DELIVERY_ORDER_QUANTITY_EXCEEDS_REMAINING,
+            f'The sales order line has {sales_line.quantity - elsewhere} left to '
+            f'deliver; {item.quantity} was requested',
+            {
+                'sales_order_line_id': item.sales_order_detail,
+                'remaining': sales_line.quantity - elsewhere,
+                'requested': item.quantity,
+            },
         )
 
     line = DeliveryOrderDetail(
@@ -642,12 +651,15 @@ async def update_line(
             covered = await _covered_quantities(db, sales_line.sales_order)
             elsewhere = covered.get(line.sales_order_detail, Decimal(0)) - line.quantity
             if elsewhere + quantity > sales_line.quantity:
-                raise HTTPException(
-                    status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-                    detail=(
-                        f'The sales order line has {sales_line.quantity - elsewhere} left to '
-                        f'deliver; {quantity} was requested'
-                    ),
+                raise DomainError(
+                    ErrorCode.DELIVERY_ORDER_QUANTITY_EXCEEDS_REMAINING,
+                    f'The sales order line has {sales_line.quantity - elsewhere} left to '
+                    f'deliver; {quantity} was requested',
+                    {
+                        'sales_order_line_id': line.sales_order_detail,
+                        'remaining': sales_line.quantity - elsewhere,
+                        'requested': quantity,
+                    },
                 )
 
     line.quantity = quantity
@@ -691,7 +703,9 @@ async def confirm(db: AsyncSession, order: DeliveryOrder, *, current: CurrentUse
     from app.services import inventory_documents
 
     await db.commit()
-    async with inventory_documents.busy_as_conflict(db, detail='The facility is busy, retry'):
+    async with inventory_documents.busy_as_conflict(
+        db, detail='The facility is busy, retry', resource='facility'
+    ):
         return await _confirm_locked(db, order.delivery_order_id, current=current)
 
 
@@ -712,20 +726,19 @@ async def _confirm_locked(
 
     lines = await lines_of(db, order.delivery_order_id)
     if not lines:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail='Cannot confirm a delivery order with no lines',
+        raise DomainError(
+            ErrorCode.DELIVERY_ORDER_NO_LINES,
+            'Cannot confirm a delivery order with no lines',
         )
 
     if settings.min_span_hours_for_deliveries and not current.administrator:
         earliest = local_now() + timedelta(hours=settings.min_span_hours_for_deliveries)
         if order.date is not None and order.date < earliest:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-                detail=(
-                    f'Deliveries need {settings.min_span_hours_for_deliveries} hours notice; '
-                    f'the earliest available date is {earliest:%Y-%m-%d %H:%M}'
-                ),
+            raise DomainError(
+                ErrorCode.DELIVERY_ORDER_INSUFFICIENT_NOTICE,
+                f'Deliveries need {settings.min_span_hours_for_deliveries} hours notice; '
+                f'the earliest available date is {earliest:%Y-%m-%d %H:%M}',
+                {'min_hours': settings.min_span_hours_for_deliveries, 'earliest': earliest},
             )
 
     order.serial = await documents.assign_folio(db, DeliveryOrder, facility=order.facility)
@@ -747,10 +760,11 @@ async def approve(db: AsyncSession, order: DeliveryOrder, *, current: CurrentUse
     """Approval branches on fulfilment type in a single transition (FR-022, FR-024)."""
     employee = current.employee_id
     if S(order.status) is not S.PENDING_APPROVAL:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=f'Only an order awaiting approval can be approved; this one is '
+        raise DomainError(
+            ErrorCode.DELIVERY_ORDER_NOT_PENDING_APPROVAL,
+            f'Only an order awaiting approval can be approved; this one is '
             f'{S(order.status).name}',
+            {'status': S(order.status), 'action': 'approve'},
         )
 
     delivery_events.transition(db, order, _branch_target(order), employee=employee)
@@ -767,10 +781,11 @@ async def reject(
     """Send it back to its author with a stated reason — never leave it in limbo (FR-023)."""
     employee = current.employee_id
     if S(order.status) is not S.PENDING_APPROVAL:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=f'Only an order awaiting approval can be rejected; this one is '
+        raise DomainError(
+            ErrorCode.DELIVERY_ORDER_NOT_PENDING_APPROVAL,
+            f'Only an order awaiting approval can be rejected; this one is '
             f'{S(order.status).name}',
+            {'status': S(order.status), 'action': 'reject'},
         )
 
     delivery_events.transition(db, order, S.DRAFT, employee=employee, reason=reason)
@@ -803,9 +818,10 @@ async def requeue(db: AsyncSession, order: DeliveryOrder, *, current: CurrentUse
     """
     employee = current.employee_id
     if S(order.status) is not S.FAILED:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=f'Only a failed delivery can be re-queued; this one is {S(order.status).name}',
+        raise DomainError(
+            ErrorCode.DELIVERY_ORDER_NOT_FAILED,
+            f'Only a failed delivery can be re-queued; this one is {S(order.status).name}',
+            {'status': S(order.status)},
         )
 
     for line in await lines_of(db, order.delivery_order_id):
@@ -849,9 +865,9 @@ def build_proof(
 ) -> ProofOfDelivery:
     """Stage the evidence. Required at every terminal handover (FR-043)."""
     if not receiver_name.strip() or not receiver_id_shown.strip():
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail='Proof of delivery needs the receiver name and the identification shown',
+        raise DomainError(
+            ErrorCode.DELIVERY_ORDER_PROOF_INCOMPLETE,
+            'Proof of delivery needs the receiver name and the identification shown',
         )
 
     proof = ProofOfDelivery(

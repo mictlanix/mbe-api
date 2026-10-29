@@ -2,6 +2,7 @@ from datetime import date
 from decimal import Decimal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic_core import PydanticCustomError
 
 from app.schemas.core import AddressResponse, BankAccountResponse, ContactResponse
 
@@ -53,7 +54,11 @@ class SupplierAgreementCreate(BaseModel):
     @model_validator(mode='after')
     def validate_period(self) -> 'SupplierAgreementCreate':
         if self.end < self.start:
-            raise ValueError('End must not be before start')
+            raise PydanticCustomError(
+                'supplier_agreement_end_before_start',
+                'End must not be before start',
+                {'start': self.start.isoformat(), 'end': self.end.isoformat()},
+            )
         return self
 
 

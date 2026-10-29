@@ -15,6 +15,7 @@ from app.core.config import settings
 from app.core.deps import CurrentUser, get_current_user
 from app.db.session import get_db
 from app.main import app
+from tests.problem import assert_problem
 
 _URL = '/api/v1/vehicle-operators'
 
@@ -172,15 +173,23 @@ async def test_upload_for_an_unknown_operator_is_404(dirs) -> None:
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize('content', [b'not an image', b'x' * (2 * 1024 * 1024 + 1)])
-async def test_a_bad_upload_is_422_and_keeps_the_existing_photo(dirs, content) -> None:
+@pytest.mark.parametrize(
+    ('content', 'code'),
+    [
+        (b'not an image', 'image.unsupported_format'),
+        (b'x' * (2 * 1024 * 1024 + 1), 'image.too_large'),
+    ],
+)
+async def test_a_bad_upload_is_422_and_keeps_the_existing_photo(dirs, content, code) -> None:
     _auth()
     (dirs.photos / 'keep.png').write_bytes(_png())
     vo = _live_operator('keep.png')
     with _found(vo):
         r = await _post(content)
 
-    assert r.status_code == 422
+    body = assert_problem(r, 422, code)
+    if code == 'image.too_large':
+        assert body['params'] == {'max_bytes': 2097152}
     assert vo.license_photo == 'keep.png'
     assert _files(dirs.photos) == ['keep.png']
 

@@ -19,6 +19,7 @@ from app.enums import AccessRight, SystemObject
 from app.main import app
 from app.schemas.fiscal import InvoiceCreate, InvoiceLineUpdate, InvoiceRelationAdd, InvoiceUpdate
 from tests.api.test_fiscal_documents import _auth, _client, _deny_privileges, _row
+from tests.problem import assert_problem
 
 _SERVICE = 'app.services.fiscal_document_service'
 _INVOICES = 'app.services.invoice_service'
@@ -307,7 +308,8 @@ async def test_update_facility_without_the_privilege_is_403() -> None:
         async with await _client() as client:
             response = await client.put(f'{_BASE}/9', json={'facility': 2})
 
-    assert response.status_code == status.HTTP_403_FORBIDDEN
+    body = assert_problem(response, status.HTTP_403_FORBIDDEN, 'auth.forbidden')
+    assert body['params'] == {'required': [{'system_object': 103, 'right': 4}]}
     assert has.await_args.args[1:] == (
         'tester',
         ((SystemObject.ISSUED_LOCATION_ID, AccessRight.UPDATE),),

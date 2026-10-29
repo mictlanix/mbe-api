@@ -7,7 +7,7 @@ checks: its AR screen shows every facility to everyone.
 
 from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from fastapi import APIRouter, Depends, Query, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import rendering
@@ -154,9 +154,7 @@ async def email_statement(
     """Email the statement to the customer's contacts and typed addresses, and record the send on
     the customer (FR-024)."""
     if mailer is None:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail='Email is not configured'
-        )
+        raise DomainError(ErrorCode.EMAIL_NOT_CONFIGURED, 'Email is not configured')
     sent_at, to = await account_email.email_statement(
         db,
         accounts_service.CUSTOMERS,

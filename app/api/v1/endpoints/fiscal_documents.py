@@ -2,13 +2,15 @@
 editor up to a sealed CFDI (#47, spec 027)."""
 
 from decimal import Decimal
+from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from fastapi import APIRouter, Depends, Query, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import rendering
-from app.core.deps import CurrentUser, has_any_privilege, require_privilege
-from app.core.errors import not_found
+from app.core.deps import CurrentUser, forbidden, has_any_privilege, require_privilege
+from app.core.error_codes import ErrorCode
+from app.core.errors import DomainError, not_found
 from app.db.session import get_db
 from app.enums import AccessRight, SystemObject
 from app.models.fiscal import FiscalDocument
@@ -54,8 +56,8 @@ _XML_RESPONSE = {
 }
 
 
-def _conflict(detail: str) -> HTTPException:
-    return HTTPException(status_code=status.HTTP_409_CONFLICT, detail=detail)
+def _conflict(code: ErrorCode, detail: str, params: dict[str, Any] | None = None) -> DomainError:
+    return DomainError(code, detail, params)
 
 
 async def _document_or_404(db: AsyncSession, fiscal_document_id: int) -> FiscalDocument:
@@ -118,10 +120,12 @@ async def download_fiscal_document_xml(
     only represents it (FR-021)."""
     document = await _document_or_404(db, fiscal_document_id)
     if not document.completed:
-        raise _conflict('Fiscal document has not been issued')
+        raise _conflict(ErrorCode.FISCAL_DOCUMENT_NOT_ISSUED, 'Fiscal document has not been issued')
     xml = await fiscal_document_service.get_xml(db, fiscal_document_id)
     if xml is None:
-        raise _conflict('Stamped XML is missing or unreadable')
+        raise _conflict(
+            ErrorCode.FISCAL_DOCUMENT_XML_UNAVAILABLE, 'Stamped XML is missing or unreadable'
+        )
     return Response(
         xml.encode('utf-8'),
         media_type='application/xml',
@@ -138,18 +142,26 @@ async def print_fiscal_document(
     """The letter-size printed representation of a stamped CFDI 4.0, with its SAT QR code."""
     document = await _document_or_404(db, fiscal_document_id)
     if not document.completed:
-        raise _conflict('Fiscal document has not been issued')
+        raise _conflict(ErrorCode.FISCAL_DOCUMENT_NOT_ISSUED, 'Fiscal document has not been issued')
     if document.version != _CFDI_40:
-        raise _conflict('Only CFDI 4.0 documents can be printed')
+        raise _conflict(
+            ErrorCode.FISCAL_DOCUMENT_VERSION_NOT_PRINTABLE,
+            'Only CFDI 4.0 documents can be printed',
+            {'version': str(document.version)},
+        )
     if not document.stamp_uuid:
-        raise _conflict('Fiscal document is not stamped')
+        raise _conflict(ErrorCode.FISCAL_DOCUMENT_NOT_STAMPED, 'Fiscal document is not stamped')
     xml = await fiscal_document_service.get_xml(db, fiscal_document_id)
     if xml is None:
-        raise _conflict('Stamped XML is missing or unreadable')
+        raise _conflict(
+            ErrorCode.FISCAL_DOCUMENT_XML_UNAVAILABLE, 'Stamped XML is missing or unreadable'
+        )
     try:
         template, context = await print_contexts.fiscal_document_context(db, document, xml)
     except CfdiError:
-        raise _conflict('Stamped XML is missing or unreadable') from None
+        raise _conflict(
+            ErrorCode.FISCAL_DOCUMENT_XML_UNAVAILABLE, 'Stamped XML is missing or unreadable'
+        ) from None
     pdf = await rendering.render_pdf(template, context)
     return rendering.pdf_response(pdf, _file_name(document, 'pdf'))
 
@@ -248,9 +260,7 @@ async def update_invoice(
     if 'facility' in data.model_fields_set and not current.administrator:
         grant = ((SystemObject.ISSUED_LOCATION_ID, AccessRight.UPDATE),)
         if not await has_any_privilege(db, current.user_id, grant):
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN, detail='Insufficient privileges'
-            )
+            raise forbidden(grant)
     document = await _document_or_404(db, fiscal_document_id)
     await invoice_service.update_header(db, current, document, data)
     return await _response(db, fiscal_document_id)
@@ -398,9 +408,7 @@ async def email_fiscal_document(
 ) -> FiscalEmailResponse:
     """Send a stamped CFDI 4.0's PDF and XML to 1–10 addresses, and record the send."""
     if mailer is None:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail='Email is not configured'
-        )
+        raise DomainError(ErrorCode.EMAIL_NOT_CONFIGURED, 'Email is not configured')
     document = await _document_or_404(db, fiscal_document_id)
     sent_at = await fiscal_email.email_document(
         db, document, data.to, mailer=mailer, current=current

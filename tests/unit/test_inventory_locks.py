@@ -244,6 +244,8 @@ async def test_begin_locked_refuses_a_facility_with_no_transit_after_locking_the
 
     assert exc.value.status_code == 422
     assert exc.value.detail == 'Facility 9 has no in-transit location'
+    assert exc.value.code == 'facility.no_in_transit_location'
+    assert exc.value.params == {'facility_ids': [9]}
     assert not any('FROM warehouse' in sql and _is_lock(sql) for sql in db.log)
 
 
@@ -260,6 +262,8 @@ async def test_deadlock_and_lock_wait_timeout_become_409_after_a_rollback(code):
 
     assert exc.value.status_code == 409
     assert exc.value.detail == 'The warehouse is busy, retry'
+    assert exc.value.code == 'lock.busy'
+    assert exc.value.params == {'resource': 'warehouse'}
     assert db.log == [ROLLBACK]
 
 
@@ -405,6 +409,7 @@ async def test_a_confirmed_count_is_refused_after_the_locks_and_before_any_ledge
 
     assert exc.value.status_code == 409
     assert exc.value.detail == 'A confirmed count cannot be cancelled'
+    assert exc.value.code == 'inventory_count.confirmed_cannot_cancel'
     commit = db.log.index(COMMIT)
     after = db.log[commit + 1 :]
     # The document lock, the warehouse lock, then nothing but the rollback.

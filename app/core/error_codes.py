@@ -191,6 +191,7 @@ class ErrorCode(StrEnum):
     INVENTORY_DOCUMENT_NO_LINES = 'inventory_document.no_lines', 409
 
     # inventory_receipt
+    INVENTORY_RECEIPT_WAREHOUSE_FIXED = 'inventory_receipt.warehouse_fixed', 409
     INVENTORY_RECEIPT_COMPLEMENTARY_UNAVAILABLE = 'inventory_receipt.complementary_unavailable', 409
 
     # inventory_transfer

@@ -331,7 +331,7 @@ class TestTheStatement:
             async with _client() as client:
                 response = await client.post(f'{BASE}/21/statement/email', json={'to': ['a@x.mx']})
 
-        assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
+        assert_problem(response, status.HTTP_503_SERVICE_UNAVAILABLE, 'email.not_configured')
         send.assert_not_awaited()
 
     async def test_email_answers_when_and_to_whom(self) -> None:

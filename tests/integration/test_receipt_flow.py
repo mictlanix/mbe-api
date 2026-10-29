@@ -127,10 +127,16 @@ async def _ppd_invoice(db: AsyncSession, **overrides: object) -> int:
     return await seed_fiscal_document(db, 'invoice', payment_terms=1, **overrides)
 
 
-async def _status(code: int, call) -> HTTPException:  # noqa: ANN001
+async def _status(
+    code: int, call, error_code: str | None = None, params: dict | None = None
+) -> HTTPException:  # noqa: ANN001
     with pytest.raises(HTTPException) as caught:
         await call
     assert caught.value.status_code == code, caught.value.detail
+    if error_code is not None:
+        assert caught.value.code == error_code
+    if params is not None:
+        assert caught.value.params == params
     return caught.value
 
 
@@ -158,7 +164,9 @@ async def test_create_needs_a_receipt_series(receipts: Receipts) -> None:
     await receipts.db.execute(update(TaxpayerBatch).where(TaxpayerBatch.type == 200).values(type=1))
     await receipts.db.commit()
 
-    error = await _status(422, receipts.create())
+    error = await _status(
+        422, receipts.create(), 'fiscal_document.issuer_has_no_series', {'type': 200}
+    )
     assert error.detail == 'The issuer has no payment receipt series'
 
 
@@ -207,7 +215,12 @@ async def test_only_live_ppd_invoices_of_the_recipient_can_be_paid(
         await receipts.create(), payment_date='2026-10-01', payment_amount='100.00'
     )
 
-    error = await _status(422, receipts.pay(document, invoice))
+    error = await _status(
+        422,
+        receipts.pay(document, invoice),
+        'fiscal_document.invoice_not_payable',
+        {'invoice_id': invoice},
+    )
     assert error.detail == 'The invoice cannot be paid by this receipt'
 
 
@@ -218,12 +231,27 @@ async def test_amount_limits(receipts: Receipts) -> None:
         await receipts.create(), payment_date='2026-10-01', payment_amount='3500.00'
     )
 
-    error = await _status(422, receipts.pay(document, invoice, amount='3160.01'))
+    error = await _status(
+        422,
+        receipts.pay(document, invoice, amount='3160.01'),
+        'fiscal_document.amount_exceeds_balance',
+        {'balance': '3160.00'},
+    )
     assert error.detail == 'Amount exceeds the invoice balance of 3160.00'
     document = await receipts.pay(document, invoice, amount='3000.00')
-    error = await _status(422, receipts.pay(document, other, amount='600.00'))
+    error = await _status(
+        422,
+        receipts.pay(document, other, amount='600.00'),
+        'fiscal_document.amounts_exceed_payment',
+        {},
+    )
     assert error.detail == 'The amounts paid exceed the payment amount'
-    await _status(409, receipts.pay(document, invoice, amount='1.00'))
+    await _status(
+        409,
+        receipts.pay(document, invoice, amount='1.00'),
+        'fiscal_document.invoice_already_on_receipt',
+        {'invoice_id': invoice},
+    )
     relation = _relation(document, invoice)['fiscal_document_relation_id']
     await svc.update_paid_invoice(
         receipts.db,
@@ -244,7 +272,9 @@ async def test_the_payment_date_cannot_precede_the_invoice(receipts: Receipts) -
         await receipts.create(), payment_date='2026-09-28', payment_amount='100.00'
     )
 
-    error = await _status(422, receipts.pay(document, invoice))
+    error = await _status(
+        422, receipts.pay(document, invoice), 'fiscal_document.payment_date_out_of_range', {}
+    )
     assert error.detail == "The payment date must be between the invoices' dates and today"
 
 
@@ -252,7 +282,12 @@ async def test_the_payment_amount_cannot_drop_below_the_amounts_paid(receipts: R
     invoice = await _ppd_invoice(receipts.db)
     document = await receipts.ready(invoice, '1000.00')
 
-    error = await _status(422, receipts.header(document, payment_amount='999.99'))
+    error = await _status(
+        422,
+        receipts.header(document, payment_amount='999.99'),
+        'fiscal_document.amounts_exceed_payment',
+        {},
+    )
     assert error.detail == 'The amounts paid exceed the payment amount'
 
 
@@ -307,7 +342,9 @@ async def test_confirm_checks_the_payment(receipts: Receipts, header: dict, deta
     if detail is None:
         assert (await receipts.confirm(document)).status == 'sealed'
     else:
-        error = await _status(422, receipts.confirm(document))
+        error = await _status(
+            422, receipts.confirm(document), 'fiscal_document.amounts_not_equal_payment', {}
+        )
         assert error.detail == detail
 
 
@@ -315,7 +352,9 @@ async def test_confirm_needs_a_paid_invoice_and_a_date(receipts: Receipts) -> No
     document = await receipts.header(
         await receipts.create(), payment_date='2026-10-01', payment_amount='10.00'
     )
-    error = await _status(422, receipts.confirm(document))
+    error = await _status(
+        422, receipts.confirm(document), 'fiscal_document.receipt_pays_no_invoice', {}
+    )
     assert error.detail == 'The receipt pays no invoice'
 
 
@@ -379,7 +418,9 @@ async def test_confirm_recomputes_under_the_lock(receipts: Receipts) -> None:
 
     await receipts.confirm(first)
 
-    error = await _status(422, receipts.confirm(second))
+    error = await _status(
+        422, receipts.confirm(second), 'fiscal_document.amount_exceeds_balance', {'balance': '0.00'}
+    )
     assert error.detail == 'Amount exceeds the invoice balance of 0.00'
 
 
@@ -464,7 +505,12 @@ async def test_a_payment_backs_one_live_receipt(receipts: Receipts) -> None:
     payment = await _payment_applied_to(receipts.db, invoice)
     first = await receipts.create(customer_payment=payment)
 
-    error = await _status(409, receipts.create(customer_payment=payment))
+    error = await _status(
+        409,
+        receipts.create(customer_payment=payment),
+        'fiscal_document.payment_already_receipted',
+        {'fiscal_document_id': first.fiscal_document_id},
+    )
     assert error.detail.startswith('This payment already has receipt')
     await receipts.db.execute(
         update(FiscalDocument)
@@ -493,4 +539,67 @@ async def test_a_payment_of_another_customer_is_refused(receipts: Receipts) -> N
     await receipts.db.execute(update(CustomerPayment).values(customer=2))
     await receipts.db.commit()
 
-    await _status(422, receipts.create(customer_payment=payment))
+    await _status(
+        422,
+        receipts.create(customer_payment=payment),
+        'fiscal_document.payment_other_customer',
+        {'customer_payment_id': payment},
+    )
+
+
+# ── Confirm refusals that need their own set-up (spec 036) ────────────────────
+
+
+async def test_confirm_needs_the_payment_date_and_amount(receipts: Receipts) -> None:
+    invoice = await _ppd_invoice(receipts.db)
+    document = await receipts.ready(invoice, '1000.00')
+    await receipts.db.execute(update(FiscalDocument).values(payment_date=None))
+    await receipts.db.commit()
+
+    await _status(
+        422,
+        receipts.confirm(document),
+        'fiscal_document.receipt_needs_payment_data',
+        {},
+    )
+
+
+async def test_confirm_needs_the_actual_payment_form(receipts: Receipts) -> None:
+    invoice = await _ppd_invoice(receipts.db)
+    document = await receipts.ready(invoice, '1000.00')
+    await receipts.db.execute(update(FiscalDocument).values(payment_method=99))
+    await receipts.db.commit()
+
+    await _status(
+        422,
+        receipts.confirm(document),
+        'fiscal_document.payment_form_required',
+        {'type': 200},
+    )
+
+
+async def test_confirm_refuses_a_payment_dated_in_the_future(receipts: Receipts) -> None:
+    invoice = await _ppd_invoice(receipts.db)
+    document = await receipts.ready(invoice, '1000.00')
+    await receipts.db.execute(update(FiscalDocument).values(payment_date=date(2999, 1, 1)))
+    await receipts.db.commit()
+
+    await _status(422, receipts.confirm(document), 'fiscal_document.payment_date_out_of_range', {})
+
+
+async def test_confirm_refuses_an_invoice_cancelled_meanwhile(receipts: Receipts) -> None:
+    invoice = await _ppd_invoice(receipts.db)
+    document = await receipts.ready(invoice, '1000.00')
+    await receipts.db.execute(
+        update(FiscalDocument)
+        .where(FiscalDocument.fiscal_document_id == invoice)
+        .values(cancelled=True)
+    )
+    await receipts.db.commit()
+
+    await _status(
+        422,
+        receipts.confirm(document),
+        'fiscal_document.invoice_not_payable',
+        {'invoice_id': invoice},
+    )

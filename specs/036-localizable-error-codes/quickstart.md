@@ -24,11 +24,11 @@ Spot checks against a local server (`uv run uvicorn app.main:app --port 8000`):
 | `GET /api/v1/customers/999999` with a token | 404, `application/problem+json`, `code: resource.not_found`, `params: {"resource": "customer", "id": 999999}`, `detail: "Customer not found"` |
 | `GET /api/v1/customers/1` with no token | 401, `WWW-Authenticate: Bearer`, `code: auth.not_authenticated` |
 | `GET /api/v1/nope` | 404, `code: request.route_not_found` |
-| `/openapi.json` | `components.schemas.Problem` and `ErrorCode` (240 values); every v1 operation has a `default` response referencing `Problem` |
+| `/openapi.json` | `components.schemas.Problem` and `ErrorCode` (241 values); every v1 operation has a `default` response referencing `Problem` |
 
 ## 2. Contract
 
-- [contracts/error-codes.md](contracts/error-codes.md) lists all 240 codes.
+- [contracts/error-codes.md](contracts/error-codes.md) lists all 241 codes.
 - [contracts/api.md](contracts/api.md) has the body shapes.
 - [raise-map.md](raise-map.md) maps every raise site to its code.
 

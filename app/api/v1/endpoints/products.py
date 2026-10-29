@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Depends, File, Query, UploadFile
 from fastapi import status as http_status
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -194,10 +194,7 @@ async def upload_product_image(
     if product is None:
         raise not_found(Product, product_id)
     content = await file.read()
-    try:
-        filename = await image_service.process_and_save_image(content, settings.images_dir)
-    except ValueError as exc:
-        raise HTTPException(status_code=http_status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc))
+    filename = await image_service.process_and_save_image(content, settings.images_dir)
     product = await product_service.update_product(
         db, product, ProductUpdate(photo=filename), updater=current.employee_id
     )

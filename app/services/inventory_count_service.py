@@ -15,7 +15,6 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Any, NamedTuple
 
-from fastapi import HTTPException, status
 from sqlalchemy import func, insert, select
 from sqlalchemy import update as update_rows  # `update` is this module's header edit
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -23,6 +22,8 @@ from sqlalchemy.orm.attributes import set_committed_value
 
 from app.core.clock import local_now
 from app.core.deps import CurrentUser
+from app.core.error_codes import ErrorCode
+from app.core.errors import DomainError
 from app.enums import TransactionType
 from app.models.inventory import InventoryCount, InventoryCountDetail, LotSerialTracking
 from app.models.product import Product
@@ -74,28 +75,36 @@ def validate_batch(
     products_by_id: Mapping[int, Any],
     products_by_code: Mapping[str, Any],
 ) -> list[dict[str, Any]]:
-    """Every bad entry, by index: unknown, not stockable, repeated, or naming its product other
-    than by exactly one of id and code. A repeat is each entry after the first naming a product,
-    whether by id or by code. Empty when the batch is clean (FR-002, R3)."""
+    """Every bad entry, by index, with its `inventory_count_line.*` code: unknown, not stockable,
+    repeated, or naming its product other than by exactly one of id and code. A repeat is each
+    entry after the first naming a product, whether by id or by code. Empty when the batch is
+    clean (FR-002, R3)."""
     errors: list[dict[str, Any]] = []
     seen: set[int] = set()
     for index, item in enumerate(items):
         named = _named(item)
         if len(named) != 1:
-            errors.append({'index': index, **named, 'reason': EXACTLY_ONE})
+            errors.append(
+                {
+                    'index': index,
+                    **named,
+                    'reason': EXACTLY_ONE,
+                    'code': ErrorCode.INVENTORY_COUNT_LINE_PRODUCT_REFERENCE,
+                }
+            )
             continue
         product = _resolve(item, products_by_id, products_by_code)
-        reason = None
+        reason = code = None
         if product is None:
-            reason = UNKNOWN
+            reason, code = UNKNOWN, ErrorCode.INVENTORY_COUNT_LINE_PRODUCT_UNKNOWN
         elif not product.stockable:
-            reason = NOT_STOCKABLE
+            reason, code = NOT_STOCKABLE, ErrorCode.INVENTORY_COUNT_LINE_NOT_STOCKABLE
         elif product.product_id in seen:
-            reason = REPEATED
+            reason, code = REPEATED, ErrorCode.INVENTORY_COUNT_LINE_REPEATED
         if product is not None:
             seen.add(product.product_id)
         if reason is not None:
-            errors.append({'index': index, **named, 'reason': reason})
+            errors.append({'index': index, **named, 'reason': reason, 'code': code})
     return errors
 
 
@@ -506,7 +515,11 @@ async def confirm(
         else:
             on_hand = await _on_hand(db, count.warehouse, [line.product for line in lines])
         if not lines:
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail='Count has no lines')
+            raise DomainError(
+                ErrorCode.INVENTORY_DOCUMENT_NO_LINES,
+                'Count has no lines',
+                {'resource': 'inventory_count'},
+            )
 
         # 5. Post the differences, in bulk.
         found = differences(lines, on_hand)

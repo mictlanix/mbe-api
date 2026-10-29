@@ -247,7 +247,9 @@ async def create_payment(
     session_id = await _open_session_id(db, employee)
 
     await db.commit()
-    async with inv.busy_as_conflict(db, detail='The facility is busy, retry'):
+    async with inv.busy_as_conflict(
+        db, detail='The facility is busy, retry', resource='facility'
+    ):
         if session_id is not None:
             # A close that got the session first has set `end`: 409 "The cash session is
             # closed", rather than a payment recorded into a drawer already counted.
@@ -447,7 +449,7 @@ async def apply_payment(
     """
     employee = current.employee_id
 
-    async with inv.busy_as_conflict(db, 'The order is busy, retry'):
+    async with inv.busy_as_conflict(db, 'The order is busy, retry', 'sales_order'):
         await db.commit()
         payment = await _lock_payment(db, payment.customer_payment_id)
         order = await _lock_order(db, data.sales_order)
@@ -495,7 +497,7 @@ async def reverse_application(
     `apply_payment`, in the same order."""
     employee = current.employee_id
 
-    async with inv.busy_as_conflict(db, 'The order is busy, retry'):
+    async with inv.busy_as_conflict(db, 'The order is busy, retry', 'sales_order'):
         await db.commit()
         await _lock_payment(db, payment.customer_payment_id)
         await db.refresh(application)

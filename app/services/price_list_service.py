@@ -1,11 +1,11 @@
 from collections.abc import Sequence
 
-from fastapi import HTTPException, status
 from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.constants import COST_PRICE_LIST_ID
-from app.core.errors import not_found
+from app.core.error_codes import ErrorCode
+from app.core.errors import DomainError, not_found
 from app.models.customer import Customer
 from app.models.product import PriceList
 from app.schemas.product import PriceListCreate, PriceListUpdate
@@ -23,7 +23,12 @@ COST_LIST_NOT_ASSIGNABLE = 'The cost price list cannot be assigned to a customer
 COST_LIST_READ_ONLY = 'The cost price list is read-only'
 
 
-def assert_not_cost_list(price_list_id: int, *, detail: str) -> None:
+def assert_not_cost_list(
+    price_list_id: int,
+    code: ErrorCode = ErrorCode.PRICE_LIST_COST_NOT_ASSIGNABLE,
+    *,
+    detail: str,
+) -> None:
     """Refuse an operation on the cost price list (#194).
 
     `COST_PRICE_LIST_ID` holds average cost, not a sale price, and only the cost snapshot on a
@@ -34,7 +39,7 @@ def assert_not_cost_list(price_list_id: int, *, detail: str) -> None:
     only act on the refusal if it knows which one it hit.
     """
     if price_list_id == COST_PRICE_LIST_ID:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=detail)
+        raise DomainError(code, detail)
 
 
 async def list_price_lists(
@@ -146,13 +151,20 @@ async def delete_price_list(
     `replacement=0` is not "none given" still holds — it is rejected for being the cost list, on
     `is not None` as before.
     """
-    assert_not_cost_list(pl.price_list_id, detail='The cost price list cannot be deleted')
+    assert_not_cost_list(
+        pl.price_list_id,
+        ErrorCode.PRICE_LIST_COST_NOT_DELETABLE,
+        detail='The cost price list cannot be deleted',
+    )
     if replacement_id is not None:
-        assert_not_cost_list(replacement_id, detail=COST_LIST_NOT_ASSIGNABLE)
+        assert_not_cost_list(
+            replacement_id,
+            ErrorCode.PRICE_LIST_COST_NOT_ASSIGNABLE,
+            detail=COST_LIST_NOT_ASSIGNABLE,
+        )
         if replacement_id == pl.price_list_id:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail='Cannot replace a price list with itself',
+            raise DomainError(
+                ErrorCode.PRICE_LIST_REPLACE_WITH_ITSELF, 'Cannot replace a price list with itself'
             )
         if await db.get(PriceList, replacement_id) is None:
             raise not_found(

@@ -11,11 +11,11 @@ from datetime import date, datetime, time, timedelta
 from decimal import Decimal
 from typing import Any, NamedTuple
 
-from fastapi import HTTPException, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.errors import not_found
+from app.core.error_codes import ErrorCode
+from app.core.errors import DomainError, not_found
 from app.enums import TransactionType
 from app.models.core import Warehouse
 from app.models.inventory import (
@@ -73,14 +73,12 @@ class Movements(NamedTuple):
 def range_bounds(from_: date, to: date) -> tuple[datetime, datetime]:
     """`[from, to + 1 day)`: the end is inclusive of its whole day (FR-031)."""
     if to < from_:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail='The range ends before it starts',
-        )
+        raise DomainError(ErrorCode.KARDEX_RANGE_REVERSED, 'The range ends before it starts')
     if (to - from_).days + 1 > MAX_DAYS:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail=f'The range may not exceed {MAX_DAYS} days',
+        raise DomainError(
+            ErrorCode.KARDEX_RANGE_TOO_LONG,
+            f'The range may not exceed {MAX_DAYS} days',
+            {'max_days': MAX_DAYS},
         )
     return datetime.combine(from_, time()), datetime.combine(to + timedelta(days=1), time())
 

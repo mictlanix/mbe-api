@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Depends, File, Query, UploadFile
 from fastapi import status as http_status
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -51,10 +51,7 @@ async def upload_facility_logo(
     if facility is None:
         raise not_found(Facility, facility_id)
     content = await file.read()
-    try:
-        filename = await image_service.process_and_save_image(content, settings.images_dir)
-    except ValueError as exc:
-        raise HTTPException(status_code=http_status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc))
+    filename = await image_service.process_and_save_image(content, settings.images_dir)
     facility = await facility_service.update_facility(db, facility, FacilityUpdate(logo=filename))
     return FacilityResponse.model_validate(facility)
 

@@ -171,11 +171,21 @@ async def _incidences(db: AsyncSession) -> list[Incidence]:
     return list((await db.execute(select(Incidence))).scalars().all())
 
 
+LAST: list[HTTPException] = []
+
+
 async def _refused(call, code: int = 409) -> str:  # noqa: ANN001
     with pytest.raises(HTTPException) as exc:
         await call
     assert exc.value.status_code == code, exc.value.detail
+    LAST[:] = [exc.value]
     return exc.value.detail
+
+
+def _assert_code(code: str, params: dict | None = None) -> None:
+    """The last refusal's code and raw params (spec 036)."""
+    assert LAST[0].code == code
+    assert LAST[0].params == (params or {})
 
 
 def _locks(db: AsyncSession) -> list[tuple[str, bool]]:
@@ -267,6 +277,7 @@ async def test_a_cash_payment_needs_the_callers_open_session(db) -> None:
     await _session(db, cashier=99)
     detail = await _refused(_create(db, method=CASH))
     assert detail == 'An open cash session is required'
+    _assert_code('cash_session.not_open')
 
 
 async def test_a_cash_payment_takes_the_session_and_its_drawers_facility(db) -> None:
@@ -299,6 +310,7 @@ async def test_a_cash_payment_into_a_session_closed_meanwhile_is_refused(db) -> 
 
 async def test_a_body_facility_from_a_non_administrator_is_422(db) -> None:
     await _refused(_create(db, facility=2), 422)
+    _assert_code('supplier_payment.facility_not_nameable')
 
 
 async def test_a_body_facility_from_an_administrator_with_a_facility_is_422(db) -> None:
@@ -312,6 +324,7 @@ async def test_an_administrator_without_a_facility_names_it(db) -> None:
 
 async def test_an_administrator_without_a_facility_must_name_one(db) -> None:
     await _refused(_create(db, _user(administrator=True, facility_id=None)), 422)
+    _assert_code('facility.required')
 
 
 async def test_serials_are_numbered_per_facility(db) -> None:
@@ -378,6 +391,7 @@ async def test_draft_and_cancelled_orders_are_refused(db) -> None:
     cancelled = await _order(db, '100', cancelled=True)
 
     assert 'not confirmed' in await _refuse_application(db, payment, draft, '1')
+    _assert_code('purchase_order.not_confirmed', {'purchase_order_id': draft})
     assert 'not confirmed' in await _refuse_application(db, payment, cancelled, '1')
 
 
@@ -386,6 +400,7 @@ async def test_another_suppliers_order_is_refused(db) -> None:
     other = await _order(db, '100', supplier=2)
 
     assert 'another supplier' in await _refuse_application(db, payment, other, '1')
+    _assert_code('supplier_payment.order_other_supplier', {'purchase_order_id': other})
 
 
 async def test_with_no_cutoff_every_application_is_refused(db) -> None:
@@ -396,6 +411,7 @@ async def test_with_no_cutoff_every_application_is_refused(db) -> None:
 
     detail = await _refuse_application(db, payment, po, '1')
     assert detail == 'Balances start at the cutoff, which is not set yet'
+    _assert_code('supplier_payment.cutoff_not_set')
 
 
 async def test_an_order_confirmed_before_the_cutoff_is_refused(db) -> None:
@@ -404,6 +420,7 @@ async def test_an_order_confirmed_before_the_cutoff_is_refused(db) -> None:
     on_the_cutoff = await _order(db, '100', confirmed=CUTOFF)
 
     assert 'before the cutoff' in await _refuse_application(db, payment, old, '1')
+    _assert_code('supplier_payment.order_before_cutoff', {'purchase_order_id': old})
     await _apply(db, payment, (on_the_cutoff, '1'))
 
 
@@ -414,6 +431,10 @@ async def test_more_than_the_order_balance_is_refused(db) -> None:
 
     detail = await _refused(_apply(db, payment, (po, '1000.01')))
     assert 'balance' in detail
+    _assert_code(
+        'supplier_payment.amount_exceeds_balance',
+        {'purchase_order_id': po, 'balance': '1000.00'},
+    )
     await _apply(db, payment, (po, '1000'))
 
 
@@ -422,6 +443,7 @@ async def test_more_than_the_payment_credit_is_refused_across_items(db) -> None:
     first, second = await _order(db, '80'), await _order(db, '80')
 
     assert 'credit' in await _refused(_apply(db, payment, (first, '60'), (second, '40.01')))
+    _assert_code('supplier_payment.amounts_exceed_credit', {'credit': '100.00'})
     assert await _applications(db, payment) == []
     await _apply(db, payment, (first, '60'), (second, '40'))
 
@@ -446,7 +468,9 @@ async def test_a_cancelled_or_legacy_payment_takes_no_applications(db) -> None:
     legacy_id = legacy.supplier_payment_id
 
     assert 'cancelled' in await _refuse_application(db, cancelled, po, '1')
+    _assert_code('supplier_payment.cancelled')
     assert 'legacy' in await _refuse_application(db, legacy_id, po, '1')
+    _assert_code('supplier_payment.legacy_not_applicable')
 
 
 async def test_an_unknown_order_or_payment_is_404(db) -> None:
@@ -532,6 +556,7 @@ async def test_reversing_marks_the_application_and_writes_one_incidence(db) -> N
 
     detail = await _refused(service.reverse_application(db, payment, app_id, 'x', current=_user()))
     assert detail == 'The application is already reversed'
+    _assert_code('supplier_payment.application_already_reversed', {'application_id': app_id})
 
 
 async def test_an_application_of_another_payment_is_404(db) -> None:
@@ -581,6 +606,7 @@ async def test_cancelling_reverses_every_live_application(db) -> None:
 
     detail = await _refused(service.cancel_payment(db, payment, 'again', current=_user()))
     assert detail == 'The payment is already cancelled'
+    _assert_code('supplier_payment.already_cancelled')
     assert 'cancelled' in await _refuse_application(db, payment, first, '1')
 
 

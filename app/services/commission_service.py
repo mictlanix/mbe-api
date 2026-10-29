@@ -11,7 +11,6 @@ from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
 
-from fastapi import HTTPException, status
 from sqlalchemy import and_, case, delete, exists, false, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -457,8 +456,8 @@ class PeriodView:
     totals: list[Total]
 
 
-def _conflict(detail: str) -> HTTPException:
-    return HTTPException(status_code=status.HTTP_409_CONFLICT, detail=detail)
+def _conflict(code: ErrorCode, detail: str, year: int, month: int) -> DomainError:
+    return DomainError(code, detail, {'year': year, 'month': month})
 
 
 def _totals(lines: Sequence[object]) -> list[Total]:
@@ -510,17 +509,28 @@ async def close(
     """Freeze a month's lines (FR-007). Months close in sequence (FR-010a)."""
     _, nxt = month_bounds(year, month)
     if local_now() < nxt:
-        raise _conflict('Period has not ended')
+        raise _conflict(ErrorCode.COMMISSION_PERIOD_NOT_ENDED, 'Period has not ended', year, month)
     period = await _period(db, year, month, lock=True)
     if period is not None and period.status == CommissionPeriodStatus.PAID:
-        raise _conflict('Period is already paid')
+        raise _conflict(
+            ErrorCode.COMMISSION_PERIOD_ALREADY_PAID, 'Period is already paid', year, month
+        )
     if period is not None and period.status == CommissionPeriodStatus.CLOSED:
-        raise _conflict('Period is already closed')
+        raise _conflict(
+            ErrorCode.COMMISSION_PERIOD_ALREADY_CLOSED, 'Period is already closed', year, month
+        )
     latest = await _latest_closed(db, lock=True)
     if latest is not None and (latest.year, latest.month) != _previous(year, month):
         if (latest.year, latest.month) > (year, month):
-            raise _conflict('A later period is closed')
-        raise _conflict('The previous period is not closed')
+            raise _conflict(
+                ErrorCode.COMMISSION_PERIOD_LATER_CLOSED, 'A later period is closed', year, month
+            )
+        raise _conflict(
+            ErrorCode.COMMISSION_PERIOD_PREVIOUS_NOT_CLOSED,
+            'The previous period is not closed',
+            year,
+            month,
+        )
 
     lines = await compute(db, year, month)
     now = local_now()
@@ -546,12 +556,19 @@ async def reopen(
     """Discard a closed, unpaid month's lines; only the latest closed month (FR-010, FR-010a)."""
     period = await _period(db, year, month, lock=True)
     if period is not None and period.status == CommissionPeriodStatus.PAID:
-        raise _conflict('A paid period cannot be reopened')
+        raise _conflict(
+            ErrorCode.COMMISSION_PERIOD_PAID_CANNOT_REOPEN,
+            'A paid period cannot be reopened',
+            year,
+            month,
+        )
     if period is None or period.status != CommissionPeriodStatus.CLOSED:
-        raise _conflict('Period is not closed')
+        raise _conflict(ErrorCode.COMMISSION_PERIOD_NOT_CLOSED, 'Period is not closed', year, month)
     latest = await _latest_closed(db, lock=True)
     if latest is not None and (latest.year, latest.month) != (year, month):
-        raise _conflict('A later period is closed')
+        raise _conflict(
+            ErrorCode.COMMISSION_PERIOD_LATER_CLOSED, 'A later period is closed', year, month
+        )
 
     await db.execute(
         delete(CommissionPeriodLine).where(
@@ -570,9 +587,13 @@ async def pay(db: AsyncSession, year: int, month: int, *, current: CurrentUser) 
     """Mark a closed month paid; a paid month is final (FR-011)."""
     period = await _period(db, year, month, lock=True)
     if period is not None and period.status == CommissionPeriodStatus.PAID:
-        raise _conflict('Period is already paid')
+        raise _conflict(
+            ErrorCode.COMMISSION_PERIOD_ALREADY_PAID, 'Period is already paid', year, month
+        )
     if period is None or period.status != CommissionPeriodStatus.CLOSED:
-        raise _conflict('Close the period first')
+        raise _conflict(
+            ErrorCode.COMMISSION_PERIOD_NOT_CLOSED, 'Close the period first', year, month
+        )
     period.status = int(CommissionPeriodStatus.PAID)
     period.paid_by = current.employee_id
     period.paid_at = local_now()
@@ -645,7 +666,7 @@ def _audit(db: AsyncSession, current: CurrentUser, instance_id: int, reason: str
     )
 
 
-def _not_found(resource: type, id: int, what: str) -> HTTPException:
+def _not_found(resource: type, id: int, what: str) -> DomainError:
     return not_found(resource, id, detail=f'{what} not found')
 
 
@@ -844,8 +865,10 @@ async def create_agent_rate(
     db: AsyncSession, data: CommissionAgentRateCreate, *, current: CurrentUser
 ) -> CommissionSalesperson:
     if await db.get(CommissionAgent, data.salesperson) is None:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail='Salesperson is not an agent'
+        raise DomainError(
+            ErrorCode.COMMISSION_AGENT_SALESPERSON_NOT_AGENT,
+            'Salesperson is not an agent',
+            {'salesperson_id': data.salesperson},
         )
     await _get_or_404(db, Commission, data.commission, 'Commission label')
     await _get_or_404(

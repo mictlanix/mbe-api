@@ -166,17 +166,17 @@ The resource names reach the client in three places:
 - **Order:** the guards are written first (phase 0) and marked `xfail(strict=True)` until phase 5, when the marks are removed. A strict xfail that starts passing early fails the suite, which flags a phase finished sooner than recorded.
 - **Existing `detail` assertions** (240 references in 76 files) keep passing throughout, because `detail` doesn't change. As each area migrates, its assertions convert to `assert_problem` plus params. The exceptions are `password_change_required` and the four dict details, where `detail` is the contract.
 
-**Rationale**: FR-020 and FR-021. The coverage guard is the only mechanical way to know each of 240 codes is exercised.
+**Rationale**: FR-020 and FR-021. The coverage guard is the only mechanical way to know each of 241 codes is exercised.
 
 ## R10. The catalog
 
 **Method**: three workers drafted a code for every raise in their areas from one brief (naming rules, fixed codes, resource names). The drafts were consolidated here: overlapping names were merged, five renames applied and two misreuses corrected. The full per-site mapping is `raise-map.md`; the authoritative list is `contracts/error-codes.md`.
 
-**Result**: **240 codes** (239 drafted, plus `auth.administrator_required` from the analysis, A1).
+**Result**: **241 codes**: 239 drafted, plus `auth.administrator_required` from the analysis (A1) and `inventory_receipt.warehouse_fixed`, found unmapped during implementation (T081).
 
 | Status | Codes |
 |---|---|
-| 409 | 111 |
+| 409 | 112 |
 | 422 | 105 |
 | 400 | 9 |
 | 403 | 6 |

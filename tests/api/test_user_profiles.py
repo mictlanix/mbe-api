@@ -20,6 +20,7 @@ from app.db.session import get_db
 from app.enums import EntityStatus
 from app.main import app
 from app.models.user import User, UserProfile, UserProfilePrivilege
+from tests.problem import assert_problem
 
 BASE = '/api/v1/user-profiles'
 
@@ -283,8 +284,9 @@ class TestApply:
             AsyncMock(return_value=_profile(status=EntityStatus.INACTIVE)),
         ):
             response = await client.post(f'{BASE}/1/apply/jdoe')
-        assert response.status_code == 409
-        assert response.json()['detail'] == 'Profile is not active'
+        body = assert_problem(response, 409, 'user_profile.not_active')
+        assert body['detail'] == 'Profile is not active'
+        assert body['params'] == {'profile_id': 1}
 
     @pytest.mark.asyncio
     async def test_an_inactive_profile_is_refused_before_the_user_is_looked_up(

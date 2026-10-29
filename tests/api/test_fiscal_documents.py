@@ -19,6 +19,7 @@ from app.core.deps import CurrentUser, get_current_user
 from app.db.session import get_db
 from app.main import app
 from app.services.cfdi import CfdiError
+from tests.problem import assert_problem
 
 _PDF = b'%PDF-1.7 fake'
 _XML = '<?xml version="1.0" encoding="utf-8"?><cfdi:Comprobante Total="1.00"/>'
@@ -136,7 +137,7 @@ async def test_pdf_requires_the_fiscal_documents_read_privilege() -> None:
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    ('document', 'xml', 'detail'),
+    ('document', 'xml', 'detail', 'code', 'params'),
     [
         # Checked in this order (contracts/fiscal-documents.md): a draft is refused even when
         # it is also an old version with no stamp.
@@ -144,18 +145,36 @@ async def test_pdf_requires_the_fiscal_documents_read_privilege() -> None:
             _document(completed=False, version=Decimal('3.3'), stamp_uuid=None),
             None,
             'Fiscal document has not been issued',
+            'fiscal_document.not_issued',
+            {},
         ),
         (
             _document(version=Decimal('3.3'), stamp_uuid=None),
             None,
             'Only CFDI 4.0 documents can be printed',
+            'fiscal_document.version_not_printable',
+            {'version': '3.3'},
         ),
-        (_document(stamp_uuid=None), None, 'Fiscal document is not stamped'),
-        (_document(), None, 'Stamped XML is missing or unreadable'),
+        (
+            _document(stamp_uuid=None),
+            None,
+            'Fiscal document is not stamped',
+            'fiscal_document.not_stamped',
+            {},
+        ),
+        (
+            _document(),
+            None,
+            'Stamped XML is missing or unreadable',
+            'fiscal_document.xml_unavailable',
+            {},
+        ),
     ],
     ids=['not-issued', 'version-3.3', 'no-uuid', 'no-xml'],
 )
-async def test_pdf_conflicts(document: SimpleNamespace, xml: str | None, detail: str) -> None:
+async def test_pdf_conflicts(
+    document: SimpleNamespace, xml: str | None, detail: str, code: str, params: dict
+) -> None:
     _auth()
     with (
         patch(f'{_SERVICE}.get_document', AsyncMock(return_value=document)),
@@ -164,8 +183,9 @@ async def test_pdf_conflicts(document: SimpleNamespace, xml: str | None, detail:
         async with await _client() as client:
             response = await client.get('/api/v1/fiscal-documents/9/pdf')
 
-    assert response.status_code == status.HTTP_409_CONFLICT
-    assert response.json()['detail'] == detail
+    body = assert_problem(response, status.HTTP_409_CONFLICT, code)
+    assert body['detail'] == detail
+    assert body.get('params', {}) == params
 
 
 @pytest.mark.asyncio
@@ -182,8 +202,8 @@ async def test_pdf_of_unreadable_xml_is_409() -> None:
         async with await _client() as client:
             response = await client.get('/api/v1/fiscal-documents/9/pdf')
 
-    assert response.status_code == status.HTTP_409_CONFLICT
-    assert response.json()['detail'] == 'Stamped XML is missing or unreadable'
+    body = assert_problem(response, status.HTTP_409_CONFLICT, 'fiscal_document.xml_unavailable')
+    assert body['detail'] == 'Stamped XML is missing or unreadable'
 
 
 # ── List, detail and XML (US2) ────────────────────────────────────────────────
@@ -333,14 +353,18 @@ async def test_xml_is_the_stored_text_as_an_attachment() -> None:
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    ('document', 'detail'),
+    ('document', 'detail', 'code'),
     [
-        (_row(completed=False), 'Fiscal document has not been issued'),
-        (_row(), 'Stamped XML is missing or unreadable'),
+        (
+            _row(completed=False),
+            'Fiscal document has not been issued',
+            'fiscal_document.not_issued',
+        ),
+        (_row(), 'Stamped XML is missing or unreadable', 'fiscal_document.xml_unavailable'),
     ],
     ids=['not-issued', 'no-xml'],
 )
-async def test_xml_conflicts(document: SimpleNamespace, detail: str) -> None:
+async def test_xml_conflicts(document: SimpleNamespace, detail: str, code: str) -> None:
     _auth()
     with (
         patch(f'{_SERVICE}.get_document', AsyncMock(return_value=document)),
@@ -349,8 +373,7 @@ async def test_xml_conflicts(document: SimpleNamespace, detail: str) -> None:
         async with await _client() as client:
             response = await client.get('/api/v1/fiscal-documents/9/xml')
 
-    assert response.status_code == status.HTTP_409_CONFLICT
-    assert response.json()['detail'] == detail
+    assert assert_problem(response, status.HTTP_409_CONFLICT, code)['detail'] == detail
 
 
 @pytest.mark.asyncio

@@ -572,8 +572,14 @@ async def test_approve_and_reject_return_the_request() -> None:
 async def test_bulk_approve_returns_each_result() -> None:
     _auth()
     results = [
-        {'purchase_request_id': 1, 'approved': True},
-        {'purchase_request_id': 2, 'approved': False, 'reason': 'Not submitted'},
+        {'purchase_request_id': 1, 'approved': True, 'reason': None, 'code': None, 'params': None},
+        {
+            'purchase_request_id': 2,
+            'approved': False,
+            'reason': 'Not submitted',
+            'code': 'purchase_request.not_submitted',
+            'params': {'status': 'draft'},
+        },
     ]
     with _service() as service:
         service['approve_many'].return_value = results
@@ -583,8 +589,20 @@ async def test_bulk_approve_returns_each_result() -> None:
     assert response.status_code == status.HTTP_200_OK, response.text
     assert response.json() == {
         'results': [
-            {'purchase_request_id': 1, 'approved': True, 'reason': None},
-            {'purchase_request_id': 2, 'approved': False, 'reason': 'Not submitted'},
+            {
+                'purchase_request_id': 1,
+                'approved': True,
+                'reason': None,
+                'code': None,
+                'params': None,
+            },
+            {
+                'purchase_request_id': 2,
+                'approved': False,
+                'reason': 'Not submitted',
+                'code': 'purchase_request.not_submitted',
+                'params': {'status': 'draft'},
+            },
         ]
     }
     assert service['approve_many'].await_args.args[1] == [1, 2]

@@ -12,6 +12,7 @@ from enum import StrEnum
 from typing import Annotated, Self
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic_core import PydanticCustomError
 
 from app.schemas import LocalDateTime
 from app.schemas.sales_order import DocumentStatus
@@ -105,7 +106,10 @@ class TransferReceive(BaseModel):
         cls, lines: list[TransferReceiveLine] | None
     ) -> list[TransferReceiveLine] | None:
         if lines is not None and len({line.line_id for line in lines}) != len(lines):
-            raise ValueError('Each line may be received only once per request')
+            raise PydanticCustomError(
+                'inventory_transfer_duplicate_line',
+                'Each line may be received only once per request',
+            )
         return lines
 
 
@@ -292,7 +296,9 @@ class CountLineSet(BaseModel):
     @model_validator(mode='after')
     def _exactly_one_product_reference(self) -> Self:
         if (self.product is None) == (self.product_code is None):
-            raise ValueError('Give exactly one of product and product_code')
+            raise PydanticCustomError(
+                'inventory_count_product_reference', 'Give exactly one of product and product_code'
+            )
         return self
 
 

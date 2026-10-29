@@ -1,9 +1,9 @@
 from fastapi import APIRouter, Body, Depends, Query, status
-from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.deps import CurrentUser, require_privilege
-from app.core.errors import not_found
+from app.core.error_codes import ErrorCode
+from app.core.errors import DomainError, not_found
 from app.db.session import get_db
 from app.enums import AccessRight, SystemObject
 from app.models.inventory import InventoryCount
@@ -98,16 +98,15 @@ async def set_inventory_count_lines(
     data: CountLinesSet,
     current: CurrentUser = Depends(_UPDATE),
     db: AsyncSession = Depends(get_db),
-) -> InventoryCountResponse | JSONResponse:
+) -> InventoryCountResponse:
     """Set many counted quantities at once; the batch applies whole or not at all (R3)."""
     await _count_or_404(db, count_id)
     try:
         count = await inventory_count_service.set_lines(db, count_id, data.lines, current=current)
     except inventory_count_service.BatchRefused as refusal:
-        return JSONResponse(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            content={'detail': str(refusal), 'errors': refusal.errors},
-        )
+        raise DomainError(
+            ErrorCode.INVENTORY_COUNT_BATCH_INVALID, str(refusal), errors=refusal.errors
+        ) from refusal
     return InventoryCountResponse.model_validate(count)
 
 

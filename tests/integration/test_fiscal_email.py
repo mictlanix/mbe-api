@@ -96,6 +96,8 @@ async def test_only_a_stamped_cfdi_40_can_be_emailed(
         await _email(db, document_id, mailer, current_user)
 
     assert raised.value.status_code == 409
+    assert raised.value.code == 'fiscal_document.not_emailable'
+    assert raised.value.params == {}
     assert raised.value.detail == 'Only a stamped CFDI 4.0 can be emailed'
     assert mailer.sent == []
     assert await _incidences(db, document_id) == []
@@ -112,5 +114,23 @@ async def test_a_refused_send_is_reported_and_not_recorded(
         await _email(db, document_id, mailer, current_user)
 
     assert raised.value.status_code == 502
+    assert raised.value.code == 'email.send_failed'
+    assert raised.value.params == {}
     assert raised.value.detail == 'The email could not be sent: 550 mailbox unavailable'
     assert await _incidences(db, document_id) == []
+
+
+@pytest.mark.usefixtures('seeded')
+async def test_a_stamped_document_with_unreadable_xml_cannot_be_emailed(
+    db: AsyncSession, current_user: CurrentUser
+) -> None:
+    document_id = await seed_fiscal_document(db, 'invoice', xml='<not-a-cfdi')
+    mailer = RecordingMailer()
+
+    with pytest.raises(HTTPException) as raised:
+        await _email(db, document_id, mailer, current_user)
+
+    assert raised.value.status_code == 409
+    assert raised.value.code == 'fiscal_document.xml_unavailable'
+    assert raised.value.params == {}
+    assert mailer.sent == []

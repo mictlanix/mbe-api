@@ -1,11 +1,11 @@
 """Emailing an account statement: what is sent, refused and recorded (spec 033, US5)."""
 
 import pytest
-from fastapi import HTTPException
 from sqlalchemy import insert, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.deps import CurrentUser
+from app.core.errors import DomainError
 from app.enums import SourceType
 from app.models.core import Contact
 from app.models.customer import customer_contact
@@ -86,10 +86,12 @@ async def test_a_contact_of_another_customer_is_refused(
     stranger = await _contact(db, 22, 'otro@cliente.mx')
     mailer = RecordingMailer()
 
-    with pytest.raises(HTTPException) as refusal:
+    with pytest.raises(DomainError) as refusal:
         await _send(db, current_user, mailer, contacts=[stranger])
 
     assert refusal.value.status_code == 422
+    assert refusal.value.code == 'email.contact_not_of_party'
+    assert refusal.value.params == {'contact_id': stranger}
     assert mailer.sent == [] and await _incidences(db, owing) == []
 
 
@@ -98,10 +100,12 @@ async def test_a_contact_without_an_address_is_refused(
 ) -> None:
     silent = await _contact(db, owing, None)
 
-    with pytest.raises(HTTPException) as refusal:
+    with pytest.raises(DomainError) as refusal:
         await _send(db, current_user, RecordingMailer(), contacts=[silent])
 
     assert refusal.value.status_code == 422
+    assert refusal.value.code == 'email.contact_no_address'
+    assert refusal.value.params == {'contact_id': silent}
 
 
 async def test_a_refused_send_records_nothing(
@@ -109,17 +113,19 @@ async def test_a_refused_send_records_nothing(
 ) -> None:
     mailer = RecordingMailer(error=MailError('550 mailbox unavailable'))
 
-    with pytest.raises(HTTPException) as refusal:
+    with pytest.raises(DomainError) as refusal:
         await _send(db, current_user, mailer, to=['a@cliente.mx'])
 
     assert refusal.value.status_code == 502
+    assert refusal.value.code == 'email.send_failed'
+    assert refusal.value.params == {}
     assert await _incidences(db, owing) == []
 
 
 async def test_an_unknown_customer_is_404(
     db: AsyncSession, current_user: CurrentUser, seeded: None
 ) -> None:
-    with pytest.raises(HTTPException) as refusal:
+    with pytest.raises(DomainError) as refusal:
         await email_statement(
             db,
             accounts_service.CUSTOMERS,

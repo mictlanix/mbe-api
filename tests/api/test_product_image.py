@@ -11,8 +11,11 @@ from httpx import ASGITransport, AsyncClient
 from PIL import Image
 
 from app.core.deps import CurrentUser, get_current_user
+from app.core.error_codes import ErrorCode
+from app.core.errors import DomainError
 from app.db.session import get_db
 from app.main import app
+from tests.problem import assert_problem
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
 
@@ -150,7 +153,11 @@ async def test_upload_image_returns_422_when_file_too_large() -> None:
         patch('app.services.product_service.get_product', new=AsyncMock(return_value=_product())),
         patch(
             'app.services.image_service.process_and_save_image',
-            side_effect=ValueError('Image exceeds maximum allowed size of 2 MB'),
+            side_effect=DomainError(
+                ErrorCode.IMAGE_TOO_LARGE,
+                'Image exceeds maximum allowed size of 2 MB',
+                {'max_bytes': 2 * 1024 * 1024},
+            ),
         ),
     ):
         async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as c:
@@ -158,25 +165,22 @@ async def test_upload_image_returns_422_when_file_too_large() -> None:
                 '/api/v1/products/1/image',
                 files={'file': ('big.png', oversized, 'image/png')},
             )
-    assert r.status_code == 422
+    body = assert_problem(r, 422, 'image.too_large')
+    assert body['params'] == {'max_bytes': 2 * 1024 * 1024}
 
 
 @pytest.mark.asyncio
 async def test_upload_image_returns_422_for_non_image_file() -> None:
     _auth()
-    with (
-        patch('app.services.product_service.get_product', new=AsyncMock(return_value=_product())),
-        patch(
-            'app.services.image_service.process_and_save_image',
-            side_effect=ValueError('Unsupported or unrecognizable image format'),
-        ),
+    with patch(
+        'app.services.product_service.get_product', new=AsyncMock(return_value=_product())
     ):
         async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as c:
             r = await c.post(
                 '/api/v1/products/1/image',
                 files={'file': ('doc.pdf', b'%PDF-1.4 fake', 'application/pdf')},
             )
-    assert r.status_code == 422
+    assert_problem(r, 422, 'image.unsupported_format')
 
 
 @pytest.mark.asyncio

@@ -25,10 +25,16 @@ async def _create(db: AsyncSession, rfc: str = ISSUER_RFC, **body: object) -> Ta
     return await svc.get_batch(db, rfc, created.taxpayer_batch_id)
 
 
-async def _status(code: int, call) -> HTTPException:  # noqa: ANN001
+async def _status(
+    code: int, call, error_code: str | None = None, params: dict | None = None
+) -> HTTPException:  # noqa: ANN001
     with pytest.raises(HTTPException) as caught:
         await call
     assert caught.value.status_code == code, caught.value.detail
+    if error_code is not None:
+        assert caught.value.code == error_code
+    if params is not None:
+        assert caught.value.params == params
     return caught.value
 
 
@@ -98,12 +104,17 @@ async def test_a_batch_in_use_keeps_its_series_and_type(db: AsyncSession) -> Non
     await seed_fiscal_document(db, 'invoice', issuer=ISSUER_RFC, batch='F')
 
     for change in (_body(batch='G'), _body(type_=100)):
-        await _status(409, svc.update_batch(db, batch, TaxpayerBatchUpdate.model_validate(change)))
+        await _status(
+            409,
+            svc.update_batch(db, batch, TaxpayerBatchUpdate.model_validate(change)),
+            'taxpayer_batch.in_use',
+            {'action': 'update'},
+        )
     updated = await svc.update_batch(
         db, batch, TaxpayerBatchUpdate.model_validate(_body(footer_height=30))
     )
     assert (updated.batch, updated.type, updated.template.footer_height) == ('F', 0, 30)
-    await _status(409, svc.delete_batch(db, batch))
+    await _status(409, svc.delete_batch(db, batch), 'taxpayer_batch.in_use', {'action': 'delete'})
 
 
 async def test_a_batch_not_in_use_changes_freely(db: AsyncSession) -> None:

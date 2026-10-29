@@ -23,6 +23,7 @@ from app.main import app
 from app.schemas.inventory import InTransitResponse
 from app.services import inventory_documents as inv
 from app.services import inventory_transfer_service as svc
+from tests.problem import assert_problem
 
 BASE = '/api/v1/inventory-transfers'
 ITEM = f'{BASE}/{{inventory_transfer_id}}'
@@ -222,6 +223,21 @@ async def test_list_refuses_a_status_transfers_do_not_have():
     async with _client() as client:
         response = await client.get(BASE, params={'status': 'completed'})
     assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
+
+
+async def test_in_transit_without_any_facility_is_422_facility_required():
+    app.dependency_overrides[get_current_user] = lambda: CurrentUser(
+        user_id='tester', session_version=1, administrator=True, facility_id=None, employee_id=7
+    )
+
+    async def _noop_db():
+        yield None
+
+    app.dependency_overrides[get_db] = _noop_db
+    async with _client() as client:
+        response = await client.get(f'{BASE}/in-transit')
+    body = assert_problem(response, 422, 'facility.required')
+    assert body['detail'] == 'facility is required'
 
 
 async def test_in_transit_defaults_to_the_callers_facility():

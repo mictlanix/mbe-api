@@ -17,6 +17,7 @@ from app.core.deps import CurrentUser, get_current_user
 from app.db.session import get_db
 from app.enums import DeliveryOrderStatus, ItineraryStatus
 from app.main import app
+from tests.problem import assert_problem
 
 _PDF = b'%PDF-1.7 fake'
 
@@ -145,7 +146,8 @@ async def test_delivery_ticket_of_an_unapproved_order_is_409(order_status: int) 
     with get_order, lines_of, build as build_mock, render:
         response = await _get('/api/v1/delivery-orders/42/ticket')
 
-    assert response.status_code == status.HTTP_409_CONFLICT
+    body = assert_problem(response, 409, 'delivery_order.not_approved')
+    assert body['params'] == {'status': order_status.value}
     assert response.json()['detail'] == 'Delivery order is not approved'
     build_mock.assert_not_awaited()
 
@@ -177,7 +179,8 @@ async def test_delivery_ticket_of_an_unknown_warehouse_is_422() -> None:
     with get_order, lines_of, build as build_mock, render:
         response = await _get('/api/v1/delivery-orders/42/ticket?warehouse=99')
 
-    assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
+    body = assert_problem(response, 422, 'delivery_order.unknown_warehouse')
+    assert body['params'] == {'warehouse_id': 99}
     assert response.json()['detail'] == 'Unknown warehouse'
     build_mock.assert_not_awaited()
 
@@ -189,7 +192,8 @@ async def test_delivery_ticket_of_a_warehouse_with_no_line_is_422() -> None:
     with get_order, lines_of, build as build_mock, render:
         response = await _get('/api/v1/delivery-orders/42/ticket?warehouse=5')
 
-    assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
+    body = assert_problem(response, 422, 'delivery_order.no_lines_from_warehouse')
+    assert body['params'] == {'warehouse_id': 5}
     assert response.json()['detail'] == 'No line of this order comes from that warehouse'
     build_mock.assert_not_awaited()
 
@@ -292,7 +296,14 @@ async def test_itinerary_documents_refuse_an_open_or_cancelled_trip(
     with get, build as build_mock, render:
         response = await _get(f'/api/v1/delivery-itineraries/42/{route}')
 
-    assert response.status_code == status.HTTP_409_CONFLICT
+    code = (
+        'itinerary.not_departed'
+        if itinerary_status == ItineraryStatus.OPEN
+        else 'itinerary.cancelled'
+    )
+    body = assert_problem(response, 409, code)
+    if itinerary_status == ItineraryStatus.OPEN:
+        assert body['params'] == {'status': ItineraryStatus.OPEN.value}
     assert response.json()['detail'] == detail
     build_mock.assert_not_awaited()
 
@@ -371,6 +382,7 @@ async def test_delivery_document_of_a_draft_is_409() -> None:
     with get_order, build as build_mock, render:
         response = await _get('/api/v1/delivery-orders/42/document')
 
-    assert response.status_code == status.HTTP_409_CONFLICT
+    body = assert_problem(response, 409, 'delivery_order.not_approved')
+    assert body['params'] == {'status': DeliveryOrderStatus.DRAFT.value}
     assert response.json()['detail'] == 'Delivery order is not approved'
     build_mock.assert_not_awaited()

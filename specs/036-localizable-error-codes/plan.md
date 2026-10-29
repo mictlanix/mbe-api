@@ -6,7 +6,7 @@
 
 ## Summary
 
-Every error the API raises becomes a Problem Details body (`application/problem+json`): `status`, a stable `code` from one published catalog of 240 codes, today's English `detail`, and raw `params`. Statuses and `detail` text don't change, so mbe-ui keeps working until it reads the codes. FastAPI's request-validation 422 keeps its shape, and its 21 custom validators get specific `type`s.
+Every error the API raises becomes a Problem Details body (`application/problem+json`): `status`, a stable `code` from one published catalog of 241 codes, today's English `detail`, and raw `params`. Statuses and `detail` text don't change, so mbe-ui keeps working until it reads the codes. FastAPI's request-validation 422 keeps its shape, and its 21 custom validators get specific `type`s.
 
 The approach (research R1–R13):
 - **Types:** one `ErrorCode` StrEnum whose members carry their status; one `DomainError(HTTPException)` whose status comes from its code and which normalizes params (Decimal stays a string); one `not_found()` helper.
@@ -44,7 +44,7 @@ The approach (research R1–R13):
 - 1 hand-built 422.
 - 1 bulk result.
 - 240 `detail` references in 76 test files.
-- 240 codes.
+- 241 codes.
 
 ## Constitution Check
 
@@ -78,7 +78,7 @@ specs/036-localizable-error-codes/
 ├── raise-map.md          # every raise site → code (drafted per area, consolidated)
 ├── contracts/
 │   ├── api.md            # body shapes, unchanged mbe-ui shapes, the two changed models
-│   └── error-codes.md    # 240 codes + 22 validation types (FR-017; checked by test_contract_docs)
+│   └── error-codes.md    # 241 codes + 22 validation types (FR-017; checked by test_contract_docs)
 └── tasks.md              # /speckit-tasks
 ```
 
@@ -122,7 +122,7 @@ tests/
 One branch and one PR, with commits in the design's phase order, each green:
 
 1. **Phase 0, infrastructure:**
-   - Pieces: enum (all 240 members, from `contracts/error-codes.md`), `DomainError`, `not_found`, registry, `problem_body`, handler, `Problem`, the router default, `assert_problem`.
+   - Pieces: enum (all 241 members, from `contracts/error-codes.md`), `DomainError`, `not_found`, registry, `problem_body`, handler, `Problem`, the router default, `assert_problem`.
    - Tests: `test_errors.py`, the guard tests as strict xfail, and the contract-docs check.
 2. **Phase 1, generic codes:** `references`, `documents`, `delivery_events`, `deps`/auth, the `IntegrityError` and 500 bodies, framework codes, and every 404 through `not_found`.
 3. **Phase 2, sales and cash:**

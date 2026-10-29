@@ -4,8 +4,6 @@ import ast
 import re
 from pathlib import Path
 
-import pytest
-
 import app.models  # noqa: F401  (registers every table)
 from app.core.error_codes import ErrorCode
 from app.core.errors import EXTRA_RESOURCES, RESOURCE_NAMES
@@ -53,10 +51,23 @@ def _http_exception_calls() -> list[str]:
     return found
 
 
-@pytest.mark.xfail(strict=True, reason='spec 036 phase 5 (T082): raises still being migrated')
 def test_no_http_exception_is_constructed_outside_the_error_module() -> None:
     found = _http_exception_calls()
     assert not found, 'raise DomainError or not_found() instead:\n' + '\n'.join(found)
+
+
+def test_no_schema_validator_raises_a_plain_value_error() -> None:
+    """SC-007: a schema validator reports a typed error (`PydanticCustomError`), never
+    `value_error`, so a client can tell validation failures apart."""
+    found = []
+    for path in sorted((APP_DIR / 'schemas').rglob('*.py')):
+        for node in ast.walk(ast.parse(path.read_text(), str(path))):
+            if isinstance(node, ast.Raise) and node.exc is not None:
+                call = node.exc
+                name = getattr(getattr(call, 'func', None), 'id', None)
+                if name == 'ValueError':
+                    found.append(f'{path.relative_to(REPO_ROOT)}:{node.lineno}')
+    assert not found, 'raise PydanticCustomError with a type instead:\n' + '\n'.join(found)
 
 
 def _test_sources() -> str:
@@ -66,7 +77,6 @@ def _test_sources() -> str:
     )
 
 
-@pytest.mark.xfail(strict=True, reason='spec 036 phase 5 (T083): codes still being tested')
 def test_every_code_is_asserted_by_some_test() -> None:
     sources = _test_sources()
     untested = [

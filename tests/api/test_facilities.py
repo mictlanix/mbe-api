@@ -11,8 +11,11 @@ from httpx import ASGITransport, AsyncClient
 from PIL import Image
 
 from app.core.deps import CurrentUser, get_current_user
+from app.core.error_codes import ErrorCode
+from app.core.errors import DomainError
 from app.db.session import get_db
 from app.main import app
+from tests.problem import assert_problem
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
 
@@ -421,8 +424,8 @@ async def test_addressing_an_in_transit_warehouse_is_forbidden(method, kwargs) -
     ):
         async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as c:
             r = await getattr(c, method)('/api/v1/warehouses/20', **kwargs)
-    assert r.status_code == 403
-    assert r.json()['detail'] == 'In-transit locations are managed by the system'
+    body = assert_problem(r, 403, 'warehouse.in_transit_managed')
+    assert body['detail'] == 'In-transit locations are managed by the system'
 
 
 @pytest.mark.asyncio
@@ -1014,7 +1017,7 @@ async def test_upload_facility_logo_returns_422_on_invalid_image() -> None:
         ),
         patch(
             'app.services.image_service.process_and_save_image',
-            side_effect=ValueError('boom'),
+            side_effect=DomainError(ErrorCode.IMAGE_UNSUPPORTED_FORMAT, 'boom'),
         ),
     ):
         async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as c:
@@ -1022,7 +1025,7 @@ async def test_upload_facility_logo_returns_422_on_invalid_image() -> None:
                 '/api/v1/facilities/1/logo',
                 files={'file': ('logo.png', _make_png_bytes(), 'image/png')},
             )
-    assert r.status_code == 422
+    assert_problem(r, 422, 'image.unsupported_format')
 
 
 @pytest.mark.asyncio

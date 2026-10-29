@@ -7,11 +7,13 @@ A request's state comes from its legacy flags (research R1): `draft`, `submitted
 from datetime import date
 from decimal import Decimal
 from enum import StrEnum
-from typing import Annotated
+from typing import Annotated, Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic_core import PydanticCustomError
 
 from app.core.clock import local_today
+from app.core.error_codes import ErrorCode
 from app.schemas import LocalDateTime
 from app.schemas.inventory import Comment
 from app.schemas.sales_order import DocumentStatus
@@ -36,7 +38,11 @@ class RequestStatus(StrEnum):
 
 def _not_past(value: date | None) -> date | None:
     if value is not None and value < local_today():
-        raise ValueError('The estimated receipt date cannot be in the past')
+        raise PydanticCustomError(
+            'purchase_receipt_date_in_past',
+            'The estimated receipt date cannot be in the past',
+            {'date': value.isoformat(), 'today': local_today().isoformat()},
+        )
     return value
 
 
@@ -80,7 +86,9 @@ class RejectRequest(BaseModel):
     @classmethod
     def _not_blank(cls, value: str) -> str:
         if not value.strip():
-            raise ValueError('A reason is required and cannot be blank')
+            raise PydanticCustomError(
+                'purchase_request_reason_blank', 'A reason is required and cannot be blank'
+            )
         return value.strip()
 
 
@@ -134,6 +142,8 @@ class BulkApproveResult(BaseModel):
     purchase_request_id: int
     approved: bool
     reason: str | None = None
+    code: ErrorCode | None = None
+    params: dict[str, Any] | None = None
 
 
 class BulkApproveResponse(BaseModel):

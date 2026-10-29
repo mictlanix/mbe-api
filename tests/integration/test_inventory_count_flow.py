@@ -225,12 +225,34 @@ async def test_a_bad_batch_is_422_listing_every_bad_entry_and_applies_nothing(cl
 
     assert response.status_code == 422, response.text
     body = response.json()
+    assert response.headers['content-type'].startswith('application/problem+json')
+    assert body['code'] == 'inventory_count.batch_invalid'
     assert body['detail']
     assert body['errors'] == [
-        {'index': 1, 'product_code': 'NOPE', 'reason': 'unknown product'},
-        {'index': 2, 'product': setup.non_stockable, 'reason': 'not stockable'},
-        {'index': 3, 'product_code': 'INV', 'reason': 'repeated in the batch'},
-        {'index': 4, 'product': 9999, 'reason': 'unknown product'},
+        {
+            'index': 1,
+            'product_code': 'NOPE',
+            'reason': 'unknown product',
+            'code': 'inventory_count_line.product_unknown',
+        },
+        {
+            'index': 2,
+            'product': setup.non_stockable,
+            'reason': 'not stockable',
+            'code': 'inventory_count_line.not_stockable',
+        },
+        {
+            'index': 3,
+            'product_code': 'INV',
+            'reason': 'repeated in the batch',
+            'code': 'inventory_count_line.repeated',
+        },
+        {
+            'index': 4,
+            'product': 9999,
+            'reason': 'unknown product',
+            'code': 'inventory_count_line.product_unknown',
+        },
     ]
     [line] = (await client.get(f'{URL}/{count}')).json()['lines']
     assert Decimal(line['quantity']) == 5

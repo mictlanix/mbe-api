@@ -57,18 +57,20 @@ def test_every_order_status_filters(value):  # noqa: ANN001
 
 
 @pytest.mark.parametrize(
-    'clause, value',
+    'clause, value, resource',
     [
-        (request_status_clause, 'completed'),
-        (request_status_clause, 'paid'),
-        (order_status_clause, 'submitted'),
-        (order_status_clause, 'paid'),
+        (request_status_clause, 'completed', 'purchase_request'),
+        (request_status_clause, 'paid', 'purchase_request'),
+        (order_status_clause, 'submitted', 'purchase_order'),
+        (order_status_clause, 'paid', 'purchase_order'),
     ],
 )
-def test_an_unknown_status_is_refused(clause, value):  # noqa: ANN001
+def test_an_unknown_status_is_refused(clause, value, resource):  # noqa: ANN001
     with pytest.raises(HTTPException) as caught:
         clause(value)
     assert caught.value.status_code == 422
+    assert caught.value.code == 'status_filter.unsupported'
+    assert caught.value.params == {'resource': resource, 'status': value}
 
 
 def test_a_null_flag_counts_as_false_in_the_filter():

@@ -7,13 +7,15 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 import pytest
-from fastapi import HTTPException
 from httpx import ASGITransport, AsyncClient
 
 from app.core.deps import CurrentUser, get_current_user
+from app.core.error_codes import ErrorCode
+from app.core.errors import DomainError
 from app.db.session import get_db
 from app.enums import ItineraryStatus, StopOutcome
 from app.main import app
+from tests.problem import assert_problem
 
 SERVICE = 'app.services.delivery_itinerary_service'
 
@@ -194,12 +196,17 @@ async def test_expired_operator_licence_warns_but_does_not_refuse() -> None:
 @pytest.mark.asyncio
 async def test_second_open_itinerary_for_a_vehicle_is_409() -> None:
     _auth()
-    conflict = HTTPException(status_code=409, detail='already has an open itinerary')
+    conflict = DomainError(
+        ErrorCode.VEHICLE_OPEN_ITINERARY_EXISTS,
+        'Vehicle 4 already has an open itinerary (9)',
+        {'vehicle_id': 4, 'itinerary_id': 9},
+    )
     with patch(f'{SERVICE}.create_itinerary', AsyncMock(side_effect=conflict)):
         async with _client() as client:
             response = await client.post('/api/v1/delivery-itineraries', json={'vehicle': 4})
 
-    assert response.status_code == 409
+    body = assert_problem(response, 409, 'vehicle.open_itinerary_exists')
+    assert body['params'] == {'vehicle_id': 4, 'itinerary_id': 9}
 
 
 @pytest.mark.asyncio
@@ -237,7 +244,11 @@ async def test_all_six_filters_reach_the_service() -> None:
 @pytest.mark.asyncio
 async def test_committing_above_open_quantity_states_what_is_available() -> None:
     _auth()
-    refusal = HTTPException(status_code=422, detail='Only 6 is available on this line')
+    refusal = DomainError(
+        ErrorCode.DELIVERY_ORDER_LINE_QUANTITY_UNAVAILABLE,
+        'Only 6 is available on this line; 9 was requested',
+        {'available': Decimal('6'), 'requested': Decimal('9')},
+    )
     with patch(f'{SERVICE}.get_itinerary', AsyncMock(return_value=_itinerary())), patch(
         f'{SERVICE}.stops_of', AsyncMock(return_value=[_stop()])
     ), patch(f'{SERVICE}.commit_line', AsyncMock(side_effect=refusal)):
@@ -247,7 +258,8 @@ async def test_committing_above_open_quantity_states_what_is_available() -> None
                 json={'delivery_order_detail': 11, 'quantity': 9},
             )
 
-    assert response.status_code == 422
+    body = assert_problem(response, 422, 'delivery_order_line.quantity_unavailable')
+    assert body['params'] == {'available': '6', 'requested': '9'}
     assert '6 is available' in response.json()['detail']
 
 
@@ -271,27 +283,34 @@ async def test_committing_to_an_unknown_stop_is_404() -> None:
 @pytest.mark.asyncio
 async def test_departing_an_empty_itinerary_is_409() -> None:
     _auth()
-    conflict = HTTPException(status_code=409, detail='Nothing is committed to this itinerary')
+    conflict = DomainError(
+        ErrorCode.ITINERARY_NOTHING_COMMITTED, 'Nothing is committed to this itinerary'
+    )
     with patch(f'{SERVICE}.get_itinerary', AsyncMock(return_value=_itinerary())), patch(
         f'{SERVICE}.depart', AsyncMock(side_effect=conflict)
     ):
         async with _client() as client:
             response = await client.post('/api/v1/delivery-itineraries/1/depart')
 
-    assert response.status_code == 409
+    assert_problem(response, 409, 'itinerary.nothing_committed')
 
 
 @pytest.mark.asyncio
 async def test_cancelling_after_departure_is_409() -> None:
     _auth()
-    conflict = HTTPException(status_code=409, detail='DEPARTED and accepts no further changes')
+    conflict = DomainError(
+        ErrorCode.ITINERARY_NOT_OPEN,
+        'This itinerary is DEPARTED and accepts no further changes',
+        {'status': ItineraryStatus.DEPARTED},
+    )
     with patch(
         f'{SERVICE}.get_itinerary', AsyncMock(return_value=_itinerary(ItineraryStatus.DEPARTED))
     ), patch(f'{SERVICE}.cancel_itinerary', AsyncMock(side_effect=conflict)):
         async with _client() as client:
             response = await client.post('/api/v1/delivery-itineraries/1/cancel')
 
-    assert response.status_code == 409
+    body = assert_problem(response, 409, 'itinerary.not_open')
+    assert body['params'] == {'status': ItineraryStatus.DEPARTED.value}
 
 
 # ── Closing a stop ────────────────────────────────────────────────────────────
@@ -334,5 +353,32 @@ async def test_closing_with_malformed_lines_is_422() -> None:
                 files={'image': ('sig.png', b'\x89PNG\r\n\x1a\n', 'image/png')},
             )
 
-    assert response.status_code == 422
+    assert_problem(response, 422, 'itinerary.stop_lines_malformed')
     assert 'JSON' in response.json()['detail']
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ('content', 'code'),
+    [
+        (b'not an image', 'image.unsupported_format'),
+        (b'x' * (2 * 1024 * 1024 + 1), 'image.too_large'),
+    ],
+)
+async def test_closing_with_a_bad_proof_photo_answers_422_with_the_image_code(
+    content, code
+) -> None:
+    _auth()
+    with patch(
+        f'{SERVICE}.get_itinerary', AsyncMock(return_value=_itinerary(ItineraryStatus.DEPARTED))
+    ), patch(f'{SERVICE}.stops_of', AsyncMock(return_value=[_stop()])):
+        async with _client() as client:
+            response = await client.post(
+                '/api/v1/delivery-itineraries/1/stops/10/close',
+                data={'receiver_name': 'Juan', 'receiver_id_shown': 'INE 1', 'lines': '[]'},
+                files={'image': ('sig.png', content, 'image/png')},
+            )
+
+    body = assert_problem(response, 422, code)
+    if code == 'image.too_large':
+        assert body['params'] == {'max_bytes': 2097152}
