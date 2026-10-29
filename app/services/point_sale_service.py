@@ -1,10 +1,10 @@
 from collections.abc import Sequence
 
-from fastapi import HTTPException, status
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.errors import not_found
+from app.core.error_codes import ErrorCode
+from app.core.errors import DomainError, not_found
 from app.enums import EntityStatus
 from app.models.core import Facility, PointSale, Warehouse
 from app.schemas.core import PointSaleCreate, PointSaleUpdate
@@ -75,9 +75,10 @@ async def _validate_warehouse_facility(db: AsyncSession, facility: int, warehous
     if row is None:
         raise not_found(Warehouse, warehouse)
     if row.facility != facility:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail=f'Warehouse {warehouse} does not belong to facility {facility}',
+        raise DomainError(
+            ErrorCode.POINT_OF_SALE_WAREHOUSE_FACILITY_MISMATCH,
+            f'Warehouse {warehouse} does not belong to facility {facility}',
+            {'warehouse_id': warehouse, 'facility_id': facility},
         )
 
 

@@ -15,7 +15,6 @@ from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from decimal import ROUND_HALF_UP, Decimal
 
-from fastapi import HTTPException, status
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
@@ -24,7 +23,8 @@ from app.core.clock import local_now
 from app.core.config import settings
 from app.core.constants import COST_PRICE_LIST_ID
 from app.core.deps import CurrentUser
-from app.core.errors import not_found
+from app.core.error_codes import ErrorCode
+from app.core.errors import DomainError, not_found
 from app.enums import CurrencyCode, FiscalDocumentType, FulfillmentType, OrderOrigin, PaymentTerms
 from app.models.core import ExchangeRate, Facility, Warehouse
 from app.models.customer import Customer
@@ -73,11 +73,12 @@ def derive_due_date(date: datetime, terms: PaymentTerms, *, credit_days: int) ->
     return date
 
 
-def assert_quantity_allowed(quantity: Decimal, *, min_order_qty: int) -> None:
+def assert_quantity_allowed(quantity: Decimal, *, min_order_qty: int, product_id: int) -> None:
     if quantity < min_order_qty:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail=f'Quantity is below the product minimum of {min_order_qty}',
+        raise DomainError(
+            ErrorCode.SALES_ORDER_BELOW_MIN_QUANTITY,
+            f'Quantity is below the product minimum of {min_order_qty}',
+            {'product_id': product_id, 'min_order_qty': Decimal(min_order_qty)},
         )
 
 
@@ -158,23 +159,20 @@ def missing_delivery_details(order: object, *, today: date) -> list[str]:
 def assert_can_cancel(order: object, *, live_applications: Sequence[object]) -> None:
     """Refuse cancelling a paid order, or one still holding money (FR-019, FR-019b)."""
     if getattr(order, 'cancelled', False):
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT, detail='Order is already cancelled'
-        )
+        raise DomainError(ErrorCode.SALES_ORDER_ALREADY_CANCELLED, 'Order is already cancelled')
 
     if getattr(order, 'paid', False):
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail='A paid order cannot be cancelled — refund it instead',
+        raise DomainError(
+            ErrorCode.SALES_ORDER_PAID_CANNOT_CANCEL,
+            'A paid order cannot be cancelled — refund it instead',
         )
 
     if live_applications:
         ids = ', '.join(str(getattr(a, 'sales_order_payment_id', '?')) for a in live_applications)
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=(
-                f'Order still has payment applications ({ids}); reverse them before cancelling'
-            ),
+        raise DomainError(
+            ErrorCode.SALES_ORDER_HAS_PAYMENT_APPLICATIONS,
+            f'Order still has payment applications ({ids}); reverse them before cancelling',
+            {'application_ids': [getattr(a, 'sales_order_payment_id') for a in live_applications]},
         )
 
 
@@ -185,9 +183,9 @@ def _point_sale(current: CurrentUser, requested: int | None) -> int:
     """FR-004a — `sales_order.point_sale` is NOT NULL but a user's setting is optional."""
     point_sale = requested if requested is not None else current.point_sale_id
     if point_sale is None:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail='No point of sale is configured for your user; set one or supply it explicitly',
+        raise DomainError(
+            ErrorCode.USER_NO_POINT_OF_SALE,
+            'No point of sale is configured for your user; set one or supply it explicitly',
         )
     return point_sale
 
@@ -195,10 +193,7 @@ def _point_sale(current: CurrentUser, requested: int | None) -> int:
 def _facility(current: CurrentUser) -> int:
     """FR-004 — the facility comes from the caller's context, never the request body."""
     if current.facility_id is None:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail='No facility is configured for your user',
-        )
+        raise DomainError(ErrorCode.USER_NO_FACILITY, 'No facility is configured for your user')
     return current.facility_id
 
 
@@ -782,12 +777,11 @@ async def _assert_within_credit_limit(
     limit = customer.credit_limit or Decimal(0)
     debt = await _customer_credit_debt(db, customer.customer_id)
     if debt + adding > limit:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail=(
-                f'Customer is over their credit limit: {debt + adding:.2f} of {limit:.2f} '
-                f'would be outstanding'
-            ),
+        raise DomainError(
+            ErrorCode.CUSTOMER_CREDIT_LIMIT_EXCEEDED,
+            f'Customer is over their credit limit: {debt + adding:.2f} of {limit:.2f} '
+            f'would be outstanding',
+            {'customer_id': customer.customer_id, 'outstanding': debt + adding, 'limit': limit},
         )
 
 
@@ -818,12 +812,11 @@ async def _assert_not_on_credit_hold(db: AsyncSession, customer_id: int) -> None
 
     expired = await _overdue_credit_orders(db, customer_id)
     if expired:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail=(
-                f'Customer is on credit hold: {expired} overdue credit order(s) must be '
-                'settled before this order can be confirmed'
-            ),
+        raise DomainError(
+            ErrorCode.CUSTOMER_CREDIT_HOLD,
+            f'Customer is on credit hold: {expired} overdue credit order(s) must be '
+            'settled before this order can be confirmed',
+            {'customer_id': customer_id, 'overdue_count': expired, 'action': 'confirm'},
         )
 
 
@@ -850,12 +843,15 @@ async def _assert_cash_allowed(db: AsyncSession, customer: Customer) -> None:
         return
     debt = await _customer_credit_debt(db, customer.customer_id)
     if debt >= customer.credit_limit:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail=(
-                f'Customer must settle their credit before buying: debt {debt:.2f} of limit '
-                f'{customer.credit_limit:.2f}'
-            ),
+        raise DomainError(
+            ErrorCode.CUSTOMER_CREDIT_LIMIT_REACHED,
+            f'Customer must settle their credit before buying: debt {debt:.2f} of limit '
+            f'{customer.credit_limit:.2f}',
+            {
+                'customer_id': customer.customer_id,
+                'outstanding': debt,
+                'limit': customer.credit_limit,
+            },
         )
 
 
@@ -882,24 +878,24 @@ async def _assert_credit_allowed(db: AsyncSession, customer: Customer) -> None:
     immediate-terms rows, and 25 of them have no overdue credit order at all.
     """
     if customer.customer_id == settings.default_customer_id:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail='The default walk-in customer cannot buy on credit',
+        raise DomainError(
+            ErrorCode.CUSTOMER_WALK_IN_NO_CREDIT,
+            'The default walk-in customer cannot buy on credit',
         )
     if customer.credit_limit is None or customer.credit_limit <= 0:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail='Customer has no credit limit',
+        raise DomainError(
+            ErrorCode.CUSTOMER_NO_CREDIT_LIMIT,
+            'Customer has no credit limit',
+            {'customer_id': customer.customer_id},
         )
 
     expired = await _overdue_credit_orders(db, customer.customer_id)
     if expired:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail=(
-                f'Customer is on credit hold: {expired} overdue credit order(s) must be '
-                'settled before a new order can be raised'
-            ),
+        raise DomainError(
+            ErrorCode.CUSTOMER_CREDIT_HOLD,
+            f'Customer is on credit hold: {expired} overdue credit order(s) must be '
+            'settled before a new order can be raised',
+            {'customer_id': customer.customer_id, 'overdue_count': expired, 'action': 'raise'},
         )
 
     # Debt so far only: at creation the order has no lines, so there is no value to weigh against
@@ -1275,7 +1271,9 @@ async def add_line(
         await warehouse_service.assert_sellable(db, data.warehouse)
 
     quantity = data.quantity if data.quantity is not None else Decimal(product.min_order_qty)
-    assert_quantity_allowed(quantity, min_order_qty=product.min_order_qty)
+    assert_quantity_allowed(
+        quantity, min_order_qty=product.min_order_qty, product_id=product.product_id
+    )
 
     price = data.price if data.price is not None else (listed.price if listed else Decimal(0))
     cost = cost_row.price if cost_row else Decimal(0)
@@ -1327,7 +1325,9 @@ async def update_line(
     product = await db.get(Product, line.product)
     if 'quantity' in changes and changes['quantity'] is not None:
         assert_quantity_allowed(
-            changes['quantity'], min_order_qty=product.min_order_qty if product else 1
+            changes['quantity'],
+            min_order_qty=product.min_order_qty if product else 1,
+            product_id=line.product,
         )
         line.quantity = changes['quantity']
     if 'price' in changes and changes['price'] is not None:
@@ -1454,22 +1454,20 @@ async def _confirm_locked(
     if order.origin == OrderOrigin.BACK_OFFICE:
         missing = missing_delivery_details(order, today=local_now().date())
         if missing:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail={'message': 'Order is missing delivery details', 'missing': missing},
+            raise DomainError(
+                ErrorCode.SALES_ORDER_MISSING_DELIVERY_DETAILS,
+                {'message': 'Order is missing delivery details', 'missing': missing},
             )
     employee = current.employee_id
 
     if not lines:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT, detail='Cannot confirm an order with no lines'
-        )
+        raise DomainError(ErrorCode.SALES_ORDER_NO_LINES, 'Cannot confirm an order with no lines')
 
     offenders = zero_priced_lines(lines)
     if offenders:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail={'message': 'Order has lines priced at zero', 'lines': offenders},
+        raise DomainError(
+            ErrorCode.SALES_ORDER_ZERO_PRICED_LINES,
+            {'message': 'Order has lines priced at zero', 'lines': offenders},
         )
 
     stocked = await _stocked_products(db, {line.product for line in lines})
@@ -1484,9 +1482,9 @@ async def _confirm_locked(
 
     problems = stock_shortfalls(lines, available=available, stocked=stocked)
     if problems:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail={'message': 'Insufficient stock', 'lines': problems},
+        raise DomainError(
+            ErrorCode.SALES_ORDER_INSUFFICIENT_STOCK,
+            {'message': 'Insufficient stock', 'lines': problems},
         )
 
     # Only a credit order adds to what the customer owes, so a cash sale is weighed against no

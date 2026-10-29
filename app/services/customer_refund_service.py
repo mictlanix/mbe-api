@@ -16,13 +16,13 @@ the check at edit time can go stale between two clerks working the same order.
 from collections.abc import Sequence
 from decimal import Decimal
 
-from fastapi import HTTPException, status
 from sqlalchemy import exists, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.clock import local_now
 from app.core.deps import CurrentUser
-from app.core.errors import not_found
+from app.core.error_codes import ErrorCode
+from app.core.errors import DomainError, not_found
 from app.enums import CurrencyCode, PaymentMethod, PaymentType, TransactionType
 from app.models.fiscal import FiscalDocument, FiscalDocumentDetail, FiscalDocumentXml
 from app.models.product import Product
@@ -57,17 +57,15 @@ def assert_refundable_order(order: object) -> None:
     this order is unwound by cancelling instead. A single message would leave the clerk guessing.
     """
     if not getattr(order, 'completed', False):
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail='Order is not completed; only a completed, paid order can be refunded',
+        raise DomainError(
+            ErrorCode.REFUND_ORDER_NOT_COMPLETED,
+            'Order is not completed; only a completed, paid order can be refunded',
         )
     if not getattr(order, 'paid', False):
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=(
-                'Order is not paid; an unpaid or partly-paid order is unwound by cancelling it, '
-                'not by refunding it'
-            ),
+        raise DomainError(
+            ErrorCode.REFUND_ORDER_NOT_PAID,
+            'Order is not paid; an unpaid or partly-paid order is unwound by cancelling it, '
+            'not by refunding it',
         )
 
 
@@ -96,20 +94,20 @@ def assert_not_invoiced(
     """
     if requested <= refundable_quantity(sold, refunded):
         if requested > refundable_quantity(sold, refunded, invoiced):
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail=(
-                    f'Units of line {product_code} are on invoice {invoice}; '
-                    'cancel the invoice to refund them'
-                ),
+            raise DomainError(
+                ErrorCode.REFUND_LINE_INVOICED,
+                f'Units of line {product_code} are on invoice {invoice}; '
+                'cancel the invoice to refund them',
+                {'product_code': product_code, 'invoice': invoice},
             )
 
 
 def assert_quantity_refundable(requested: Decimal, refundable: Decimal) -> None:
     if requested > refundable:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail=f'Return quantity {requested} exceeds the refundable quantity {refundable}',
+        raise DomainError(
+            ErrorCode.REFUND_QUANTITY_EXCEEDS_REFUNDABLE,
+            f'Return quantity {requested} exceeds the refundable quantity {refundable}',
+            {'requested': requested, 'refundable': refundable},
         )
 
 
@@ -340,9 +338,8 @@ async def open_refund(
                 line.quantity, await _already_refunded(db, line.sales_order_detail_id)
             )
             await _assert_line_quantity(db, line, sold_less_refunded)
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail='No refundable items remain on this order',
+        raise DomainError(
+            ErrorCode.REFUND_NOTHING_REFUNDABLE, 'No refundable items remain on this order'
         )
 
     now = local_now()
@@ -492,9 +489,8 @@ async def confirm_refund(
 
     session = await cash_session_service.open_session_for_cashier(db, employee)
     if session is None:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail='An open cash session is required to confirm a refund',
+        raise DomainError(
+            ErrorCode.CASH_SESSION_NOT_OPEN, 'An open cash session is required to confirm a refund'
         )
     session_id = session.cash_session_id
 
@@ -565,9 +561,8 @@ async def _confirm_locked(
 
     keep, drop = reconcile_lines(with_refundable)
     if not keep:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail='Refund has no lines with a returnable quantity',
+        raise DomainError(
+            ErrorCode.REFUND_NO_RETURNABLE_LINES, 'Refund has no lines with a returnable quantity'
         )
 
     for line in drop:
@@ -696,14 +691,11 @@ async def cancel_refund(
 ) -> CustomerRefund:
     """FR-066 — a completed refund is final; only a draft can be cancelled."""
     if refund.completed:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail='A completed refund cannot be cancelled',
+        raise DomainError(
+            ErrorCode.REFUND_COMPLETED_CANNOT_CANCEL, 'A completed refund cannot be cancelled'
         )
     if refund.cancelled:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT, detail='Refund is already cancelled'
-        )
+        raise DomainError(ErrorCode.REFUND_ALREADY_CANCELLED, 'Refund is already cancelled')
 
     refund.cancelled = True
     refund.updater = current.employee_id

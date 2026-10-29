@@ -1,9 +1,10 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from fastapi import APIRouter, Depends, Query, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import rendering
 from app.core.deps import CurrentUser, require_privilege
-from app.core.errors import not_found
+from app.core.error_codes import ErrorCode
+from app.core.errors import DomainError, not_found
 from app.db.session import get_db
 from app.enums import AccessRight, SystemObject
 from app.schemas import ListResponse, LocalDateTime
@@ -105,9 +106,7 @@ async def print_cash_session_cut(
     if session is None:
         raise not_found('cash_session', cash_session_id)
     if session.end is None:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT, detail='Cash session is not closed'
-        )
+        raise DomainError(ErrorCode.CASH_SESSION_NOT_CLOSED, 'Cash session is not closed')
     await cash_session_service.attach_derived(db, session)
     template, context = await print_contexts.cash_cut_context(db, session)
     pdf = await rendering.render_pdf(template, context)

@@ -171,7 +171,7 @@ async def list_vouchers(
     header = ExpenseVoucher
     clauses: list[ColumnElement[bool]] = []
     if facility is not None:
-        inv.assert_facility(current, facility)
+        inv.assert_facility(current, facility, resource='expense_voucher')
     if not current.administrator:
         clauses.append(header.facility == current.facility_id)
     elif facility is not None:
@@ -425,7 +425,7 @@ async def void_voucher(
         voucher = await db.get(ExpenseVoucher, voucher_id)
         if voucher is None:
             raise not_found(ExpenseVoucher, voucher_id)
-        inv.assert_facility(current, voucher.facility)
+        inv.assert_facility(current, voucher.facility, resource='expense_voucher')
         _assert_voidable(voucher)
         session_id = voucher.cash_session
         await db.commit()

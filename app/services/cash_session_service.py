@@ -12,13 +12,13 @@ from dataclasses import dataclass
 from datetime import date, datetime, time
 from decimal import ROUND_HALF_UP, Decimal
 
-from fastapi import HTTPException, status
 from sqlalchemy import and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.clock import local_now, local_today
 from app.core.deps import CurrentUser
-from app.core.errors import not_found
+from app.core.error_codes import ErrorCode
+from app.core.errors import DomainError, not_found
 from app.enums import CashCountType, PaymentMethod, PaymentType
 from app.models.core import CashCount, CashDrawer, CashSession, Employee
 from app.models.purchases import ExpenseVoucher, ExpenseVoucherDetail
@@ -80,9 +80,9 @@ _ORDERINGS = {
 def _drawer(current: CurrentUser, requested: int | None) -> int:
     drawer = requested if requested is not None else current.cash_drawer_id
     if drawer is None:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail='No cash drawer is configured for your user; set one or supply it explicitly',
+        raise DomainError(
+            ErrorCode.USER_NO_CASH_DRAWER,
+            'No cash drawer is configured for your user; set one or supply it explicitly',
         )
     return drawer
 
@@ -148,9 +148,7 @@ async def lock_open_session(db: AsyncSession, cash_session_id: int) -> CashSessi
     if session is None:
         raise not_found(CashSession, cash_session_id)
     if session.end is not None:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT, detail='The cash session is closed'
-        )
+        raise DomainError(ErrorCode.CASH_SESSION_CLOSED, 'The cash session is closed')
     return session
 
 
@@ -418,14 +416,17 @@ async def open_session(
         raise not_found(CashDrawer, drawer_id)
 
     if await open_session_for_drawer(db, drawer_id) is not None:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail='That cash drawer already has an open session',
+        raise DomainError(
+            ErrorCode.CASH_SESSION_DRAWER_BUSY,
+            'That cash drawer already has an open session',
+            {'cash_drawer_id': drawer_id},
         )
-    if await open_session_for_cashier(db, cashier) is not None:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail='You already have an open session; close it before opening another',
+    existing = await open_session_for_cashier(db, cashier)
+    if existing is not None:
+        raise DomainError(
+            ErrorCode.CASH_SESSION_USER_BUSY,
+            'You already have an open session; close it before opening another',
+            {'cash_session_id': existing.cash_session_id},
         )
 
     session = CashSession(
@@ -461,9 +462,7 @@ async def close_session(
 
     session = (await db.execute(_locked(session.cash_session_id))).scalar_one()
     if session.end is not None:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT, detail='Session is already closed'
-        )
+        raise DomainError(ErrorCode.CASH_SESSION_ALREADY_CLOSED, 'Session is already closed')
 
     for count in data.counts:
         db.add(

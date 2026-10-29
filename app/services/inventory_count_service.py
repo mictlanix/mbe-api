@@ -488,7 +488,7 @@ async def confirm(
         # 1. Locks: the count, then its warehouse and the facility's transit (numbering) lock.
         count = await inv.begin_locked(db, inv.COUNT, count_id, stock=True)
         # 2. Checks. Another facility learns nothing about the count's state or lines.
-        inv.assert_facility(current, count.facility)
+        inv.assert_facility(current, count.facility, resource='inventory_count')
         documents.assert_editable(count)
         # 3. Serial.
         serial = await inv.next_serial(db, InventoryCount, count.facility)

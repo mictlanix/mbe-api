@@ -124,29 +124,29 @@ These apply to every task below that says "migrate". They aren't repeated in eac
 
 ### Tests for User Story 2 ⚠️
 
-- [ ] T029 [P] [US2] In `tests/unit/test_sales_order_service.py` and `tests/api/test_sales_orders.py`, one test per `customer.*` and `sales_order.*` code in the raise map:
+- [X] T029 [P] [US2] In `tests/unit/test_sales_order_service.py` and `tests/api/test_sales_orders.py`, one test per `customer.*` and `sales_order.*` code in the raise map:
   - `customer.credit_hold` for both `action` values, with `overdue_count` an int;
   - `customer.credit_limit_exceeded` with `outstanding` and `limit` as decimal strings ("18450.00", "15000.00"), status 422;
   - `customer.credit_limit_reached`, `customer.no_credit_limit`, `customer.walk_in_no_credit`;
   - `sales_order.below_min_quantity` with `product_id` an int;
   - the three dict details: `detail` equal to today's dict byte for byte, plus the top-level code.
-- [ ] T030 [P] [US2] In `tests/unit/test_sales_quote_service.py` and `tests/api/test_sales_quotes.py`, one test per `quote.*` code, plus the quote-convert 422 keeping a string `detail`.
-- [ ] T031 [P] [US2] In `tests/unit/test_cash_session_service.py` and `tests/api/test_cash_sessions.py`, one test per `cash_session.*` code, `cash_session.user_busy` with `cash_session_id` an int, and `user.no_point_of_sale`, `user.no_facility`, `user.no_cash_drawer`.
-- [ ] T032 [P] [US2] In `tests/unit/test_customer_payment_service.py`, `tests/unit/test_customer_refund_service.py`, `tests/api/test_customer_payments.py`, `tests/api/test_customer_refunds.py` and `tests/api/test_credit_notes.py`, one test per `payment.*` and `refund.*` code, with money params as decimal strings.
-- [ ] T033 [P] [US2] Facility rule (FR-013): 403 `facility.other_facility` with `params.resource` and `params.required` (`[{system_object: 100 or 101, right: 2}]`, raw ints) for another facility's payment (`tests/api/test_customer_payments.py`), credit note list (`tests/api/test_credit_notes.py`), sales order (`tests/api/test_sales_orders.py`), receivables (`tests/api/test_accounts_receivable.py`) and inventory document (`tests/unit/test_inventory_documents.py`, where `required` is omitted: administrators only).
-- [ ] T034 [P] [US2] In `tests/unit/test_delivery_itinerary_service.py` (or `tests/api/test_delivery_itineraries.py`), departing an itinerary with over-committed lines answers 422 `itinerary.lines_overcommitted` with today's dict `detail` byte for byte. In `tests/unit/test_point_sale_service.py`, `point_of_sale.warehouse_facility_mismatch`. In `tests/unit/test_customer_discount_service.py`, the `customer_discount.*` codes.
+- [X] T030 [P] [US2] In `tests/unit/test_sales_quote_service.py` and `tests/api/test_sales_quotes.py`, one test per `quote.*` code, plus the quote-convert 422 keeping a string `detail`.
+- [X] T031 [P] [US2] In `tests/unit/test_cash_session_service.py` and `tests/api/test_cash_sessions.py`, one test per `cash_session.*` code, `cash_session.user_busy` with `cash_session_id` an int, and `user.no_point_of_sale`, `user.no_facility`, `user.no_cash_drawer`.
+- [X] T032 [P] [US2] In `tests/unit/test_customer_payment_service.py`, `tests/unit/test_customer_refund_service.py`, `tests/api/test_customer_payments.py`, `tests/api/test_customer_refunds.py` and `tests/api/test_credit_notes.py`, one test per `payment.*` and `refund.*` code, with money params as decimal strings.
+- [X] T033 [P] [US2] Facility rule (FR-013): 403 `facility.other_facility` with `params.resource` and `params.required` (`[{system_object: 100 or 101, right: 2}]`, raw ints) for another facility's payment (`tests/api/test_customer_payments.py`), credit note list (`tests/api/test_credit_notes.py`), sales order (`tests/api/test_sales_orders.py`), receivables (`tests/api/test_accounts_receivable.py`) and inventory document (`tests/unit/test_inventory_documents.py`, where `required` is omitted: administrators only).
+- [X] T034 [P] [US2] In `tests/unit/test_delivery_itinerary_service.py` (or `tests/api/test_delivery_itineraries.py`), departing an itinerary with over-committed lines answers 422 `itinerary.lines_overcommitted` with today's dict `detail` byte for byte. In `tests/unit/test_point_sale_service.py`, `point_of_sale.warehouse_facility_mismatch`. In `tests/unit/test_customer_discount_service.py`, the `customer_discount.*` codes.
 
 ### Implementation for User Story 2
 
-- [ ] T035 [US2] Migrate `app/services/sales_order_service.py` (20 rows). `assert_quantity_allowed` gains a `product_id` argument for `sales_order.below_min_quantity`; update its callers. The three dict details keep their dict and gain only the code.
-- [ ] T036 [P] [US2] Migrate `app/services/sales_quote_service.py` (10 rows, except `:557` `email.send_failed`, which is T074).
-- [ ] T037 [P] [US2] Migrate `app/services/cash_session_service.py` (7 rows). At `:425`, keep the blocking session found by `open_session_for_cashier(...)` and pass its id as `cash_session_id`.
-- [ ] T038 [P] [US2] Migrate `app/services/customer_payment_service.py` (11 rows) and `app/services/customer_refund_service.py` (11 rows).
-- [ ] T039 [P] [US2] Migrate `app/services/customer_service.py` (3 rows, including the `assert_not_cost_list` call sites at `:214` and `:254`), `app/services/point_sale_service.py` (2) and `app/services/customer_discount_service.py` (2).
-- [ ] T040 [US2] Migrate the remaining rows of `app/api/v1/endpoints/{sales_orders,sales_quotes,cash_sessions,cash_drawers,customer_payments,customer_refunds,credit_notes,accounts_receivable,customers}.py` not done in T025, including the facility-rule 403s at `accounts_receivable.py:49`, `credit_notes.py:50`, `customer_payments.py:80` and `sales_orders.py:83`. The two `email.not_configured` rows are T074.
-- [ ] T041 [US2] In `app/services/inventory_documents.py`, give `assert_facility` a `resource` argument and raise `facility.other_facility` at `:353`; pass the resource from each caller.
-- [ ] T042 [US2] Migrate `app/services/delivery_itinerary_service.py:611` to `itinerary.lines_overcommitted`, keeping its dict `detail`.
-- [ ] T043 [US2] Convert the sales, quote, cash, payment, refund and credit-note `detail` assertions to `assert_problem` plus params (FR-021), except the four dict details. Run the full suite.
+- [X] T035 [US2] Migrate `app/services/sales_order_service.py` (20 rows). `assert_quantity_allowed` gains a `product_id` argument for `sales_order.below_min_quantity`; update its callers. The three dict details keep their dict and gain only the code.
+- [X] T036 [P] [US2] Migrate `app/services/sales_quote_service.py` (10 rows, except `:557` `email.send_failed`, which is T074).
+- [X] T037 [P] [US2] Migrate `app/services/cash_session_service.py` (7 rows). At `:425`, keep the blocking session found by `open_session_for_cashier(...)` and pass its id as `cash_session_id`.
+- [X] T038 [P] [US2] Migrate `app/services/customer_payment_service.py` (11 rows) and `app/services/customer_refund_service.py` (11 rows).
+- [X] T039 [P] [US2] Migrate `app/services/customer_service.py` (3 rows, including the `assert_not_cost_list` call sites at `:214` and `:254`), `app/services/point_sale_service.py` (2) and `app/services/customer_discount_service.py` (2).
+- [X] T040 [US2] Migrate the remaining rows of `app/api/v1/endpoints/{sales_orders,sales_quotes,cash_sessions,cash_drawers,customer_payments,customer_refunds,credit_notes,accounts_receivable,customers}.py` not done in T025, including the facility-rule 403s at `accounts_receivable.py:49`, `credit_notes.py:50`, `customer_payments.py:80` and `sales_orders.py:83`. The two `email.not_configured` rows are T074.
+- [X] T041 [US2] In `app/services/inventory_documents.py`, give `assert_facility` a `resource` argument and raise `facility.other_facility` at `:353`; pass the resource from each caller.
+- [X] T042 [US2] Migrate `app/services/delivery_itinerary_service.py:611` to `itinerary.lines_overcommitted`, keeping its dict `detail`.
+- [X] T043 [US2] Convert the sales, quote, cash, payment, refund and credit-note `detail` assertions to `assert_problem` plus params (FR-021), except the four dict details. Run the full suite.
 
 **Checkpoint**: US1 and US2 work together. Every POS refusal a cashier sees is coded. Commit "phase 2".
 

@@ -331,7 +331,9 @@ async def _begin_edit(db: AsyncSession, request_id: int, current: CurrentUser) -
     """Lock, then the facility rule and the draft check. The request row is the only lock, so
     the facility is read after it (R3)."""
     request = await _begin(db, request_id)
-    inv.assert_facility(current, await _facility_of(db, request.warehouse))
+    inv.assert_facility(
+        current, await _facility_of(db, request.warehouse), resource='purchase_request'
+    )
     _assert_draft(request)
     return request
 
@@ -464,7 +466,7 @@ async def submit(db: AsyncSession, request_id: int, *, current: CurrentUser) -> 
         facility = facility_map.get(request.warehouse)
         if facility is None:
             raise _conflict('The warehouse changed facility, retry')
-        inv.assert_facility(current, facility)
+        inv.assert_facility(current, facility, resource='purchase_request')
         transit = transit_map.get(facility)
         if transit is None:
             raise HTTPException(
@@ -613,7 +615,7 @@ async def cancel(db: AsyncSession, request_id: int, *, current: CurrentUser) -> 
         facility = facility_map.get(request.warehouse)
         if facility is None:
             raise _conflict('The warehouse changed facility, retry')
-        inv.assert_facility(current, facility)
+        inv.assert_facility(current, facility, resource='purchase_request')
         await lock_request_lines(db, line_ids)
 
         _assert_mapped_facility(facility, await _facility_of(db, request.warehouse))

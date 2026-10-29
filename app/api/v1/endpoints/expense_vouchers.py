@@ -37,7 +37,7 @@ async def _voucher_or_404(db: AsyncSession, voucher_id: int, current: CurrentUse
     voucher = await service.get_voucher(db, voucher_id)
     if voucher is None:
         raise not_found(ExpenseVoucher, voucher_id)
-    inv.assert_facility(current, voucher.facility)
+    inv.assert_facility(current, voucher.facility, resource='expense_voucher')
     return voucher
 
 

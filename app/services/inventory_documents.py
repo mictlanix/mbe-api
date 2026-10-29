@@ -29,7 +29,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.clock import local_now
 from app.core.deps import CurrentUser, has_any_privilege
-from app.core.errors import not_found
+from app.core.error_codes import ErrorCode
+from app.core.errors import DomainError, not_found, resource_name
 from app.enums import AccessRight, SystemObject, TransactionType
 from app.models.core import Warehouse
 from app.models.inventory import (
@@ -348,11 +349,13 @@ async def busy_as_conflict(
 # ── Rules ─────────────────────────────────────────────────────────────────────
 
 
-def assert_facility(current: CurrentUser, *facilities: int) -> None:
+def assert_facility(current: CurrentUser, *facilities: int, resource: str) -> None:
     """FR-011, R6: a non-administrator acts only on documents of their own facility."""
     if not current.administrator and current.facility_id not in facilities:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN, detail='Document belongs to another facility'
+        raise DomainError(
+            ErrorCode.FACILITY_OTHER_FACILITY,
+            'Document belongs to another facility',
+            {'resource': resource},
         )
 
 
@@ -573,7 +576,7 @@ async def confirm_simple(
         if costed:
             await purchase_cost_service.lock(db, document_id)
         # Another facility learns nothing about the document's state or lines.
-        assert_facility(current, document.facility)
+        assert_facility(current, document.facility, resource=resource_name(kind.header))
         documents.assert_editable(document)
 
         lines = await _lines(db, kind, document_id)
@@ -655,7 +658,7 @@ async def cancel(db: AsyncSession, kind: Kind, document_id: int, *, current: Cur
             # every product it changed is on one of them. A locking read of `product_cost_change`
             # instead would gap-lock past the newest receipt and deadlock with its inserts.
             await purchase_cost_service.lock(db, document_id)
-        assert_facility(current, document.facility)
+        assert_facility(current, document.facility, resource=resource_name(kind.header))
         if document.completed and not kind.cancellable_when_completed:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,

@@ -58,6 +58,8 @@ class TestCreate:
 
         assert refused.value.status_code == 422
         assert refused.value.detail == 'Product not found'
+        assert refused.value.code == 'customer_discount.product_not_found'
+        assert refused.value.params == {'product_id': 9}
         assert db.commit.await_count == 0
 
     @pytest.mark.asyncio

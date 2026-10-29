@@ -24,7 +24,8 @@ from sqlalchemy.orm import InstrumentedAttribute
 
 from app.core.clock import local_now
 from app.core.deps import CurrentUser
-from app.core.errors import not_found
+from app.core.error_codes import ErrorCode
+from app.core.errors import DomainError, not_found
 from app.enums import DeliveryOrderStatus as S
 from app.enums import (
     FulfillmentType,
@@ -601,9 +602,9 @@ async def depart(
         if order_line.committed_quantity > order_line.quantity - order_line.delivered_quantity
     ]
     if overcommitted:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail={'message': 'Lines are committed beyond what remains', 'lines': overcommitted},
+        raise DomainError(
+            ErrorCode.ITINERARY_LINES_OVERCOMMITTED,
+            {'message': 'Lines are committed beyond what remains', 'lines': overcommitted},
         )
 
     stocked = await delivery_order_service._stocked_products(

@@ -747,3 +747,42 @@ async def test_an_empty_taxpayer_list_is_an_instruction_to_unlink() -> None:
 
     assert r.status_code == 200
     assert updating.await_args.args[2].taxpayers == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ('body', 'required'),
+    [
+        ({'name': 'X'}, [{'system_object': 2, 'right': 4}]),
+        (
+            {'addresses': []},
+            [
+                {'system_object': 2, 'right': 4},
+                {'system_object': 7, 'right': 4},
+                {'system_object': 30, 'right': 4},
+            ],
+        ),
+    ],
+)
+async def test_update_customer_without_a_grant_lists_every_grant(
+    body: dict, required: list[dict]
+) -> None:
+    app.dependency_overrides[get_current_user] = lambda: CurrentUser(
+        user_id='clerk', session_version=1, administrator=False, facility_id=1, employee_id=7
+    )
+
+    async def _noop_db():
+        yield None
+
+    app.dependency_overrides[get_db] = _noop_db
+    with patch(
+        'app.api.v1.endpoints.customers.has_any_privilege', new=AsyncMock(return_value=False)
+    ):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as c:
+            r = await c.put('/api/v1/customers/1', json=body)
+
+    assert r.status_code == 403
+    assert r.headers['content-type'].startswith('application/problem+json')
+    assert r.json()['code'] == 'auth.forbidden'
+    assert r.json()['detail'] == 'Insufficient privileges'
+    assert r.json()['params'] == {'required': required}

@@ -18,6 +18,7 @@ from httpx import ASGITransport, AsyncClient
 from app.core.deps import CurrentUser, get_current_user
 from app.db.session import get_db
 from app.main import app
+from tests.problem import assert_problem
 
 _PDF = b'%PDF-1.7 fake'
 
@@ -228,7 +229,8 @@ async def test_cash_cut_of_an_open_session_is_409() -> None:
             response = await client.get('/api/v1/cash-sessions/5/ticket')
 
     assert response.status_code == status.HTTP_409_CONFLICT
-    assert response.json()['detail'] == 'Cash session is not closed'
+    body = assert_problem(response, 409, 'cash_session.not_closed')
+    assert body['detail'] == 'Cash session is not closed'
     rendered.assert_not_awaited()
 
 

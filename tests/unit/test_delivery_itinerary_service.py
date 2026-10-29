@@ -15,6 +15,7 @@ from types import SimpleNamespace
 import pytest
 from fastapi import HTTPException
 
+from app.core.errors import DomainError
 from app.services import delivery_itinerary_service as service
 
 
@@ -367,6 +368,39 @@ class TestPerFacilityTransit:
         monkeypatch.setattr(service.warehouse_service, 'transit_warehouses_for', _async_return({}))
 
         assert asyncio.run(service._transit_map(db, [])) == {}
+
+
+class TestDepartOvercommitted:
+    def test_lines_committed_beyond_what_remains_are_refused(self, monkeypatch) -> None:
+        itinerary = SimpleNamespace(deliveries_itinerary_id=1)
+        entry = SimpleNamespace(delivery_order_detail=9, committed_quantity=Decimal('5'))
+        order_line = SimpleNamespace(
+            delivery_order_detail_id=9,
+            delivery_order=3,
+            quantity=Decimal('5'),
+            delivered_quantity=Decimal('3'),
+            committed_quantity=Decimal('5'),
+        )
+
+        class _Db:
+            async def get(self, model, _id):
+                return order_line if model is service.DeliveryOrderDetail else None
+
+        monkeypatch.setattr(service, 'assert_open', lambda _itinerary: None)
+        monkeypatch.setattr(
+            service, 'stops_of', _async_return([SimpleNamespace(deliveries_itinerary_stop_id=1)])
+        )
+        monkeypatch.setattr(service, 'lines_of_stop', _async_return([entry]))
+
+        with pytest.raises(DomainError) as exc:
+            asyncio.run(service.depart(_Db(), itinerary, current=SimpleNamespace(employee_id=1)))
+
+        assert exc.value.status_code == 422
+        assert exc.value.code == 'itinerary.lines_overcommitted'
+        assert exc.value.detail == {
+            'message': 'Lines are committed beyond what remains',
+            'lines': [9],
+        }
 
 
 def _async_return(value):

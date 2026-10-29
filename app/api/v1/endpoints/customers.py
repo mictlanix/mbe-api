@@ -1,10 +1,11 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, Query
 from fastapi import status as http_status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.deps import (
     CurrentUser,
+    forbidden,
     get_current_user,
     has_any_privilege,
     require_any_privilege,
@@ -102,9 +103,7 @@ async def update_customer(
             (SystemObject.SALES_QUOTES, AccessRight.UPDATE),
         ]
     if not current.administrator and not await has_any_privilege(db, current.user_id, grants):
-        raise HTTPException(
-            status_code=http_status.HTTP_403_FORBIDDEN, detail='Insufficient privileges'
-        )
+        raise forbidden(grants)
     customer = await customer_service.get_customer(db, customer_id)
     if customer is None:
         raise not_found(Customer, customer_id)

@@ -10,6 +10,7 @@ from types import SimpleNamespace
 import pytest
 from fastapi import HTTPException
 
+from app.core.errors import DomainError
 from app.enums import SystemObject, TransactionType
 from app.models.inventory import InventoryCount, InventoryCountDetail
 from app.services import inventory_documents as inv
@@ -22,6 +23,25 @@ def _line(line_id: int, product: int, quantity: str) -> SimpleNamespace:
 
 def _entry(warehouse: int, product: int, quantity: str) -> SimpleNamespace:
     return SimpleNamespace(warehouse=warehouse, product=product, quantity=Decimal(quantity))
+
+
+class TestAssertFacility:
+    def test_another_facility_is_refused_with_its_resource(self):
+        current = SimpleNamespace(administrator=False, facility_id=2)
+        with pytest.raises(DomainError) as exc:
+            inv.assert_facility(current, 1, resource='inventory_receipt')
+        assert exc.value.status_code == 403
+        assert exc.value.code == 'facility.other_facility'
+        assert exc.value.params == {'resource': 'inventory_receipt'}
+        assert exc.value.detail == 'Document belongs to another facility'
+
+    def test_own_facility_and_administrators_pass(self):
+        inv.assert_facility(
+            SimpleNamespace(administrator=False, facility_id=1), 1, 3, resource='inventory_issue'
+        )
+        inv.assert_facility(
+            SimpleNamespace(administrator=True, facility_id=2), 1, resource='inventory_issue'
+        )
 
 
 # ── merge_line_quantity (FR-003, R9) ──────────────────────────────────────────

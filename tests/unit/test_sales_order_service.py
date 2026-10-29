@@ -63,16 +63,18 @@ class TestDeriveDueDate:
 
 class TestAssertQuantityAllowed:
     def test_quantity_at_the_minimum_is_allowed(self) -> None:
-        assert_quantity_allowed(Decimal('5'), min_order_qty=5)
+        assert_quantity_allowed(Decimal('5'), min_order_qty=5, product_id=3)
 
     def test_quantity_above_the_minimum_is_allowed(self) -> None:
-        assert_quantity_allowed(Decimal('6'), min_order_qty=5)
+        assert_quantity_allowed(Decimal('6'), min_order_qty=5, product_id=3)
 
     def test_quantity_below_the_minimum_is_refused(self) -> None:
         with pytest.raises(HTTPException) as exc:
-            assert_quantity_allowed(Decimal('4'), min_order_qty=5)
+            assert_quantity_allowed(Decimal('4'), min_order_qty=5, product_id=3)
 
         assert exc.value.status_code == 422
+        assert exc.value.code == 'sales_order.below_min_quantity'
+        assert exc.value.params == {'product_id': 3, 'min_order_qty': '5'}
         assert '5' in exc.value.detail
 
 
@@ -141,6 +143,7 @@ class TestAssertCanCancel:
             assert_can_cancel(SimpleNamespace(cancelled=False, paid=True), live_applications=[])
 
         assert exc.value.status_code == 409
+        assert exc.value.code == 'sales_order.paid_cannot_cancel'
         assert 'refund' in exc.value.detail.lower()
 
     def test_already_cancelled_order_is_refused(self) -> None:
@@ -148,6 +151,7 @@ class TestAssertCanCancel:
             assert_can_cancel(SimpleNamespace(cancelled=True, paid=False), live_applications=[])
 
         assert exc.value.status_code == 409
+        assert exc.value.code == 'sales_order.already_cancelled'
 
     def test_partial_payment_blocks_cancellation_and_names_it(self) -> None:
         """FR-019b: money never moves as a side effect of cancelling."""
@@ -158,6 +162,8 @@ class TestAssertCanCancel:
             )
 
         assert exc.value.status_code == 409
+        assert exc.value.code == 'sales_order.has_payment_applications'
+        assert exc.value.params == {'application_ids': [9]}
         assert '9' in exc.value.detail
 
 
@@ -422,6 +428,8 @@ class TestTheCreditHold:
             await sales_order_service._assert_credit_allowed(self._db(3), self._customer())
 
         assert refusal.value.status_code == 422
+        assert refusal.value.code == 'customer.credit_hold'
+        assert refusal.value.params == {'customer_id': 7, 'overdue_count': 3, 'action': 'raise'}
 
     @pytest.mark.asyncio
     async def test_the_refusal_reads_as_a_hold_and_says_how_many(self) -> None:
@@ -441,6 +449,8 @@ class TestTheCreditHold:
                     self._db(0), self._customer(credit_limit=limit)
                 )
             assert 'credit limit' in refusal.value.detail
+            assert refusal.value.code == 'customer.no_credit_limit'
+            assert refusal.value.params == {'customer_id': 7}
 
     @pytest.mark.asyncio
     async def test_the_walk_in_customer_never_buys_on_credit(self) -> None:
@@ -452,6 +462,8 @@ class TestTheCreditHold:
             )
 
         assert 'walk-in' in refusal.value.detail
+        assert refusal.value.code == 'customer.walk_in_no_credit'
+        assert refusal.value.params == {}
 
 
 class TestRepricingOnACustomerChange:

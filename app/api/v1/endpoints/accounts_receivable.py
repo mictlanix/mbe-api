@@ -12,6 +12,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import rendering
 from app.core.deps import CurrentUser, can_see_every_facility, require_privilege
+from app.core.error_codes import ErrorCode
+from app.core.errors import DomainError
 from app.db.session import get_db
 from app.enums import AccessRight, SystemObject
 from app.schemas.accounts import (
@@ -46,9 +48,18 @@ async def _scope(db: AsyncSession, current: CurrentUser, facility: int | None) -
     if await _sees_every_facility(db, current):
         return facility
     if facility is not None and facility != current.facility_id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Seeing another facility's credits needs SearchCreditsFromAllStores",
+        raise DomainError(
+            ErrorCode.FACILITY_OTHER_FACILITY,
+            "Seeing another facility's credits needs SearchCreditsFromAllStores",
+            {
+                'resource': 'receivable',
+                'required': [
+                    {
+                        'system_object': SystemObject.SEARCH_CREDITS_FROM_ALL_STORES,
+                        'right': AccessRight.READ,
+                    }
+                ],
+            },
         )
     return current.facility_id
 

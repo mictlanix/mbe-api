@@ -12,7 +12,6 @@ from collections.abc import Sequence
 from datetime import datetime
 from decimal import Decimal
 
-from fastapi import HTTPException, status
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
@@ -21,7 +20,8 @@ from app.core.clock import local_now
 from app.core.config import settings
 from app.core.constants import SYSTEM_EMPLOYEE_ID
 from app.core.deps import CurrentUser
-from app.core.errors import not_found
+from app.core.error_codes import ErrorCode
+from app.core.errors import DomainError, not_found
 from app.enums import CurrencyCode, FiscalDocumentType, SourceType
 from app.models.core import Employee
 from app.models.customer import Customer
@@ -58,38 +58,39 @@ def assert_order_payable(order: object) -> None:
     refund path needs no cancellation check of its own.
     """
     if getattr(order, 'cancelled', False):
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT, detail='A cancelled order cannot be paid'
-        )
+        raise DomainError(ErrorCode.PAYMENT_ORDER_CANCELLED, 'A cancelled order cannot be paid')
     if not getattr(order, 'completed', False):
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail='Only a completed order can be paid; confirm it first',
+        raise DomainError(
+            ErrorCode.PAYMENT_ORDER_NOT_COMPLETED,
+            'Only a completed order can be paid; confirm it first',
         )
 
 
 def assert_same_currency(payment_currency: CurrencyCode, order_currency: CurrencyCode) -> None:
     """FR-043 — refuse rather than silently convert."""
     if payment_currency != order_currency:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail='Payment currency does not match the order currency',
+        raise DomainError(
+            ErrorCode.PAYMENT_CURRENCY_MISMATCH,
+            'Payment currency does not match the order currency',
+            {'payment_currency': payment_currency, 'order_currency': order_currency},
         )
 
 
 def assert_within_unapplied(amount: Decimal, unapplied: Decimal) -> None:
     if amount > unapplied:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail=f'Amount {amount} exceeds the unapplied balance of {unapplied}',
+        raise DomainError(
+            ErrorCode.PAYMENT_EXCEEDS_UNAPPLIED,
+            f'Amount {amount} exceeds the unapplied balance of {unapplied}',
+            {'amount': amount, 'unapplied': unapplied},
         )
 
 
 def assert_same_customer(payment_customer: int, order_customer: int) -> None:
     if payment_customer != order_customer:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail='Payment belongs to a different customer than the order',
+        raise DomainError(
+            ErrorCode.PAYMENT_CUSTOMER_MISMATCH,
+            'Payment belongs to a different customer than the order',
+            {'payment_customer_id': payment_customer, 'order_customer_id': order_customer},
         )
 
 
@@ -97,9 +98,10 @@ def assert_within_balance(amount: Decimal, balance: Decimal) -> None:
     """An application can't take an order below zero (spec 033, FR-021). Change handed back
     isn't money the order receives, so only the amount counts here."""
     if amount > balance:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail=f'Amount {amount} exceeds the order balance of {balance}',
+        raise DomainError(
+            ErrorCode.PAYMENT_EXCEEDS_ORDER_BALANCE,
+            f'Amount {amount} exceeds the order balance of {balance}',
+            {'amount': amount, 'balance': balance},
         )
 
 
@@ -107,9 +109,7 @@ def assert_not_settled(order: object, balance: Decimal) -> None:
     """Nothing is owed on an order flagged paid, whatever it computes, nor on one with 0.01 or
     less left (spec 033, FR-021): a legacy paid order isn't reopened by an application."""
     if order.paid or balance <= totals.SETTLED:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT, detail='Sales order is already settled'
-        )
+        raise DomainError(ErrorCode.PAYMENT_ORDER_SETTLED, 'Sales order is already settled')
 
 
 def settle(order: object, balance: Decimal) -> None:
@@ -500,8 +500,8 @@ async def reverse_application(
         await _lock_payment(db, payment.customer_payment_id)
         await db.refresh(application)
         if application.cancelled:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT, detail='Application is already reversed'
+            raise DomainError(
+                ErrorCode.PAYMENT_APPLICATION_REVERSED, 'Application is already reversed'
             )
         order = await _lock_order(db, application.sales_order)
 
@@ -573,9 +573,7 @@ async def verify_payment(
 ) -> CustomerPayment:
     employee = current.employee_id
     if payment.verifier is not None:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT, detail='Payment is already verified'
-        )
+        raise DomainError(ErrorCode.PAYMENT_ALREADY_VERIFIED, 'Payment is already verified')
     payment.verifier = employee
     payment.updater = employee
     payment.modification_time = local_now()

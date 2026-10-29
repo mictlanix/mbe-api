@@ -227,7 +227,7 @@ async def dispatch(
     async with inv.busy_as_conflict(db):
         transfer = await inv.begin_locked(db, TRANSFER, transfer_id, stock=True)
         # Another facility learns nothing about the transfer's state or lines.
-        inv.assert_facility(current, transfer.facility)
+        inv.assert_facility(current, transfer.facility, resource='inventory_transfer')
         documents.assert_editable(transfer)
 
         lines = await inv._lines(db, TRANSFER, transfer_id)
@@ -289,7 +289,9 @@ async def receive(
     """
     async with inv.busy_as_conflict(db):
         transfer = await inv.begin_locked(db, TRANSFER, transfer_id, stock=True)
-        inv.assert_facility(current, await _destination_facility(db, transfer))
+        inv.assert_facility(
+            current, await _destination_facility(db, transfer), resource='inventory_transfer'
+        )
         _assert_in_transit(transfer)
 
         lines = await inv._lines(db, TRANSFER, transfer_id)
@@ -316,7 +318,12 @@ async def close_remainder(
     """
     async with inv.busy_as_conflict(db):
         transfer = await inv.begin_locked(db, TRANSFER, transfer_id, stock=True)
-        inv.assert_facility(current, transfer.facility, await _destination_facility(db, transfer))
+        inv.assert_facility(
+            current,
+            transfer.facility,
+            await _destination_facility(db, transfer),
+            resource='inventory_transfer',
+        )
         _assert_in_transit(transfer)
 
         transit = await _transit(db, transfer)
