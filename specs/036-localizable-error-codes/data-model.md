@@ -48,7 +48,7 @@ It is a subclass of FastAPI's `HTTPException`, so `except HTTPException` and `ex
 
 ## Public resource name
 
-- **`RESOURCE_NAMES`:** table name → public name, covering all 94 mapped tables (research R7 lists the renames).
+- **`RESOURCE_NAMES`:** table name → public name, covering all 101 tables: the 94 mapped classes' tables and 7 association tables (research R7 lists the renames).
 - **`EXTRA_RESOURCES`:** names for things that aren't tables: `proof_of_delivery_image`, `license_photo`, `receivable`, `product_image`.
 - **Where they're used:** `resource.not_found.resource`, `resource.already_exists.resource`, `resource.still_referenced.references[].resource`, `facility.other_facility.resource`, and the `detail` sentence of `still_referenced`.
 - **Invariant:** no error body contains a table name that has a different public name (SC-006).

@@ -12,7 +12,7 @@ The approach (research R1–R13):
 - **Types:** one `ErrorCode` StrEnum whose members carry their status; one `DomainError(HTTPException)` whose status comes from its code and which normalizes params (Decimal stays a string); one `not_found()` helper.
 - **Handler:** one handler on Starlette's `HTTPException`, covering our errors and the framework's 400/401/404/405. The `IntegrityError` backstop and the 500 middleware build the same body.
 - **OpenAPI:** `Problem` is the v1 router's default response.
-- **Public names:** a registry maps all 94 tables to public resource names.
+- **Public names:** a registry maps all 101 tables (94 mapped classes plus 7 association tables) to public resource names.
 - **Migration:** about 530 raise call sites move to the catalog area by area, following `raise-map.md`. Each code is asserted by a test.
 - **Guards:** tests reject any inline `HTTPException(`, any untested code, any code missing from `contracts/error-codes.md`, and any unnamed table.
 
@@ -150,6 +150,6 @@ One branch and one PR, with commits in the design's phase order, each green:
 |---|---|---|
 | `app/core/error_codes.py` | The catalog must be one published enum (FR-002) whose members carry their status, so no raise pairs a code with the wrong status | A separate `dict[code, status]` drifts, and needs a test to keep the two in step |
 | `app/core/errors.py` | The only module allowed to construct `HTTPException` (FR-016). Its body builder is shared by three producers: the handler, `IntegrityError` and the 500 | Three inline bodies drift; per-area exception classes add types without meaning |
-| `RESOURCE_NAMES` (94) + `EXTRA_RESOURCES` (4) | Public names must be deliberate (spec Clarifications); 93 of 94 class names equal their table | Identity by default leaks a new table's name silently |
+| `RESOURCE_NAMES` (101) + `EXTRA_RESOURCES` (4) | Public names must be deliberate (spec Clarifications); 93 of 94 class names equal their table | Identity by default leaks a new table's name silently |
 | `app/schemas/problem.py` | OpenAPI needs a model for the default response (FR-004) | Hand-written OpenAPI dicts bypass Pydantic and the contract-docs test |
 | `tests/problem.py` | `assert_problem` is required by the input and used by every converted assertion | — |

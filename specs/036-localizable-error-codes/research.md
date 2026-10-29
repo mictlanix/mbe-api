@@ -112,7 +112,7 @@ Pydantic doesn't coerce `ctx`, and FastAPI's encoder would otherwise float a Dec
 
 ## R7. Public resource names
 
-**Decision**: `RESOURCE_NAMES: dict[str, str]` maps every mapped table (94) to its public name, and a test fails when a mapped table is missing. The names:
+**Decision**: `RESOURCE_NAMES: dict[str, str]` maps every table on the metadata (101: the 94 mapped classes' tables plus 7 association tables, which can block a delete too) to its public name, and a test fails when a table is missing. The names:
 - **Table name kept:** most tables, such as `customer` and `sales_order`.
 - **Renamed:**
   - `*_detail` → `*_line`;
