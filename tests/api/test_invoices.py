@@ -459,7 +459,7 @@ async def test_reopen_of_an_unsealed_document_is_409() -> None:
             response = await client.post(f'{_BASE}/9/reopen')
 
     assert response.status_code == status.HTTP_409_CONFLICT
-    assert response.json() == {'detail': 'Fiscal document is not sealed'}
+    assert response.json()['detail'] == 'Fiscal document is not sealed'
 
 
 # ── Every route ───────────────────────────────────────────────────────────────
@@ -514,7 +514,7 @@ async def test_a_missing_document_is_404(key: str) -> None:
             response = await _call(client, key)
 
     assert response.status_code == status.HTTP_404_NOT_FOUND
-    assert response.json() == {'detail': 'Fiscal document not found'}
+    assert response.json()['detail'] == 'Fiscal document not found'
     called.assert_not_awaited()
 
 
@@ -539,4 +539,4 @@ async def test_a_service_refusal_is_returned_as_is(key: str, code: int, detail: 
             response = await _call(client, key)
 
     assert response.status_code == code
-    assert response.json() == {'detail': detail}
+    assert response.json()['detail'] == detail

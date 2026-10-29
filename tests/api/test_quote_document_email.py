@@ -96,7 +96,7 @@ async def test_the_document_of_a_missing_quote_is_404() -> None:
             response = await client.get('/api/v1/sales-quotes/7/document')
 
     assert response.status_code == status.HTTP_404_NOT_FOUND
-    assert response.json() == {'detail': 'Sales quote not found'}
+    assert response.json()['detail'] == 'Sales quote not found'
 
 
 @pytest.mark.asyncio
@@ -220,7 +220,7 @@ async def test_only_a_confirmed_quote_is_sent(quote: SimpleNamespace) -> None:
     response, record = await _post_email(quote, {'to': ['a@x.mx']})
 
     assert response.status_code == status.HTTP_409_CONFLICT
-    assert response.json() == {'detail': 'Only a confirmed quote can be emailed'}
+    assert response.json()['detail'] == 'Only a confirmed quote can be emailed'
     assert mailer.sent == []
     record.assert_not_called()
 
@@ -257,7 +257,7 @@ async def test_without_mail_settings_the_route_is_unavailable() -> None:
     response, record = await _post_email(_quote(), {'to': ['a@x.mx']})
 
     assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
-    assert response.json() == {'detail': 'Email is not configured'}
+    assert response.json()['detail'] == 'Email is not configured'
     record.assert_not_called()
 
 
@@ -268,7 +268,7 @@ async def test_emailing_a_missing_quote_is_404() -> None:
     response, _ = await _post_email(None, {'to': ['a@x.mx']})
 
     assert response.status_code == status.HTTP_404_NOT_FOUND
-    assert response.json() == {'detail': 'Sales quote not found'}
+    assert response.json()['detail'] == 'Sales quote not found'
 
 
 @pytest.mark.asyncio

@@ -274,7 +274,7 @@ async def test_update_passes_through_a_purchase_orders_receipt_keeping_its_wareh
             response = await client.put(f'{BASE}/1', json={'warehouse': 2, 'comment': 'x'})
 
     assert response.status_code == status.HTTP_409_CONFLICT
-    assert response.json() == {'detail': "A purchase order's receipt keeps its warehouse"}
+    assert response.json()['detail'] == "A purchase order's receipt keeps its warehouse"
 
 
 @pytest.mark.asyncio
@@ -328,7 +328,7 @@ async def test_service_refusals_pass_through(action: str, code: int) -> None:
             response = await client.post(f'{BASE}/1/{action}')
 
     assert response.status_code == code
-    assert response.json() == {'detail': 'refused'}
+    assert response.json()['detail'] == 'refused'
 
 
 # ── Complementary receipt (US4, R8) ───────────────────────────────────────────
@@ -388,4 +388,4 @@ async def test_complementary_refusal_is_409_with_the_reason() -> None:
             response = await client.post(f'{BASE}/1/complementary')
 
     assert response.status_code == status.HTTP_409_CONFLICT
-    assert response.json() == {'detail': 'Purchase order is fully received'}
+    assert response.json()['detail'] == 'Purchase order is fully received'

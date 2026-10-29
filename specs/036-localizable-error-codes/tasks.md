@@ -36,7 +36,7 @@ These apply to every task below that says "migrate". They aren't repeated in eac
 
 **Purpose**: Confirm the starting point.
 
-- [ ] T001 In the worktree, confirm the branch `036-localizable-error-codes` sits on main at 6a1fd4b or later, that `.env` is linked, and that `uv run ruff check app/ migrations/ tests/` and `uv run pytest -q` pass. Record the pass and skip counts in this task's line as the baseline.
+- [X] T001 In the worktree, confirm the branch `036-localizable-error-codes` sits on main at 6a1fd4b or later, that `.env` is linked, and that `uv run ruff check app/ migrations/ tests/` and `uv run pytest -q` pass. Baseline at d2ce73b: ruff clean, 5977 passed, 2 skipped.
 
 ---
 
@@ -46,30 +46,30 @@ These apply to every task below that says "migrate". They aren't repeated in eac
 
 **⚠️ CRITICAL**: No story work starts until this phase is done.
 
-- [ ] T002 [P] Create `app/core/error_codes.py` with `ErrorCode(StrEnum)` per research R2: a custom `__new__(cls, value, status)` storing `.status` and keeping the value a plain string. Generate all 240 members from the tables in `specs/036-localizable-error-codes/contracts/error-codes.md` (member name = value upper-cased with `.` → `_`, e.g. `RESOURCE_NOT_FOUND = 'resource.not_found', 404`; no two codes collide this way), grouped by domain in the document's order with one comment line per domain. Keep the generator script in the scratchpad, not the repo.
-- [ ] T003 [P] Create `app/schemas/problem.py` with `Problem` (`status: int`, `code: ErrorCode`, `detail: str | dict[str, Any]`, `params: dict[str, Any] | None`, `errors: list[ProblemPart] | None`) and `ProblemPart` (`code: ErrorCode`, `params: dict[str, Any] | None`, extra keys allowed), per research R5 and data-model.md.
-- [ ] T004 Create `app/core/errors.py` (depends on T002) per research R1–R3 and R7:
+- [X] T002 [P] Create `app/core/error_codes.py` with `ErrorCode(StrEnum)` per research R2: a custom `__new__(cls, value, status)` storing `.status` and keeping the value a plain string. Generate all 240 members from the tables in `specs/036-localizable-error-codes/contracts/error-codes.md` (member name = value upper-cased with `.` → `_`, e.g. `RESOURCE_NOT_FOUND = 'resource.not_found', 404`; no two codes collide this way), grouped by domain in the document's order with one comment line per domain. Keep the generator script in the scratchpad, not the repo.
+- [X] T003 [P] Create `app/schemas/problem.py` with `Problem` (`status: int`, `code: ErrorCode`, `detail: str | dict[str, Any]`, `params: dict[str, Any] | None`, `errors: list[ProblemPart] | None`) and `ProblemPart` (`code: ErrorCode`, `params: dict[str, Any] | None`, extra keys allowed), per research R5 and data-model.md.
+- [X] T004 Create `app/core/errors.py` (depends on T002) per research R1–R3 and R7:
   - `DomainError(HTTPException)` with signature `(code, detail, params=None, *, errors=None, headers=None)`; `status_code = code.status`; params normalized at construction (Decimal → `format(d, 'f')`, date/datetime → `isoformat()`, Enum → `.value`, lists, tuples and dicts recursively, `None` values dropped);
   - `RESOURCE_NAMES` mapping all 94 mapped tables to public names, with R7's renames, and `EXTRA_RESOURCES = {'proof_of_delivery_image', 'license_photo', 'receivable', 'product_image'}`;
   - `not_found(resource, id=None, detail=None) -> DomainError`, where `resource` is a model class or a public name and `detail` defaults to `"<Name> not found"`;
   - `problem_body(status, code, detail, params=None, errors=None) -> dict`, omitting empty `params` and `errors`;
   - `http_exception_handler` for Starlette's `HTTPException`: a `DomainError` contributes code, params and errors; any other maps by status (400 `request.malformed`, 401 `auth.not_authenticated`, 404 `request.route_not_found`, 405 `request.method_not_allowed`, anything else keeps its status with `request.malformed`). It answers `application/problem+json` and keeps `exc.headers`.
-- [ ] T005 Register `http_exception_handler` on `starlette.exceptions.HTTPException` in `app/main.py` (depends on T004). Leave `RequestValidationError` on FastAPI's default handler.
-- [ ] T006 In `app/api/v1/router.py`, give `api_router` the default response per research R5: `responses={'default': {'model': Problem, 'description': 'Error (RFC 9457 Problem Details)', 'content': {'application/problem+json': {'schema': {'$ref': '#/components/schemas/Problem'}}}}}` (depends on T003).
-- [ ] T007 [P] Create `tests/problem.py` with `assert_problem(response, status, code) -> dict`: asserts the HTTP status, `content-type` starting `application/problem+json`, `body['status'] == status` and `body['code'] == code`, and returns the body.
-- [ ] T008 Create `tests/unit/test_errors.py` (depends on T004, T005):
+- [X] T005 Register `http_exception_handler` on `starlette.exceptions.HTTPException` in `app/main.py` (depends on T004). Leave `RequestValidationError` on FastAPI's default handler.
+- [X] T006 In `app/api/v1/router.py`, give `api_router` the default response per research R5: `responses={'default': {'model': Problem, 'description': 'Error (RFC 9457 Problem Details)', 'content': {'application/problem+json': {'schema': {'$ref': '#/components/schemas/Problem'}}}}}` (depends on T003).
+- [X] T007 [P] Create `tests/problem.py` with `assert_problem(response, status, code) -> dict`: asserts the HTTP status, `content-type` starting `application/problem+json`, `body['status'] == status` and `body['code'] == code`, and returns the body.
+- [X] T008 Create `tests/unit/test_errors.py` (depends on T004, T005):
   - `ErrorCode('resource.conflict').status == 409`, and a Pydantic model field typed `ErrorCode` exports `{"type": "string", "enum": [...]}`;
   - `DomainError` takes its status from the code, and `except HTTPException` still catches it with `exc.detail` intact;
   - normalization: `Decimal('18450.00')` → `"18450.00"`, date, datetime, Enum, a nested list of dicts, `None` dropped;
   - `problem_body` omits empty `params` and `errors`, and passes a dict `detail` through untouched;
   - the handler keeps response headers (`WWW-Authenticate`) and serves `application/problem+json`, using a throwaway route on a test app.
-- [ ] T009 Create `tests/unit/test_error_codes.py` (depends on T002, T004), per research R9:
+- [X] T009 Create `tests/unit/test_error_codes.py` (depends on T002, T004), per research R9:
   - every member matches `^[a-z][a-z_]*\.[a-z][a-z_]*$` with a status in 400–599 (passes now);
   - every mapped table (`Base.metadata.tables`) is a key of `RESOURCE_NAMES`, and no public name equals a table name that R7 renames (passes now);
   - **guard:** an AST scan of `app/` finds no `HTTPException(` call outside `app/core/errors.py`, failing with file and line (`xfail(strict=True)` until T082);
   - **coverage:** every `ErrorCode` appears in some file under `tests/` other than this one, as its value (`'resource.not_found'`) or its member (`ErrorCode.RESOURCE_NOT_FOUND`) (`xfail(strict=True)` until T083).
-- [ ] T010 Extend `tests/unit/test_contract_docs.py` per research R9: parse the rows of `specs/036-localizable-error-codes/contracts/error-codes.md` whose first cell is a backticked `domain.condition`, compare `{code: status}` with `ErrorCode` in both directions, and pin the row count at 240 in the parser-still-finds test (FR-017, SC-003).
-- [ ] T011 Run `uv run ruff check app/ migrations/ tests/` and `uv run pytest -q`: the suite is as green as T001's baseline, with two strict xfails. Commit "phase 0".
+- [X] T010 Extend `tests/unit/test_contract_docs.py` per research R9: parse the rows of `specs/036-localizable-error-codes/contracts/error-codes.md` whose first cell is a backticked `domain.condition`, compare `{code: status}` with `ErrorCode` in both directions, and pin the row count at 240 in the parser-still-finds test (FR-017, SC-003).
+- [X] T011 Run `uv run ruff check app/ migrations/ tests/` and `uv run pytest -q`: the suite is as green as T001's baseline, with two strict xfails. Commit "phase 0".
 
 **Checkpoint**: The contract exists; no raise uses it yet.
 

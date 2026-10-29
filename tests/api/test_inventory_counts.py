@@ -198,7 +198,7 @@ async def test_unknown_count_is_404_on_every_route_that_names_one() -> None:
             ]
 
     assert [r.status_code for r in responses] == [status.HTTP_404_NOT_FOUND] * 7
-    assert responses[0].json() == {'detail': 'Count not found'}
+    assert responses[0].json()['detail'] == 'Count not found'
 
 
 @pytest.mark.asyncio
@@ -454,7 +454,7 @@ async def test_service_refusals_pass_through(action: str, code: int) -> None:
             response = await client.post(f'{BASE}/1/{action}')
 
     assert response.status_code == code
-    assert response.json() == {'detail': 'refused'}
+    assert response.json()['detail'] == 'refused'
 
 
 @pytest.mark.asyncio

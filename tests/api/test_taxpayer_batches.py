@@ -167,7 +167,7 @@ async def test_list_of_an_unknown_issuer_is_404() -> None:
             response = await client.get(_BASE)
 
     assert response.status_code == status.HTTP_404_NOT_FOUND
-    assert response.json() == {'detail': 'Taxpayer issuer not found'}
+    assert response.json()['detail'] == 'Taxpayer issuer not found'
     listed.assert_not_awaited()
 
 
@@ -184,7 +184,7 @@ async def test_an_unknown_batch_is_404(key: str) -> None:
             response = await _call(client, key)
 
     assert response.status_code == status.HTTP_404_NOT_FOUND
-    assert response.json() == {'detail': 'Batch not found'}
+    assert response.json()['detail'] == 'Batch not found'
     update.assert_not_awaited()
     delete.assert_not_awaited()
 
@@ -212,7 +212,7 @@ async def test_a_service_conflict_is_returned_as_is(key: str, service: str, deta
             response = await _call(client, key)
 
     assert response.status_code == status.HTTP_409_CONFLICT
-    assert response.json() == {'detail': detail}
+    assert response.json()['detail'] == detail
 
 
 # ── 422 from the body ─────────────────────────────────────────────────────────

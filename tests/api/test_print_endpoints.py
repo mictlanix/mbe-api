@@ -94,7 +94,7 @@ async def test_sale_ticket_of_a_missing_order_is_404() -> None:
             response = await client.get('/api/v1/sales-orders/7/ticket')
 
     assert response.status_code == status.HTTP_404_NOT_FOUND
-    assert response.json() == {'detail': 'Sales order not found'}
+    assert response.json()['detail'] == 'Sales order not found'
 
 
 @pytest.mark.asyncio
@@ -153,7 +153,7 @@ async def test_sales_order_document_of_a_missing_order_is_404() -> None:
             response = await client.get('/api/v1/sales-orders/7/document')
 
     assert response.status_code == status.HTTP_404_NOT_FOUND
-    assert response.json() == {'detail': 'Sales order not found'}
+    assert response.json()['detail'] == 'Sales order not found'
 
 
 @pytest.mark.asyncio
@@ -215,7 +215,7 @@ async def test_cash_cut_of_a_missing_session_is_404() -> None:
             response = await client.get('/api/v1/cash-sessions/5/ticket')
 
     assert response.status_code == status.HTTP_404_NOT_FOUND
-    assert response.json() == {'detail': 'Cash session not found'}
+    assert response.json()['detail'] == 'Cash session not found'
     rendered.assert_not_awaited()
 
 
@@ -228,7 +228,7 @@ async def test_cash_cut_of_an_open_session_is_409() -> None:
             response = await client.get('/api/v1/cash-sessions/5/ticket')
 
     assert response.status_code == status.HTTP_409_CONFLICT
-    assert response.json() == {'detail': 'Cash session is not closed'}
+    assert response.json()['detail'] == 'Cash session is not closed'
     rendered.assert_not_awaited()
 
 

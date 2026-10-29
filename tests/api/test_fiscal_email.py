@@ -95,7 +95,7 @@ async def test_a_missing_document_is_404() -> None:
             response = await _post(client)
 
     assert response.status_code == status.HTTP_404_NOT_FOUND
-    assert response.json() == {'detail': 'Fiscal document not found'}
+    assert response.json()['detail'] == 'Fiscal document not found'
     send.assert_not_awaited()
 
 
@@ -111,7 +111,7 @@ async def test_email_is_503_when_the_mailer_is_not_configured() -> None:
             response = await _post(client)
 
     assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
-    assert response.json() == {'detail': 'Email is not configured'}
+    assert response.json()['detail'] == 'Email is not configured'
     send.assert_not_awaited()
 
 
@@ -134,7 +134,7 @@ async def test_the_services_refusal_passes_through(code: int, detail: str) -> No
             response = await _post(client)
 
     assert response.status_code == code
-    assert response.json() == {'detail': detail}
+    assert response.json()['detail'] == detail
 
 
 @pytest.mark.asyncio

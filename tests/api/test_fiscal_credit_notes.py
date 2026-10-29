@@ -74,7 +74,7 @@ async def test_create_passes_through_the_services_refusal() -> None:
             response = await _call(client, 'create')
 
     assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
-    assert response.json() == {'detail': 'The invoice cannot be credited'}
+    assert response.json()['detail'] == 'The invoice cannot be credited'
 
 
 @pytest.mark.asyncio
@@ -140,7 +140,7 @@ async def test_copy_a_line_passes_through_the_services_refusal() -> None:
             response = await _call(client, 'line')
 
     assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
-    assert response.json() == {'detail': "Quantity exceeds the invoice line's 35.0000"}
+    assert response.json()['detail'] == "Quantity exceeds the invoice line's 35.0000"
 
 
 @pytest.mark.asyncio
@@ -170,7 +170,7 @@ async def test_copy_a_line_of_a_missing_document_is_404() -> None:
             response = await _call(client, 'line')
 
     assert response.status_code == status.HTTP_404_NOT_FOUND
-    assert response.json() == {'detail': 'Fiscal document not found'}
+    assert response.json()['detail'] == 'Fiscal document not found'
     add.assert_not_awaited()
 
 

@@ -566,7 +566,7 @@ async def test_cost_changes_of_an_unknown_product_is_404() -> None:
             response = await client.get(f'{BASE}/cost-changes', params={'product': 99})
 
     assert response.status_code == status.HTTP_404_NOT_FOUND
-    assert response.json() == {'detail': 'Product not found'}
+    assert response.json()['detail'] == 'Product not found'
 
 
 @pytest.mark.asyncio
@@ -690,7 +690,7 @@ async def test_the_document_of_an_unconfirmed_order_passes_the_service_409_throu
             response = await client.get(f'{BASE}/1/document')
 
     assert response.status_code == status.HTTP_409_CONFLICT
-    assert response.json() == {'detail': 'Not confirmed'}
+    assert response.json()['detail'] == 'Not confirmed'
 
 
 # ── Email ─────────────────────────────────────────────────────────────────────
@@ -728,7 +728,7 @@ async def test_email_without_mail_settings_is_503_and_sends_nothing() -> None:
             response = await client.post(f'{BASE}/1/email', json={'to': ['a@x.mx']})
 
     assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
-    assert response.json() == {'detail': 'Email is not configured'}
+    assert response.json()['detail'] == 'Email is not configured'
     service['email_order'].assert_not_awaited()
 
 
@@ -777,7 +777,7 @@ async def test_email_service_refusals_pass_through(code: int) -> None:
             response = await client.post(f'{BASE}/1/email', json={'to': ['a@x.mx']})
 
     assert response.status_code == code
-    assert response.json() == {'detail': 'refused'}
+    assert response.json()['detail'] == 'refused'
 
 
 # ── Writes ────────────────────────────────────────────────────────────────────
@@ -973,7 +973,7 @@ async def test_service_refusals_pass_through(
             response = await getattr(client, method)(BASE + path, **kwargs)
 
     assert response.status_code == code
-    assert response.json() == {'detail': 'refused'}
+    assert response.json()['detail'] == 'refused'
 
 
 # ── Validation ────────────────────────────────────────────────────────────────

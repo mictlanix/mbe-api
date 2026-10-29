@@ -620,7 +620,7 @@ async def test_service_refusals_pass_through(
             response = await getattr(client, method)(BASE + path, **kwargs)
 
     assert response.status_code == code
-    assert response.json() == {'detail': 'refused'}
+    assert response.json()['detail'] == 'refused'
 
 
 # ── Validation ────────────────────────────────────────────────────────────────

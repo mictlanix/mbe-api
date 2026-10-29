@@ -6,11 +6,13 @@ from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy.exc import IntegrityError
+from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.staticfiles import StaticFiles
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from app.api.v1.router import api_router
 from app.core.config import settings
+from app.core.errors import http_exception_handler
 
 logger = logging.getLogger(__name__)
 
@@ -63,6 +65,11 @@ app = FastAPI(
     debug=settings.debug,
     lifespan=lifespan,
 )
+
+
+# Every HTTP exception, ours and the framework's, answers as a Problem body (spec 036). Request
+# validation keeps FastAPI's own handler and shape.
+app.add_exception_handler(StarletteHTTPException, http_exception_handler)
 
 
 @app.exception_handler(IntegrityError)

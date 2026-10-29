@@ -113,7 +113,7 @@ async def test_pdf_of_a_missing_document_is_404() -> None:
             response = await client.get('/api/v1/fiscal-documents/9/pdf')
 
     assert response.status_code == status.HTTP_404_NOT_FOUND
-    assert response.json() == {'detail': 'Fiscal document not found'}
+    assert response.json()['detail'] == 'Fiscal document not found'
 
 
 @pytest.mark.asyncio
@@ -165,7 +165,7 @@ async def test_pdf_conflicts(document: SimpleNamespace, xml: str | None, detail:
             response = await client.get('/api/v1/fiscal-documents/9/pdf')
 
     assert response.status_code == status.HTTP_409_CONFLICT
-    assert response.json() == {'detail': detail}
+    assert response.json()['detail'] == detail
 
 
 @pytest.mark.asyncio
@@ -183,7 +183,7 @@ async def test_pdf_of_unreadable_xml_is_409() -> None:
             response = await client.get('/api/v1/fiscal-documents/9/pdf')
 
     assert response.status_code == status.HTTP_409_CONFLICT
-    assert response.json() == {'detail': 'Stamped XML is missing or unreadable'}
+    assert response.json()['detail'] == 'Stamped XML is missing or unreadable'
 
 
 # ── List, detail and XML (US2) ────────────────────────────────────────────────
@@ -308,7 +308,7 @@ async def test_detail_of_a_missing_document_is_404() -> None:
             response = await client.get('/api/v1/fiscal-documents/9')
 
     assert response.status_code == status.HTTP_404_NOT_FOUND
-    assert response.json() == {'detail': 'Fiscal document not found'}
+    assert response.json()['detail'] == 'Fiscal document not found'
 
 
 @pytest.mark.asyncio
@@ -350,7 +350,7 @@ async def test_xml_conflicts(document: SimpleNamespace, detail: str) -> None:
             response = await client.get('/api/v1/fiscal-documents/9/xml')
 
     assert response.status_code == status.HTTP_409_CONFLICT
-    assert response.json() == {'detail': detail}
+    assert response.json()['detail'] == detail
 
 
 @pytest.mark.asyncio

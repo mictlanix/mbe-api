@@ -171,3 +171,39 @@ def test_documented_types_match_the_component(block: Block) -> None:
             mismatches.append(f'{field}: documented as `{declared}`, API returns `{live}`')
 
     assert not mismatches, f'{block.doc} `{block.name}` — ' + '; '.join(mismatches)
+
+
+# ── The error-code catalog (spec 036, FR-017, SC-003) ─────────────────────────
+#
+# `contracts/error-codes.md` is what mbe-ui builds its Spanish catalog from, so it must list exactly
+# the codes the API serves, each with the status the API answers it with.
+
+ERROR_CODES_DOC = REPO_ROOT / 'specs/036-localizable-error-codes/contracts/error-codes.md'
+
+
+def _documented_codes() -> dict[str, int]:
+    rows = re.findall(
+        r'^\| `([a-z][a-z_]*\.[a-z][a-z_]*)` \| (\d{3}) \|', ERROR_CODES_DOC.read_text(), re.M
+    )
+    return {code: int(status) for code, status in rows}
+
+
+def test_the_parser_still_finds_the_error_codes() -> None:
+    """Pinned, so a reformatted table fails here rather than checking nothing."""
+    assert len(_documented_codes()) == 240
+
+
+def test_the_error_code_document_matches_the_catalog() -> None:
+    from app.core.error_codes import ErrorCode
+
+    served = {code.value: code.status for code in ErrorCode}
+    documented = _documented_codes()
+
+    assert not served.keys() - documented.keys(), (
+        f'codes served but not documented: {sorted(served.keys() - documented.keys())}'
+    )
+    assert not documented.keys() - served.keys(), (
+        f'codes documented but not served: {sorted(documented.keys() - served.keys())}'
+    )
+    wrong = {c: (documented[c], s) for c, s in served.items() if documented[c] != s}
+    assert not wrong, f'documented status differs from the served one: {wrong}'

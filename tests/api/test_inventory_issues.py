@@ -318,4 +318,4 @@ async def test_service_refusals_pass_through(action: str, code: int) -> None:
             response = await client.post(f'{BASE}/1/{action}')
 
     assert response.status_code == code
-    assert response.json() == {'detail': 'refused'}
+    assert response.json()['detail'] == 'refused'

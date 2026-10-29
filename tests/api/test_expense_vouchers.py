@@ -226,7 +226,7 @@ async def test_unknown_voucher_is_404_on_every_route_that_names_one() -> None:
             ]
 
     assert [r.status_code for r in responses] == [status.HTTP_404_NOT_FOUND] * 9
-    assert responses[0].json() == {'detail': 'Expense voucher not found'}
+    assert responses[0].json()['detail'] == 'Expense voucher not found'
 
 
 async def test_unknown_line_is_404() -> None:
@@ -306,7 +306,7 @@ async def test_create_without_an_open_session_is_409() -> None:
             response = await client.post(BASE, json={})
 
     assert response.status_code == status.HTTP_409_CONFLICT
-    assert response.json() == {'detail': 'An open cash session is required'}
+    assert response.json()['detail'] == 'An open cash session is required'
 
 
 @pytest.mark.parametrize(
@@ -389,7 +389,7 @@ async def test_service_refusals_pass_through(
             response = await getattr(client, method)(BASE + path, **_body(method, path))
 
     assert response.status_code == code
-    assert response.json() == {'detail': detail}
+    assert response.json()['detail'] == detail
 
 
 # ── Void (FR-004) ─────────────────────────────────────────────────────────────

@@ -132,7 +132,7 @@ async def test_delivery_ticket_of_a_missing_order_is_404() -> None:
         response = await _get('/api/v1/delivery-orders/42/ticket')
 
     assert response.status_code == status.HTTP_404_NOT_FOUND
-    assert response.json() == {'detail': 'Delivery order not found'}
+    assert response.json()['detail'] == 'Delivery order not found'
 
 
 @pytest.mark.asyncio
@@ -146,7 +146,7 @@ async def test_delivery_ticket_of_an_unapproved_order_is_409(order_status: int) 
         response = await _get('/api/v1/delivery-orders/42/ticket')
 
     assert response.status_code == status.HTTP_409_CONFLICT
-    assert response.json() == {'detail': 'Delivery order is not approved'}
+    assert response.json()['detail'] == 'Delivery order is not approved'
     build_mock.assert_not_awaited()
 
 
@@ -178,7 +178,7 @@ async def test_delivery_ticket_of_an_unknown_warehouse_is_422() -> None:
         response = await _get('/api/v1/delivery-orders/42/ticket?warehouse=99')
 
     assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
-    assert response.json() == {'detail': 'Unknown warehouse'}
+    assert response.json()['detail'] == 'Unknown warehouse'
     build_mock.assert_not_awaited()
 
 
@@ -190,7 +190,7 @@ async def test_delivery_ticket_of_a_warehouse_with_no_line_is_422() -> None:
         response = await _get('/api/v1/delivery-orders/42/ticket?warehouse=5')
 
     assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
-    assert response.json() == {'detail': 'No line of this order comes from that warehouse'}
+    assert response.json()['detail'] == 'No line of this order comes from that warehouse'
     build_mock.assert_not_awaited()
 
 
@@ -272,7 +272,7 @@ async def test_itinerary_documents_of_a_missing_itinerary_are_404(
         response = await _get(f'/api/v1/delivery-itineraries/42/{route}')
 
     assert response.status_code == status.HTTP_404_NOT_FOUND
-    assert response.json() == {'detail': 'Itinerary not found'}
+    assert response.json()['detail'] == 'Itinerary not found'
 
 
 @pytest.mark.asyncio
@@ -293,7 +293,7 @@ async def test_itinerary_documents_refuse_an_open_or_cancelled_trip(
         response = await _get(f'/api/v1/delivery-itineraries/42/{route}')
 
     assert response.status_code == status.HTTP_409_CONFLICT
-    assert response.json() == {'detail': detail}
+    assert response.json()['detail'] == detail
     build_mock.assert_not_awaited()
 
 
@@ -361,7 +361,7 @@ async def test_delivery_document_of_a_missing_order_is_404() -> None:
         response = await _get('/api/v1/delivery-orders/42/document')
 
     assert response.status_code == status.HTTP_404_NOT_FOUND
-    assert response.json() == {'detail': 'Delivery order not found'}
+    assert response.json()['detail'] == 'Delivery order not found'
 
 
 @pytest.mark.asyncio
@@ -372,5 +372,5 @@ async def test_delivery_document_of_a_draft_is_409() -> None:
         response = await _get('/api/v1/delivery-orders/42/document')
 
     assert response.status_code == status.HTTP_409_CONFLICT
-    assert response.json() == {'detail': 'Delivery order is not approved'}
+    assert response.json()['detail'] == 'Delivery order is not approved'
     build_mock.assert_not_awaited()
