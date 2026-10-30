@@ -6,7 +6,6 @@ from fastapi import (
     Depends,
     File,
     Form,
-    HTTPException,
     Query,
     Response,
     UploadFile,
@@ -17,8 +16,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app import rendering
 from app.core.config import settings
 from app.core.deps import CurrentUser, require_privilege
+from app.core.error_codes import ErrorCode
+from app.core.errors import DomainError, not_found
 from app.db.session import get_db
 from app.enums import AccessRight, ItineraryStatus, SystemObject
+from app.models.logistics import DeliveriesItinerary, DeliveriesItineraryStop
 from app.schemas import ListResponse
 from app.schemas.delivery_itinerary import (
     CommitLineRequest,
@@ -57,7 +59,7 @@ _BUCKET_DATES = {
 async def _itinerary_or_404(db: AsyncSession, itinerary_id: int):  # noqa: ANN202
     itinerary = await delivery_itinerary_service.get_itinerary(db, itinerary_id)
     if itinerary is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Itinerary not found')
+        raise not_found(DeliveriesItinerary, itinerary_id, 'Itinerary not found')
     return itinerary
 
 
@@ -65,7 +67,7 @@ async def _stop_or_404(db: AsyncSession, itinerary, stop_id: int):  # noqa: ANN0
     for stop in await delivery_itinerary_service.stops_of(db, itinerary.deliveries_itinerary_id):
         if stop.deliveries_itinerary_stop_id == stop_id:
             return stop
-    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Stop not found')
+    raise not_found(DeliveriesItineraryStop, stop_id, 'Stop not found')
 
 
 async def _full(  # noqa: ANN001
@@ -169,11 +171,13 @@ async def create_itinerary(
 def _assert_printable(itinerary) -> None:  # noqa: ANN001
     """Only a trip that has left has fixed sent quantities to print (spec 026, FR-008)."""
     if itinerary.status == ItineraryStatus.OPEN:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT, detail='Itinerary has not departed'
+        raise DomainError(
+            ErrorCode.ITINERARY_NOT_DEPARTED,
+            'Itinerary has not departed',
+            {'status': ItineraryStatus(itinerary.status)},
         )
     if itinerary.status == ItineraryStatus.CANCELLED:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail='Itinerary is cancelled')
+        raise DomainError(ErrorCode.ITINERARY_CANCELLED, 'Itinerary is cancelled')
 
 
 @router.get('/{itinerary_id}/ticket', response_class=Response, responses=rendering.PDF_RESPONSE)
@@ -370,15 +374,12 @@ async def close_stop(
     try:
         outcomes = json.loads(lines)
     except json.JSONDecodeError as e:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail='`lines` must be a JSON array of per-line outcomes',
+        raise DomainError(
+            ErrorCode.ITINERARY_STOP_LINES_MALFORMED,
+            '`lines` must be a JSON array of per-line outcomes',
         ) from e
 
-    try:
-        filename = await image_service.save_proof_image(await image.read(), settings.pod_dir)
-    except ValueError as e:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(e)) from e
+    filename = await image_service.save_proof_image(await image.read(), settings.pod_dir)
 
     await delivery_itinerary_service.close_stop(
         db,

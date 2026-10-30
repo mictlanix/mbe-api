@@ -1,9 +1,11 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.deps import CurrentUser, require_any_privilege, require_privilege
+from app.core.errors import not_found
 from app.db.session import get_db
 from app.enums import AccessRight, SystemObject
+from app.models.product import PriceList
 from app.schemas import ListResponse
 from app.schemas.product import (
     PriceListCreate,
@@ -60,7 +62,7 @@ async def get_price_list(
 ) -> PriceListResponse:
     pl = await price_list_service.get_price_list(db, price_list_id)
     if pl is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Price list not found')
+        raise not_found(PriceList, price_list_id)
     return PriceListResponse.model_validate(pl)
 
 
@@ -73,7 +75,7 @@ async def update_price_list(
 ) -> PriceListResponse:
     pl = await price_list_service.get_price_list(db, price_list_id)
     if pl is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Price list not found')
+        raise not_found(PriceList, price_list_id)
     pl = await price_list_service.update_price_list(db, pl, data)
     return PriceListResponse.model_validate(pl)
 
@@ -89,7 +91,7 @@ async def delete_price_list(
 ) -> None:
     pl = await price_list_service.get_price_list(db, price_list_id)
     if pl is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Price list not found')
+        raise not_found(PriceList, price_list_id)
     await price_list_service.delete_price_list(db, pl, replacement_id=replacement)
 
 
@@ -102,7 +104,7 @@ async def preview_price_list_delete(
     """What rides on the list, before the irreversible request above (#181)."""
     pl = await price_list_service.get_price_list(db, price_list_id)
     if pl is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Price list not found')
+        raise not_found(PriceList, price_list_id)
     references = await price_list_service.preview_delete(db, pl)
     items = [PriceListDeletePreviewItem(category=name, count=count) for name, count in references]
     return PriceListDeletePreviewResponse(items=items, total=sum(item.count for item in items))

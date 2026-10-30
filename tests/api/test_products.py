@@ -11,6 +11,7 @@ from httpx import ASGITransport, AsyncClient
 from app.core.deps import CurrentUser, get_current_user
 from app.db.session import get_db
 from app.main import app
+from tests.problem import assert_problem
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
 
@@ -134,6 +135,7 @@ async def test_get_price_list_returns_404() -> None:
         async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as c:
             r = await c.get('/api/v1/price-lists/999')
     assert r.status_code == 404
+    assert r.json()['code'] == 'resource.not_found'
 
 
 @pytest.mark.asyncio
@@ -176,6 +178,7 @@ async def test_update_price_list_returns_404() -> None:
         async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as c:
             r = await c.put('/api/v1/price-lists/999', json={'name': 'X'})
     assert r.status_code == 404
+    assert r.json()['code'] == 'resource.not_found'
 
 
 @pytest.mark.asyncio
@@ -199,6 +202,7 @@ async def test_delete_price_list_returns_404() -> None:
         async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as c:
             r = await c.delete('/api/v1/price-lists/999')
     assert r.status_code == 404
+    assert r.json()['code'] == 'resource.not_found'
 
 
 @pytest.mark.asyncio
@@ -261,6 +265,7 @@ async def test_price_list_delete_preview_returns_404() -> None:
         async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as c:
             r = await c.get('/api/v1/price-lists/999/delete/preview')
     assert r.status_code == 404
+    assert r.json()['code'] == 'resource.not_found'
     assert r.json()['detail'] == 'Price list not found'
 
 
@@ -342,6 +347,7 @@ async def test_get_product_returns_404() -> None:
         async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as c:
             r = await c.get('/api/v1/products/999')
     assert r.status_code == 404
+    assert r.json()['code'] == 'resource.not_found'
 
 
 @pytest.mark.asyncio
@@ -426,6 +432,7 @@ async def test_update_product_returns_404() -> None:
         async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as c:
             r = await c.put('/api/v1/products/999', json={'name': 'XXXX'})
     assert r.status_code == 404
+    assert r.json()['code'] == 'resource.not_found'
 
 
 @pytest.mark.asyncio
@@ -447,6 +454,7 @@ async def test_delete_product_returns_404() -> None:
         async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as c:
             r = await c.delete('/api/v1/products/999')
     assert r.status_code == 404
+    assert r.json()['code'] == 'resource.not_found'
 
 
 @pytest.mark.asyncio
@@ -504,7 +512,7 @@ async def test_merge_preview_refuses_a_self_merge() -> None:
     _auth()
     async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as c:
         r = await c.get('/api/v1/products/merge/preview?product_id=3&duplicate_id=3')
-    assert r.status_code == 400
+    assert_problem(r, 400, 'product.merge_with_itself')
     assert r.json()['detail'] == 'Cannot merge a product with itself'
 
 
@@ -522,6 +530,7 @@ async def test_merge_preview_names_the_missing_side() -> None:
     async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as c:
         r = await c.get('/api/v1/products/merge/preview?product_id=1&duplicate_id=2')
     assert r.status_code == 404
+    assert r.json()['code'] == 'resource.not_found'
     assert r.json()['detail'] == 'Canonical product not found'
 
 

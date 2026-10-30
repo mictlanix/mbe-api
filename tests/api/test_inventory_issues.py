@@ -11,9 +11,12 @@ from fastapi import HTTPException, status
 from httpx import ASGITransport, AsyncClient
 
 from app.core.deps import CurrentUser, get_current_user
+from app.core.error_codes import ErrorCode
+from app.core.errors import DomainError
 from app.db.session import get_db
 from app.enums import AccessRight
 from app.main import app
+from tests.problem import assert_problem
 
 BASE = '/api/v1/inventory-issues'
 SHARED = 'app.services.inventory_documents'
@@ -194,12 +197,17 @@ async def test_list_returns_summaries_with_their_status() -> None:
 @pytest.mark.asyncio
 async def test_list_with_a_bad_status_is_422() -> None:
     _auth()
-    refusal = HTTPException(status_code=422, detail='status must be one of draft, completed')
+    refusal = DomainError(
+        ErrorCode.STATUS_FILTER_UNSUPPORTED,
+        'status must be one of draft, completed, cancelled',
+        {'allowed': ['draft', 'completed', 'cancelled']},
+    )
     with patch(f'{SHARED}.list_documents', AsyncMock(side_effect=refusal)):
         async with _client() as client:
             response = await client.get(BASE, params={'status': 'paid'})
 
-    assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
+    body = assert_problem(response, 422, 'status_filter.unsupported')
+    assert body['params'] == {'allowed': ['draft', 'completed', 'cancelled']}
 
 
 # ── Writes ────────────────────────────────────────────────────────────────────
@@ -318,4 +326,4 @@ async def test_service_refusals_pass_through(action: str, code: int) -> None:
             response = await client.post(f'{BASE}/1/{action}')
 
     assert response.status_code == code
-    assert response.json() == {'detail': 'refused'}
+    assert response.json()['detail'] == 'refused'

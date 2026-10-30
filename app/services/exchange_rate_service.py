@@ -1,10 +1,11 @@
 from collections.abc import Sequence
 from datetime import date
 
-from fastapi import HTTPException, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.error_codes import ErrorCode
+from app.core.errors import DomainError
 from app.models.core import ExchangeRate
 from app.schemas.core import ExchangeRateCreate, ExchangeRateUpdate
 
@@ -55,9 +56,10 @@ async def create_exchange_rate(db: AsyncSession, data: ExchangeRateCreate) -> Ex
         )
     ).scalar_one_or_none()
     if existing is not None:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail='Exchange rate for this date and currency pair already exists',
+        raise DomainError(
+            ErrorCode.RESOURCE_ALREADY_EXISTS,
+            'Exchange rate for this date and currency pair already exists',
+            {'resource': 'exchange_rate', 'field': 'date,base,target'},
         )
     er = ExchangeRate(date=data.date, rate=data.rate, base=data.base, target=data.target)
     db.add(er)

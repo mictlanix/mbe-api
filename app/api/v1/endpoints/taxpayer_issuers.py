@@ -1,10 +1,11 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.deps import CurrentUser, require_privilege
+from app.core.errors import not_found
 from app.db.session import get_db
 from app.enums import AccessRight, SystemObject
-from app.models.fiscal import TaxpayerBatch
+from app.models.fiscal import TaxpayerBatch, TaxpayerIssuer
 from app.schemas import ListResponse
 from app.schemas.fiscal import (
     TaxpayerBatchCreate,
@@ -51,9 +52,7 @@ async def get_taxpayer_issuer(
 ) -> TaxpayerIssuerResponse:
     issuer = await taxpayer_issuer_service.get_taxpayer_issuer(db, rfc)
     if issuer is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail='Taxpayer issuer not found'
-        )
+        raise not_found(TaxpayerIssuer, rfc)
     return TaxpayerIssuerResponse.model_validate(issuer)
 
 
@@ -66,9 +65,7 @@ async def update_taxpayer_issuer(
 ) -> TaxpayerIssuerResponse:
     issuer = await taxpayer_issuer_service.get_taxpayer_issuer(db, rfc)
     if issuer is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail='Taxpayer issuer not found'
-        )
+        raise not_found(TaxpayerIssuer, rfc)
     issuer = await taxpayer_issuer_service.update_taxpayer_issuer(db, issuer, data)
     return TaxpayerIssuerResponse.model_validate(issuer)
 
@@ -81,9 +78,7 @@ async def delete_taxpayer_issuer(
 ) -> None:
     issuer = await taxpayer_issuer_service.get_taxpayer_issuer(db, rfc)
     if issuer is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail='Taxpayer issuer not found'
-        )
+        raise not_found(TaxpayerIssuer, rfc)
     await taxpayer_issuer_service.delete_taxpayer_issuer(db, issuer)
 
 
@@ -92,15 +87,13 @@ async def delete_taxpayer_issuer(
 
 async def _issuer_or_404(db: AsyncSession, rfc: str) -> None:
     if await taxpayer_issuer_service.get_taxpayer_issuer(db, rfc) is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail='Taxpayer issuer not found'
-        )
+        raise not_found(TaxpayerIssuer, rfc)
 
 
 async def _batch_or_404(db: AsyncSession, rfc: str, batch_id: int) -> TaxpayerBatch:
     batch = await taxpayer_batch_service.get_batch(db, rfc, batch_id)
     if batch is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Batch not found')
+        raise not_found(TaxpayerBatch, batch_id, detail='Batch not found')
     return batch
 
 

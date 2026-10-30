@@ -18,6 +18,7 @@ from httpx import ASGITransport, AsyncClient
 from app.core.deps import CurrentUser, get_current_user
 from app.db.session import get_db
 from app.main import app
+from tests.problem import assert_problem
 
 
 @pytest.fixture(autouse=True)
@@ -228,6 +229,12 @@ async def test_another_facilitys_notes_need_the_editor_right(editor: bool) -> No
     assert response.status_code == (status.HTTP_200_OK if editor else status.HTTP_403_FORBIDDEN)
     if editor:
         assert listing.await_args.kwargs['facility'] == 51
+    else:
+        body = assert_problem(response, 403, 'facility.other_facility')
+        assert body['params'] == {
+            'resource': 'credit_note',
+            'required': [{'system_object': 100, 'right': 2}],
+        }
 
 
 @pytest.mark.asyncio

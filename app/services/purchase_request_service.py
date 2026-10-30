@@ -15,13 +15,14 @@ from datetime import date, timedelta
 from decimal import Decimal
 from typing import Any
 
-from fastapi import HTTPException, status
 from sqlalchemy import ColumnElement, and_, false, func, or_, select, true
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.clock import local_now
 from app.core.config import settings
 from app.core.deps import CurrentUser
+from app.core.error_codes import ErrorCode
+from app.core.errors import DomainError, not_found
 from app.enums import SourceType
 from app.models.core import Warehouse
 from app.models.product import Product
@@ -78,9 +79,10 @@ def request_status_clause(value: str) -> ColumnElement[bool]:
         return and_(live, _flag(header.completed) == true(), _flag(header.approved) == true())
     if value == RequestStatus.CANCELLED:
         return _flag(header.cancelled) == true()
-    raise HTTPException(
-        status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-        detail='status must be one of draft, submitted, approved, cancelled',
+    raise DomainError(
+        ErrorCode.STATUS_FILTER_UNSUPPORTED,
+        'status must be one of draft, submitted, approved, cancelled',
+        {'resource': 'purchase_request', 'status': value},
     )
 
 
@@ -95,17 +97,26 @@ def _plain(quantity: Decimal) -> str:
     return f'{quantity.normalize():f}'
 
 
-def submit_refusal(state: RequestStatus, lines: Sequence[Any]) -> tuple[int, str] | None:
-    """`(status code, reason)` when a request cannot be submitted (FR-004)."""
+Refusal = tuple[ErrorCode, str, dict[str, Any]]
+"""`(code, reason, params)`: the caller raises `DomainError(*refusal)` (research R8)."""
+
+
+def submit_refusal(state: RequestStatus, lines: Sequence[Any]) -> Refusal | None:
+    """`(code, reason, params)` when a request cannot be submitted (FR-004)."""
     if state is not RequestStatus.DRAFT:
-        return status.HTTP_409_CONFLICT, 'Only a draft request can be submitted'
+        return (
+            ErrorCode.PURCHASE_REQUEST_NOT_DRAFT,
+            'Only a draft request can be submitted',
+            {'status': state},
+        )
     if not lines:
-        return status.HTTP_409_CONFLICT, 'The request has no lines'
+        return ErrorCode.PURCHASE_REQUEST_NO_LINES, 'The request has no lines', {}
     for line in lines:
         if line.quantity <= 0:
             return (
-                status.HTTP_422_UNPROCESSABLE_CONTENT,
+                ErrorCode.PURCHASE_REQUEST_LINE_WITHOUT_QUANTITY,
                 f'Line {line.product_name} has no quantity',
+                {'line_id': line.purchase_request_detail_id},
             )
     return None
 
@@ -125,49 +136,76 @@ def default_quantity(min_order_qty: int | None) -> Decimal:
     return Decimal(min_order_qty) if min_order_qty and min_order_qty >= 1 else Decimal(1)
 
 
-def facility_move_refusal(serial: int | None, old_facility: int, new_facility: int) -> str | None:
+def facility_move_refusal(
+    serial: int | None, old_facility: int, new_facility: int
+) -> Refusal | None:
     """FR-002: once numbered, a request's serial belongs to its facility."""
     if serial is not None and old_facility != new_facility:
-        return 'A numbered request cannot move to another facility'
+        return (
+            ErrorCode.PURCHASE_REQUEST_FACILITY_LOCKED,
+            'A numbered request cannot move to another facility',
+            {},
+        )
     return None
 
 
-def _decision_refusal(state: RequestStatus) -> str | None:
+def _decision_refusal(state: RequestStatus) -> Refusal | None:
     if state is not RequestStatus.SUBMITTED:
-        return 'Only a submitted request can be approved or rejected'
+        return (
+            ErrorCode.PURCHASE_REQUEST_NOT_SUBMITTED,
+            'Only a submitted request can be approved or rejected',
+            {'status': state},
+        )
     return None
 
 
-def approve_refusal(state: RequestStatus) -> str | None:
+def approve_refusal(state: RequestStatus) -> Refusal | None:
     return _decision_refusal(state)
 
 
-def reject_refusal(state: RequestStatus) -> str | None:
+def reject_refusal(state: RequestStatus) -> Refusal | None:
     return _decision_refusal(state)
 
 
-def cancel_refusal(state: RequestStatus, lines_on_live_po: int) -> str | None:
+def cancel_refusal(state: RequestStatus, lines_on_live_po: int) -> Refusal | None:
     """FR-009: from any live state, unless a line is on a live purchase order."""
     if state is RequestStatus.CANCELLED:
-        return 'The request is already cancelled'
+        return ErrorCode.PURCHASE_REQUEST_ALREADY_CANCELLED, 'The request is already cancelled', {}
     if lines_on_live_po:
         noun = 'line' if lines_on_live_po == 1 else 'lines'
         verb = 'is' if lines_on_live_po == 1 else 'are'
-        return f'{lines_on_live_po} {noun} of the request {verb} on a live purchase order'
+        return (
+            ErrorCode.PURCHASE_REQUEST_LINES_ON_LIVE_ORDER,
+            f'{lines_on_live_po} {noun} of the request {verb} on a live purchase order',
+            {'count': lines_on_live_po},
+        )
     return None
 
 
-def mark_refusal(state: RequestStatus, to_purchase: bool, *, on_live_po: bool) -> str | None:
+def mark_refusal(
+    state: RequestStatus, to_purchase: bool, *, on_live_po: bool, line_id: int
+) -> Refusal | None:
     """FR-008: only submitted and approved requests, and never unmark a line on a live PO."""
     if state not in (RequestStatus.SUBMITTED, RequestStatus.APPROVED):
-        return 'Lines can be marked only on a submitted or approved request'
+        return (
+            ErrorCode.PURCHASE_REQUEST_LINES_NOT_MARKABLE,
+            'Lines can be marked only on a submitted or approved request',
+            {'status': state},
+        )
     if not to_purchase and on_live_po:
-        return 'The line is on a live purchase order'
+        return (
+            ErrorCode.PURCHASE_REQUEST_LINE_ON_LIVE_ORDER,
+            'The line is on a live purchase order',
+            {'line_id': line_id},
+        )
     return None
 
 
-def _conflict(reason: str) -> HTTPException:
-    return HTTPException(status_code=status.HTTP_409_CONFLICT, detail=reason)
+def _facility_changed() -> DomainError:
+    return DomainError(
+        ErrorCode.PURCHASE_REQUEST_WAREHOUSE_FACILITY_CHANGED,
+        'The warehouse changed facility, retry',
+    )
 
 
 # ── Reads ─────────────────────────────────────────────────────────────────────
@@ -244,9 +282,7 @@ async def lock_request(db: AsyncSession, request_id: int) -> PurchaseRequest:
         )
     ).scalar_one_or_none()
     if request is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail='Purchase request not found'
-        )
+        raise not_found(PurchaseRequest, request_id)
     return request
 
 
@@ -271,7 +307,7 @@ async def _begin(db: AsyncSession, request_id: int) -> PurchaseRequest:
 def _assert_mapped_facility(mapped: int | None, current_facility: int) -> None:
     """R2 step 4: the warehouse's facility read after the locks must be the pre-read one."""
     if mapped != current_facility:
-        raise _conflict('The warehouse changed facility, retry')
+        raise _facility_changed()
 
 
 def _touch(request: PurchaseRequest, current: CurrentUser) -> None:
@@ -281,17 +317,22 @@ def _touch(request: PurchaseRequest, current: CurrentUser) -> None:
 
 def _assert_draft(request: PurchaseRequest) -> None:
     if _status_of(request) is not RequestStatus.DRAFT:
-        raise _conflict('Only a draft request can be changed')
+        raise DomainError(
+            ErrorCode.PURCHASE_REQUEST_NOT_DRAFT,
+            'Only a draft request can be changed',
+            {'status': _status_of(request)},
+        )
 
 
 async def _product(db: AsyncSession, product_id: int) -> Product:
     product = await db.get(Product, product_id)
     if product is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Product not found')
+        raise not_found(Product, product_id)
     if not product.purchasable:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail=f'Product {product.code} is not purchasable',
+        raise DomainError(
+            ErrorCode.PRODUCT_NOT_PURCHASABLE,
+            f'Product {product.code} is not purchasable',
+            {'product_id': product.product_id, 'product_code': product.code},
         )
     return product
 
@@ -304,8 +345,10 @@ async def create(
 ) -> PurchaseRequest:
     warehouse = data.warehouse or await _pos_warehouse(db, current)
     if warehouse is None:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail='A warehouse is required'
+        raise DomainError(
+            ErrorCode.WAREHOUSE_REQUIRED,
+            'A warehouse is required',
+            {'resource': 'purchase_request'},
         )
     await warehouse_service.assert_sellable(db, warehouse)
     now = local_now()
@@ -332,7 +375,9 @@ async def _begin_edit(db: AsyncSession, request_id: int, current: CurrentUser) -
     """Lock, then the facility rule and the draft check. The request row is the only lock, so
     the facility is read after it (R3)."""
     request = await _begin(db, request_id)
-    inv.assert_facility(current, await _facility_of(db, request.warehouse))
+    inv.assert_facility(
+        current, await _facility_of(db, request.warehouse), resource='purchase_request'
+    )
     _assert_draft(request)
     return request
 
@@ -346,13 +391,13 @@ async def update(
         target = changes.get('warehouse')
         if target is not None and target != request.warehouse:
             await warehouse_service.assert_sellable(db, target)
-            reason = facility_move_refusal(
+            refusal = facility_move_refusal(
                 request.serial,
                 await _facility_of(db, request.warehouse),
                 await _facility_of(db, target),
             )
-            if reason is not None:
-                raise _conflict(reason)
+            if refusal is not None:
+                raise DomainError(*refusal)
             request.warehouse = target
         if 'comment' in changes:
             request.comment = changes['comment']
@@ -406,7 +451,7 @@ async def _locked_line(
         )
     ).scalar_one_or_none()
     if line is None or line.purchase_request != request_id:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Line not found')
+        raise not_found(PurchaseRequestDetail, line_id, detail='Line not found')
     return request, line
 
 
@@ -464,21 +509,21 @@ async def submit(db: AsyncSession, request_id: int, *, current: CurrentUser) -> 
         request = await _begin(db, request_id)
         facility = facility_map.get(request.warehouse)
         if facility is None:
-            raise _conflict('The warehouse changed facility, retry')
-        inv.assert_facility(current, facility)
+            raise _facility_changed()
+        inv.assert_facility(current, facility, resource='purchase_request')
         transit = transit_map.get(facility)
         if transit is None:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-                detail=f'Facility {facility} has no in-transit location',
+            raise DomainError(
+                ErrorCode.FACILITY_NO_IN_TRANSIT_LOCATION,
+                f'Facility {facility} has no in-transit location',
+                {'facility_id': facility},
             )
         await inv.lock_warehouses(db, [transit])
 
         _assert_mapped_facility(facility, await _facility_of(db, request.warehouse))
         refusal = submit_refusal(_status_of(request), await _lines(db, request_id))
         if refusal is not None:
-            code, reason = refusal
-            raise HTTPException(status_code=code, detail=reason)
+            raise DomainError(*refusal)
 
         serial = request.serial
         if serial is None:
@@ -506,9 +551,9 @@ async def submit(db: AsyncSession, request_id: int, *, current: CurrentUser) -> 
 async def approve(db: AsyncSession, request_id: int, *, current: CurrentUser) -> PurchaseRequest:
     async with inv.busy_as_conflict(db):
         request = await _begin(db, request_id)
-        reason = approve_refusal(_status_of(request))
-        if reason is not None:
-            raise _conflict(reason)
+        refusal = approve_refusal(_status_of(request))
+        if refusal is not None:
+            raise DomainError(*refusal)
         now = local_now()
         request.approved = True
         request.approver = current.employee_id
@@ -527,12 +572,26 @@ async def approve_many(
     for request_id in dict.fromkeys(ids):
         try:
             await approve(db, request_id, current=current)
-        except HTTPException as refused:
+        except DomainError as refused:
             results.append(
-                {'purchase_request_id': request_id, 'approved': False, 'reason': refused.detail}
+                {
+                    'purchase_request_id': request_id,
+                    'approved': False,
+                    'reason': refused.detail,
+                    'code': refused.code,
+                    'params': refused.params,
+                }
             )
         else:
-            results.append({'purchase_request_id': request_id, 'approved': True, 'reason': None})
+            results.append(
+                {
+                    'purchase_request_id': request_id,
+                    'approved': True,
+                    'reason': None,
+                    'code': None,
+                    'params': None,
+                }
+            )
     return results
 
 
@@ -542,9 +601,9 @@ async def reject(
     """Back to draft with its serial; the reason goes to the incidence log (FR-006)."""
     async with inv.busy_as_conflict(db):
         request = await _begin(db, request_id)
-        reason = reject_refusal(_status_of(request))
-        if reason is not None:
-            raise _conflict(reason)
+        refusal = reject_refusal(_status_of(request))
+        if refusal is not None:
+            raise DomainError(*refusal)
         incidences.record(
             db,
             source=SourceType.PURCHASE_REQUEST,
@@ -581,11 +640,13 @@ async def mark(
             )
         ).scalar_one_or_none()
         if line is None or line.purchase_request != request_id:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Line not found')
+            raise not_found(PurchaseRequestDetail, line_id, detail='Line not found')
         on_live_po = line_id in await live_order_lines(db, [line_id])
-        reason = mark_refusal(_status_of(request), to_purchase, on_live_po=on_live_po)
-        if reason is not None:
-            raise _conflict(reason)
+        refusal = mark_refusal(
+            _status_of(request), to_purchase, on_live_po=on_live_po, line_id=line_id
+        )
+        if refusal is not None:
+            raise DomainError(*refusal)
         line.to_purchase = to_purchase
         await db.commit()
     return request
@@ -613,16 +674,16 @@ async def cancel(db: AsyncSession, request_id: int, *, current: CurrentUser) -> 
         request = await _begin(db, request_id)
         facility = facility_map.get(request.warehouse)
         if facility is None:
-            raise _conflict('The warehouse changed facility, retry')
-        inv.assert_facility(current, facility)
+            raise _facility_changed()
+        inv.assert_facility(current, facility, resource='purchase_request')
         await lock_request_lines(db, line_ids)
 
         _assert_mapped_facility(facility, await _facility_of(db, request.warehouse))
         lines = await _lines(db, request_id)
         live = await live_order_lines(db, [line.purchase_request_detail_id for line in lines])
-        reason = cancel_refusal(_status_of(request), len(live))
-        if reason is not None:
-            raise _conflict(reason)
+        refusal = cancel_refusal(_status_of(request), len(live))
+        if refusal is not None:
+            raise DomainError(*refusal)
         request.cancelled = True
         _touch(request, current)
         await db.commit()

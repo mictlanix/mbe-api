@@ -11,9 +11,12 @@ from fastapi import HTTPException, status
 from httpx import ASGITransport, AsyncClient
 
 from app.core.deps import CurrentUser, get_current_user
+from app.core.error_codes import ErrorCode
+from app.core.errors import DomainError
 from app.db.session import get_db
 from app.enums import AccessRight
 from app.main import app
+from tests.problem import assert_problem
 
 BASE = '/api/v1/inventory-receipts'
 SERVICE = 'app.services.inventory_receipt_service'
@@ -192,12 +195,17 @@ async def test_list_returns_summaries_with_their_status() -> None:
 @pytest.mark.asyncio
 async def test_list_with_a_bad_status_is_422() -> None:
     _auth()
-    refusal = HTTPException(status_code=422, detail='status must be one of draft, completed')
+    refusal = DomainError(
+        ErrorCode.STATUS_FILTER_UNSUPPORTED,
+        'status must be one of draft, completed, cancelled',
+        {'allowed': ['draft', 'completed', 'cancelled']},
+    )
     with patch(f'{SHARED}.list_documents', AsyncMock(side_effect=refusal)):
         async with _client() as client:
             response = await client.get(BASE, params={'status': 'paid'})
 
-    assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
+    body = assert_problem(response, 422, 'status_filter.unsupported')
+    assert body['params'] == {'allowed': ['draft', 'completed', 'cancelled']}
 
 
 # ── Writes ────────────────────────────────────────────────────────────────────
@@ -274,7 +282,7 @@ async def test_update_passes_through_a_purchase_orders_receipt_keeping_its_wareh
             response = await client.put(f'{BASE}/1', json={'warehouse': 2, 'comment': 'x'})
 
     assert response.status_code == status.HTTP_409_CONFLICT
-    assert response.json() == {'detail': "A purchase order's receipt keeps its warehouse"}
+    assert response.json()['detail'] == "A purchase order's receipt keeps its warehouse"
 
 
 @pytest.mark.asyncio
@@ -328,7 +336,7 @@ async def test_service_refusals_pass_through(action: str, code: int) -> None:
             response = await client.post(f'{BASE}/1/{action}')
 
     assert response.status_code == code
-    assert response.json() == {'detail': 'refused'}
+    assert response.json()['detail'] == 'refused'
 
 
 # ── Complementary receipt (US4, R8) ───────────────────────────────────────────
@@ -379,7 +387,11 @@ async def test_complementary_of_an_unknown_receipt_is_404() -> None:
 @pytest.mark.asyncio
 async def test_complementary_refusal_is_409_with_the_reason() -> None:
     _auth()
-    refusal = HTTPException(status_code=409, detail='Purchase order is fully received')
+    refusal = DomainError(
+        ErrorCode.INVENTORY_RECEIPT_COMPLEMENTARY_UNAVAILABLE,
+        'Purchase order is fully received',
+        {'reason': 'purchase_order_fully_received'},
+    )
     with (
         patch(f'{SHARED}.get_document', AsyncMock(return_value=_receipt(purchase_order=4))),
         patch(f'{SERVICE}.complementary_receipt', AsyncMock(side_effect=refusal)),
@@ -387,5 +399,6 @@ async def test_complementary_refusal_is_409_with_the_reason() -> None:
         async with _client() as client:
             response = await client.post(f'{BASE}/1/complementary')
 
-    assert response.status_code == status.HTTP_409_CONFLICT
-    assert response.json() == {'detail': 'Purchase order is fully received'}
+    body = assert_problem(response, 409, 'inventory_receipt.complementary_unavailable')
+    assert body['detail'] == 'Purchase order is fully received'
+    assert body['params'] == {'reason': 'purchase_order_fully_received'}

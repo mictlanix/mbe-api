@@ -11,9 +11,11 @@ from fastapi import HTTPException, status
 from httpx import ASGITransport, AsyncClient
 
 from app.core.deps import CurrentUser, get_current_user
+from app.core.error_codes import ErrorCode
 from app.db.session import get_db
 from app.enums import AccessRight, SystemObject
 from app.main import app
+from tests.problem import assert_problem
 
 BASE = '/api/v1/inventory-counts'
 SERVICE = 'app.services.inventory_count_service'
@@ -198,7 +200,7 @@ async def test_unknown_count_is_404_on_every_route_that_names_one() -> None:
             ]
 
     assert [r.status_code for r in responses] == [status.HTTP_404_NOT_FOUND] * 7
-    assert responses[0].json() == {'detail': 'Count not found'}
+    assert responses[0].json()['detail'] == 'Count not found'
 
 
 @pytest.mark.asyncio
@@ -335,8 +337,18 @@ async def test_a_malformed_batch_is_422(lines: list) -> None:
 async def test_a_refused_batch_is_422_with_every_error() -> None:
     _auth()
     errors = [
-        {'index': 0, 'product_code': 'NOPE', 'reason': 'unknown product'},
-        {'index': 2, 'product': 5, 'reason': 'not stockable'},
+        {
+            'index': 0,
+            'product_code': 'NOPE',
+            'reason': 'unknown product',
+            'code': ErrorCode.INVENTORY_COUNT_LINE_PRODUCT_UNKNOWN,
+        },
+        {
+            'index': 2,
+            'product': 5,
+            'reason': 'not stockable',
+            'code': ErrorCode.INVENTORY_COUNT_LINE_NOT_STOCKABLE,
+        },
     ]
     with (
         patch(f'{SHARED}.get_document', AsyncMock(return_value=_count())),
@@ -347,10 +359,22 @@ async def test_a_refused_batch_is_422_with_every_error() -> None:
                 f'{BASE}/1/lines', json={'lines': [{'product': 3, 'quantity': '1'}]}
             )
 
-    assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
-    body = response.json()
-    assert body['errors'] == errors
-    assert isinstance(body['detail'], str)
+    body = assert_problem(response, 422, 'inventory_count.batch_invalid')
+    assert body['errors'] == [
+        {
+            'index': 0,
+            'product_code': 'NOPE',
+            'reason': 'unknown product',
+            'code': 'inventory_count_line.product_unknown',
+        },
+        {
+            'index': 2,
+            'product': 5,
+            'reason': 'not stockable',
+            'code': 'inventory_count_line.not_stockable',
+        },
+    ]
+    assert body['detail'] == '2 invalid entries; nothing was applied'
 
 
 def _batch_refused(errors: list[dict]) -> Exception:
@@ -454,7 +478,7 @@ async def test_service_refusals_pass_through(action: str, code: int) -> None:
             response = await client.post(f'{BASE}/1/{action}')
 
     assert response.status_code == code
-    assert response.json() == {'detail': 'refused'}
+    assert response.json()['detail'] == 'refused'
 
 
 @pytest.mark.asyncio

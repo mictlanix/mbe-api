@@ -47,6 +47,8 @@ class TestCreate:
             await service.create_agreement(db, 1, data)
 
         assert refused.value.status_code == 422
+        assert refused.value.code == 'supplier_agreement.end_before_start'
+        assert refused.value.params == {'start': '2026-02-01', 'end': '2026-01-01'}
         assert db.commit.await_count == 0
 
     @pytest.mark.asyncio
@@ -73,6 +75,8 @@ class TestUpdate:
             )
 
         assert refused.value.status_code == 422
+        assert refused.value.code == 'supplier_agreement.end_before_start'
+        assert refused.value.params == {'start': '2026-06-01', 'end': '2026-05-31'}
         assert db.commit.await_count == 0
         assert agreement.end == date(2026, 12, 31)
 

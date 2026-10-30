@@ -2,15 +2,18 @@ import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Request, status
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy.exc import IntegrityError
+from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.staticfiles import StaticFiles
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from app.api.v1.router import api_router
 from app.core.config import settings
+from app.core.error_codes import ErrorCode
+from app.core.errors import http_exception_handler, problem_body, problem_response
 
 logger = logging.getLogger(__name__)
 
@@ -65,6 +68,11 @@ app = FastAPI(
 )
 
 
+# Every HTTP exception, ours and the framework's, answers as a Problem body (spec 036). Request
+# validation keeps FastAPI's own handler and shape.
+app.add_exception_handler(StarletteHTTPException, http_exception_handler)
+
+
 @app.exception_handler(IntegrityError)
 async def integrity_error_handler(request: Request, exc: IntegrityError) -> JSONResponse:
     """Backstop for constraints the services do not check up front.
@@ -75,14 +83,13 @@ async def integrity_error_handler(request: Request, exc: IntegrityError) -> JSON
     logged rather than returned: it names tables and constraints.
     """
     logger.warning('IntegrityError on %s %s: %s', request.method, request.url.path, exc.orig)
-    return JSONResponse(
-        status_code=status.HTTP_409_CONFLICT,
-        content={'detail': 'The request conflicts with existing data'},
+    return problem_response(
+        problem_body(409, ErrorCode.RESOURCE_CONFLICT, 'The request conflicts with existing data')
     )
 
 
 class UnhandledErrorMiddleware:
-    """Turn an unhandled exception into a JSON 500 *inside* CORS (#266).
+    """Turn an unhandled exception into a Problem 500 *inside* CORS (#266).
 
     Starlette builds its own 500 in `ServerErrorMiddleware`, which wraps every other middleware,
     CORS included. That response has no `Access-Control-Allow-Origin`, so a browser cannot read it
@@ -113,9 +120,8 @@ class UnhandledErrorMiddleware:
             await self.app(scope, receive, _send)
         except Exception:
             if not started:
-                response = JSONResponse(
-                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                    content={'detail': 'Internal server error'},
+                response = problem_response(
+                    problem_body(500, ErrorCode.SERVER_ERROR, 'Internal server error')
                 )
                 await response(scope, receive, send)
             raise

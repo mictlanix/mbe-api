@@ -9,10 +9,10 @@ from collections.abc import Iterable, Sequence
 from decimal import Decimal
 from typing import NamedTuple
 
-from fastapi import HTTPException, status
 from sqlalchemy import ColumnElement, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.errors import not_found
 from app.enums import TransactionType
 from app.models.core import Warehouse
 from app.models.inventory import (
@@ -205,7 +205,7 @@ async def list_stock(
 async def product_stock(db: AsyncSession, product: int) -> ProductStock:
     row = await db.get(Product, product)
     if row is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Product not found')
+        raise not_found(Product, product)
 
     held = await stock_ledger.on_hand_by_warehouse(db, products={product})
     claimed = await stock_ledger.reserved_by_warehouse(db, products={product})

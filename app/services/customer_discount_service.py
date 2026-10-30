@@ -12,10 +12,11 @@ and a line's rate is its own once it exists.
 from collections.abc import Sequence
 from decimal import Decimal
 
-from fastapi import HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.error_codes import ErrorCode
+from app.core.errors import DomainError
 from app.models.customer import CustomerDiscount
 from app.models.product import Product
 from app.schemas.customer import CustomerDiscountCreate, CustomerDiscountUpdate
@@ -73,8 +74,10 @@ async def create_discount(
     # An unknown product is a validation error (422); a repeat is a conflict (409). Both are
     # checked up front so the client gets a specific message rather than an integrity error.
     if await db.get(Product, data.product) is None:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail='Product not found'
+        raise DomainError(
+            ErrorCode.CUSTOMER_DISCOUNT_PRODUCT_NOT_FOUND,
+            'Product not found',
+            {'product_id': data.product},
         )
     duplicate = (
         await db.execute(
@@ -85,9 +88,10 @@ async def create_discount(
         )
     ).first()
     if duplicate is not None:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail='Customer already has a discount for this product',
+        raise DomainError(
+            ErrorCode.RESOURCE_ALREADY_EXISTS,
+            'Customer already has a discount for this product',
+            {'resource': 'customer_discount', 'field': 'product'},
         )
     discount = CustomerDiscount(customer=customer_id, product=data.product, discount=data.discount)
     db.add(discount)

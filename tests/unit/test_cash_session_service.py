@@ -7,7 +7,7 @@ answer.
 
 from datetime import date, datetime, time, timedelta
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from fastapi import HTTPException
@@ -21,6 +21,7 @@ from app.db.base import Base
 from app.models.core import CashSession
 from app.schemas.cash_session import (
     CashSessionClose,
+    CashSessionOpen,
     CashSessionSort,
     CashSessionStatus,
     SessionState,
@@ -31,6 +32,7 @@ from app.services.cash_session_service import (
     close_session,
     list_sessions,
     lock_open_session,
+    open_session,
     session_state,
 )
 
@@ -111,6 +113,7 @@ class TestContextResolution:
 
         assert exc.value.status_code == 422
         assert 'drawer' in exc.value.detail.lower()
+        assert exc.value.code == 'user.no_cash_drawer'
 
 
 class TestLegacyMultipleOpenSessions:
@@ -355,6 +358,7 @@ class TestCloseRereadsUnderTheLock:
 
         assert exc.value.status_code == 409
         assert exc.value.detail == 'Session is already closed'
+        assert exc.value.code == 'cash_session.already_closed'
         assert session.end == datetime(2026, 7, 25, 18)
 
     @pytest.mark.asyncio
@@ -398,6 +402,7 @@ class TestLockOpenSession:
 
         assert exc.value.status_code == 409
         assert exc.value.detail == 'The cash session is closed'
+        assert exc.value.code == 'cash_session.closed'
 
     @pytest.mark.asyncio
     async def test_an_unknown_session_is_404(self, db: AsyncSession) -> None:
@@ -418,3 +423,42 @@ class TestLockOpenSession:
         sql, options = _locked_sql(db)
         assert sql.rstrip().upper().endswith('FOR UPDATE')
         assert options.get('populate_existing') is True
+
+
+class TestOpenSessionRefusals:
+    """One open session per drawer and one per cashier (FR-050): the refusals name what blocks."""
+
+    @pytest.mark.asyncio
+    async def test_a_busy_drawer_is_refused_naming_it(self) -> None:
+        db = AsyncMock()
+        db.get = AsyncMock(return_value=SimpleNamespace())
+        busy = AsyncMock(return_value=_session(datetime(2026, 7, 25, 9)))
+        with patch('app.services.cash_session_service.open_session_for_drawer', busy):
+            with pytest.raises(HTTPException) as exc:
+                await open_session(db, CashSessionOpen(cash_drawer=5), current=_cashier())
+
+        assert exc.value.status_code == 409
+        assert exc.value.code == 'cash_session.drawer_busy'
+        assert exc.value.params == {'cash_drawer_id': 5}
+
+    @pytest.mark.asyncio
+    async def test_a_cashier_with_a_session_is_refused_naming_it(self) -> None:
+        db = AsyncMock()
+        db.get = AsyncMock(return_value=SimpleNamespace())
+        mine = SimpleNamespace(cash_session_id=41, start=datetime(2026, 7, 25, 9), end=None)
+        with (
+            patch(
+                'app.services.cash_session_service.open_session_for_drawer',
+                AsyncMock(return_value=None),
+            ),
+            patch(
+                'app.services.cash_session_service.open_session_for_cashier',
+                AsyncMock(return_value=mine),
+            ),
+        ):
+            with pytest.raises(HTTPException) as exc:
+                await open_session(db, CashSessionOpen(cash_drawer=5), current=_cashier())
+
+        assert exc.value.status_code == 409
+        assert exc.value.code == 'cash_session.user_busy'
+        assert exc.value.params == {'cash_session_id': 41}

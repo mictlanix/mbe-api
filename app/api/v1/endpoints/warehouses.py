@@ -1,8 +1,10 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, Query
 from fastapi import status as http_status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.deps import CurrentUser, require_privilege
+from app.core.error_codes import ErrorCode
+from app.core.errors import DomainError, not_found
 from app.db.session import get_db
 from app.enums import AccessRight, EntityStatus, SystemObject
 from app.models.core import Warehouse
@@ -25,13 +27,10 @@ async def _addressable(db: AsyncSession, warehouse_id: int) -> Warehouse:
     """
     warehouse = await warehouse_service.get_warehouse(db, warehouse_id)
     if warehouse is None:
-        raise HTTPException(
-            status_code=http_status.HTTP_404_NOT_FOUND, detail='Warehouse not found'
-        )
+        raise not_found(Warehouse, warehouse_id)
     if warehouse.in_transit:
-        raise HTTPException(
-            status_code=http_status.HTTP_403_FORBIDDEN,
-            detail='In-transit locations are managed by the system',
+        raise DomainError(
+            ErrorCode.WAREHOUSE_IN_TRANSIT_MANAGED, 'In-transit locations are managed by the system'
         )
     return warehouse
 

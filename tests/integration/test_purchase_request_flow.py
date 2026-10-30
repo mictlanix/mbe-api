@@ -17,6 +17,7 @@ from app.models.purchases import PurchaseRequest, PurchaseRequestDetail
 from app.schemas.purchases import PurchaseRequestUpdate, RejectRequest
 from app.services import purchase_request_service as service
 from tests.integration import inventory_seed as seed
+from tests.problem import assert_problem
 
 URL = '/api/v1/purchase-requests'
 
@@ -128,12 +129,16 @@ async def test_line_refusals(client, db, seeded):
     unbuyable = await seed.product(db, code='NOBUY', purchasable=False)
     request = await _draft(client)
 
-    assert (await _add(client, request, unbuyable)).status_code == 422
+    body = assert_problem(
+        await _add(client, request, unbuyable), 422, 'product.not_purchasable'
+    )
+    assert body['params'] == {'product_id': unbuyable, 'product_code': 'NOBUY'}
     assert (await _add(client, request, 999)).status_code == 404
     assert (await _add(client, request, 1, warehouse=setup.a.transit)).status_code == 422
     assert (await _add(client, request, 1, warehouse=999)).status_code == 404
     response = await client.put(f'{URL}/{request}/lines/999', json={'quantity': '1'})
     assert response.status_code == 404
+    assert response.json()['code'] == 'resource.not_found'
 
 
 async def test_a_line_can_be_changed_and_removed_while_a_draft(client, db, seeded):
@@ -184,6 +189,7 @@ async def test_a_refused_submit_takes_no_number(client, db, seeded):
     empty = await _draft(client)
     response = await client.post(f'{URL}/{empty}/submit')
     assert (response.status_code, response.json()['detail']) == (409, 'The request has no lines')
+    assert_problem(response, 409, 'purchase_request.no_lines')
     assert (await db.get(PurchaseRequest, empty)).serial is None
 
     numbered = await _submitted(client, 1)
@@ -193,7 +199,11 @@ async def test_a_refused_submit_takes_no_number(client, db, seeded):
 async def test_a_line_without_quantity_is_refused_on_submit(client, db, seeded):
     request, _ = await seed.purchase_request(db, warehouse=1, lines=[(1, '0', 1)])
     response = await client.post(f'{URL}/{request}/submit')
-    assert response.status_code == 422
+    body = assert_problem(response, 422, 'purchase_request.line_without_quantity')
+    line = (
+        await db.execute(select(PurchaseRequestDetail.purchase_request_detail_id))
+    ).scalar_one()
+    assert body['params'] == {'line_id': line}
 
 
 async def test_a_submitted_request_is_read_only(client, db, seeded):
@@ -201,13 +211,18 @@ async def test_a_submitted_request_is_read_only(client, db, seeded):
     line_id = (await client.get(f'{URL}/{request}')).json()['lines'][0][
         'purchase_request_detail_id'
     ]
-    assert (await client.put(f'{URL}/{request}', json={'comment': 'x'})).status_code == 409
-    assert (await _add(client, request, 1)).status_code == 409
-    assert (
-        await client.put(f'{URL}/{request}/lines/{line_id}', json={'quantity': '1'})
-    ).status_code == 409
-    assert (await client.delete(f'{URL}/{request}/lines/{line_id}')).status_code == 409
-    assert (await client.post(f'{URL}/{request}/submit')).status_code == 409
+    response = await client.put(f'{URL}/{request}', json={'comment': 'x'})
+    body = assert_problem(response, 409, 'purchase_request.not_draft')
+    assert body['params'] == {'status': 'submitted'}
+    assert_problem(await _add(client, request, 1), 409, 'purchase_request.not_draft')
+    response = await client.put(f'{URL}/{request}/lines/{line_id}', json={'quantity': '1'})
+    assert_problem(response, 409, 'purchase_request.not_draft')
+    response = await client.delete(f'{URL}/{request}/lines/{line_id}')
+    assert_problem(response, 409, 'purchase_request.not_draft')
+    body = assert_problem(
+        await client.post(f'{URL}/{request}/submit'), 409, 'purchase_request.not_draft'
+    )
+    assert body['params'] == {'status': 'submitted'}
 
 
 # ── Approve and reject (FR-005, FR-006) ───────────────────────────────────────
@@ -221,17 +236,22 @@ async def test_approve_records_the_approver_and_time(client, db, seeded):
     assert (body['status'], body['approver']) == ('approved', 1)
     assert body['approval_time'] is not None
 
-    assert (await client.post(f'{URL}/{request}/approve')).status_code == 409
-    assert (
-        await client.post(f'{URL}/{request}/reject', json={'reason': 'Tarde'})
-    ).status_code == 409
+    body = assert_problem(
+        await client.post(f'{URL}/{request}/approve'), 409, 'purchase_request.not_submitted'
+    )
+    assert body['params'] == {'status': 'approved'}
+    response = await client.post(f'{URL}/{request}/reject', json={'reason': 'Tarde'})
+    assert_problem(response, 409, 'purchase_request.not_submitted')
 
 
 async def test_a_draft_cannot_be_approved_or_rejected(client, db, seeded):
     request = await _draft(client)
-    assert (await client.post(f'{URL}/{request}/approve')).status_code == 409
+    body = assert_problem(
+        await client.post(f'{URL}/{request}/approve'), 409, 'purchase_request.not_submitted'
+    )
+    assert body['params'] == {'status': 'draft'}
     response = await client.post(f'{URL}/{request}/reject', json={'reason': 'No'})
-    assert response.status_code == 409
+    assert_problem(response, 409, 'purchase_request.not_submitted')
 
 
 async def test_reject_records_the_reason_and_returns_to_draft_keeping_the_serial(
@@ -270,13 +290,27 @@ async def test_bulk_approve_reports_each_id(client, db, seeded):
     response = await client.post(f'{URL}/approve', json={'ids': [first, draft, 999]})
     assert response.status_code == 200, response.text
     assert response.json()['results'] == [
-        {'purchase_request_id': first, 'approved': True, 'reason': None},
+        {
+            'purchase_request_id': first,
+            'approved': True,
+            'reason': None,
+            'code': None,
+            'params': None,
+        },
         {
             'purchase_request_id': draft,
             'approved': False,
             'reason': 'Only a submitted request can be approved or rejected',
+            'code': 'purchase_request.not_submitted',
+            'params': {'status': 'draft'},
         },
-        {'purchase_request_id': 999, 'approved': False, 'reason': 'Purchase request not found'},
+        {
+            'purchase_request_id': 999,
+            'approved': False,
+            'reason': 'Purchase request not found',
+            'code': 'resource.not_found',
+            'params': {'resource': 'purchase_request', 'id': 999},
+        },
     ]
     assert (await client.get(f'{URL}/{first}')).json()['status'] == 'approved'
 
@@ -291,7 +325,7 @@ async def test_a_numbered_request_keeps_its_facility(client, db, seeded):
     await client.post(f'{URL}/{request}/reject', json={'reason': 'Corregir'})
 
     response = await client.put(f'{URL}/{request}', json={'warehouse': setup.b.warehouse})
-    assert response.status_code == 409
+    assert_problem(response, 409, 'purchase_request.facility_locked')
     response = await client.put(f'{URL}/{request}', json={'warehouse': second})
     assert (response.status_code, response.json()['warehouse']) == (200, second)
 
@@ -338,7 +372,8 @@ async def test_marking_needs_a_submitted_or_approved_request(client, db, seeded)
     response = await client.put(
         f'{URL}/{draft}/lines/{draft_lines[0]}/to-purchase', json={'to_purchase': False}
     )
-    assert response.status_code == 409
+    body = assert_problem(response, 409, 'purchase_request.lines_not_markable')
+    assert body['params'] == {'status': 'draft'}
 
     approved, lines = await seed.purchase_request(
         db, warehouse=1, lines=[(1, '1', 1)], state='approved', serial=1
@@ -354,6 +389,7 @@ async def test_marking_needs_a_submitted_or_approved_request(client, db, seeded)
         f'{URL}/{approved}/lines/{draft_lines[0]}/to-purchase', json={'to_purchase': True}
     )
     assert response.status_code == 404
+    assert response.json()['code'] == 'resource.not_found'
 
 
 async def test_a_line_on_a_live_order_shows_it_and_cannot_be_unmarked(client, db, seeded):
@@ -370,7 +406,8 @@ async def test_a_line_on_a_live_order_shows_it_and_cannot_be_unmarked(client, db
     response = await client.put(
         f'{URL}/{request}/lines/{lines[0]}/to-purchase', json={'to_purchase': False}
     )
-    assert response.status_code == 409
+    body = assert_problem(response, 409, 'purchase_request.line_on_live_order')
+    assert body['params'] == {'line_id': lines[0]}
 
 
 async def test_cancel_is_refused_while_a_line_is_on_a_live_order(client, db, seeded):
@@ -378,7 +415,10 @@ async def test_cancel_is_refused_while_a_line_is_on_a_live_order(client, db, see
         db, warehouse=1, lines=[(1, '2', 1)], state='approved', serial=1
     )
     await seed.purchase_order(db, lines=[(1, '2', 1)], completed=True, request_lines=[lines[0]])
-    assert (await client.post(f'{URL}/{request}/cancel')).status_code == 409
+    body = assert_problem(
+        await client.post(f'{URL}/{request}/cancel'), 409, 'purchase_request.lines_on_live_order'
+    )
+    assert body['params'] == {'count': 1}
 
 
 async def test_cancel_is_allowed_when_the_order_was_cancelled(client, db, seeded):
@@ -390,8 +430,11 @@ async def test_cancel_is_allowed_when_the_order_was_cancelled(client, db, seeded
     )
     response = await client.post(f'{URL}/{request}/cancel')
     assert (response.status_code, response.json()['status']) == (200, 'cancelled')
-    assert (await client.post(f'{URL}/{request}/cancel')).status_code == 409
-    assert (await _add(client, request, 1)).status_code == 409
+    assert_problem(
+        await client.post(f'{URL}/{request}/cancel'), 409, 'purchase_request.already_cancelled'
+    )
+    body = assert_problem(await _add(client, request, 1), 409, 'purchase_request.not_draft')
+    assert body['params'] == {'status': 'cancelled'}
 
 
 # ── Lists (FR-007, FR-012) ────────────────────────────────────────────────────
@@ -479,3 +522,46 @@ async def _employee(db) -> int:
     db.add(row)
     await db.commit()
     return row.employee_id
+
+
+# ── Coded errors without a route of their own ─────────────────────────────────
+
+
+async def test_a_request_needs_a_warehouse_when_the_caller_has_no_point_of_sale(
+    client, db, seeded, current_user
+):
+    from app.schemas.purchases import PurchaseRequestCreate
+
+    nowhere = CurrentUser(**{**current_user.__dict__, 'point_sale_id': None})
+    with pytest.raises(HTTPException) as caught:
+        await service.create(db, PurchaseRequestCreate(), current=nowhere)
+    assert caught.value.code == 'warehouse.required'
+    assert caught.value.params == {'resource': 'purchase_request'}
+
+
+async def test_a_facility_without_an_in_transit_location_cannot_submit(
+    client, db, seeded, monkeypatch
+):
+    request, _ = await seed.purchase_request(db, warehouse=1, lines=[(1, '1', 1)])
+
+    async def no_transit(_db):  # noqa: ANN001, ANN202
+        return {}
+
+    monkeypatch.setattr(service.inv, '_transit_map', no_transit)
+    with pytest.raises(HTTPException) as caught:
+        await service.submit(db, request, current=_clerk(facility=1))
+    assert caught.value.code == 'facility.no_in_transit_location'
+    assert caught.value.params == {'facility_id': 1}
+
+
+async def test_a_warehouse_that_changed_facility_is_a_retry(client, db, seeded, monkeypatch):
+    request, _ = await seed.purchase_request(db, warehouse=1, lines=[(1, '1', 1)])
+    monkeypatch.setattr(service, '_facility_map', _no_facilities)
+    with pytest.raises(HTTPException) as caught:
+        await service.submit(db, request, current=_clerk(facility=1))
+    assert caught.value.code == 'purchase_request.warehouse_facility_changed'
+    assert caught.value.params == {}
+
+
+async def _no_facilities(_db):  # noqa: ANN001, ANN202
+    return {}

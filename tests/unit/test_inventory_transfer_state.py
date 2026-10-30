@@ -10,6 +10,7 @@ from types import SimpleNamespace
 import pytest
 from fastapi import HTTPException
 
+from app.services import inventory_documents as inv
 from app.services import inventory_transfer_service as svc
 
 D = Decimal
@@ -97,12 +98,16 @@ class TestApplyReceipt:
         with pytest.raises(HTTPException) as exc:
             svc.apply_receipt([_line(1, '10', '0')], [(1, D(1)), (1, D(1))])
         assert exc.value.status_code == 422
+        assert exc.value.code == 'inventory_transfer.line_repeated'
+        assert exc.value.params == {'line_id': 1}
 
     def test_more_than_outstanding_is_409(self):
         with pytest.raises(HTTPException) as exc:
             svc.apply_receipt([_line(1, '10', '8')], [(1, D(3))])
         assert exc.value.status_code == 409
         assert 'P1' in exc.value.detail
+        assert exc.value.code == 'inventory_transfer.over_received'
+        assert exc.value.params == {'product_code': 'P1', 'received': '3', 'outstanding': '2'}
 
     def test_a_line_with_nothing_outstanding_is_409(self):
         with pytest.raises(HTTPException) as exc:
@@ -134,3 +139,14 @@ class TestSalesOrderAdditions:
     def test_repeating_with_every_product_present_adds_nothing(self):
         lines = [_order_line(7, '2'), _order_line(8, '1')]
         assert svc.sales_order_additions(lines, {7, 8}) == {}
+
+
+# ── transfer_status_clause (R4, R5) ───────────────────────────────────────────
+
+
+def test_a_status_transfers_do_not_have_is_refused_with_the_allowed_ones():
+    with pytest.raises(HTTPException) as exc:
+        svc.transfer_status_clause(inv.TRANSFER, 'completed')
+    assert exc.value.status_code == 422
+    assert exc.value.code == 'status_filter.unsupported'
+    assert exc.value.params == {'allowed': ['draft', 'in_transit', 'received', 'cancelled']}

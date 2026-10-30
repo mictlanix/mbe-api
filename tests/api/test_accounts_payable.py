@@ -18,6 +18,7 @@ from app.db.session import get_db
 from app.enums import AccessRight
 from app.main import app
 from app.services import mail
+from tests.problem import assert_problem
 
 BASE = '/api/v1/accounts-payable'
 ROUTE = 'app.api.v1.endpoints.accounts_payable'
@@ -217,7 +218,7 @@ class TestTheStatement:
         async with _client() as client:
             response = await client.post(f'{BASE}/5/statement/email', json={'to': ['a@x.mx']})
 
-        assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
+        assert_problem(response, status.HTTP_503_SERVICE_UNAVAILABLE, 'email.not_configured')
 
     async def test_email_answers_when_and_to_whom(self) -> None:
         _auth()

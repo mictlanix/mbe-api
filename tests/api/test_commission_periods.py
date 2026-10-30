@@ -173,7 +173,7 @@ async def test_refusals_pass_through_as_409(action: str, detail: str) -> None:
             response = await client.post(f'{BASE}/2026/9/{action}')
 
     assert response.status_code == status.HTTP_409_CONFLICT
-    assert response.json() == {'detail': detail}
+    assert response.json()['detail'] == detail
 
 
 @pytest.mark.asyncio

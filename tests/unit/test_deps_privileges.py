@@ -93,6 +93,41 @@ async def test_require_any_privilege_refuses_with_403() -> None:
 
     assert exc.value.status_code == 403
     assert exc.value.detail == 'Insufficient privileges'
+    assert exc.value.code == 'auth.forbidden'
+    assert exc.value.params == {
+        'required': [
+            {'system_object': int(SystemObject.CUSTOMERS), 'right': int(AccessRight.READ)},
+            {'system_object': int(SystemObject.SALES_ORDERS), 'right': int(AccessRight.READ)},
+        ]
+    }
+
+
+@pytest.mark.asyncio
+async def test_require_privilege_names_its_one_grant() -> None:
+    check = require_privilege(SystemObject.LABELS, AccessRight.DELETE)
+    result = MagicMock()
+    result.scalar_one_or_none.return_value = None
+    db = SimpleNamespace(execute=AsyncMock(return_value=result))
+
+    with pytest.raises(HTTPException) as exc:
+        await check(current_user=_user(), db=db)
+
+    assert exc.value.code == 'auth.forbidden'
+    assert exc.value.params == {
+        'required': [{'system_object': int(SystemObject.LABELS), 'right': int(AccessRight.DELETE)}]
+    }
+    assert all(isinstance(v, int) for g in exc.value.params['required'] for v in g.values())
+
+
+def test_require_admin_refuses_with_its_own_code() -> None:
+    from app.core.deps import require_admin
+
+    with pytest.raises(HTTPException) as exc:
+        require_admin(_user())
+
+    assert exc.value.status_code == 403
+    assert exc.value.code == 'auth.administrator_required'
+    assert exc.value.detail == 'Administrator access required'
 
 
 @pytest.mark.asyncio

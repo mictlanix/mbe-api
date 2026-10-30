@@ -1,12 +1,15 @@
 from datetime import date
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from fastapi import APIRouter, Depends, Query, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import rendering
 from app.core.deps import CurrentUser, require_privilege
+from app.core.error_codes import ErrorCode
+from app.core.errors import DomainError, not_found
 from app.db.session import get_db
 from app.enums import AccessRight, SystemObject
+from app.models.purchases import PurchaseOrder
 from app.schemas import ListResponse
 from app.schemas.purchases import (
     AddRequestLines,
@@ -39,9 +42,7 @@ async def _order_or_404(db: AsyncSession, order_id: int):  # noqa: ANN202
     """Header only: the state-changing services read lines after they lock (research R3, R4)."""
     order = await service.get_order(db, order_id)
     if order is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail='Purchase order not found'
-        )
+        raise not_found(PurchaseOrder, order_id)
     return order
 
 
@@ -251,9 +252,7 @@ async def email_purchase_order(
 ) -> QuoteEmailResponse:
     """Send a confirmed PO's PDF to 1–10 addresses, and record the send (FR-041, FR-042)."""
     if mailer is None:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail='Email is not configured'
-        )
+        raise DomainError(ErrorCode.EMAIL_NOT_CONFIGURED, 'Email is not configured')
     order = await _order_or_404(db, order_id)
     sent_at = await service.email_order(
         db, order, data.to, data.message, mailer=mailer, current=current

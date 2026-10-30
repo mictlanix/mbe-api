@@ -126,6 +126,7 @@ async def test_the_detail_returns_404_for_an_unknown_supplier() -> None:
             r = await c.get('/api/v1/suppliers/999')
 
     assert r.status_code == 404
+    assert r.json()['code'] == 'resource.not_found'
 
 
 @pytest.mark.asyncio
@@ -280,6 +281,7 @@ async def test_list_agreements_returns_404_for_an_unknown_supplier() -> None:
             r = await c.get('/api/v1/suppliers/999/agreements')
 
     assert r.status_code == 404
+    assert r.json()['code'] == 'resource.not_found'
 
 
 @pytest.mark.asyncio
@@ -317,6 +319,7 @@ async def test_create_agreement_returns_404_for_an_unknown_supplier() -> None:
             r = await c.post('/api/v1/suppliers/999/agreements', json=_PERIOD)
 
     assert r.status_code == 404
+    assert r.json()['code'] == 'resource.not_found'
 
 
 @pytest.mark.asyncio
@@ -348,6 +351,7 @@ async def test_update_agreement_returns_404_for_an_unknown_or_foreign_agreement(
             r = await c.put('/api/v1/suppliers/1/agreements/999', json={'comment': 'x'})
 
     assert r.status_code == 404
+    assert r.json()['code'] == 'resource.not_found'
 
 
 @pytest.mark.asyncio
@@ -358,6 +362,7 @@ async def test_update_agreement_returns_404_for_an_unknown_supplier() -> None:
             r = await c.put('/api/v1/suppliers/999/agreements/5', json={'comment': 'x'})
 
     assert r.status_code == 404
+    assert r.json()['code'] == 'resource.not_found'
 
 
 @pytest.mark.asyncio
@@ -385,6 +390,7 @@ async def test_delete_agreement_returns_404_for_an_unknown_or_foreign_agreement(
             r = await c.delete('/api/v1/suppliers/1/agreements/999')
 
     assert r.status_code == 404
+    assert r.json()['code'] == 'resource.not_found'
 
 
 @pytest.mark.asyncio
@@ -395,6 +401,7 @@ async def test_delete_agreement_returns_404_for_an_unknown_supplier() -> None:
             r = await c.delete('/api/v1/suppliers/999/agreements/5')
 
     assert r.status_code == 404
+    assert r.json()['code'] == 'resource.not_found'
 
 
 # ── Auth ──────────────────────────────────────────────────────────────────────

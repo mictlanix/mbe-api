@@ -11,13 +11,14 @@ from collections.abc import Iterable, Sequence
 from decimal import Decimal
 from typing import Any
 
-from fastapi import HTTPException, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import set_committed_value
 
 from app.core.clock import local_now
 from app.core.deps import CurrentUser
+from app.core.error_codes import ErrorCode
+from app.core.errors import DomainError
 from app.models.inventory import InventoryReceipt, InventoryReceiptDetail
 from app.models.product import Product
 from app.models.purchases import PurchaseOrder, PurchaseOrderDetail
@@ -77,21 +78,32 @@ def remaining_lines(
     return result
 
 
-def complementary_refusal(order: Any | None, remaining: Sequence[Any]) -> str | None:
-    """Why no complementary receipt can be given for `order`, or None when it can (FR-023)."""
+def complementary_refusal(
+    order: Any | None, remaining: Sequence[Any]
+) -> tuple[str, str] | None:
+    """Why no complementary receipt can be given for `order`, or None when it can (FR-023).
+
+    Returns `(detail, reason)`: today's English sentence and the `reason` param's enum value.
+    """
     if order is None:
-        return 'The receipt has no purchase order'
+        return 'The receipt has no purchase order', 'no_purchase_order'
     if order.cancelled:
-        return 'The purchase order is cancelled'
+        return 'The purchase order is cancelled', 'purchase_order_cancelled'
     if not order.completed:
-        return 'The purchase order is not completed'
+        return 'The purchase order is not completed', 'purchase_order_not_completed'
     if not remaining:
-        return "The purchase order is fully received for this receipt's warehouse"
+        return (
+            "The purchase order is fully received for this receipt's warehouse",
+            'purchase_order_fully_received',
+        )
     return None
 
 
-def _refuse(reason: str) -> HTTPException:
-    return HTTPException(status_code=status.HTTP_409_CONFLICT, detail=reason)
+def _complementary_unavailable(refusal: tuple[str, str]) -> DomainError:
+    detail, reason = refusal
+    return DomainError(
+        ErrorCode.INVENTORY_RECEIPT_COMPLEMENTARY_UNAVAILABLE, detail, {'reason': reason}
+    )
 
 
 # ── Purchase-order view (R7) ──────────────────────────────────────────────────
@@ -177,7 +189,10 @@ async def update(
             and existing.purchase_order is not None
             and data.warehouse != existing.warehouse
         ):
-            raise _refuse("A purchase order's receipt keeps its warehouse")
+            raise DomainError(
+                ErrorCode.INVENTORY_RECEIPT_WAREHOUSE_FIXED,
+                "A purchase order's receipt keeps its warehouse",
+            )
     receipt = await inv.update_header(db, inv.RECEIPT, receipt_id, data, current=current)
     return await attach_derived(db, receipt)
 
@@ -298,7 +313,7 @@ async def complementary_receipt(
     """
     order_id = receipt.purchase_order
     if order_id is None:
-        raise _refuse(complementary_refusal(None, []))
+        raise _complementary_unavailable(complementary_refusal(None, []))
 
     async with inv.busy_as_conflict(db):
         await db.commit()
@@ -312,7 +327,11 @@ async def complementary_receipt(
         ).scalar_one()
         source = await _reread(db, receipt.inventory_receipt_id)
         if source.cancelled:
-            raise _refuse('The receipt is cancelled')
+            raise DomainError(
+                ErrorCode.INVENTORY_DOCUMENT_ALREADY_CANCELLED,
+                'The receipt is cancelled',
+                {'resource': 'inventory_receipt'},
+            )
 
         # Non-stockable order lines get no receipt line, as on confirm; confirming one would be
         # refused (spec 031, R7).
@@ -336,9 +355,9 @@ async def complementary_receipt(
             db, [line.purchase_order_detail_id for line in order_lines], None
         )
         remaining = remaining_lines(order_lines, received)
-        reason = complementary_refusal(order, remaining)
-        if reason is not None:
-            raise _refuse(reason)
+        refusal = complementary_refusal(order, remaining)
+        if refusal is not None:
+            raise _complementary_unavailable(refusal)
 
         draft_id = (
             await db.execute(

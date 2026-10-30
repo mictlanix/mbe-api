@@ -1,10 +1,12 @@
 from decimal import Decimal
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from fastapi import APIRouter, Depends, Query, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import rendering
 from app.core.deps import CurrentUser, can_see_every_facility, require_privilege
+from app.core.error_codes import ErrorCode
+from app.core.errors import DomainError, not_found
 from app.db.session import get_db
 from app.enums import AccessRight, PaymentType, SystemObject
 from app.schemas import ListResponse, LocalDateTime
@@ -32,7 +34,7 @@ _EDITOR_READ = require_privilege(SystemObject.PAYMENTS_EDITOR, AccessRight.READ)
 async def _payment_or_404(db: AsyncSession, customer_payment_id: int):  # noqa: ANN202
     payment = await customer_payment_service.get_payment(db, customer_payment_id)
     if payment is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Payment not found')
+        raise not_found('customer_payment', customer_payment_id)
     return payment
 
 
@@ -47,7 +49,7 @@ async def _visible_payment_or_404(  # noqa: ANN202
     """404 rather than 403 for another facility's payment, so the id's existence is not revealed."""
     payment = await _payment_or_404(db, customer_payment_id)
     if payment.facility != current.facility_id and not await _sees_every_facility(db, current):
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Payment not found')
+        raise not_found('customer_payment', customer_payment_id)
     return payment
 
 
@@ -77,9 +79,15 @@ async def list_customer_payments(
         and facility != current.facility_id
         and not await _sees_every_facility(db, current)
     ):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Another facility's payments require PaymentsEditor read",
+        raise DomainError(
+            ErrorCode.FACILITY_OTHER_FACILITY,
+            "Another facility's payments require PaymentsEditor read",
+            {
+                'resource': 'customer_payment',
+                'required': [
+                    {'system_object': SystemObject.PAYMENTS_EDITOR, 'right': AccessRight.READ}
+                ],
+            },
         )
     items, total = await customer_payment_service.list_payments(
         db,
@@ -218,10 +226,11 @@ async def print_customer_payment_ticket(
     payment = await _visible_payment_or_404(db, current, customer_payment_id)
     payment_type = PaymentType(payment.payment_type)
     if payment_type not in print_contexts.PAYMENT_TICKET_TITLES:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=f'A {payment_type.name} payment has no ticket; only CREDIT_PAYMENT and '
+        raise DomainError(
+            ErrorCode.PAYMENT_NO_TICKET,
+            f'A {payment_type.name} payment has no ticket; only CREDIT_PAYMENT and '
             'PAYMENT_IN_ADVANCE do',
+            {'payment_type': payment_type},
         )
     template, context = await print_contexts.payment_ticket_context(db, payment)
     pdf = await rendering.render_pdf(template, context)
@@ -270,7 +279,7 @@ async def reverse_customer_payment_application(
     payment = await _visible_payment_or_404(db, current, customer_payment_id)
     application = await customer_payment_service.get_application(db, payment, application_id)
     if application is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Application not found')
+        raise not_found('sales_order_payment', application_id, detail='Application not found')
     application = await customer_payment_service.reverse_application(
         db, payment, application, reason=data.reason, current=current
     )

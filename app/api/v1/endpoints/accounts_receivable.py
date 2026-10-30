@@ -7,11 +7,13 @@ checks: its AR screen shows every facility to everyone.
 
 from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from fastapi import APIRouter, Depends, Query, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import rendering
 from app.core.deps import CurrentUser, can_see_every_facility, require_privilege
+from app.core.error_codes import ErrorCode
+from app.core.errors import DomainError
 from app.db.session import get_db
 from app.enums import AccessRight, SystemObject
 from app.schemas.accounts import (
@@ -46,9 +48,18 @@ async def _scope(db: AsyncSession, current: CurrentUser, facility: int | None) -
     if await _sees_every_facility(db, current):
         return facility
     if facility is not None and facility != current.facility_id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Seeing another facility's credits needs SearchCreditsFromAllStores",
+        raise DomainError(
+            ErrorCode.FACILITY_OTHER_FACILITY,
+            "Seeing another facility's credits needs SearchCreditsFromAllStores",
+            {
+                'resource': 'receivable',
+                'required': [
+                    {
+                        'system_object': SystemObject.SEARCH_CREDITS_FROM_ALL_STORES,
+                        'right': AccessRight.READ,
+                    }
+                ],
+            },
         )
     return current.facility_id
 
@@ -143,9 +154,7 @@ async def email_statement(
     """Email the statement to the customer's contacts and typed addresses, and record the send on
     the customer (FR-024)."""
     if mailer is None:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail='Email is not configured'
-        )
+        raise DomainError(ErrorCode.EMAIL_NOT_CONFIGURED, 'Email is not configured')
     sent_at, to = await account_email.email_statement(
         db,
         accounts_service.CUSTOMERS,

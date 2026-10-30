@@ -1,9 +1,10 @@
 from collections.abc import Sequence
 
-from fastapi import HTTPException, status
 from sqlalchemy import delete, func, insert, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.error_codes import ErrorCode
+from app.core.errors import DomainError
 from app.enums import EntityStatus
 from app.models.core import Address, Contact, Employee
 from app.models.customer import (
@@ -275,9 +276,8 @@ async def update_customer(db: AsyncSession, customer: Customer, data: CustomerUp
 
 async def delete_customer(db: AsyncSession, customer: Customer, default_customer_id: int) -> None:
     if customer.customer_id == default_customer_id:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail='Cannot delete the system default customer',
+        raise DomainError(
+            ErrorCode.CUSTOMER_DEFAULT_NOT_DELETABLE, 'Cannot delete the system default customer'
         )
     await assert_not_referenced(db, customer)
     await db.delete(customer)

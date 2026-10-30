@@ -20,6 +20,7 @@ from app.db.session import get_db
 from app.enums import EntityStatus
 from app.main import app
 from app.models.user import User, UserProfile, UserProfilePrivilege
+from tests.problem import assert_problem
 
 BASE = '/api/v1/user-profiles'
 
@@ -122,6 +123,7 @@ class TestListAndRead:
         ):
             response = await client.get(f'{BASE}/999')
         assert response.status_code == 404
+        assert response.json()['code'] == 'resource.not_found'
         assert response.json()['detail'] == 'Profile not found'
 
 
@@ -189,6 +191,7 @@ class TestUpdateAndDelete:
         with patch('app.services.user_profile_service.get_profile', AsyncMock(return_value=None)):
             response = await client.put(f'{BASE}/999', json={'name': 'X'})
         assert response.status_code == 404
+        assert response.json()['code'] == 'resource.not_found'
 
     @pytest.mark.asyncio
     async def test_delete_returns_204(self, client: AsyncClient) -> None:
@@ -207,6 +210,7 @@ class TestUpdateAndDelete:
         with patch('app.services.user_profile_service.get_profile', AsyncMock(return_value=None)):
             response = await client.delete(f'{BASE}/999')
         assert response.status_code == 404
+        assert response.json()['code'] == 'resource.not_found'
 
 
 class TestApply:
@@ -255,6 +259,7 @@ class TestApply:
         with patch('app.services.user_profile_service.get_profile', AsyncMock(return_value=None)):
             response = await client.post(f'{BASE}/999/apply/jdoe')
         assert response.status_code == 404
+        assert response.json()['code'] == 'resource.not_found'
         assert response.json()['detail'] == 'Profile not found'
 
     @pytest.mark.asyncio
@@ -268,6 +273,7 @@ class TestApply:
         ):
             response = await client.post(f'{BASE}/1/apply/nobody')
         assert response.status_code == 404
+        assert response.json()['code'] == 'resource.not_found'
         assert response.json()['detail'] == 'User not found'
 
     @pytest.mark.asyncio
@@ -278,8 +284,9 @@ class TestApply:
             AsyncMock(return_value=_profile(status=EntityStatus.INACTIVE)),
         ):
             response = await client.post(f'{BASE}/1/apply/jdoe')
-        assert response.status_code == 409
-        assert response.json()['detail'] == 'Profile is not active'
+        body = assert_problem(response, 409, 'user_profile.not_active')
+        assert body['detail'] == 'Profile is not active'
+        assert body['params'] == {'profile_id': 1}
 
     @pytest.mark.asyncio
     async def test_an_inactive_profile_is_refused_before_the_user_is_looked_up(

@@ -14,12 +14,13 @@ from collections.abc import Iterable, Sequence
 from decimal import Decimal
 from typing import Any, NamedTuple
 
-from fastapi import HTTPException, status
 from sqlalchemy import ColumnElement, and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
 from app.core.deps import CurrentUser
+from app.core.error_codes import ErrorCode
+from app.core.errors import DomainError, not_found
 from app.models.core import Warehouse
 from app.models.inventory import InventoryTransfer, InventoryTransferDetail
 from app.models.product import Product
@@ -74,24 +75,29 @@ def apply_receipt(
     received = []
     for line_id, quantity in requested:
         if line_id in seen:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-                detail=f'Line {line_id} is received more than once',
+            raise DomainError(
+                ErrorCode.INVENTORY_TRANSFER_LINE_REPEATED,
+                f'Line {line_id} is received more than once',
+                {'line_id': line_id},
             )
         seen.add(line_id)
         line = by_id.get(line_id)
         if line is None:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f'Line {line_id} not found on this transfer',
+            raise not_found(
+                InventoryTransferDetail,
+                line_id,
+                f'Line {line_id} not found on this transfer',
             )
         outstanding = _outstanding(line)
         if quantity > outstanding:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail=(
-                    f'Line {line.product_code}: {quantity} received, {outstanding} outstanding'
-                ),
+            raise DomainError(
+                ErrorCode.INVENTORY_TRANSFER_OVER_RECEIVED,
+                f'Line {line.product_code}: {quantity} received, {outstanding} outstanding',
+                {
+                    'product_code': line.product_code,
+                    'received': quantity,
+                    'outstanding': outstanding,
+                },
             )
         received.append((line, quantity))
     return received
@@ -137,9 +143,10 @@ def transfer_status_clause(kind: inv.Kind, value: str) -> ColumnElement[bool]:
         )
     if value == TransferStatus.CANCELLED:
         return header.cancelled.is_(True)
-    raise HTTPException(
-        status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-        detail='status must be one of draft, in_transit, received, cancelled',
+    raise DomainError(
+        ErrorCode.STATUS_FILTER_UNSUPPORTED,
+        'status must be one of draft, in_transit, received, cancelled',
+        {'allowed': ['draft', 'in_transit', 'received', 'cancelled']},
     )
 
 
@@ -193,9 +200,7 @@ async def _destination_facility(db: AsyncSession, transfer: InventoryTransfer) -
 
 def _assert_in_transit(transfer: InventoryTransfer) -> None:
     if not transfer.in_transit:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT, detail='Transfer is not in transit'
-        )
+        raise DomainError(ErrorCode.INVENTORY_TRANSFER_NOT_IN_TRANSIT, 'Transfer is not in transit')
 
 
 def _move(
@@ -225,13 +230,15 @@ async def dispatch(
     async with inv.busy_as_conflict(db):
         transfer = await inv.begin_locked(db, TRANSFER, transfer_id, stock=True)
         # Another facility learns nothing about the transfer's state or lines.
-        inv.assert_facility(current, transfer.facility)
+        inv.assert_facility(current, transfer.facility, resource='inventory_transfer')
         documents.assert_editable(transfer)
 
         lines = await inv._lines(db, TRANSFER, transfer_id)
         if not lines:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT, detail='Transfer has no lines'
+            raise DomainError(
+                ErrorCode.INVENTORY_DOCUMENT_NO_LINES,
+                'Transfer has no lines',
+                {'resource': 'inventory_transfer'},
             )
         products = {
             row.product_id: row
@@ -245,14 +252,16 @@ async def dispatch(
         }
         for line in lines:
             if line.quantity <= 0:
-                raise HTTPException(
-                    status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-                    detail=f'Line {line.product_code} has no quantity',
+                raise DomainError(
+                    ErrorCode.INVENTORY_DOCUMENT_LINE_WITHOUT_QUANTITY,
+                    f'Line {line.product_code} has no quantity',
+                    {'product_code': line.product_code},
                 )
             if not products[line.product].stockable:
-                raise HTTPException(
-                    status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-                    detail=f'Product {products[line.product].code} is not stockable',
+                raise DomainError(
+                    ErrorCode.PRODUCT_NOT_STOCKABLE,
+                    f'Product {products[line.product].code} is not stockable',
+                    {'product_code': products[line.product].code},
                 )
 
         serial = await inv.next_serial(db, InventoryTransfer, transfer.facility)
@@ -287,7 +296,9 @@ async def receive(
     """
     async with inv.busy_as_conflict(db):
         transfer = await inv.begin_locked(db, TRANSFER, transfer_id, stock=True)
-        inv.assert_facility(current, await _destination_facility(db, transfer))
+        inv.assert_facility(
+            current, await _destination_facility(db, transfer), resource='inventory_transfer'
+        )
         _assert_in_transit(transfer)
 
         lines = await inv._lines(db, TRANSFER, transfer_id)
@@ -314,7 +325,12 @@ async def close_remainder(
     """
     async with inv.busy_as_conflict(db):
         transfer = await inv.begin_locked(db, TRANSFER, transfer_id, stock=True)
-        inv.assert_facility(current, transfer.facility, await _destination_facility(db, transfer))
+        inv.assert_facility(
+            current,
+            transfer.facility,
+            await _destination_facility(db, transfer),
+            resource='inventory_transfer',
+        )
         _assert_in_transit(transfer)
 
         transit = await _transit(db, transfer)
@@ -345,13 +361,12 @@ async def add_sales_order_items(
 
         order = await db.get(SalesOrder, sales_order)
         if order is None:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail='Sales order not found'
-            )
+            raise not_found(SalesOrder, sales_order)
         if not order.completed or order.cancelled:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail='Sales order is not confirmed, or is cancelled',
+            raise DomainError(
+                ErrorCode.SALES_ORDER_NOT_CONFIRMED,
+                'Sales order is not confirmed, or is cancelled',
+                {'sales_order_id': sales_order},
             )
 
         order_lines = (

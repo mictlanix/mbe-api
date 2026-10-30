@@ -47,6 +47,8 @@ async def test_certificate_for_another_rfc_is_rejected() -> None:
         await _create(db, _parsed('BBB020202BBB'))
 
     assert exc.value.status_code == 422
+    assert exc.value.code == 'taxpayer_certificate.holder_mismatch'
+    assert exc.value.params == {'certificate_taxpayer': 'BBB020202BBB', 'taxpayer': 'AAA010101AAA'}
     assert 'BBB020202BBB' in exc.value.detail
     db.add.assert_not_called()
 
@@ -59,6 +61,8 @@ async def test_unknown_issuer_is_rejected() -> None:
         await _create(db, _parsed())
 
     assert exc.value.status_code == 422
+    assert exc.value.code == 'taxpayer_issuer.unknown'
+    assert exc.value.params == {'taxpayer': 'AAA010101AAA'}
     assert exc.value.detail == 'Taxpayer issuer not found'
 
 

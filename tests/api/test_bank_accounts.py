@@ -147,6 +147,7 @@ async def test_get_returns_404_for_an_unknown_account() -> None:
             r = await c.get('/api/v1/bank-accounts/999')
 
     assert r.status_code == 404
+    assert r.json()['code'] == 'resource.not_found'
 
 
 @pytest.mark.asyncio
@@ -179,6 +180,7 @@ async def test_update_returns_404_for_an_unknown_account() -> None:
             r = await c.put('/api/v1/bank-accounts/999', json={'bank_name': 'X'})
 
     assert r.status_code == 404
+    assert r.json()['code'] == 'resource.not_found'
 
 
 @pytest.mark.asyncio
@@ -229,3 +231,4 @@ async def test_delete_returns_404_for_an_unknown_account() -> None:
             r = await c.delete('/api/v1/bank-accounts/999')
 
     assert r.status_code == 404
+    assert r.json()['code'] == 'resource.not_found'

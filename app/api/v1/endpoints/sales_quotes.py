@@ -1,8 +1,10 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from fastapi import APIRouter, Depends, Query, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import rendering
 from app.core.deps import CurrentUser, require_privilege
+from app.core.error_codes import ErrorCode
+from app.core.errors import DomainError, not_found
 from app.db.session import get_db
 from app.enums import AccessRight, SystemObject
 from app.schemas import ListResponse
@@ -31,7 +33,7 @@ _CONVERT = require_privilege(SystemObject.SALES_ORDERS, AccessRight.CREATE)
 async def _quote_or_404(db: AsyncSession, sales_quote_id: int):  # noqa: ANN202
     quote = await sales_quote_service.get_quote(db, sales_quote_id)
     if quote is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Sales quote not found')
+        raise not_found('sales_quote', sales_quote_id)
     return quote
 
 
@@ -106,9 +108,7 @@ async def email_sales_quote(
 ) -> QuoteEmailResponse:
     """Send a confirmed quote's PDF to 1–10 addresses, and record the send (spec 024)."""
     if mailer is None:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail='Email is not configured'
-        )
+        raise DomainError(ErrorCode.EMAIL_NOT_CONFIGURED, 'Email is not configured')
     quote = await _quote_or_404(db, sales_quote_id)
     sent_at = await sales_quote_service.email_quote(
         db, quote, data.to, mailer=mailer, current=current
@@ -203,7 +203,7 @@ async def update_sales_quote_line(
     quote = await _quote_or_404(db, sales_quote_id)
     line = await sales_quote_service.get_line(db, quote, line_id)
     if line is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Line not found')
+        raise not_found('sales_quote_line', line_id, detail='Line not found')
     quote = await sales_quote_service.update_line(db, quote, line, data, current=current)
     return SalesQuoteResponse.model_validate(quote)
 
@@ -218,6 +218,6 @@ async def remove_sales_quote_line(
     quote = await _quote_or_404(db, sales_quote_id)
     line = await sales_quote_service.get_line(db, quote, line_id)
     if line is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Line not found')
+        raise not_found('sales_quote_line', line_id, detail='Line not found')
     quote = await sales_quote_service.remove_line(db, quote, line, current=current)
     return SalesQuoteResponse.model_validate(quote)

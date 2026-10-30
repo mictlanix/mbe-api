@@ -24,6 +24,7 @@ from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.asymmetric import padding
 from lxml import etree
 
+from app.core.errors import DomainError
 from app.enums import PaymentTerms
 from app.services.csd_service import _load_key
 
@@ -311,7 +312,11 @@ def seal_root(
     Sets `NoCertificado` and `Certificado`, signs the original string and sets `Sello`. Raises
     ValueError when the key does not open.
     """
-    key = _load_key(key_data, key_password)
+    try:
+        key = _load_key(key_data, key_password)
+    except DomainError as error:
+        # A stored key that no longer opens is a signing failure, not an upload refusal.
+        raise ValueError(error.detail) from error
     root.set('NoCertificado', certificate_number)
     root.set('Certificado', base64.b64encode(certificate_data).decode('ascii'))
     signature = key.sign(original_string(root).encode('utf-8'), padding.PKCS1v15(), hashes.SHA256())

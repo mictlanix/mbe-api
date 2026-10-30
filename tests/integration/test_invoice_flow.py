@@ -1,6 +1,6 @@
 """The invoice editor against real tables: create, lines, confirm and the serial (spec 027, US1)."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
 from decimal import Decimal
 from unittest.mock import patch
@@ -9,7 +9,7 @@ import pytest
 from fastapi import HTTPException
 from httpx import AsyncClient
 from lxml import etree
-from sqlalchemy import insert, inspect, select, update
+from sqlalchemy import delete, insert, inspect, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.clock import local_now
@@ -137,10 +137,16 @@ async def invoicing(db: AsyncSession, current_user: CurrentUser) -> Invoicing:
     return Invoicing(db, current_user)
 
 
-async def _status(code: int, call) -> HTTPException:  # noqa: ANN001
+async def _status(
+    code: int, call, error_code: str | None = None, params: dict | None = None
+) -> HTTPException:  # noqa: ANN001
     with pytest.raises(HTTPException) as caught:
         await call
     assert caught.value.status_code == code, caught.value.detail
+    if error_code is not None:
+        assert caught.value.code == error_code
+    if params is not None:
+        assert caught.value.params == params
     return caught.value
 
 
@@ -195,7 +201,12 @@ async def test_create_refuses_a_recipient_not_linked_to_the_customer(invoicing: 
     invoicing.db.add(TaxpayerRecipient(taxpayer_recipient_id='CCC010101CC1', name='C', email='c@x'))
     await invoicing.db.commit()
 
-    await _status(422, invoicing.create(recipient='CCC010101CC1'))
+    await _status(
+        422,
+        invoicing.create(recipient='CCC010101CC1'),
+        'fiscal_document.recipient_not_linked',
+        {'customer_id': 1, 'recipient': 'CCC010101CC1'},
+    )
 
 
 async def test_create_refuses_an_issuer_without_invoice_series(invoicing: Invoicing) -> None:
@@ -204,7 +215,9 @@ async def test_create_refuses_an_issuer_without_invoice_series(invoicing: Invoic
     )
     await invoicing.db.commit()
 
-    error = await _status(422, invoicing.create())
+    error = await _status(
+        422, invoicing.create(), 'fiscal_document.issuer_has_no_series', {'type': 0}
+    )
     assert error.detail == 'The issuer has no invoice series'
 
 
@@ -221,7 +234,12 @@ async def test_create_uses_the_stores_default_series_of_the_issuer(invoicing: In
 
 
 async def test_create_refuses_a_series_that_is_not_an_invoice_series(invoicing: Invoicing) -> None:
-    await _status(422, invoicing.create(batch='P'))
+    await _status(
+        422,
+        invoicing.create(batch='P'),
+        'fiscal_document.series_not_of_type',
+        {'batch': 'P', 'type': 0},
+    )
 
 
 # ── Lines from sales orders (FR-005, FR-006) ──────────────────────────────────
@@ -267,8 +285,18 @@ async def test_add_order_refuses_drafts_cancelled_and_missing_orders(invoicing: 
     )
     await invoicing.db.commit()
 
-    await _status(422, svc.add_sales_order(invoicing.db, invoicing.current, document, draft))
-    await _status(422, svc.add_sales_order(invoicing.db, invoicing.current, document, cancelled))
+    await _status(
+        422,
+        svc.add_sales_order(invoicing.db, invoicing.current, document, draft),
+        'fiscal_document.order_not_invoiceable',
+        {'sales_order_id': draft},
+    )
+    await _status(
+        422,
+        svc.add_sales_order(invoicing.db, invoicing.current, document, cancelled),
+        'fiscal_document.order_not_invoiceable',
+        {'sales_order_id': cancelled},
+    )
     await _status(404, svc.add_sales_order(invoicing.db, invoicing.current, document, 999999))
 
 
@@ -279,7 +307,10 @@ async def test_add_order_skips_products_that_are_not_invoiceable(invoicing: Invo
     document = await invoicing.create()
 
     error = await _status(
-        422, svc.add_sales_order(invoicing.db, invoicing.current, document, order)
+        422,
+        svc.add_sales_order(invoicing.db, invoicing.current, document, order),
+        'fiscal_document.no_invoiceable_lines',
+        {},
     )
     assert error.detail == 'No invoiceable lines were found'
 
@@ -378,6 +409,8 @@ async def test_an_order_line_cannot_exceed_its_remaining_quantity(invoicing: Inv
             line,
             InvoiceLineUpdate(quantity=Decimal('11')),
         ),
+        'fiscal_document.quantity_exceeds_invoiceable',
+        {'remaining': '10.0000'},
     )
     await svc.update_line(
         invoicing.db,
@@ -469,19 +502,35 @@ async def test_a_sealed_invoice_cannot_be_confirmed_or_edited(invoicing: Invoici
     document = await invoicing.confirm(await _ready(invoicing))
     line = document.lines[0].fiscal_document_detail_id
 
-    await _status(409, svc.confirm(invoicing.db, invoicing.current, document))
+    await _status(
+        409, svc.confirm(invoicing.db, invoicing.current, document), 'fiscal_document.not_draft', {}
+    )
     await _status(
         409,
         svc.update_line(
             invoicing.db, invoicing.current, document, line, InvoiceLineUpdate(price=Decimal('1'))
         ),
+        'fiscal_document.not_draft',
+        {},
     )
-    await _status(409, svc.remove_line(invoicing.db, invoicing.current, document, line))
-    await _status(409, svc.add_sales_order(invoicing.db, invoicing.current, document, 1))
+    await _status(
+        409,
+        svc.remove_line(invoicing.db, invoicing.current, document, line),
+        'fiscal_document.not_draft',
+        {},
+    )
+    await _status(
+        409,
+        svc.add_sales_order(invoicing.db, invoicing.current, document, 1),
+        'fiscal_document.not_draft',
+        {},
+    )
 
 
 async def test_confirm_refuses_an_empty_invoice(invoicing: Invoicing) -> None:
-    error = await _status(422, invoicing.confirm(await invoicing.create()))
+    error = await _status(
+        422, invoicing.confirm(await invoicing.create()), 'fiscal_document.no_lines', {}
+    )
     assert error.detail == 'The invoice has no lines'
 
 
@@ -490,7 +539,12 @@ async def test_confirm_refuses_a_line_without_sat_keys(invoicing: Invoicing) -> 
     await invoicing.db.execute(update(FiscalDocumentDetail).values(product_service=None))
     await invoicing.db.commit()
 
-    error = await _status(422, invoicing.confirm(await invoicing.load(document)))
+    error = await _status(
+        422,
+        invoicing.confirm(await invoicing.load(document)),
+        'fiscal_document.line_missing_sat_key',
+        {'line': 1},
+    )
     assert error.detail == 'Line 1: missing SAT product key or unit'
 
 
@@ -500,7 +554,12 @@ async def test_confirm_refuses_a_quantity_above_what_remains(invoicing: Invoicin
     second = await invoicing.add_order(await invoicing.create(), order)
     await invoicing.confirm(first)
 
-    await _status(422, invoicing.confirm(second))
+    await _status(
+        422,
+        invoicing.confirm(second),
+        'fiscal_document.quantity_exceeds_invoiceable',
+        {'remaining': '0', 'line': 1},
+    )
 
 
 async def test_confirm_refuses_a_stale_issue_date(invoicing: Invoicing) -> None:
@@ -510,7 +569,12 @@ async def test_confirm_refuses_a_stale_issue_date(invoicing: Invoicing) -> None:
     )
     await invoicing.db.commit()
 
-    error = await _status(422, invoicing.confirm(await invoicing.load(document)))
+    error = await _status(
+        422,
+        invoicing.confirm(await invoicing.load(document)),
+        'fiscal_document.issue_date_out_of_range',
+        {},
+    )
     assert error.detail == 'The issue date must be within the last 72 hours and not in the future'
 
 
@@ -519,7 +583,9 @@ async def test_confirm_refuses_an_issuer_without_a_valid_certificate(invoicing: 
     await invoicing.db.execute(update(TaxpayerCertificate).values(valid_to=datetime(2025, 1, 1)))
     await invoicing.db.commit()
 
-    error = await _status(422, invoicing.confirm(document))
+    error = await _status(
+        422, invoicing.confirm(document), 'fiscal_document.no_valid_certificate', {}
+    )
     assert error.detail == 'The issuer has no active certificate valid at the issue date'
 
 
@@ -528,7 +594,12 @@ async def test_confirm_refuses_a_recipient_without_regime(invoicing: Invoicing) 
     await invoicing.db.execute(update(FiscalDocument).values(taxpayer_regime=None))
     await invoicing.db.commit()
 
-    await _status(422, invoicing.confirm(await invoicing.load(document)))
+    await _status(
+        422,
+        invoicing.confirm(await invoicing.load(document)),
+        'fiscal_document.recipient_incomplete',
+        {},
+    )
 
 
 async def test_a_failed_seal_consumes_no_serial(invoicing: Invoicing) -> None:
@@ -580,7 +651,12 @@ async def test_a_manual_line_needs_a_price_in_the_customers_list(invoicing: Invo
     await invoicing.db.commit()
     document = await invoicing.create()
 
-    error = await _status(422, svc.add_manual_line(invoicing.db, invoicing.current, document, 1))
+    error = await _status(
+        422,
+        svc.add_manual_line(invoicing.db, invoicing.current, document, 1),
+        'fiscal_document.product_unpriced',
+        {'product_id': 1},
+    )
     assert error.detail == "The product has no price in the customer's price list"
     await _status(404, svc.add_manual_line(invoicing.db, invoicing.current, document, 999999))
 
@@ -714,7 +790,12 @@ async def test_the_issue_date_must_be_within_72_hours(invoicing: Invoicing, hour
     document = await invoicing.create()
     issued = local_now().replace(microsecond=0) - timedelta(hours=hours)
 
-    await _status(422, _header(invoicing, document, issued=issued.isoformat()))
+    await _status(
+        422,
+        _header(invoicing, document, issued=issued.isoformat()),
+        'fiscal_document.issue_date_out_of_range',
+        {},
+    )
 
 
 async def test_a_new_recipient_is_copied_with_the_general_public_rule(invoicing: Invoicing) -> None:
@@ -724,7 +805,12 @@ async def test_a_new_recipient_is_copied_with_the_general_public_rule(invoicing:
     assert (document.taxpayer_regime, document.taxpayer_postal_code) == ('616', '06000')
     invoicing.db.add(TaxpayerRecipient(taxpayer_recipient_id='CCC010101CC1', name='C', email='c@x'))
     await invoicing.db.commit()
-    await _status(422, _header(invoicing, document, recipient='CCC010101CC1'))
+    await _status(
+        422,
+        _header(invoicing, document, recipient='CCC010101CC1'),
+        'fiscal_document.recipient_not_linked',
+        {'customer_id': 1, 'recipient': 'CCC010101CC1'},
+    )
 
 
 async def test_the_series_must_be_an_invoice_series_of_the_issuer(invoicing: Invoicing) -> None:
@@ -733,11 +819,21 @@ async def test_the_series_must_be_an_invoice_series_of_the_issuer(invoicing: Inv
     document = await invoicing.create()
 
     assert (await _header(invoicing, document, batch='B')).batch == 'B'
-    await _status(422, _header(invoicing, document, batch='P'))
+    await _status(
+        422,
+        _header(invoicing, document, batch='P'),
+        'fiscal_document.series_not_of_type',
+        {'batch': 'P', 'type': 0},
+    )
 
 
 async def test_an_unknown_usage_is_refused(invoicing: Invoicing) -> None:
-    await _status(422, _header(invoicing, await invoicing.create(), usage='ZZZ'))
+    await _status(
+        422,
+        _header(invoicing, await invoicing.create(), usage='ZZZ'),
+        'fiscal_document.unknown_usage',
+        {'usage': 'ZZZ'},
+    )
 
 
 async def test_changing_the_store_recopies_where_it_was_issued(invoicing: Invoicing) -> None:
@@ -765,7 +861,12 @@ async def test_changing_the_store_recopies_where_it_was_issued(invoicing: Invoic
         '55600',
         '55600',
     )
-    await _status(422, _header(invoicing, document, facility=999))
+    await _status(
+        422,
+        _header(invoicing, document, facility=999),
+        'fiscal_document.unknown_facility',
+        {'facility_id': 999},
+    )
 
 
 # ── Relations (US4, FR-010) ───────────────────────────────────────────────────
@@ -823,13 +924,25 @@ async def test_a_substitution_relates_a_cancelled_invoice(invoicing: Invoicing) 
     live = await _stamped(invoicing, serial=8, stamp_uuid='A1B2C3D4-0000-4000-8000-000000000002')
     document = await invoicing.create()
 
-    await _status(422, _relate(invoicing, document, live, '04'))
-    await _status(422, _relate(invoicing, document, cancelled, '07'))
+    await _status(
+        422,
+        _relate(invoicing, document, live, '04'),
+        'fiscal_document.relation_not_allowed',
+        {'relation_type': '04'},
+    )
+    await _status(
+        422,
+        _relate(invoicing, document, cancelled, '07'),
+        'fiscal_document.relation_not_allowed',
+        {'relation_type': '07'},
+    )
     document = await _relate(invoicing, document, cancelled, '04')
 
     assert [r['type'] for r in document.relations] == ['4']
     # One type per invoice.
-    error = await _status(422, _relate(invoicing, document, live, '07'))
+    error = await _status(
+        422, _relate(invoicing, document, live, '07'), 'fiscal_document.relation_types_mixed', {}
+    )
     assert error.detail == 'All relations must share one type'
 
 
@@ -849,7 +962,12 @@ async def test_a_relation_is_added_once_and_can_be_removed(invoicing: Invoicing)
     advance = await _stamped(invoicing)
     document = await _relate(invoicing, await invoicing.create(), advance, '07')
 
-    await _status(409, _relate(invoicing, document, advance, '07'))
+    await _status(
+        409,
+        _relate(invoicing, document, advance, '07'),
+        'fiscal_document.already_related',
+        {'relation_id': advance},
+    )
     relation = document.relations[0]['fiscal_document_relation_id']
     await svc.remove_relation(invoicing.db, invoicing.current, document, relation)
 
@@ -876,8 +994,13 @@ async def test_reopen_keeps_the_serial_and_reseals_with_a_new_date(invoicing: In
     document = await invoicing.confirm(document)
 
     assert (document.status, document.serial, document.issued) == ('sealed', serial, issued)
-    await _status(409, _header(invoicing, document, comment='x'))
-    await _status(409, svc.reopen(invoicing.db, invoicing.current, await invoicing.create()))
+    await _status(409, _header(invoicing, document, comment='x'), 'fiscal_document.not_draft', {})
+    await _status(
+        409,
+        svc.reopen(invoicing.db, invoicing.current, await invoicing.create()),
+        'fiscal_document.not_sealed',
+        {},
+    )
 
 
 async def test_a_reopened_invoice_keeps_its_series(invoicing: Invoicing) -> None:
@@ -886,17 +1009,31 @@ async def test_a_reopened_invoice_keeps_its_series(invoicing: Invoicing) -> None
     sealed = await invoicing.confirm(await _ready(invoicing))
     await svc.reopen(invoicing.db, invoicing.current, sealed)
 
-    await _status(409, _header(invoicing, await invoicing.load(sealed), batch='B'))
+    await _status(
+        409,
+        _header(invoicing, await invoicing.load(sealed), batch='B'),
+        'fiscal_document.series_locked',
+        {},
+    )
 
 
 async def test_a_stamped_invoice_is_never_changed(invoicing: Invoicing) -> None:
     stamped = await invoicing.load(await _stamped(invoicing))
 
     assert stamped.status == 'issued'
-    await _status(409, svc.reopen(invoicing.db, invoicing.current, stamped))
-    await _status(409, svc.confirm(invoicing.db, invoicing.current, stamped))
-    await _status(409, _header(invoicing, stamped, comment='x'))
-    await _status(409, _relate(invoicing, stamped, stamped.fiscal_document_id, '07'))
+    await _status(
+        409, svc.reopen(invoicing.db, invoicing.current, stamped), 'fiscal_document.not_sealed', {}
+    )
+    await _status(
+        409, svc.confirm(invoicing.db, invoicing.current, stamped), 'fiscal_document.not_draft', {}
+    )
+    await _status(409, _header(invoicing, stamped, comment='x'), 'fiscal_document.not_draft', {})
+    await _status(
+        409,
+        _relate(invoicing, stamped, stamped.fiscal_document_id, '07'),
+        'fiscal_document.not_draft',
+        {},
+    )
 
 
 # ── Document types (spec 028, T007) ───────────────────────────────────────────
@@ -919,7 +1056,10 @@ async def test_invoice_only_operations_refuse_other_types(invoicing: Invoicing, 
     order = await seed_sales_order(invoicing.db, completed=True)
 
     error = await _status(
-        409, svc.add_sales_order(invoicing.db, invoicing.current, document, order)
+        409,
+        svc.add_sales_order(invoicing.db, invoicing.current, document, order),
+        'fiscal_document.type_not_supported',
+        {'type': type_},
     )
     assert error.detail == 'Not available for this document type'
     await _status(
@@ -953,7 +1093,10 @@ async def test_each_type_takes_only_its_header_fields(
 ) -> None:
     document = await invoicing.create() if type_ == 0 else await _draft_of_type(invoicing, type_)
 
-    error = await _status(422, _header(invoicing, document, **body))
+    error = await _status(
+        422, _header(invoicing, document, **body), 'fiscal_document.field_not_for_type'
+    )
+    assert error.params == {'fields': list(body), 'type': type_}
     assert error.detail.startswith('Not a field of this document type')
 
 
@@ -979,7 +1122,12 @@ async def test_a_receipt_takes_its_payment_fields(invoicing: Invoicing) -> None:
         'OP-123',
         'BBVA',
     )
-    error = await _status(422, _header(invoicing, document, payment_method=99))
+    error = await _status(
+        422,
+        _header(invoicing, document, payment_method=99),
+        'fiscal_document.payment_form_required',
+        {'type': 200},
+    )
     assert error.detail == 'A payment receipt needs the actual payment form'
 
 
@@ -988,5 +1136,64 @@ async def test_default_batch_for_each_type(invoicing: Invoicing) -> None:
 
     assert await svc.default_batch_for(invoicing.db, ISSUER_RFC, facility, 0) == 'A'
     assert await svc.default_batch_for(invoicing.db, ISSUER_RFC, facility, 200) == 'P'
-    error = await _status(422, svc.default_batch_for(invoicing.db, ISSUER_RFC, facility, 100))
+    error = await _status(
+        422,
+        svc.default_batch_for(invoicing.db, ISSUER_RFC, facility, 100),
+        'fiscal_document.issuer_has_no_series',
+        {'type': 100},
+    )
     assert error.detail == 'The issuer has no credit note series'
+
+
+# ── Refusals that need their own set-up (spec 036) ────────────────────────────
+
+
+async def test_confirm_refuses_a_line_with_no_quantity(invoicing: Invoicing) -> None:
+    document = await _ready(invoicing)
+    await invoicing.db.execute(update(FiscalDocumentDetail).values(quantity=Decimal(0)))
+    await invoicing.db.commit()
+
+    await _status(
+        422,
+        invoicing.confirm(await invoicing.load(document)),
+        'fiscal_document.line_quantity_not_positive',
+        {'line': 1},
+    )
+
+
+async def test_confirm_refuses_a_series_deleted_meanwhile(invoicing: Invoicing) -> None:
+    document = await _ready(invoicing)
+    await invoicing.db.execute(delete(TaxpayerBatch).where(TaxpayerBatch.type == 0))
+    await invoicing.db.commit()
+
+    await _status(
+        422,
+        invoicing.confirm(await invoicing.load(document)),
+        'fiscal_document.series_missing',
+        {'batch': 'A'},
+    )
+
+
+async def test_confirm_reports_a_certificate_that_cannot_sign(invoicing: Invoicing) -> None:
+    document = await _ready(invoicing)
+
+    with patch.object(svc.cfdi_invoice, 'seal_async', side_effect=ValueError('bad key')):
+        error = await _status(
+            422, invoicing.confirm(document), 'fiscal_document.certificate_cannot_sign', {}
+        )
+    assert error.detail == "The issuer's certificate cannot sign: bad key"
+
+
+async def test_a_user_without_a_facility_cannot_create(invoicing: Invoicing) -> None:
+    invoicing.current = replace(invoicing.current, facility_id=None)
+
+    await _status(422, invoicing.create(), 'user.no_facility', {})
+
+
+async def test_an_unknown_issuer_cannot_create(invoicing: Invoicing) -> None:
+    await _status(
+        422,
+        invoicing.create(issuer='NOP010101NOP'),
+        'taxpayer_issuer.unknown',
+        {'taxpayer': 'NOP010101NOP'},
+    )

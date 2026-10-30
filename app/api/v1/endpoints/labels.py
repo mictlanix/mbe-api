@@ -1,9 +1,11 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.deps import CurrentUser, require_any_privilege, require_privilege
+from app.core.errors import not_found
 from app.db.session import get_db
 from app.enums import AccessRight, SystemObject
+from app.models.core import Label
 from app.schemas import ListResponse
 from app.schemas.core import LabelCreate, LabelResponse, LabelUpdate
 from app.services import label_service
@@ -51,7 +53,7 @@ async def get_label(
 ) -> LabelResponse:
     label = await label_service.get_label(db, label_id)
     if label is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Label not found')
+        raise not_found(Label, label_id)
     return LabelResponse.model_validate(label)
 
 
@@ -64,7 +66,7 @@ async def update_label(
 ) -> LabelResponse:
     label = await label_service.get_label(db, label_id)
     if label is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Label not found')
+        raise not_found(Label, label_id)
     label = await label_service.update_label(db, label, data)
     return LabelResponse.model_validate(label)
 
@@ -77,5 +79,5 @@ async def delete_label(
 ) -> None:
     label = await label_service.get_label(db, label_id)
     if label is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Label not found')
+        raise not_found(Label, label_id)
     await label_service.delete_label(db, label)

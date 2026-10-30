@@ -15,6 +15,7 @@ from app.core.config import settings
 from app.core.deps import CurrentUser, get_current_user
 from app.db.session import get_db
 from app.main import app
+from tests.problem import assert_problem
 
 _URL = '/api/v1/vehicle-operators'
 
@@ -167,19 +168,28 @@ async def test_upload_for_an_unknown_operator_is_404(dirs) -> None:
         r = await _post(_png())
 
     assert r.status_code == 404
+    assert r.json()['code'] == 'resource.not_found'
     assert _files(dirs.photos) == []
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize('content', [b'not an image', b'x' * (2 * 1024 * 1024 + 1)])
-async def test_a_bad_upload_is_422_and_keeps_the_existing_photo(dirs, content) -> None:
+@pytest.mark.parametrize(
+    ('content', 'code'),
+    [
+        (b'not an image', 'image.unsupported_format'),
+        (b'x' * (2 * 1024 * 1024 + 1), 'image.too_large'),
+    ],
+)
+async def test_a_bad_upload_is_422_and_keeps_the_existing_photo(dirs, content, code) -> None:
     _auth()
     (dirs.photos / 'keep.png').write_bytes(_png())
     vo = _live_operator('keep.png')
     with _found(vo):
         r = await _post(content)
 
-    assert r.status_code == 422
+    body = assert_problem(r, 422, code)
+    if code == 'image.too_large':
+        assert body['params'] == {'max_bytes': 2097152}
     assert vo.license_photo == 'keep.png'
     assert _files(dirs.photos) == ['keep.png']
 
@@ -225,6 +235,7 @@ async def test_get_is_404_without_a_photo(dirs) -> None:
         r = await _call('GET')
 
     assert r.status_code == 404
+    assert r.json()['code'] == 'resource.not_found'
 
 
 @pytest.mark.asyncio
@@ -234,6 +245,7 @@ async def test_get_is_404_when_the_file_is_missing(dirs) -> None:
         r = await _call('GET')
 
     assert r.status_code == 404
+    assert r.json()['code'] == 'resource.not_found'
 
 
 @pytest.mark.asyncio
@@ -256,6 +268,7 @@ async def test_delete_photo_is_404_without_one(dirs) -> None:
         r = await _call('DELETE')
 
     assert r.status_code == 404
+    assert r.json()['code'] == 'resource.not_found'
 
 
 @pytest.mark.asyncio

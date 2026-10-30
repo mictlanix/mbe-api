@@ -1,11 +1,13 @@
-from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Depends, File, Query, UploadFile
 from fastapi import status as http_status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.deps import CurrentUser, require_privilege
+from app.core.errors import not_found
 from app.db.session import get_db
 from app.enums import AccessRight, EntityStatus, SystemObject
+from app.models.core import Facility
 from app.schemas import ListResponse
 from app.schemas.core import FacilityCreate, FacilityResponse, FacilityUpdate
 from app.services import facility_service, image_service
@@ -47,12 +49,9 @@ async def upload_facility_logo(
 ) -> FacilityResponse:
     facility = await facility_service.get_facility(db, facility_id)
     if facility is None:
-        raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail='Facility not found')
+        raise not_found(Facility, facility_id)
     content = await file.read()
-    try:
-        filename = await image_service.process_and_save_image(content, settings.images_dir)
-    except ValueError as exc:
-        raise HTTPException(status_code=http_status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc))
+    filename = await image_service.process_and_save_image(content, settings.images_dir)
     facility = await facility_service.update_facility(db, facility, FacilityUpdate(logo=filename))
     return FacilityResponse.model_validate(facility)
 
@@ -65,7 +64,7 @@ async def get_facility(
 ) -> FacilityResponse:
     facility = await facility_service.get_facility(db, facility_id)
     if facility is None:
-        raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail='Facility not found')
+        raise not_found(Facility, facility_id)
     return FacilityResponse.model_validate(facility)
 
 
@@ -78,7 +77,7 @@ async def update_facility(
 ) -> FacilityResponse:
     facility = await facility_service.get_facility(db, facility_id)
     if facility is None:
-        raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail='Facility not found')
+        raise not_found(Facility, facility_id)
     facility = await facility_service.update_facility(db, facility, data)
     return FacilityResponse.model_validate(facility)
 
@@ -91,6 +90,6 @@ async def delete_facility(
 ) -> None:
     facility = await facility_service.get_facility(db, facility_id)
     if facility is None:
-        raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail='Facility not found')
+        raise not_found(Facility, facility_id)
     # `current` rather than `_`: the deletion is audited and the entry needs an actor (FR-015a).
     await facility_service.delete_facility(db, facility, current=current)

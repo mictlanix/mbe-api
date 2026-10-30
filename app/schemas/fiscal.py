@@ -3,6 +3,7 @@ from decimal import Decimal
 from typing import Literal
 
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator
+from pydantic_core import PydanticCustomError
 
 from app.core.clock import local_today
 from app.enums import (
@@ -193,7 +194,7 @@ class TaxpayerBatchCreate(BaseModel):
     def _trim(cls, value: str) -> str:
         value = value.strip()
         if not value:
-            raise ValueError('The series cannot be blank')
+            raise PydanticCustomError('taxpayer_batch_series_blank', 'The series cannot be blank')
         return value
 
 
@@ -246,14 +247,22 @@ class InvoiceUpdate(BaseModel):
     @classmethod
     def _not_in_the_future(cls, value: date | None) -> date | None:
         if value is not None and value > local_today():
-            raise ValueError('The payment date cannot be in the future')
+            raise PydanticCustomError(
+                'fiscal_document_payment_date_in_future',
+                'The payment date cannot be in the future',
+                {'date': value.isoformat()},
+            )
         return value
 
     @field_validator('payment_method')
     @classmethod
     def _sat_payment_form(cls, value: int | None) -> int | None:
         if value is not None and value not in _PAYMENT_FORMS:
-            raise ValueError('Not a SAT payment form')
+            raise PydanticCustomError(
+                'fiscal_document_payment_form_unknown',
+                'Not a SAT payment form',
+                {'payment_form': value},
+            )
         return value
 
 
@@ -280,7 +289,11 @@ class InvoiceLineUpdate(BaseModel):
     @classmethod
     def _known_rate(cls, value: Decimal | None) -> Decimal | None:
         if value is not None and value not in TAX_RATES:
-            raise ValueError('The tax rate must be 0.16, 0 or -1 (exempt)')
+            raise PydanticCustomError(
+                'fiscal_document_tax_rate_invalid',
+                'The tax rate must be 0.16, 0 or -1 (exempt)',
+                {'tax_rate': str(value)},
+            )
         return value
 
 

@@ -1,8 +1,9 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, Query
 from fastapi import status as http_status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.deps import CurrentUser, require_privilege
+from app.core.errors import not_found
 from app.db.session import get_db
 from app.enums import AccessRight, EntityStatus, SystemObject
 from app.schemas import ListResponse
@@ -46,9 +47,7 @@ async def get_cash_drawer(
 ) -> CashDrawerResponse:
     cd = await cash_drawer_service.get_cash_drawer(db, cash_drawer_id)
     if cd is None:
-        raise HTTPException(
-            status_code=http_status.HTTP_404_NOT_FOUND, detail='Cash drawer not found'
-        )
+        raise not_found('cash_drawer', cash_drawer_id)
     return CashDrawerResponse.model_validate(cd)
 
 
@@ -61,9 +60,7 @@ async def update_cash_drawer(
 ) -> CashDrawerResponse:
     cd = await cash_drawer_service.get_cash_drawer(db, cash_drawer_id)
     if cd is None:
-        raise HTTPException(
-            status_code=http_status.HTTP_404_NOT_FOUND, detail='Cash drawer not found'
-        )
+        raise not_found('cash_drawer', cash_drawer_id)
     cd = await cash_drawer_service.update_cash_drawer(db, cd, data)
     return CashDrawerResponse.model_validate(cd)
 
@@ -76,7 +73,5 @@ async def delete_cash_drawer(
 ) -> None:
     cd = await cash_drawer_service.get_cash_drawer(db, cash_drawer_id)
     if cd is None:
-        raise HTTPException(
-            status_code=http_status.HTTP_404_NOT_FOUND, detail='Cash drawer not found'
-        )
+        raise not_found('cash_drawer', cash_drawer_id)
     await cash_drawer_service.delete_cash_drawer(db, cd)

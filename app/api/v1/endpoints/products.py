@@ -1,11 +1,13 @@
-from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Depends, File, Query, UploadFile
 from fastapi import status as http_status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.deps import CurrentUser, require_privilege
+from app.core.errors import not_found
 from app.db.session import get_db
 from app.enums import AccessRight, EntityStatus, SystemObject
+from app.models.product import Product
 from app.schemas import ListResponse
 from app.schemas.product import (
     ProductCreate,
@@ -190,12 +192,9 @@ async def upload_product_image(
 ) -> ProductResponse:
     product = await product_service.get_product(db, product_id)
     if product is None:
-        raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail='Product not found')
+        raise not_found(Product, product_id)
     content = await file.read()
-    try:
-        filename = await image_service.process_and_save_image(content, settings.images_dir)
-    except ValueError as exc:
-        raise HTTPException(status_code=http_status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc))
+    filename = await image_service.process_and_save_image(content, settings.images_dir)
     product = await product_service.update_product(
         db, product, ProductUpdate(photo=filename), updater=current.employee_id
     )
@@ -212,7 +211,7 @@ async def get_product(
 ) -> ProductResponse:
     product = await product_service.get_product(db, product_id)
     if product is None:
-        raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail='Product not found')
+        raise not_found(Product, product_id)
     response = ProductResponse.model_validate(product)
     response.photo = _photo_url(product.photo)
     return response
@@ -227,7 +226,7 @@ async def update_product(
 ) -> ProductResponse:
     product = await product_service.get_product(db, product_id)
     if product is None:
-        raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail='Product not found')
+        raise not_found(Product, product_id)
     product = await product_service.update_product(db, product, data, updater=current.employee_id)
     response = ProductResponse.model_validate(product)
     response.photo = _photo_url(product.photo)
@@ -242,5 +241,5 @@ async def delete_product(
 ) -> None:
     product = await product_service.get_product(db, product_id)
     if product is None:
-        raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail='Product not found')
+        raise not_found(Product, product_id)
     await product_service.delete_product(db, product, updater=current.employee_id)

@@ -1,17 +1,20 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, Query
 from fastapi import status as http_status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.deps import (
     CurrentUser,
+    forbidden,
     get_current_user,
     has_any_privilege,
     require_any_privilege,
     require_privilege,
 )
+from app.core.errors import not_found
 from app.db.session import get_db
 from app.enums import AccessRight, EntityStatus, SystemObject
+from app.models.customer import Customer, CustomerDiscount
 from app.schemas import ListResponse
 from app.schemas.customer import (
     CustomerCreate,
@@ -80,7 +83,7 @@ async def get_customer(
 ) -> CustomerResponse:
     customer = await customer_service.get_customer(db, customer_id)
     if customer is None:
-        raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail='Customer not found')
+        raise not_found(Customer, customer_id)
     return CustomerResponse.model_validate(customer)
 
 
@@ -100,12 +103,10 @@ async def update_customer(
             (SystemObject.SALES_QUOTES, AccessRight.UPDATE),
         ]
     if not current.administrator and not await has_any_privilege(db, current.user_id, grants):
-        raise HTTPException(
-            status_code=http_status.HTTP_403_FORBIDDEN, detail='Insufficient privileges'
-        )
+        raise forbidden(grants)
     customer = await customer_service.get_customer(db, customer_id)
     if customer is None:
-        raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail='Customer not found')
+        raise not_found(Customer, customer_id)
     customer = await customer_service.update_customer(db, customer, data)
     return CustomerResponse.model_validate(customer)
 
@@ -118,20 +119,20 @@ async def delete_customer(
 ) -> None:
     customer = await customer_service.get_customer(db, customer_id)
     if customer is None:
-        raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail='Customer not found')
+        raise not_found(Customer, customer_id)
     await customer_service.delete_customer(db, customer, settings.default_customer_id)
 
 
 async def _require_customer(db: AsyncSession, customer_id: int) -> None:
     if await customer_service.get_customer(db, customer_id) is None:
-        raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail='Customer not found')
+        raise not_found(Customer, customer_id)
 
 
 async def _require_discount(db: AsyncSession, customer_id: int, customer_discount_id: int):
     await _require_customer(db, customer_id)
     discount = await customer_discount_service.get_discount(db, customer_id, customer_discount_id)
     if discount is None:
-        raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail='Discount not found')
+        raise not_found(CustomerDiscount, customer_discount_id, detail='Discount not found')
     return discount
 
 

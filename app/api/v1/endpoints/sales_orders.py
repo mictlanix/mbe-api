@@ -1,8 +1,10 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from fastapi import APIRouter, Depends, Query, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import rendering
 from app.core.deps import CurrentUser, can_see_every_facility, require_privilege
+from app.core.error_codes import ErrorCode
+from app.core.errors import DomainError, not_found
 from app.db.session import get_db
 from app.enums import AccessRight, OrderOrigin, SystemObject
 from app.schemas import ListResponse, LocalDateTime
@@ -30,7 +32,7 @@ _PAYMENTS_READ = require_privilege(SystemObject.CUSTOMER_PAYMENTS, AccessRight.R
 async def _order_or_404(db: AsyncSession, sales_order_id: int):  # noqa: ANN202
     order = await sales_order_service.get_order(db, sales_order_id)
     if order is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Sales order not found')
+        raise not_found('sales_order', sales_order_id)
     return order
 
 
@@ -44,7 +46,7 @@ async def _writable_order_or_404(  # noqa: ANN202
     if order.facility != current.facility_id and not await can_see_every_facility(
         db, current, SystemObject.SEARCH_CREDITS_FROM_ALL_STORES
     ):
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Sales order not found')
+        raise not_found('sales_order', sales_order_id)
     return order
 
 
@@ -80,9 +82,18 @@ async def list_sales_orders(
             db, current, SystemObject.SEARCH_CREDITS_FROM_ALL_STORES
         )
     ):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Another facility's sales orders require SearchCreditsFromAllStores read",
+        raise DomainError(
+            ErrorCode.FACILITY_OTHER_FACILITY,
+            "Another facility's sales orders require SearchCreditsFromAllStores read",
+            {
+                'resource': 'sales_order',
+                'required': [
+                    {
+                        'system_object': SystemObject.SEARCH_CREDITS_FROM_ALL_STORES,
+                        'right': AccessRight.READ,
+                    }
+                ],
+            },
         )
     items, total = await sales_order_service.list_orders(
         db,
@@ -118,14 +129,14 @@ async def lookup_products(
     db: AsyncSession = Depends(get_db),
 ) -> list[ProductLookupResponse]:
     if not pattern and not products:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail='Either pattern or products is required',
+        raise DomainError(
+            ErrorCode.PRODUCT_LOOKUP_CRITERIA_REQUIRED, 'Either pattern or products is required'
         )
     if products and len(products) > PRODUCT_LOOKUP_MAX_IDS:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail=f'At most {PRODUCT_LOOKUP_MAX_IDS} products per lookup',
+        raise DomainError(
+            ErrorCode.PRODUCT_LOOKUP_TOO_MANY,
+            f'At most {PRODUCT_LOOKUP_MAX_IDS} products per lookup',
+            {'max': PRODUCT_LOOKUP_MAX_IDS},
         )
     rows = await sales_order_service.lookup_products(
         db, pattern=pattern, products=products, customer_id=customer, warehouse=warehouse
@@ -251,7 +262,7 @@ async def update_sales_order_line(
     order = await _writable_order_or_404(db, current, sales_order_id)
     line = await sales_order_service.get_line(db, order, line_id)
     if line is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Line not found')
+        raise not_found('sales_order_line', line_id, detail='Line not found')
     order = await sales_order_service.update_line(db, order, line, data, current=current)
     return SalesOrderResponse.model_validate(order)
 
@@ -266,6 +277,6 @@ async def remove_sales_order_line(
     order = await _writable_order_or_404(db, current, sales_order_id)
     line = await sales_order_service.get_line(db, order, line_id)
     if line is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Line not found')
+        raise not_found('sales_order_line', line_id, detail='Line not found')
     order = await sales_order_service.remove_line(db, order, line, current=current)
     return SalesOrderResponse.model_validate(order)

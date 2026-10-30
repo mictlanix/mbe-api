@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.enums import EntityStatus
 from app.models.customer import Customer
 from app.models.product import PriceList, ProductPrice
+from tests.problem import assert_problem
 
 
 async def _price_list(client: AsyncClient, name: str) -> int:
@@ -131,9 +132,10 @@ async def test_customers_with_no_replacement_still_refuse_the_retirement(
 
     refused = await client.delete(f'/api/v1/price-lists/{retired}')
 
-    assert refused.status_code == 409, refused.text
-    assert 'customer.price_list (1)' in refused.json()['detail']
-    assert 'product_price' not in refused.json()['detail']
+    body = assert_problem(refused, 409, 'resource.still_referenced')
+    assert body['params']['references'] == [{'resource': 'customer', 'count': 1}]
+    assert 'customer (1)' in body['detail']
+    assert 'product_price' not in body['detail']
     # And nothing moved: the list, its price and the assignment are all still there.
     assert await db.get(PriceList, retired) is not None
     assert await _count(db, ProductPrice, ProductPrice.price_list, retired) == 1

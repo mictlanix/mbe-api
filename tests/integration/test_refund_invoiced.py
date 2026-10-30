@@ -230,3 +230,4 @@ async def test_opening_a_fully_refunded_order_keeps_the_old_message(
 
     assert exc.value.status_code == 409
     assert exc.value.detail == 'No refundable items remain on this order'
+    assert exc.value.code == 'refund.nothing_refundable'

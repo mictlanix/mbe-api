@@ -6,6 +6,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from app.core.error_codes import ErrorCode
 from app.enums import CurrencyCode
 from app.schemas.purchases import RequestStatus
 from app.schemas.sales_order import DocumentStatus
@@ -161,27 +162,62 @@ def test_a_draft_with_supplier_and_quantities_confirms():
 
 
 @pytest.mark.parametrize(
-    'state, supplier, lines, reason',
+    'state, supplier, lines, refusal',
     [
         (
             DocumentStatus.COMPLETED,
             5,
             [_line(1, 1, 1, '1')],
-            'Only a draft purchase order can be confirmed',
+            (
+                ErrorCode.DOCUMENT_NOT_EDITABLE,
+                'Only a draft purchase order can be confirmed',
+                {'status': DocumentStatus.COMPLETED},
+            ),
         ),
         (
             DocumentStatus.CANCELLED,
             5,
             [_line(1, 1, 1, '1')],
-            'Only a draft purchase order can be confirmed',
+            (
+                ErrorCode.DOCUMENT_NOT_EDITABLE,
+                'Only a draft purchase order can be confirmed',
+                {'status': DocumentStatus.CANCELLED},
+            ),
         ),
-        (DocumentStatus.DRAFT, None, [_line(1, 1, 1, '1')], 'The purchase order has no supplier'),
-        (DocumentStatus.DRAFT, 5, [], 'The purchase order has no lines'),
-        (DocumentStatus.DRAFT, 5, [_line(1, 1, 1, '0')], 'Line P1 has no quantity'),
+        (
+            DocumentStatus.DRAFT,
+            None,
+            [_line(1, 1, 1, '1')],
+            (ErrorCode.PURCHASE_ORDER_NO_SUPPLIER, 'The purchase order has no supplier', {}),
+        ),
+        (
+            DocumentStatus.DRAFT,
+            5,
+            [],
+            (ErrorCode.PURCHASE_ORDER_NO_LINES, 'The purchase order has no lines', {}),
+        ),
+        (
+            DocumentStatus.DRAFT,
+            5,
+            [_line(1, 1, 1, '0')],
+            (
+                ErrorCode.PURCHASE_ORDER_LINE_WITHOUT_QUANTITY,
+                'Line P1 has no quantity',
+                {'product_code': 'P1'},
+            ),
+        ),
     ],
 )
-def test_confirm_refusals(state, supplier, lines, reason):  # noqa: ANN001
-    assert confirm_refusal(state, supplier, lines) == reason
+def test_confirm_refusals(state, supplier, lines, refusal):  # noqa: ANN001
+    assert confirm_refusal(state, supplier, lines) == refusal
+    assert refusal[0].status == 409
+
+
+def test_confirm_refusal_codes_are_the_catalog_strings():
+    assert ErrorCode('purchase_order.no_supplier')
+    assert ErrorCode('purchase_order.no_lines')
+    assert ErrorCode('purchase_order.line_without_quantity').status == 409
+    assert ErrorCode('document.not_editable').status == 409
 
 
 def test_lines_priced_at_zero_are_warned():
