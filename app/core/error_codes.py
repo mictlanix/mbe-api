@@ -290,6 +290,7 @@ class ErrorCode(StrEnum):
     REFUND_ORDER_NOT_COMPLETED = 'refund.order_not_completed', 409
     REFUND_ORDER_NOT_PAID = 'refund.order_not_paid', 409
     REFUND_QUANTITY_EXCEEDS_REFUNDABLE = 'refund.quantity_exceeds_refundable', 422
+    REFUND_WAREHOUSE_OTHER_FACILITY = 'refund.warehouse_other_facility', 422
 
     # request
     REQUEST_MALFORMED = 'request.malformed', 400

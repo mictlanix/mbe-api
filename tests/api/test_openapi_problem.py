@@ -11,7 +11,7 @@ def test_problem_and_the_code_catalog_are_published() -> None:
 
     assert set(schemas['Problem']['properties']) == {'status', 'code', 'detail', 'params', 'errors'}
     assert schemas['ErrorCode']['enum'] == [code.value for code in ErrorCode]
-    assert len(schemas['ErrorCode']['enum']) == 242
+    assert len(schemas['ErrorCode']['enum']) == 243
 
 
 def test_every_v1_operation_defaults_to_a_problem() -> None:

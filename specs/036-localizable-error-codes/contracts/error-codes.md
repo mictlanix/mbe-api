@@ -371,6 +371,7 @@ Every code the API serves, with its HTTP status, its `params` and the situation 
 | `refund.order_not_completed` | 409 | — | The order is not completed, so it cannot be refunded. |
 | `refund.order_not_paid` | 409 | — | The order is not paid; unpaid orders are cancelled, not refunded. |
 | `refund.quantity_exceeds_refundable` | 422 | requested: decimal, refundable: decimal | The requested return quantity is more than the refundable quantity. |
+| `refund.warehouse_other_facility` | 422 | warehouse_id: int, facility_id: int | Returned goods go back to the refund's facility's own warehouses; this warehouse is another facility's. |
 
 ## request
 
@@ -486,7 +487,7 @@ Every code the API serves, with its HTTP status, its `params` and the situation 
 |---|---|---|---|
 | `warehouse.in_transit_location` | 422 | warehouse_id: int | Document line names an in-transit warehouse. |
 | `warehouse.in_transit_managed` | 403 | — | In-transit warehouses are system-managed and cannot be edited by the user. |
-| `warehouse.required` | 422 | resource: str (`purchase_order` or `purchase_request`) | No warehouse was sent and the user's point of sale has none. |
+| `warehouse.required` | 422 | resource: str (`purchase_order`, `purchase_request` or `customer_refund`) | No warehouse was sent and the user's point of sale has none. For `customer_refund`: a stocked line being confirmed has no warehouse to return its goods to. |
 
 ## Validation types
 

@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, Query, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import rendering
-from app.core.deps import CurrentUser, require_privilege
+from app.core.deps import CurrentUser, can_see_every_facility, require_privilege
 from app.core.error_codes import ErrorCode
 from app.core.errors import DomainError, not_found
 from app.db.session import get_db
@@ -26,9 +26,20 @@ _UPDATE = require_privilege(SystemObject.CUSTOMER_REFUNDS, AccessRight.UPDATE)
 _CONFIRM = require_privilege(SystemObject.CUSTOMER_REFUND_CONFIRM, AccessRight.UPDATE)
 
 
-async def _refund_or_404(db: AsyncSession, customer_refund_id: int):  # noqa: ANN202
+async def _sees_every_facility(db: AsyncSession, current: CurrentUser) -> bool:
+    """A refund is its processing store's; another store's is SearchCreditsFromAllStores (101)
+    territory, as another store's sales orders are (spec 034)."""
+    return await can_see_every_facility(db, current, SystemObject.SEARCH_CREDITS_FROM_ALL_STORES)
+
+
+async def _refund_or_404(  # noqa: ANN202
+    db: AsyncSession, current: CurrentUser, customer_refund_id: int
+):
+    """404 rather than 403 for another facility's refund, so its existence isn't revealed."""
     refund = await customer_refund_service.get_refund(db, customer_refund_id)
-    if refund is None:
+    if refund is None or (
+        refund.facility != current.facility_id and not await _sees_every_facility(db, current)
+    ):
         raise not_found('customer_refund', customer_refund_id, detail='Refund not found')
     return refund
 
@@ -44,11 +55,30 @@ async def list_customer_refunds(
         "matches the customer's name",
     ),
     mine: bool = Query(False, description='Only refunds the caller created or last updated'),
+    facility: int | None = Query(None, description="Defaults to the caller's facility"),
     skip: int = Query(0, ge=0),
     limit: int = Query(20, ge=1, le=100),
     current: CurrentUser = Depends(_READ),
     db: AsyncSession = Depends(get_db),
 ) -> ListResponse[CustomerRefundSummary]:
+    if (
+        facility is not None
+        and facility != current.facility_id
+        and not await _sees_every_facility(db, current)
+    ):
+        raise DomainError(
+            ErrorCode.FACILITY_OTHER_FACILITY,
+            "Another facility's refunds require SearchCreditsFromAllStores read",
+            {
+                'resource': 'customer_refund',
+                'required': [
+                    {
+                        'system_object': SystemObject.SEARCH_CREDITS_FROM_ALL_STORES,
+                        'right': AccessRight.READ,
+                    }
+                ],
+            },
+        )
     items, total = await customer_refund_service.list_refunds(
         db,
         current=current,
@@ -57,6 +87,7 @@ async def list_customer_refunds(
         refund_status=refund_status,
         search=search,
         mine=mine,
+        facility=facility,
         skip=skip,
         limit=limit,
     )
@@ -76,10 +107,10 @@ async def open_customer_refund(
 @router.get('/{customer_refund_id}', response_model=CustomerRefundResponse)
 async def get_customer_refund(
     customer_refund_id: int,
-    _: CurrentUser = Depends(_READ),
+    current: CurrentUser = Depends(_READ),
     db: AsyncSession = Depends(get_db),
 ) -> CustomerRefundResponse:
-    refund = await _refund_or_404(db, customer_refund_id)
+    refund = await _refund_or_404(db, current, customer_refund_id)
     await customer_refund_service.attach_derived(db, refund)
     return CustomerRefundResponse.model_validate(refund)
 
@@ -89,12 +120,12 @@ async def get_customer_refund(
 )
 async def print_customer_refund_ticket(
     customer_refund_id: int,
-    _: CurrentUser = Depends(_READ),
+    current: CurrentUser = Depends(_READ),
     db: AsyncSession = Depends(get_db),
 ) -> Response:
     """A confirmed refund's receipt (#287). An open or cancelled refund has none: 409, as legacy
     sends an unconfirmed refund back to its editor."""
-    refund = await _refund_or_404(db, customer_refund_id)
+    refund = await _refund_or_404(db, current, customer_refund_id)
     if not refund.completed:
         raise DomainError(
             ErrorCode.REFUND_NOT_CONFIRMED, 'Only a confirmed refund has a receipt to print'
@@ -113,7 +144,7 @@ async def update_customer_refund_line(
     current: CurrentUser = Depends(_UPDATE),
     db: AsyncSession = Depends(get_db),
 ) -> CustomerRefundResponse:
-    refund = await _refund_or_404(db, customer_refund_id)
+    refund = await _refund_or_404(db, current, customer_refund_id)
     line = await customer_refund_service.get_line(db, refund, line_id)
     if line is None:
         raise not_found('customer_refund_line', line_id, detail='Line not found')
@@ -128,7 +159,7 @@ async def confirm_customer_refund(
     current: CurrentUser = Depends(_CONFIRM),
     db: AsyncSession = Depends(get_db),
 ) -> CustomerRefundResponse:
-    refund = await _refund_or_404(db, customer_refund_id)
+    refund = await _refund_or_404(db, current, customer_refund_id)
     refund = await customer_refund_service.confirm_refund(
         db, refund, payout=data.payout, current=current
     )
@@ -141,6 +172,6 @@ async def cancel_customer_refund(
     current: CurrentUser = Depends(_UPDATE),
     db: AsyncSession = Depends(get_db),
 ) -> CustomerRefundResponse:
-    refund = await _refund_or_404(db, customer_refund_id)
+    refund = await _refund_or_404(db, current, customer_refund_id)
     refund = await customer_refund_service.cancel_refund(db, refund, current=current)
     return CustomerRefundResponse.model_validate(refund)
