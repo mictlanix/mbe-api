@@ -1,8 +1,10 @@
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, Query, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app import rendering
 from app.core.deps import CurrentUser, require_privilege
-from app.core.errors import not_found
+from app.core.error_codes import ErrorCode
+from app.core.errors import DomainError, not_found
 from app.db.session import get_db
 from app.enums import AccessRight, SystemObject
 from app.schemas import ListResponse
@@ -13,7 +15,7 @@ from app.schemas.customer_refund import (
     CustomerRefundResponse,
     CustomerRefundSummary,
 )
-from app.services import customer_refund_service
+from app.services import customer_refund_service, print_contexts
 
 router = APIRouter()
 
@@ -80,6 +82,27 @@ async def get_customer_refund(
     refund = await _refund_or_404(db, customer_refund_id)
     await customer_refund_service.attach_derived(db, refund)
     return CustomerRefundResponse.model_validate(refund)
+
+
+@router.get(
+    '/{customer_refund_id}/ticket', response_class=Response, responses=rendering.PDF_RESPONSE
+)
+async def print_customer_refund_ticket(
+    customer_refund_id: int,
+    _: CurrentUser = Depends(_READ),
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    """A confirmed refund's receipt (#287). An open or cancelled refund has none: 409, as legacy
+    sends an unconfirmed refund back to its editor."""
+    refund = await _refund_or_404(db, customer_refund_id)
+    if not refund.completed:
+        raise DomainError(
+            ErrorCode.REFUND_NOT_CONFIRMED, 'Only a confirmed refund has a receipt to print'
+        )
+    await customer_refund_service.attach_derived(db, refund)
+    template, context = await print_contexts.refund_ticket_context(db, refund)
+    pdf = await rendering.render_pdf(template, context)
+    return rendering.pdf_response(pdf, f'devolucion-{refund.customer_refund_id:08d}.pdf')
 
 
 @router.put('/{customer_refund_id}/lines/{line_id}', response_model=CustomerRefundResponse)

@@ -57,6 +57,7 @@ from app.models.sales import (
 from app.models.sat_catalog import SatCfdiUsage, SatTaxRegime
 from app.models.supplier import Supplier, supplier_address
 from app.rendering import formatting, words
+from app.schemas.customer_refund import RefundPayout
 from app.services import (
     cash_session_service,
     cfdi,
@@ -708,6 +709,59 @@ async def payment_ticket_context(db: AsyncSession, payment: CustomerPayment) -> 
         'barcode': formatting.barcode_data_uri(payment_id),
     }
     return 'payment_ticket.html', context
+
+
+# ── Refund receipts (#287) ────────────────────────────────────────────────────
+
+
+async def refund_ticket_context(db: AsyncSession, refund: CustomerRefund) -> tuple[str, dict]:
+    """A confirmed refund's receipt, after legacy `CustomerRefunds/Print` (#287).
+
+    `refund` must already have been through `customer_refund_service.attach_derived`, which gives
+    it its lines, totals and payout (#286). Legacy printed the lines and the total; this adds the
+    tax, the salesperson and how the money went back. A store-credit note prints its backing
+    payment's id and barcode, as legacy's `TicketCreditNote` does: that number is how a walk-in
+    customer redeems the note. A cash payout keeps legacy's footer, the refund's own id.
+    """
+    money = formatting.money
+    header = await header_context(db, refund.facility, 'Ticket de Devolución')
+    facility = await db.get(Facility, refund.facility)
+    customer = await db.get(Customer, refund.customer) if refund.customer else None
+    salesperson = await db.get(Employee, refund.sales_person)
+    credit = refund.payout == RefundPayout.CREDIT_NOTE
+    footer = formatting.pad8(refund.customer_payment if credit else refund.customer_refund_id)
+    context = {
+        'header': header,
+        'folio': formatting.pad8(refund.serial) if refund.serial else '',
+        'date': formatting.date_time(refund.date) if refund.date else '',
+        'sales_order': formatting.pad8(refund.sales_order),
+        'customer': customer.name if customer else '',
+        'salesperson': salesperson.nickname if salesperson else '',
+        'lines': [
+            {
+                'quantity': formatting.qty(line.quantity),
+                'price': money(line.price),
+                'discount': formatting.percent(line.discount) if line.discount > 0 else '',
+                'code': line.product_code,
+                'name': line.product_name,
+                'total': money(line.total),
+            }
+            for line in refund.lines
+            if line.quantity > 0
+        ],
+        'subtotal': money(refund.subtotal),
+        'taxes': money(refund.tax_total),
+        'total': money(refund.total),
+        'payout': {
+            RefundPayout.CASH: 'Efectivo',
+            RefundPayout.CREDIT_NOTE: 'Nota de Crédito',
+        }.get(refund.payout, ''),
+        'credit_note': credit,
+        'receipt_message': facility.receipt_message or None,
+        'footer_id': footer,
+        'barcode': formatting.barcode_data_uri(footer),
+    }
+    return 'refund_ticket.html', context
 
 
 # ── CFDI (spec 020) ───────────────────────────────────────────────────────────
