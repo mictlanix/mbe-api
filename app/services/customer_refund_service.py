@@ -24,6 +24,7 @@ from app.core.deps import CurrentUser
 from app.core.error_codes import ErrorCode
 from app.core.errors import DomainError, not_found
 from app.enums import CurrencyCode, PaymentMethod, PaymentType, TransactionType
+from app.models.customer import Customer
 from app.models.fiscal import FiscalDocument, FiscalDocumentDetail, FiscalDocumentXml
 from app.models.product import Product
 from app.models.sales import (
@@ -260,7 +261,27 @@ async def attach_derived(db: AsyncSession, refund: CustomerRefund) -> CustomerRe
     refund.__dict__['status'] = derive_status(
         completed=refund.completed, cancelled=refund.cancelled
     ).value
+    await attach_customer_names(db, [refund])
     return refund
+
+
+async def attach_customer_names(db: AsyncSession, refunds: Sequence[CustomerRefund]) -> None:
+    """The customers' own names for a page of refunds, in one query (#284), as
+    `customer_payment_service.attach_customer_names` does for payments."""
+    ids = {refund.customer for refund in refunds if refund.customer is not None}
+    names: dict[int, str] = {}
+    if ids:
+        names = dict(
+            (
+                await db.execute(
+                    select(Customer.customer_id, Customer.name).where(Customer.customer_id.in_(ids))
+                )
+            ).all()
+        )
+    for refund in refunds:
+        refund.__dict__['customer_display_name'] = (
+            None if refund.customer is None else names.get(refund.customer)
+        )
 
 
 async def attach_summary_totals(db: AsyncSession, refunds: Sequence[CustomerRefund]) -> None:
@@ -435,6 +456,7 @@ async def list_refunds(
     page = base.order_by(CustomerRefund.customer_refund_id.desc()).offset(skip).limit(limit)
     items = (await db.execute(page)).scalars().all()
     await attach_summary_totals(db, items)
+    await attach_customer_names(db, items)
     return items, total
 
 
