@@ -3,7 +3,7 @@
   "specName": "Localizable Error Codes",
   "branch": "036-localizable-error-codes",
   "currentStep": "implement",
-  "status": "implementing",
+  "status": "completed",
   "history": [
     {
       "step": "specify",
@@ -757,9 +757,48 @@
       "kind": "complete",
       "by": "extension",
       "at": "2026-10-29T01:40:54.666Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T089",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-11-04T15:46:11.822Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T090",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-11-04T15:46:11.822Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T091",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-11-04T15:46:11.822Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T092",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-11-04T15:46:11.822Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-11-04T15:46:11.822Z"
     }
   ],
-  "currentTask": "T089",
+  "currentTask": null,
   "verified": [
     {
       "what": "SC-004 dev: password change required",
@@ -779,6 +818,14 @@
       "warnings": [
         "checks ran through the SSH tunnel to 127.0.0.1:8765, not through nginx"
       ]
+    },
+    {
+      "what": "Code review of PR #289",
+      "result": "10 findings fixed in 37378f5 (payment 404 detail, Pillow and CSD failures as 422s, email validator template, /auth 404 ids, OpenAPI media type, framework-status guard, min_order_qty int, two wrappers removed); 6259 passed, 2 skipped"
+    },
+    {
+      "what": "mbe-ui handover (T091)",
+      "result": "mictlanix/mbe-ui#232 opened with the 241 codes by area, the validation types and the phase 3 changes"
     }
   ]
 }

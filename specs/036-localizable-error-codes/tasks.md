@@ -258,8 +258,8 @@ These apply to every task below that says "migrate". They aren't repeated in eac
 
 ### After merge
 
-- [ ] T091 Open the mbe-ui issue (FR-019, quickstart §4): link `contracts/error-codes.md` on main, list the codes by area with params and statuses, and name what phase 3 changes (the four dict details, `ItineraryResponse.warnings`, the four inventory and purchasing warning lists).
-- [ ] T092 Delete the branch locally and remotely, remove the worktree, record the verifications, run `--mark-complete` for `specs/036-localizable-error-codes`, and commit its `.spec-context.json` to main.
+- [X] T091 Open the mbe-ui issue (FR-019, quickstart §4): link `contracts/error-codes.md` on main, list the codes by area with params and statuses, and name what phase 3 changes (the four dict details, `ItineraryResponse.warnings`, the four inventory and purchasing warning lists).
+- [X] T092 Delete the branch locally and remotely, remove the worktree, record the verifications, run `--mark-complete` for `specs/036-localizable-error-codes`, and commit its `.spec-context.json` to main.
 
 ---
 
