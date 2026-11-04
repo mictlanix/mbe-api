@@ -366,6 +366,7 @@ Every code the API serves, with its HTTP status, its `params` and the situation 
 | `refund.completed_cannot_cancel` | 409 | — | A completed refund is final and cannot be cancelled. |
 | `refund.line_invoiced` | 409 | product_code: str, invoice?: str | The units of a line are on a live invoice and must be un-invoiced before refunding. `invoice` is the invoice's folio, an identifier like a non-numeric id; omitted when the invoice has none. |
 | `refund.no_returnable_lines` | 409 | — | The refund has no line with a returnable quantity. |
+| `refund.not_confirmed` | 409 | — | The refund is open or cancelled; only a confirmed refund has a receipt to print. |
 | `refund.nothing_refundable` | 409 | — | No item on the order remains to be refunded. |
 | `refund.order_not_completed` | 409 | — | The order is not completed, so it cannot be refunded. |
 | `refund.order_not_paid` | 409 | — | The order is not paid; unpaid orders are cancelled, not refunded. |

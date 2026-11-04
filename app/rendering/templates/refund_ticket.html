@@ -1,0 +1,75 @@
+{#- A confirmed refund's receipt, after legacy Views/CustomerRefunds/Print.cshtml (#287).
+Context: print_contexts.refund_ticket_context.
+
+Legacy printed the lines and the total, and in its footer the refund's id. Added here: the tax, the
+salesperson and how the money went back. A store-credit note's footer is its backing payment's id,
+as on legacy's TicketCreditNote, because that is the number a walk-in customer redeems it by. -#}
+{% extends "_ticket_layout.html" %}
+{% block main %}
+<div class="display-label text-right">
+	<label>Folio</label><br>
+	{{ folio }}
+</div>
+<div class="display-label date text-right">
+	<label>Fecha</label><br>
+	{{ date }}
+</div>
+<div class="display-label">
+	<label>Pedido</label><br>
+	{{ sales_order }}
+</div>
+<div class="display-label">
+	<label>Cliente</label><br>
+	{{ customer }}
+</div>
+<div class="display-label">
+	<label>Vendedor</label><br>
+	{{ salesperson }}
+</div>
+<table>
+	{% for line in lines %}
+	<tr>
+		<td colspan="2">
+			{{ line.quantity }} × {{ line.price }}
+			{% if line.discount %}- {{ line.discount }}{% endif %}
+			<span>{{ line.code }}</span>
+		</td>
+	</tr>
+	<tr>
+		<td class="line">{{ line.name }}</td>
+		<td class="line number">{{ line.total }}</td>
+	</tr>
+	{% endfor %}
+	<tr>
+		<td class="text-right">Subtotal</td>
+		<td class="number">{{ subtotal }}</td>
+	</tr>
+	<tr>
+		<td class="text-right">IVA</td>
+		<td class="number">{{ taxes }}</td>
+	</tr>
+	<tr>
+		<td class="total text-right">Total</td>
+		<td class="total number">{{ total }}</td>
+	</tr>
+	<tr>
+		<td class="line number">Reembolso</td>
+		<td class="line text-right">{{ payout }}</td>
+	</tr>
+	{% if credit_note %}
+	<tr>
+		<td class="text-right">Número de Ticket</td>
+		<td class="text-right">{{ footer_id }}</td>
+	</tr>
+	{% endif %}
+</table>
+{% if receipt_message %}
+<div class="legend">
+	<p class="text-center">{{ receipt_message }}</p>
+</div>
+{% endif %}
+{% endblock %}
+{% block footer %}
+<img src="{{ barcode }}" alt="{{ footer_id }}">
+<p>{{ footer_id }}</p>
+{% endblock %}

@@ -285,6 +285,7 @@ class ErrorCode(StrEnum):
     REFUND_COMPLETED_CANNOT_CANCEL = 'refund.completed_cannot_cancel', 409
     REFUND_LINE_INVOICED = 'refund.line_invoiced', 409
     REFUND_NO_RETURNABLE_LINES = 'refund.no_returnable_lines', 409
+    REFUND_NOT_CONFIRMED = 'refund.not_confirmed', 409
     REFUND_NOTHING_REFUNDABLE = 'refund.nothing_refundable', 409
     REFUND_ORDER_NOT_COMPLETED = 'refund.order_not_completed', 409
     REFUND_ORDER_NOT_PAID = 'refund.order_not_paid', 409
