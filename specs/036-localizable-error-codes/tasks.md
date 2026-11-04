@@ -254,7 +254,7 @@ These apply to every task below that says "migrate". They aren't repeated in eac
 - [X] T087 Reconcile `raise-map.md` with the code: fix line numbers that drifted, and mark any row whose code changed during implementation (contract and enum changed with it). Then rerun the raise-map ⇄ contract check (every row's status equals its code's status, every row's code is in the catalog) and expect 0 mismatches (SC-005).
 - [X] T088 Final gate: `uv run ruff check app/ migrations/ tests/` and `uv run pytest -q` pass with no xfail left from this spec; run quickstart §1's local spot checks against `uv run uvicorn app.main:app --port 8000`.
 - [X] T089 Open the PR from `036-localizable-error-codes`, with `Closes mictlanix/mbe-roadmap#147` under "Roadmap" (or `Part of` if the user prefers, since phase 3 remains), and the summary, behaviour changes and test counts.
-- [ ] T090 Deploy the branch to xolotl dev :8765 as `mictlanix@` (pre-authorized). **Ask the user before** creating quickstart §3's test rows in mbe_dev, then run the three checks through nginx, record the responses as spec verifications, delete the test rows, and confirm 0 rows left and no 500s in the dev log (SC-004).
+- [X] T090 Deploy the branch to xolotl dev :8765 as `mictlanix@` (pre-authorized). **Ask the user before** creating quickstart §3's test rows in mbe_dev, then run the three checks through nginx, record the responses as spec verifications, delete the test rows, and confirm 0 rows left and no 500s in the dev log (SC-004).
 
 ### After merge
 

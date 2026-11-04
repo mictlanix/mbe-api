@@ -759,5 +759,26 @@
       "at": "2026-10-29T01:40:54.666Z"
     }
   ],
-  "currentTask": "T089"
+  "currentTask": "T089",
+  "verified": [
+    {
+      "what": "SC-004 dev: password change required",
+      "result": "pass: a new user with must_change_password gets 200 on /auth/me and 403 application/problem+json on /customers with detail \"password_change_required\" and code auth.password_change_required"
+    },
+    {
+      "what": "SC-004 dev: confirm with a zero-priced line",
+      "result": "pass: 409 application/problem+json, code sales_order.zero_priced_lines, dict detail {message, lines} unchanged"
+    },
+    {
+      "what": "SC-004 dev: credit hold",
+      "result": "pass: 422 application/problem+json, code customer.credit_hold, string detail, params {customer_id: int, overdue_count: 1, action: raise}"
+    },
+    {
+      "what": "SC-004 dev: cleanup and log",
+      "result": "pass: test user, customer and orders deleted, 0 rows left; no 500s or tracebacks in the dev log",
+      "warnings": [
+        "checks ran through the SSH tunnel to 127.0.0.1:8765, not through nginx"
+      ]
+    }
+  ]
 }
