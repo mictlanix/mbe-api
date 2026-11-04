@@ -42,7 +42,7 @@ async def get_me(
     """Return the authenticated caller's own profile, settings, and privileges."""
     user = await user_service.get_user(db, current_user.user_id)
     if user is None:
-        raise not_found(User)
+        raise not_found(User, current_user.user_id)
     return UserResponse.model_validate(user)
 
 
@@ -73,7 +73,7 @@ async def confirm_recovery(
 
     user = await db.get(User, user_id)
     if user is None:
-        raise not_found(User)
+        raise not_found(User, user_id)
 
     await user_service.complete_recovery(db, user, data.new_password)
 
@@ -87,7 +87,7 @@ async def change_password(
     """Change the authenticated user's own password (requires old password verification)."""
     user = await db.get(User, current_user.user_id)
     if user is None:
-        raise not_found(User)
+        raise not_found(User, current_user.user_id)
 
     from app.core.security import verify_password
 

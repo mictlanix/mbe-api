@@ -2,7 +2,6 @@
 editor up to a sealed CFDI (#47, spec 027)."""
 
 from decimal import Decimal
-from typing import Any
 
 from fastapi import APIRouter, Depends, Query, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -54,10 +53,6 @@ _CFDI_40 = Decimal('4.0')
 _XML_RESPONSE = {
     200: {'content': {'application/xml': {'schema': {'type': 'string', 'format': 'binary'}}}}
 }
-
-
-def _conflict(code: ErrorCode, detail: str, params: dict[str, Any] | None = None) -> DomainError:
-    return DomainError(code, detail, params)
 
 
 async def _document_or_404(db: AsyncSession, fiscal_document_id: int) -> FiscalDocument:
@@ -120,10 +115,12 @@ async def download_fiscal_document_xml(
     only represents it (FR-021)."""
     document = await _document_or_404(db, fiscal_document_id)
     if not document.completed:
-        raise _conflict(ErrorCode.FISCAL_DOCUMENT_NOT_ISSUED, 'Fiscal document has not been issued')
+        raise DomainError(
+            ErrorCode.FISCAL_DOCUMENT_NOT_ISSUED, 'Fiscal document has not been issued'
+        )
     xml = await fiscal_document_service.get_xml(db, fiscal_document_id)
     if xml is None:
-        raise _conflict(
+        raise DomainError(
             ErrorCode.FISCAL_DOCUMENT_XML_UNAVAILABLE, 'Stamped XML is missing or unreadable'
         )
     return Response(
@@ -142,24 +139,26 @@ async def print_fiscal_document(
     """The letter-size printed representation of a stamped CFDI 4.0, with its SAT QR code."""
     document = await _document_or_404(db, fiscal_document_id)
     if not document.completed:
-        raise _conflict(ErrorCode.FISCAL_DOCUMENT_NOT_ISSUED, 'Fiscal document has not been issued')
+        raise DomainError(
+            ErrorCode.FISCAL_DOCUMENT_NOT_ISSUED, 'Fiscal document has not been issued'
+        )
     if document.version != _CFDI_40:
-        raise _conflict(
+        raise DomainError(
             ErrorCode.FISCAL_DOCUMENT_VERSION_NOT_PRINTABLE,
             'Only CFDI 4.0 documents can be printed',
             {'version': str(document.version)},
         )
     if not document.stamp_uuid:
-        raise _conflict(ErrorCode.FISCAL_DOCUMENT_NOT_STAMPED, 'Fiscal document is not stamped')
+        raise DomainError(ErrorCode.FISCAL_DOCUMENT_NOT_STAMPED, 'Fiscal document is not stamped')
     xml = await fiscal_document_service.get_xml(db, fiscal_document_id)
     if xml is None:
-        raise _conflict(
+        raise DomainError(
             ErrorCode.FISCAL_DOCUMENT_XML_UNAVAILABLE, 'Stamped XML is missing or unreadable'
         )
     try:
         template, context = await print_contexts.fiscal_document_context(db, document, xml)
     except CfdiError:
-        raise _conflict(
+        raise DomainError(
             ErrorCode.FISCAL_DOCUMENT_XML_UNAVAILABLE, 'Stamped XML is missing or unreadable'
         ) from None
     pdf = await rendering.render_pdf(template, context)

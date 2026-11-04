@@ -78,7 +78,7 @@ def assert_quantity_allowed(quantity: Decimal, *, min_order_qty: int, product_id
         raise DomainError(
             ErrorCode.SALES_ORDER_BELOW_MIN_QUANTITY,
             f'Quantity is below the product minimum of {min_order_qty}',
-            {'product_id': product_id, 'min_order_qty': Decimal(min_order_qty)},
+            {'product_id': product_id, 'min_order_qty': min_order_qty},
         )
 
 

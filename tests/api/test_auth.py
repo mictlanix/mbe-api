@@ -358,7 +358,7 @@ async def test_a_wrong_current_password_is_coded() -> None:
 
 
 @pytest.mark.asyncio
-async def test_a_missing_own_profile_is_not_found_without_an_id() -> None:
+async def test_a_missing_own_profile_is_not_found_with_its_id() -> None:
     app.dependency_overrides[get_signed_in_user] = lambda: CurrentUser(
         user_id='ghost', session_version=1, administrator=False, facility_id=None, employee_id=7
     )
@@ -368,5 +368,5 @@ async def test_a_missing_own_profile_is_not_found_without_an_id() -> None:
             response = await c.get('/api/v1/auth/me')
 
     body = assert_problem(response, 404, 'resource.not_found')
-    assert body['params'] == {'resource': 'user'}
+    assert body['params'] == {'resource': 'user', 'id': 'ghost'}
     assert body['detail'] == 'User not found'

@@ -51,10 +51,14 @@ def _load_certificate(data: bytes) -> Certificate:
     try:
         return load_pem_x509_certificate(data)
     except ValueError as e:
-        raise DomainError(
-            ErrorCode.CSD_CERTIFICATE_UNREADABLE,
-            'Unreadable certificate — expected a DER or PEM encoded .cer',
-        ) from e
+        raise _unreadable_certificate() from e
+
+
+def _unreadable_certificate() -> DomainError:
+    return DomainError(
+        ErrorCode.CSD_CERTIFICATE_UNREADABLE,
+        'Unreadable certificate — expected a DER or PEM encoded .cer',
+    )
 
 
 def _load_key(data: bytes, password: bytes) -> RSAPrivateKey:
@@ -128,7 +132,19 @@ def _parse_sync(certificate_data: bytes, key_data: bytes, key_password: bytes) -
     certificate = _load_certificate(certificate_data)
     key = _load_key(key_data, key_password)
 
-    certificate_key = certificate.public_key()
+    # `cryptography` parses a loaded certificate's key and subject lazily, so a malformed one
+    # fails here, with a ValueError, rather than in `_load_certificate`.
+    try:
+        certificate_key = certificate.public_key()
+        parsed = ParsedCsd(
+            certificate_id=_certificate_number(certificate),
+            taxpayer=_taxpayer(certificate),
+            valid_from=_to_local(certificate.not_valid_before_utc),
+            valid_to=_to_local(certificate.not_valid_after_utc),
+        )
+    except ValueError as e:
+        raise _unreadable_certificate() from e
+
     if not isinstance(certificate_key, RSAPublicKey):
         raise DomainError(
             ErrorCode.CSD_CERTIFICATE_NOT_RSA,
@@ -136,13 +152,7 @@ def _parse_sync(certificate_data: bytes, key_data: bytes, key_password: bytes) -
         )
     if key.public_key().public_numbers() != certificate_key.public_numbers():
         raise DomainError(ErrorCode.CSD_KEY_MISMATCH, 'Private key does not match the certificate')
-
-    return ParsedCsd(
-        certificate_id=_certificate_number(certificate),
-        taxpayer=_taxpayer(certificate),
-        valid_from=_to_local(certificate.not_valid_before_utc),
-        valid_to=_to_local(certificate.not_valid_after_utc),
-    )
+    return parsed
 
 
 async def parse_csd(certificate_data: bytes, key_data: bytes, key_password: bytes) -> ParsedCsd:

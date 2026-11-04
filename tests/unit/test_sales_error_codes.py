@@ -200,7 +200,7 @@ async def test_a_quote_line_below_the_minimum_names_the_product() -> None:
         )
 
     assert refusal.value.code == 'sales_order.below_min_quantity'
-    assert refusal.value.params == {'product_id': 11, 'min_order_qty': '5'}
+    assert refusal.value.params == {'product_id': 11, 'min_order_qty': 5}
 
 
 # ── Customers ─────────────────────────────────────────────────────────────────

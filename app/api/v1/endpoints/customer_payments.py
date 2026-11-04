@@ -34,7 +34,7 @@ _EDITOR_READ = require_privilege(SystemObject.PAYMENTS_EDITOR, AccessRight.READ)
 async def _payment_or_404(db: AsyncSession, customer_payment_id: int):  # noqa: ANN202
     payment = await customer_payment_service.get_payment(db, customer_payment_id)
     if payment is None:
-        raise not_found('customer_payment', customer_payment_id)
+        raise not_found('customer_payment', customer_payment_id, detail='Payment not found')
     return payment
 
 
@@ -49,7 +49,7 @@ async def _visible_payment_or_404(  # noqa: ANN202
     """404 rather than 403 for another facility's payment, so the id's existence is not revealed."""
     payment = await _payment_or_404(db, customer_payment_id)
     if payment.facility != current.facility_id and not await _sees_every_facility(db, current):
-        raise not_found('customer_payment', customer_payment_id)
+        raise not_found('customer_payment', customer_payment_id, detail='Payment not found')
     return payment
 
 

@@ -74,7 +74,7 @@ class TestAssertQuantityAllowed:
 
         assert exc.value.status_code == 422
         assert exc.value.code == 'sales_order.below_min_quantity'
-        assert exc.value.params == {'product_id': 3, 'min_order_qty': '5'}
+        assert exc.value.params == {'product_id': 3, 'min_order_qty': 5}
         assert '5' in exc.value.detail
 
 

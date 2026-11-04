@@ -138,7 +138,7 @@ class QuoteEmailRequest(BaseModel):
             if len(address) > 254 or not _EMAIL.match(address):
                 raise PydanticCustomError(
                     'email_address_invalid',
-                    f'Not a valid email address: {raw!r}',
+                    "Not a valid email address: '{value}'",
                     {'value': raw},
                 )
             if address.lower() not in seen:

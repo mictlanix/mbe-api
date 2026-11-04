@@ -12,6 +12,7 @@ from cryptography.x509 import load_der_x509_certificate
 from cryptography.x509.oid import NameOID
 
 from app.core.errors import DomainError
+from app.services import csd_service
 from app.services.csd_service import parse_csd
 
 # SAT carries the 20-digit certificate number as the ASCII bytes of the X.509 serial.
@@ -121,6 +122,41 @@ async def test_unreadable_certificate_is_rejected() -> None:
     assert exc.value.code == 'csd.certificate_unreadable'
     assert exc.value.params == {}
     assert 'Unreadable certificate' in exc.value.detail
+
+
+@pytest.mark.asyncio
+async def test_a_certificate_with_an_unreadable_subject_is_rejected(monkeypatch) -> None:
+    """`cryptography` parses the subject lazily, so a malformed one fails after loading."""
+    certificate_data, key_data = _make_csd()
+
+    def _malformed(certificate):
+        raise ValueError('error parsing asn1 value')
+
+    monkeypatch.setattr(csd_service, '_taxpayer', _malformed)
+
+    with pytest.raises(DomainError) as exc:
+        await parse_csd(certificate_data, key_data, _PASSWORD)
+    assert exc.value.code == 'csd.certificate_unreadable'
+    assert 'Unreadable certificate' in exc.value.detail
+
+
+@pytest.mark.asyncio
+async def test_a_certificate_whose_public_key_cannot_be_read_is_rejected(monkeypatch) -> None:
+    certificate_data, key_data = _make_csd()
+    real = csd_service._load_certificate(certificate_data)
+
+    class _Broken:
+        def __getattr__(self, name):
+            return getattr(real, name)
+
+        def public_key(self):
+            raise ValueError('unsupported key type')
+
+    monkeypatch.setattr(csd_service, '_load_certificate', lambda data: _Broken())
+
+    with pytest.raises(DomainError) as exc:
+        await parse_csd(certificate_data, key_data, _PASSWORD)
+    assert exc.value.code == 'csd.certificate_unreadable'
 
 
 @pytest.mark.asyncio

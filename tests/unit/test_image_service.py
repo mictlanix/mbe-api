@@ -7,7 +7,7 @@ same, deleting one order's proof would remove another order's (FR-044b).
 import io
 
 import pytest
-from PIL import Image
+from PIL import Image, ImageFile
 
 from app.core.errors import DomainError
 from app.services.image_service import (
@@ -43,6 +43,31 @@ class TestNormalisation:
         assert exc.value.status_code == 422
         assert exc.value.code == 'image.unsupported_format'
         assert exc.value.params == {}
+
+    def test_refuses_an_image_pillow_cannot_decode(self, monkeypatch) -> None:
+        """Pillow recognises the header but fails decoding the pixels: a 422, never a 500."""
+
+        def _fail(self):
+            raise OSError('broken data stream when reading image file')
+
+        monkeypatch.setattr(ImageFile.ImageFile, 'load', _fail)
+
+        with pytest.raises(DomainError) as exc:
+            normalise_to_png(_png())
+
+        assert exc.value.code == 'image.unsupported_format'
+
+    def test_refuses_an_image_pillow_cannot_convert(self, monkeypatch) -> None:
+        def _fail(*args, **kwargs):
+            raise ValueError('conversion not supported')
+
+        monkeypatch.setattr(Image.Image, 'convert', _fail)
+
+        with pytest.raises(DomainError) as exc:
+            normalise_to_png(_png())
+
+        assert exc.value.code == 'image.unsupported_format'
+        assert exc.value.detail == 'Unsupported or unrecognizable image format'
 
     def test_refuses_an_oversized_upload(self) -> None:
         with pytest.raises(DomainError, match='2 MB') as exc:

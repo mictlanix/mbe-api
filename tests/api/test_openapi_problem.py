@@ -24,6 +24,9 @@ def test_every_v1_operation_defaults_to_a_problem() -> None:
                 continue
             content = operation['responses'].get('default', {}).get('content', {})
             schema = content.get('application/problem+json', {}).get('schema', {})
-            if schema.get('$ref') != '#/components/schemas/Problem':
+            # Errors are served only as application/problem+json, so nothing else is advertised.
+            if schema.get('$ref') != '#/components/schemas/Problem' or set(content) != {
+                'application/problem+json'
+            }:
                 missing.append(f'{method.upper()} {path}')
     assert not missing

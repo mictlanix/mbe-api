@@ -151,9 +151,7 @@ async def test_the_handler_passes_errors_through() -> None:
     async with AsyncClient(transport=ASGITransport(app=_app()), base_url='http://t') as c:
         r = await c.get('/batch')
     body = assert_problem(r, 422, 'inventory_count.batch_invalid')
-    assert body['errors'] == [
-        {'index': 0, 'reason': 'x', 'code': 'inventory_count_line.repeated'}
-    ]
+    assert body['errors'] == [{'index': 0, 'reason': 'x', 'code': 'inventory_count_line.repeated'}]
 
 
 @pytest.mark.asyncio
@@ -203,3 +201,40 @@ async def test_an_unparseable_body_and_a_failed_validation() -> None:
 
 def test_a_framework_400_is_request_malformed() -> None:
     assert FRAMEWORK_CODES[400] is ErrorCode.REQUEST_MALFORMED
+
+
+def _framework_statuses() -> set[int]:
+    """Every status Starlette and FastAPI raise an HTTPException with, read from their source."""
+    import ast
+    import re
+    from pathlib import Path
+
+    import fastapi
+    import starlette
+
+    statuses: set[int] = set()
+    for package in (starlette, fastapi):
+        for path in Path(package.__file__).parent.rglob('*.py'):
+            for node in ast.walk(ast.parse(path.read_text())):
+                if not isinstance(node, ast.Call):
+                    continue
+                func = node.func
+                name = func.attr if isinstance(func, ast.Attribute) else getattr(func, 'id', None)
+                if name != 'HTTPException':
+                    continue
+                args = [k.value for k in node.keywords if k.arg == 'status_code'] or node.args[:1]
+                for arg in args:
+                    if isinstance(arg, ast.Constant) and isinstance(arg.value, int):
+                        statuses.add(arg.value)
+                    elif match := re.search(r'HTTP_(\d{3})', ast.unparse(arg)):
+                        statuses.add(int(match[1]))
+    return statuses
+
+
+def test_every_status_the_framework_raises_has_its_own_code() -> None:
+    """A framework status with no entry would fall back to a code whose catalog status differs
+    from the response's. Fails when an upgrade starts raising a status we don't map."""
+    statuses = _framework_statuses()
+    assert statuses >= {400, 404, 405}
+    assert statuses <= set(FRAMEWORK_CODES)
+    assert all(FRAMEWORK_CODES[s].status == s for s in FRAMEWORK_CODES)

@@ -140,3 +140,19 @@ app.include_router(api_router, prefix=settings.api_v1_prefix)
 # Product images only. Proof-of-delivery captures live under settings.pod_dir and are served by
 # an authenticated route: a customer signature must never sit behind an unauthenticated URL.
 app.mount('/images', StaticFiles(directory=settings.images_dir, check_dir=False), name='images')
+
+_fastapi_openapi = app.openapi
+
+
+def _openapi() -> dict:
+    """FastAPI lists a response `model` under application/json as well; errors are only ever
+    served as application/problem+json, so the default response advertises that alone."""
+    if app.openapi_schema is None:
+        for operations in _fastapi_openapi()['paths'].values():
+            for operation in operations.values():
+                default = operation.get('responses', {}).get('default', {})
+                default.get('content', {}).pop('application/json', None)
+    return app.openapi_schema
+
+
+app.openapi = _openapi  # type: ignore[method-assign]

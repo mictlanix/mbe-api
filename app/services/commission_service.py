@@ -666,14 +666,10 @@ def _audit(db: AsyncSession, current: CurrentUser, instance_id: int, reason: str
     )
 
 
-def _not_found(resource: type, id: int, what: str) -> DomainError:
-    return not_found(resource, id, detail=f'{what} not found')
-
-
 async def _get_or_404[T](db: AsyncSession, model: type[T], pk: int, what: str) -> T:
     row = await db.get(model, pk)
     if row is None:
-        raise _not_found(model, pk, what)
+        raise not_found(model, pk, detail=f'{what} not found')
     return row
 
 
@@ -806,7 +802,7 @@ async def create_agent(  # noqa: ANN201
     db: AsyncSession, data: CommissionAgentCreate, *, current: CurrentUser
 ):
     if await db.get(Employee, data.employee) is None:
-        raise _not_found(Employee, data.employee, 'Employee')
+        raise not_found(Employee, data.employee, detail='Employee not found')
     if await db.get(CommissionAgent, data.employee) is not None:
         raise DomainError(
             ErrorCode.RESOURCE_ALREADY_EXISTS,
@@ -1013,7 +1009,7 @@ async def delete_product_label(db: AsyncSession, product: int, *, current: Curre
         .first()
     )
     if row is None:
-        raise _not_found(CommissionProduct, product, 'Product commission label')
+        raise not_found(CommissionProduct, product, detail='Product commission label not found')
     await assert_not_referenced(db, row)
     _audit(db, current, product, 'Product commission label removed', f'label {row.commission}')
     await db.delete(row)

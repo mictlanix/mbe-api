@@ -393,7 +393,7 @@ Every code the API serves, with its HTTP status, its `params` and the situation 
 | Code | Status | Params | Situation |
 |---|---|---|---|
 | `sales_order.already_cancelled` | 409 | — | The sales order is already cancelled. |
-| `sales_order.below_min_quantity` | 422 | product_id: int, min_order_qty: decimal | A line orders less than the product's minimum order quantity. |
+| `sales_order.below_min_quantity` | 422 | product_id: int, min_order_qty: int | A line orders less than the product's minimum order quantity. |
 | `sales_order.has_payment_applications` | 409 | application_ids: list[int] | The sales order still has payment applications to reverse first. |
 | `sales_order.insufficient_stock` | 409 | — (dict `detail` kept: message, lines) | Lines lack stock or a warehouse. Phase 3 moves the lines to `errors[]`. |
 | `sales_order.missing_delivery_details` | 409 | — (dict `detail` kept: message, missing) | A back-office order lacks delivery details. Phase 3 moves the parts to `errors[]`. |
