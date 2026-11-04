@@ -1,8 +1,8 @@
 from decimal import Decimal
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
-from app.schemas import LocalDateTime
+from app.schemas import CUSTOMER_DISPLAY_NAME_DESCRIPTION, LocalDateTime
 
 
 class CreditNoteResponse(BaseModel):
@@ -17,6 +17,10 @@ class CreditNoteResponse(BaseModel):
 
     credit_note_id: int
     customer: int
+    #: The customer's own name (#283), as on `CustomerPaymentResponse` (#270).
+    customer_display_name: str | None = Field(
+        default=None, description=CUSTOMER_DISPLAY_NAME_DESCRIPTION
+    )
     sales_order: int
     customer_refund: int
     customer_payment: int

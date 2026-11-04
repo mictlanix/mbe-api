@@ -4,7 +4,7 @@ from enum import StrEnum
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.enums import CurrencyCode
-from app.schemas import LocalDateTime
+from app.schemas import CUSTOMER_DISPLAY_NAME_DESCRIPTION, LocalDateTime
 from app.schemas.sales_order import DocumentStatus
 
 
@@ -60,6 +60,10 @@ class CustomerRefundResponse(BaseModel):
     customer_refund_id: int
     sales_order: int
     customer: int | None
+    #: The customer's own name (#284), as on `CustomerPaymentResponse` (#270).
+    customer_display_name: str | None = Field(
+        default=None, description=CUSTOMER_DISPLAY_NAME_DESCRIPTION
+    )
     sales_person: int
     facility: int
     serial: int | None
@@ -79,6 +83,10 @@ class CustomerRefundSummary(BaseModel):
     customer_refund_id: int
     sales_order: int
     customer: int | None
+    #: The customer's own name (#284), as on `CustomerPaymentResponse` (#270).
+    customer_display_name: str | None = Field(
+        default=None, description=CUSTOMER_DISPLAY_NAME_DESCRIPTION
+    )
     serial: int | None
     date: LocalDateTime | None
     currency: CurrencyCode

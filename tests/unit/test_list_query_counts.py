@@ -18,6 +18,9 @@ from app.services.cash_session_service import attach_relations, attach_summary_a
 from app.services.credit_note_service import list_credit_notes
 from app.services.customer_payment_service import attach_customer_names, attach_summary_unapplied
 from app.services.customer_refund_service import (
+    attach_customer_names as refund_customer_names,
+)
+from app.services.customer_refund_service import (
     attach_summary_totals as refund_summary_totals,
 )
 from app.services.sales_order_service import (
@@ -210,7 +213,13 @@ class TestCreditNotes:
     @pytest.mark.parametrize('size', PAGE_SIZES)
     async def test_two_queries_regardless_of_page_size(self, size: int) -> None:
         rows = [
-            (SimpleNamespace(credit_note_id=i, cash_session=None), Decimal('100'), 1, Decimal('40'))
+            (
+                SimpleNamespace(credit_note_id=i, cash_session=None),
+                Decimal('100'),
+                1,
+                Decimal('40'),
+                'Cliente',
+            )
             for i in range(1, size + 1)
         ]
         db = _db(SimpleNamespace(scalar_one=lambda: size), _rows(rows))
@@ -223,13 +232,14 @@ class TestCreditNotes:
     @pytest.mark.asyncio
     async def test_remaining_comes_from_the_rows_unapplied_amount(self) -> None:
         note = SimpleNamespace(credit_note_id=1, cash_session=None)
-        row = (note, Decimal('116'), 1, Decimal('100'))
+        row = (note, Decimal('116'), 1, Decimal('100'), 'Cliente Dos')
         db = _db(SimpleNamespace(scalar_one=lambda: 1), _rows([row]))
 
         (listed,), _ = await list_credit_notes(db, current=self._current())
 
         assert listed.__dict__['remaining'] == Decimal('100')
         assert listed.__dict__['amount'] == Decimal('116')
+        assert listed.__dict__['customer_display_name'] == 'Cliente Dos'
 
 
 class TestCashSessions:
@@ -390,4 +400,20 @@ class TestPaymentCustomerNames:
 
         assert db.execute.await_count == 1
         names = [p.__dict__['customer_display_name'] for p in payments]
+        assert names == ['ABC'[i % 3] for i in range(size)]
+
+
+class TestRefundCustomerNames:
+    """#284 — one query for the page's customers, however many rows share them."""
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize('size', PAGE_SIZES)
+    async def test_one_query_regardless_of_page_size(self, size: int) -> None:
+        refunds = [SimpleNamespace(customer_refund_id=i, customer=i % 3) for i in range(size)]
+        db = _db(_rows([(0, 'A'), (1, 'B'), (2, 'C')]))
+
+        await refund_customer_names(db, refunds)
+
+        assert db.execute.await_count == 1
+        names = [r.__dict__['customer_display_name'] for r in refunds]
         assert names == ['ABC'[i % 3] for i in range(size)]

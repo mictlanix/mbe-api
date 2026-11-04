@@ -22,6 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.deps import CurrentUser
+from app.models.customer import Customer
 from app.models.sales import CreditNote, CustomerPayment, SalesOrderPayment
 from app.services import totals
 
@@ -59,13 +60,19 @@ def _unapplied():  # noqa: ANN202 — a SQL expression
 
 
 def _notes_query() -> Select:
-    """Each note with its payment's amount and facility, and its unapplied amount."""
-    return select(
-        CreditNote,
-        CustomerPayment.amount,
-        CustomerPayment.facility,
-        _unapplied().label('unapplied'),
-    ).join(CustomerPayment, CustomerPayment.customer_payment_id == CreditNote.customer_payment)
+    """Each note with its payment's amount and facility, its unapplied amount, and its customer's
+    name (#283), joined so a page stays one query."""
+    return (
+        select(
+            CreditNote,
+            CustomerPayment.amount,
+            CustomerPayment.facility,
+            _unapplied().label('unapplied'),
+            Customer.name,
+        )
+        .join(CustomerPayment, CustomerPayment.customer_payment_id == CreditNote.customer_payment)
+        .outerjoin(Customer, Customer.customer_id == CreditNote.customer)
+    )
 
 
 def _open(query: Select) -> Select:
@@ -78,8 +85,11 @@ def _open(query: Select) -> Select:
     )
 
 
-def _attach(note: CreditNote, amount: Decimal, facility: int, unapplied: Decimal) -> CreditNote:
+def _attach(
+    note: CreditNote, amount: Decimal, facility: int, unapplied: Decimal, customer_name: str | None
+) -> CreditNote:
     refunded_to_customer = note.cash_session is not None
+    note.__dict__['customer_display_name'] = customer_name
     note.__dict__['amount'] = amount
     note.__dict__['facility'] = facility
     note.__dict__['refunded_to_customer'] = refunded_to_customer
