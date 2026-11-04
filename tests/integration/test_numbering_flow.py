@@ -12,13 +12,17 @@ Customer payments (T030) are numbered the same way: the API's payments and the o
 writes take their facility's next serial, and the list's numeric search finds them by it.
 """
 
+import dataclasses
+
 import pytest
 from httpx import AsyncClient
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.clock import local_now
+from app.core.deps import get_current_user
 from app.enums import CurrencyCode, PaymentMethod, PaymentType, TransactionType
+from app.main import app as fastapi_app
 from app.models.customer import Customer
 from app.models.inventory import LotSerialRqmt
 from app.models.logistics import DeliveryOrder
@@ -129,8 +133,14 @@ async def _confirm(
         delivery_id = raised.json()['delivery_order_id']
         response = await client.post(f'/api/v1/delivery-orders/{delivery_id}/confirm')
     else:
+        # A refund is numbered by the store that processes it: a clerk of `facility` takes it.
         sale = await _completed_sale(db, facility)
+        caller = fastapi_app.dependency_overrides[get_current_user]()
+        fastapi_app.dependency_overrides[get_current_user] = lambda: dataclasses.replace(
+            caller, facility_id=facility, point_sale_id=None
+        )
         raised = await client.post('/api/v1/customer-refunds', json={'sales_order': sale})
+        fastapi_app.dependency_overrides[get_current_user] = lambda: caller
         assert raised.status_code == 201, raised.text
         refund_id = raised.json()['customer_refund_id']
         line_id = raised.json()['lines'][0]['customer_refund_detail_id']

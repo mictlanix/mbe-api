@@ -11,6 +11,10 @@ Two consequences follow and neither is incidental.
 
 Confirmation re-validates every quantity under a lock on the source order (research R2), because
 the check at edit time can go stale between two clerks working the same order.
+
+A refund belongs to the store that processes it, as in the current system: the goods come back to
+that store's warehouses, its folio and its payout are that store's, and its cash leaves that store's
+drawer. The source order may be any store's.
 """
 
 from collections.abc import Sequence
@@ -24,6 +28,7 @@ from app.core.deps import CurrentUser
 from app.core.error_codes import ErrorCode
 from app.core.errors import DomainError, not_found
 from app.enums import CurrencyCode, PaymentMethod, PaymentType, TransactionType
+from app.models.core import PointSale, Warehouse
 from app.models.customer import Customer
 from app.models.fiscal import FiscalDocument, FiscalDocumentDetail, FiscalDocumentXml
 from app.models.product import Product
@@ -372,8 +377,16 @@ async def attach_summary_totals(db: AsyncSession, refunds: Sequence[CustomerRefu
 async def open_refund(
     db: AsyncSession, sales_order_id: int, *, current: CurrentUser
 ) -> CustomerRefund:
-    """Pre-populate a refund with every line that still has something to give back (FR-060)."""
+    """Pre-populate a refund with every line that still has something to give back (FR-060).
+
+    The refund is the caller's store's, whichever store sold the order.
+    """
     employee = current.employee_id
+    if current.facility_id is None:
+        raise DomainError(
+            ErrorCode.FACILITY_REQUIRED, 'A refund needs the caller to have a facility'
+        )
+    facility = current.facility_id
 
     order = await db.get(SalesOrder, sales_order_id)
     if order is None:
@@ -415,7 +428,7 @@ async def open_refund(
         modification_time=now,
         completed=False,
         cancelled=False,
-        facility=order.facility,
+        facility=facility,
         serial=None,
         date=None,
         currency=order.currency,
@@ -424,6 +437,8 @@ async def open_refund(
     db.add(refund)
     await db.flush()
 
+    own = await _facility_warehouses(db, facility)
+    counter = await _point_of_sale_warehouse(db, current, facility)
     for line, _ in available:
         db.add(
             CustomerRefundDetail(
@@ -440,13 +455,45 @@ async def open_refund(
                 exchange_rate=line.exchange_rate,
                 currency=line.currency,
                 tax_included=line.tax_included,
-                warehouse=line.warehouse,
+                # The store's own stock: its counter's warehouse, else the line's if it is the
+                # store's, else none until the clerk picks one (confirm refuses a stocked line
+                # without one).
+                warehouse=counter or (line.warehouse if line.warehouse in own else None),
             )
         )
 
     await db.commit()
     await db.refresh(refund)
     return await attach_derived(db, refund)
+
+
+async def _facility_warehouses(db: AsyncSession, facility: int) -> set[int]:
+    rows = await db.execute(select(Warehouse.warehouse_id).where(Warehouse.facility == facility))
+    return set(rows.scalars().all())
+
+
+async def _point_of_sale_warehouse(
+    db: AsyncSession, current: CurrentUser, facility: int
+) -> int | None:
+    """The caller's point of sale's warehouse when that point of sale is in `facility`."""
+    if current.point_sale_id is None:
+        return None
+    point_sale = await db.get(PointSale, current.point_sale_id)
+    if point_sale is None or point_sale.facility != facility:
+        return None
+    return point_sale.warehouse
+
+
+async def assert_own_warehouse(db: AsyncSession, refund: CustomerRefund, warehouse_id: int) -> None:
+    """Returned goods go back to the processing store's own warehouses."""
+    await warehouse_service.assert_sellable(db, warehouse_id)
+    warehouse = await db.get(Warehouse, warehouse_id)
+    if warehouse is not None and warehouse.facility != refund.facility:
+        raise DomainError(
+            ErrorCode.REFUND_WAREHOUSE_OTHER_FACILITY,
+            f"Warehouse {warehouse_id} is not in the refund's facility {refund.facility}",
+            {'warehouse_id': warehouse_id, 'facility_id': refund.facility},
+        )
 
 
 async def get_refund(db: AsyncSession, customer_refund_id: int) -> CustomerRefund | None:
@@ -471,6 +518,7 @@ async def list_refunds(
     refund_status: str | None = None,
     search: str | None = None,
     mine: bool = False,
+    facility: int | None = None,
     skip: int = 0,
     limit: int = 20,
 ) -> tuple[Sequence[CustomerRefund], int]:
@@ -484,7 +532,7 @@ async def list_refunds(
         base = base.where(clause)
         count_q = count_q.where(clause)
 
-    both(CustomerRefund.facility == current.facility_id)
+    both(CustomerRefund.facility == (facility if facility is not None else current.facility_id))
     if customer is not None:
         both(CustomerRefund.customer == customer)
     if sales_order is not None:
@@ -550,7 +598,7 @@ async def update_line(
         line.quantity = changes['quantity']
     if 'warehouse' in changes:
         if changes['warehouse'] is not None:
-            await warehouse_service.assert_sellable(db, changes['warehouse'])
+            await assert_own_warehouse(db, refund, changes['warehouse'])
         line.warehouse = changes['warehouse']
 
     refund.updater = current.employee_id
@@ -664,8 +712,15 @@ async def _confirm_locked(
         line.quantity = adjusted
 
     stocked = await _stocked_products(db, {line.product for line, _ in keep})
+    for line, _ in keep:
+        if line.product in stocked and line.warehouse is None:
+            raise DomainError(
+                ErrorCode.WAREHOUSE_REQUIRED,
+                f'Line {line.product_code} needs a warehouse to return its goods to',
+                {'resource': 'customer_refund'},
+            )
     for line, adjusted in keep:
-        if line.product in stocked and line.warehouse is not None:
+        if line.product in stocked:
             stock_ledger.post_movement(
                 db,
                 source=TransactionType.CUSTOMER_REFUND,
