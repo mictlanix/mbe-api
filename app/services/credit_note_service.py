@@ -7,7 +7,8 @@ current system writes a note with `refunded = 0` and puts the amount on the paym
 (`CustomerRefundsController.cs:353-378`), so reading the note's own columns finds nothing.
 
 `refunded` and `cash_session` on the note mean it was paid back to the customer in cash: the current
-system's `IsRefundedToCustomer` (`CreditNote.cs:53`). Such a note has nothing left to spend.
+system's `IsRefundedToCustomer` (`CreditNote.cs:53`). Such a note has nothing left to spend. A
+refund confirmed with a cash payout writes one, backed by the negative cash payment it paid (#286).
 
 Redemption has no endpoint of its own — it is an ordinary payment application (FR-070a), which is
 what makes it bounded, reversible and correctable through the payments editor without any of that
@@ -90,7 +91,8 @@ def _attach(
 ) -> CreditNote:
     refunded_to_customer = note.cash_session is not None
     note.__dict__['customer_display_name'] = customer_name
-    note.__dict__['amount'] = amount
+    # Positive for a cash payout's note too, whose backing payment is the cash that left (#286)
+    note.__dict__['amount'] = abs(amount)
     note.__dict__['facility'] = facility
     note.__dict__['refunded_to_customer'] = refunded_to_customer
     note.__dict__['remaining'] = remaining_balance(

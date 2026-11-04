@@ -262,7 +262,48 @@ async def attach_derived(db: AsyncSession, refund: CustomerRefund) -> CustomerRe
         completed=refund.completed, cancelled=refund.cancelled
     ).value
     await attach_customer_names(db, [refund])
+    await attach_payouts(db, [refund])
     return refund
+
+
+async def attach_payouts(db: AsyncSession, refunds: Sequence[CustomerRefund]) -> None:
+    """How each refund paid the customer back, from its credit note, in one query (#286).
+
+    Confirming writes a note for either payout. A cash payout's note is backed by the negative cash
+    payment that left the drawer; a store-credit note by a positive one, whose id the note's ticket
+    prints. No note means the refund paid nothing back: still open or cancelled, or one of the
+    current system's refunds that only reduced what an unpaid order owed.
+    """
+    ids = [refund.customer_refund_id for refund in refunds]
+    rows = []
+    if ids:
+        rows = (
+            await db.execute(
+                select(
+                    CreditNote.customer_refund,
+                    CreditNote.credit_note_id,
+                    CustomerPayment.customer_payment_id,
+                    CustomerPayment.amount,
+                )
+                .join(
+                    CustomerPayment,
+                    CustomerPayment.customer_payment_id == CreditNote.customer_payment,
+                )
+                .where(CreditNote.customer_refund.in_(ids))
+            )
+        ).all()
+    notes = {refund_id: (note, payment, amount) for refund_id, note, payment, amount in rows}
+    for refund in refunds:
+        note, payment, amount = notes.get(refund.customer_refund_id, (None, None, None))
+        refund.__dict__['credit_note'] = note
+        refund.__dict__['customer_payment'] = payment
+        refund.__dict__['payout'] = (
+            None
+            if amount is None
+            else RefundPayout.CASH
+            if amount < 0
+            else RefundPayout.CREDIT_NOTE
+        )
 
 
 async def attach_customer_names(db: AsyncSession, refunds: Sequence[CustomerRefund]) -> None:
@@ -486,6 +527,7 @@ async def list_refunds(
     items = (await db.execute(page)).scalars().all()
     await attach_summary_totals(db, items)
     await attach_customer_names(db, items)
+    await attach_payouts(db, items)
     return items, total
 
 
@@ -718,23 +760,24 @@ async def _pay_customer_back(
     db.add(payment)
     await db.flush()
 
-    if payout == RefundPayout.CREDIT_NOTE:
-        db.add(
-            CreditNote(
-                sales_order=order.sales_order_id,
-                customer_refund=refund.customer_refund_id,
-                customer_payment=payment.customer_payment_id,
-                customer=refund.customer,
-                # The current system's shape (`CustomerRefundsController.cs:353-378`, spec 034
-                # FR-005): the amount and the cash session live on the backing payment. On the note,
-                # `refunded` and `cash_session` mean it was paid back in cash, so a note issued
-                # here carries neither, or neither system would let it be spent. NULL explicitly:
-                # the column defaults to 0.
-                refunded=Decimal(0),
-                cash_session=None,
-                date=now,
-            )
+    # Both payouts write a note, so a refund reaches its money through `credit_note.customer_refund`
+    # alone (#286). The current system's shape (`CustomerRefundsController.cs:353-378`, spec 034
+    # FR-005): the amount and the cash session live on the backing payment. On the note,
+    # `refunded` and `cash_session` mean it was paid back in cash, so a cash payout is a note
+    # already paid back, and a store-credit note carries neither, or neither system would let it
+    # be spent. NULL explicitly: the column defaults to 0.
+    cash = payout == RefundPayout.CASH
+    db.add(
+        CreditNote(
+            sales_order=order.sales_order_id,
+            customer_refund=refund.customer_refund_id,
+            customer_payment=payment.customer_payment_id,
+            customer=refund.customer,
+            refunded=amount if cash else Decimal(0),
+            cash_session=session_id if cash else None,
+            date=now,
         )
+    )
 
 
 async def cancel_refund(

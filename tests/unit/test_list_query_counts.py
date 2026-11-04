@@ -21,6 +21,9 @@ from app.services.customer_refund_service import (
     attach_customer_names as refund_customer_names,
 )
 from app.services.customer_refund_service import (
+    attach_payouts as refund_payouts,
+)
+from app.services.customer_refund_service import (
     attach_summary_totals as refund_summary_totals,
 )
 from app.services.sales_order_service import (
@@ -417,3 +420,19 @@ class TestRefundCustomerNames:
         assert db.execute.await_count == 1
         names = [r.__dict__['customer_display_name'] for r in refunds]
         assert names == ['ABC'[i % 3] for i in range(size)]
+
+
+class TestRefundPayouts:
+    """#286 — one query for the page's credit notes and their payments."""
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize('size', PAGE_SIZES)
+    async def test_one_query_regardless_of_page_size(self, size: int) -> None:
+        refunds = [SimpleNamespace(customer_refund_id=i) for i in range(1, size + 1)]
+        db = _db(_rows([(1, 10, 100, Decimal('-50')), (2, 20, 200, Decimal('50'))]))
+
+        await refund_payouts(db, refunds)
+
+        assert db.execute.await_count == 1
+        payouts = [r.__dict__['payout'] for r in refunds]
+        assert payouts == ['cash', 'credit_note', *[None] * (size - 2)][:size]
