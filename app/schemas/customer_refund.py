@@ -71,6 +71,14 @@ class CustomerRefundResponse(BaseModel):
     currency: CurrencyCode
     exchange_rate: Decimal
     status: DocumentStatus
+    #: How the customer was paid back, from the refund's credit note (#286): null until confirmed,
+    #: and on the current system's refunds that only reduced what an unpaid order owed.
+    payout: RefundPayout | None = None
+    #: The payment the confirm wrote: the cash that left the drawer, or the credit note's backing
+    #: payment, whose id the note's ticket prints and redeems by.
+    customer_payment: int | None = None
+    #: The refund's credit note. A cash payout has one too, already paid back in cash.
+    credit_note: int | None = None
     lines: list[CustomerRefundLineResponse] = []
     subtotal: Decimal
     tax_total: Decimal
@@ -91,4 +99,12 @@ class CustomerRefundSummary(BaseModel):
     date: LocalDateTime | None
     currency: CurrencyCode
     status: DocumentStatus
+    #: How the customer was paid back, from the refund's credit note (#286): null until confirmed,
+    #: and on the current system's refunds that only reduced what an unpaid order owed.
+    payout: RefundPayout | None = None
+    #: The payment the confirm wrote: the cash that left the drawer, or the credit note's backing
+    #: payment, whose id the note's ticket prints and redeems by.
+    customer_payment: int | None = None
+    #: The refund's credit note. A cash payout has one too, already paid back in cash.
+    credit_note: int | None = None
     total: Decimal
