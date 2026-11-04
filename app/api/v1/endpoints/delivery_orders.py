@@ -5,7 +5,6 @@ from fastapi import (
     Depends,
     File,
     Form,
-    HTTPException,
     Query,
     Response,
     UploadFile,
@@ -17,10 +16,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app import rendering
 from app.core.config import settings
 from app.core.deps import CurrentUser, require_privilege
+from app.core.error_codes import ErrorCode
+from app.core.errors import DomainError, not_found
 from app.db.session import get_db
 from app.enums import AccessRight, DeliveryOrderStatus, FulfillmentType, SystemObject
 from app.models.core import Warehouse
-from app.models.logistics import ProofOfDelivery
+from app.models.logistics import DeliveryOrder, ProofOfDelivery
 from app.schemas import ListResponse, LocalDateTime
 from app.schemas.delivery_order import (
     DeliveryOrderCreate,
@@ -48,9 +49,7 @@ _APPROVAL_UPDATE = require_privilege(SystemObject.DELIVERY_ORDER_APPROVAL, Acces
 async def _order_or_404(db: AsyncSession, delivery_order_id: int):  # noqa: ANN202
     order = await delivery_order_service.get_order(db, delivery_order_id)
     if order is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail='Delivery order not found'
-        )
+        raise not_found(DeliveryOrder, delivery_order_id)
     return order
 
 
@@ -287,8 +286,10 @@ async def list_delivery_order_events(
 
 def _assert_approved(order) -> None:  # noqa: ANN001
     if order.status in (DeliveryOrderStatus.DRAFT, DeliveryOrderStatus.PENDING_APPROVAL):
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT, detail='Delivery order is not approved'
+        raise DomainError(
+            ErrorCode.DELIVERY_ORDER_NOT_APPROVED,
+            'Delivery order is not approved',
+            {'status': DeliveryOrderStatus(order.status)},
         )
 
 
@@ -307,14 +308,17 @@ async def print_delivery_order_ticket(
     _assert_approved(order)
     if warehouse is not None:
         if await db.get(Warehouse, warehouse) is None:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail='Unknown warehouse'
+            raise DomainError(
+                ErrorCode.DELIVERY_ORDER_UNKNOWN_WAREHOUSE,
+                'Unknown warehouse',
+                {'warehouse_id': warehouse},
             )
         lines = await delivery_order_service.lines_of(db, order.delivery_order_id)
         if not any(line.warehouse == warehouse for line in lines):
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-                detail='No line of this order comes from that warehouse',
+            raise DomainError(
+                ErrorCode.DELIVERY_ORDER_NO_LINES_FROM_WAREHOUSE,
+                'No line of this order comes from that warehouse',
+                {'warehouse_id': warehouse},
             )
     template, context = await print_contexts.delivery_ticket_context(db, order, warehouse=warehouse)
     pdf = await rendering.render_pdf(template, context)
@@ -362,10 +366,7 @@ async def confirm_pickup(
 ) -> DeliveryOrderResponse:
     """Same evidentiary standard as a delivery — this is what settles disputes (v2 §5)."""
     order = await _order_or_404(db, delivery_order_id)
-    try:
-        filename = await image_service.save_proof_image(await image.read(), settings.pod_dir)
-    except ValueError as e:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(e)) from e
+    filename = await image_service.save_proof_image(await image.read(), settings.pod_dir)
 
     order = await delivery_order_service.confirm_pickup(
         db,
@@ -383,13 +384,14 @@ async def confirm_pickup(
 
 async def _proof_or_404(db: AsyncSession, order) -> ProofOfDelivery:  # noqa: ANN001
     if order.proof_of_delivery is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail='This delivery order has no proof of delivery yet',
+        raise not_found(
+            'proof_of_delivery',
+            order.delivery_order_id,
+            'This delivery order has no proof of delivery yet',
         )
     proof = await db.get(ProofOfDelivery, order.proof_of_delivery)
     if proof is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Proof not found')
+        raise not_found(ProofOfDelivery, order.proof_of_delivery, 'Proof not found')
     return proof
 
 
@@ -423,7 +425,7 @@ async def get_proof_image(
 
     path = os.path.join(settings.pod_dir, proof.image_file)
     if not os.path.exists(path):
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail='Proof image is missing from storage'
+        raise not_found(
+            'proof_of_delivery_image', delivery_order_id, 'Proof image is missing from storage'
         )
     return FileResponse(path, media_type='image/png')

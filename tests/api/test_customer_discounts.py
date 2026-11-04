@@ -83,6 +83,7 @@ async def test_list_returns_404_for_an_unknown_customer() -> None:
             r = await c.get('/api/v1/customers/999/discounts')
 
     assert r.status_code == 404
+    assert r.json()['code'] == 'resource.not_found'
 
 
 # ── Create ────────────────────────────────────────────────────────────────────
@@ -111,6 +112,7 @@ async def test_create_returns_404_for_an_unknown_customer() -> None:
             )
 
     assert r.status_code == 404
+    assert r.json()['code'] == 'resource.not_found'
 
 
 @pytest.mark.asyncio
@@ -192,6 +194,7 @@ async def test_update_returns_404_for_an_unknown_or_foreign_override() -> None:
             r = await c.put('/api/v1/customers/1/discounts/999', json={'discount': '0.5'})
 
     assert r.status_code == 404
+    assert r.json()['code'] == 'resource.not_found'
 
 
 @pytest.mark.asyncio
@@ -202,6 +205,7 @@ async def test_update_returns_404_for_an_unknown_customer() -> None:
             r = await c.put('/api/v1/customers/999/discounts/5', json={'discount': '0.5'})
 
     assert r.status_code == 404
+    assert r.json()['code'] == 'resource.not_found'
 
 
 # ── Delete ────────────────────────────────────────────────────────────────────
@@ -231,6 +235,7 @@ async def test_delete_returns_404_for_an_unknown_or_foreign_override() -> None:
             r = await c.delete('/api/v1/customers/1/discounts/999')
 
     assert r.status_code == 404
+    assert r.json()['code'] == 'resource.not_found'
 
 
 # ── Auth ──────────────────────────────────────────────────────────────────────

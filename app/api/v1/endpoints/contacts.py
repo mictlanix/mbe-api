@@ -1,10 +1,12 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, Query
 from fastapi import status as http_status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.deps import CurrentUser, require_privilege
+from app.core.errors import not_found
 from app.db.session import get_db
 from app.enums import AccessRight, SystemObject
+from app.models.core import Contact
 from app.schemas import ListResponse
 from app.schemas.core import ContactCreate, ContactResponse, ContactUpdate
 from app.services import contact_service
@@ -42,7 +44,7 @@ async def get_contact(
 ) -> ContactResponse:
     contact = await contact_service.get_contact(db, contact_id)
     if contact is None:
-        raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail='Contact not found')
+        raise not_found(Contact, contact_id)
     return ContactResponse.model_validate(contact)
 
 
@@ -55,7 +57,7 @@ async def update_contact(
 ) -> ContactResponse:
     contact = await contact_service.get_contact(db, contact_id)
     if contact is None:
-        raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail='Contact not found')
+        raise not_found(Contact, contact_id)
     contact = await contact_service.update_contact(db, contact, data)
     return ContactResponse.model_validate(contact)
 
@@ -68,5 +70,5 @@ async def delete_contact(
 ) -> None:
     contact = await contact_service.get_contact(db, contact_id)
     if contact is None:
-        raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail='Contact not found')
+        raise not_found(Contact, contact_id)
     await contact_service.delete_contact(db, contact)

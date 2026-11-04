@@ -8,6 +8,7 @@ from decimal import Decimal
 from typing import Self
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic_core import PydanticCustomError
 
 from app.enums import CurrencyCode, PaymentMethod
 from app.schemas import LocalDateTime
@@ -125,7 +126,9 @@ class StatementEmailRequest(BaseModel):
     @model_validator(mode='after')
     def _someone(self) -> Self:
         if not self.contacts and not self.to:
-            raise ValueError('Choose at least one contact or type an address')
+            raise PydanticCustomError(
+                'statement_email_no_recipient', 'Choose at least one contact or type an address'
+            )
         return self
 
 

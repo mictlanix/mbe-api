@@ -468,7 +468,7 @@ async def test_an_unknown_payment_is_404_on_get() -> None:
             response = await client.get(f'{BASE}/9')
 
     assert response.status_code == status.HTTP_404_NOT_FOUND
-    assert response.json() == {'detail': 'Supplier payment not found'}
+    assert response.json()['detail'] == 'Supplier payment not found'
 
 
 @pytest.mark.asyncio
@@ -490,7 +490,7 @@ async def test_service_refusals_pass_through(action: str, path: str, body: dict,
             response = await client.post(BASE + path, json=body)
 
     assert response.status_code == code
-    assert response.json() == {'detail': 'refused'}
+    assert response.json()['detail'] == 'refused'
 
 
 @pytest.mark.asyncio

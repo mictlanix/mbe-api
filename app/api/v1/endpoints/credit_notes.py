@@ -1,7 +1,9 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.deps import CurrentUser, can_see_every_facility, require_privilege
+from app.core.error_codes import ErrorCode
+from app.core.errors import DomainError, not_found
 from app.db.session import get_db
 from app.enums import AccessRight, SystemObject
 from app.schemas import ListResponse
@@ -47,9 +49,15 @@ async def list_credit_notes(
         and facility != current.facility_id
         and not await _sees_every_facility(db, current)
     ):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Another facility's credit notes require PaymentsEditor read",
+        raise DomainError(
+            ErrorCode.FACILITY_OTHER_FACILITY,
+            "Another facility's credit notes require PaymentsEditor read",
+            {
+                'resource': 'credit_note',
+                'required': [
+                    {'system_object': SystemObject.PAYMENTS_EDITOR, 'right': AccessRight.READ}
+                ],
+            },
         )
     items, total = await credit_note_service.list_credit_notes(
         db,
@@ -75,5 +83,5 @@ async def get_credit_note(
     if note is None or (
         note.facility != current.facility_id and not await _sees_every_facility(db, current)
     ):
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Credit note not found')
+        raise not_found('credit_note', credit_note_id)
     return CreditNoteResponse.model_validate(note)

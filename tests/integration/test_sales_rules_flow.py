@@ -175,6 +175,7 @@ class TestCreditTerms:
 
         assert moved.status_code == 422
         assert 'credit hold' in moved.json()['detail']
+        assert moved.json()['code'] == 'customer.credit_hold'
 
     async def test_cash_under_the_limit_is_allowed(
         self, client: AsyncClient, db: AsyncSession, seeded: None
@@ -273,6 +274,7 @@ def _missing(response) -> list[str]:  # noqa: ANN001 — httpx.Response
     assert response.status_code == 409, response.text
     detail = response.json()['detail']
     assert detail['message'] == 'Order is missing delivery details', detail
+    assert response.json()['code'] == 'sales_order.missing_delivery_details'
     return detail['missing']
 
 

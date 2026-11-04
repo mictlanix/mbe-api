@@ -16,9 +16,12 @@ from fastapi import HTTPException
 from httpx import ASGITransport, AsyncClient
 
 from app.core.deps import CurrentUser, get_current_user
+from app.core.error_codes import ErrorCode
+from app.core.errors import DomainError
 from app.db.session import get_db
 from app.enums import DeliveryOrderStatus, FulfillmentType
 from app.main import app
+from tests.problem import assert_problem
 
 SERVICE = 'app.services.delivery_order_service'
 
@@ -150,23 +153,28 @@ async def test_create_returns_a_draft_with_lines() -> None:
 @pytest.mark.asyncio
 async def test_create_from_an_uncompleted_sales_order_is_409() -> None:
     _auth()
-    conflict = HTTPException(status_code=409, detail='Only a completed, uncancelled sales order')
+    conflict = DomainError(
+        ErrorCode.DELIVERY_ORDER_SALES_ORDER_NOT_DELIVERABLE,
+        'Only a completed, uncancelled sales order can be delivered',
+    )
     with patch(f'{SERVICE}.create_from_sales_order', AsyncMock(side_effect=conflict)):
         async with _client() as client:
             response = await client.post('/api/v1/delivery-orders', json={'sales_order': 42})
 
-    assert response.status_code == 409
+    assert_problem(response, 409, 'delivery_order.sales_order_not_deliverable')
 
 
 @pytest.mark.asyncio
 async def test_create_when_already_fully_delivered_is_409() -> None:
     _auth()
-    conflict = HTTPException(status_code=409, detail='already fully delivered')
+    conflict = DomainError(
+        ErrorCode.DELIVERY_ORDER_SALES_ORDER_FULLY_DELIVERED, 'already fully delivered'
+    )
     with patch(f'{SERVICE}.create_from_sales_order', AsyncMock(side_effect=conflict)):
         async with _client() as client:
             response = await client.post('/api/v1/delivery-orders', json={'sales_order': 42})
 
-    assert response.status_code == 409
+    assert_problem(response, 409, 'delivery_order.sales_order_fully_delivered')
     assert 'fully delivered' in response.json()['detail']
 
 
@@ -399,7 +407,11 @@ async def test_a_zero_line_quantity_is_rejected_by_the_schema() -> None:
 @pytest.mark.asyncio
 async def test_overclaiming_a_line_surfaces_the_services_422() -> None:
     _auth()
-    refusal = HTTPException(status_code=422, detail='Line 7 has 4 undelivered, 5 requested')
+    refusal = DomainError(
+        ErrorCode.DELIVERY_ORDER_QUANTITY_EXCEEDS_REMAINING,
+        'Line 7 has 4 undelivered, 5 requested',
+        {'sales_order_line_id': 7, 'remaining': Decimal('4'), 'requested': Decimal('5')},
+    )
     with patch(f'{SERVICE}.create_from_sales_order', AsyncMock(side_effect=refusal)):
         async with _client() as client:
             response = await client.post(
@@ -407,7 +419,8 @@ async def test_overclaiming_a_line_surfaces_the_services_422() -> None:
                 json={'sales_order': 42, 'lines': [{'sales_order_detail': 7, 'quantity': '5'}]},
             )
 
-    assert response.status_code == 422
+    body = assert_problem(response, 422, 'delivery_order.quantity_exceeds_remaining')
+    assert body['params'] == {'sales_order_line_id': 7, 'remaining': '4', 'requested': '5'}
     assert '4 undelivered' in response.json()['detail']
 
 
@@ -452,6 +465,7 @@ async def test_adding_a_line_to_an_unknown_order_is_404() -> None:
             )
 
     assert response.status_code == 404
+    assert response.json()['code'] == 'resource.not_found'
 
 
 @pytest.mark.asyncio
@@ -470,8 +484,10 @@ async def test_a_zero_added_quantity_is_rejected_by_the_schema() -> None:
 @pytest.mark.asyncio
 async def test_adding_a_line_that_is_already_there_surfaces_the_services_409() -> None:
     _auth()
-    refusal = HTTPException(
-        status_code=409, detail='Line 21 is already on this delivery order as line 11'
+    refusal = DomainError(
+        ErrorCode.DELIVERY_ORDER_LINE_ALREADY_PRESENT,
+        'Line 21 is already on this delivery order as line 11',
+        {'sales_order_line_id': 21, 'delivery_order_line_id': 11},
     )
     with patch(f'{SERVICE}.get_order', AsyncMock(return_value=_order())), patch(
         f'{SERVICE}.add_line', AsyncMock(side_effect=refusal)
@@ -482,7 +498,8 @@ async def test_adding_a_line_that_is_already_there_surfaces_the_services_409() -
                 json={'sales_order_detail': 21, 'quantity': '1'},
             )
 
-    assert response.status_code == 409
+    body = assert_problem(response, 409, 'delivery_order.line_already_present')
+    assert body['params'] == {'sales_order_line_id': 21, 'delivery_order_line_id': 11}
     assert 'as line 11' in response.json()['detail']
 
 
@@ -508,14 +525,19 @@ async def test_confirm_returns_the_numbered_order() -> None:
 @pytest.mark.asyncio
 async def test_editing_outside_draft_is_409() -> None:
     _auth()
-    conflict = HTTPException(status_code=409, detail='can no longer be edited')
+    conflict = DomainError(
+        ErrorCode.DELIVERY_ORDER_NOT_EDITABLE,
+        'A delivery order in APPROVED can no longer be edited',
+        {'status': DeliveryOrderStatus.APPROVED},
+    )
     with patch(f'{SERVICE}.get_order', AsyncMock(return_value=_order())), patch(
         f'{SERVICE}.update_order', AsyncMock(side_effect=conflict)
     ):
         async with _client() as client:
             response = await client.put('/api/v1/delivery-orders/1', json={'priority': 3})
 
-    assert response.status_code == 409
+    body = assert_problem(response, 409, 'delivery_order.not_editable')
+    assert body['params'] == {'status': DeliveryOrderStatus.APPROVED.value}
 
 
 # ── Approval queue ────────────────────────────────────────────────────────────
@@ -732,3 +754,25 @@ async def test_omitting_the_type_leaves_detection_in_charge() -> None:
             await client.post('/api/v1/delivery-orders', json={'sales_order': 42})
 
     assert created.await_args.kwargs['fulfillment_type'] is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ('content', 'code', 'params'),
+    [
+        (b'not an image', 'image.unsupported_format', None),
+        (b'x' * (2 * 1024 * 1024 + 1), 'image.too_large', {'max_bytes': 2097152}),
+    ],
+)
+async def test_a_bad_proof_photo_answers_422_with_the_image_code(content, code, params) -> None:
+    _auth()
+    with patch(f'{SERVICE}.get_order', AsyncMock(return_value=_order())):
+        async with _client() as client:
+            response = await client.post(
+                '/api/v1/delivery-orders/1/pickup',
+                data={'receiver_name': 'Ana', 'receiver_id_shown': 'INE 1'},
+                files={'image': ('sig.png', content, 'image/png')},
+            )
+
+    body = assert_problem(response, 422, code)
+    assert body.get('params') == params or (params is None and not body.get('params'))

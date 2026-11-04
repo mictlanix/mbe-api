@@ -1,10 +1,13 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, Query
 from fastapi import status as http_status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.deps import CurrentUser, require_admin
+from app.core.error_codes import ErrorCode
+from app.core.errors import DomainError, not_found
 from app.db.session import get_db
 from app.enums import EntityStatus
+from app.models.user import User, UserProfile
 from app.schemas.auth import RecoverPasswordAdminResponse
 from app.schemas.user import UserCreate, UserListResponse, UserResponse, UserUpdate
 from app.services import user_profile_service, user_service
@@ -36,8 +39,10 @@ async def create_user(
 ) -> UserResponse:
     existing = await user_service.get_user(db, data.user_id)
     if existing is not None:
-        raise HTTPException(
-            status_code=http_status.HTTP_409_CONFLICT, detail='Username already exists'
+        raise DomainError(
+            ErrorCode.RESOURCE_ALREADY_EXISTS,
+            'Username already exists',
+            {'resource': 'user', 'field': 'username'},
         )
 
     # Resolved and validated BEFORE anything is staged, so a bad profile leaves no user behind
@@ -47,9 +52,7 @@ async def create_user(
     if data.profile_id is not None:
         profile = await user_profile_service.get_profile(db, data.profile_id)
         if profile is None:
-            raise HTTPException(
-                status_code=http_status.HTTP_404_NOT_FOUND, detail='Profile not found'
-            )
+            raise not_found(UserProfile, data.profile_id, detail='Profile not found')
         user_profile_service.assert_applyable(profile)
 
     user = await user_service.create_user(db, data, profile)
@@ -64,7 +67,7 @@ async def get_user(
 ) -> UserResponse:
     user = await user_service.get_user(db, user_id)
     if user is None:
-        raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail='User not found')
+        raise not_found(User, user_id)
     return await user_service.to_response(db, user)
 
 
@@ -77,7 +80,7 @@ async def update_user(
 ) -> UserResponse:
     user = await user_service.get_user(db, user_id)
     if user is None:
-        raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail='User not found')
+        raise not_found(User, user_id)
     user = await user_service.update_user(db, user, data, updater=current.employee_id)
     return await user_service.to_response(db, user)
 
@@ -90,7 +93,7 @@ async def delete_user(
 ) -> None:
     user = await user_service.get_user(db, user_id)
     if user is None:
-        raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail='User not found')
+        raise not_found(User, user_id)
     await user_service.delete_user(db, user, updater=current.employee_id)
 
 
@@ -103,6 +106,6 @@ async def recover_password(
     """Admin-triggered: generate a signed time-limited recovery token for the user."""
     user = await user_service.get_user(db, user_id)
     if user is None:
-        raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail='User not found')
+        raise not_found(User, user_id)
     token, expires_at = await user_service.initiate_recovery(db, user, updater=current.employee_id)
     return RecoverPasswordAdminResponse(recovery_token=token, expires_at=expires_at.isoformat())

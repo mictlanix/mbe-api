@@ -91,15 +91,25 @@ class TestComplementaryRefusal:
         assert svc.complementary_refusal(_order(), [(_order_line(1, '10'), Decimal(4))]) is None
 
     def test_no_purchase_order(self):
-        assert 'no purchase order' in svc.complementary_refusal(None, [])
+        detail, reason = svc.complementary_refusal(None, [])
+        assert 'no purchase order' in detail
+        assert reason == 'no_purchase_order'
 
     def test_an_order_not_completed(self):
-        reason = svc.complementary_refusal(_order(completed=False), [(object(), Decimal(1))])
-        assert 'not completed' in reason
+        detail, reason = svc.complementary_refusal(
+            _order(completed=False), [(object(), Decimal(1))]
+        )
+        assert 'not completed' in detail
+        assert reason == 'purchase_order_not_completed'
 
     def test_a_cancelled_order(self):
-        reason = svc.complementary_refusal(_order(cancelled=True), [(object(), Decimal(1))])
-        assert 'cancelled' in reason
+        detail, reason = svc.complementary_refusal(
+            _order(cancelled=True), [(object(), Decimal(1))]
+        )
+        assert 'cancelled' in detail
+        assert reason == 'purchase_order_cancelled'
 
     def test_a_fully_received_order(self):
-        assert 'fully received' in svc.complementary_refusal(_order(), [])
+        detail, reason = svc.complementary_refusal(_order(), [])
+        assert 'fully received' in detail
+        assert reason == 'purchase_order_fully_received'

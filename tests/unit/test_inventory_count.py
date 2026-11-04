@@ -52,28 +52,57 @@ class TestValidateBatch:
         items = [_item(product=1), _item(product=99), _item(code='NOPE')]
         errors = svc.validate_batch(items, BY_ID, BY_CODE)
         assert errors == [
-            {'index': 1, 'product': 99, 'reason': 'unknown product'},
-            {'index': 2, 'product_code': 'NOPE', 'reason': 'unknown product'},
+            {
+                'index': 1,
+                'product': 99,
+                'reason': 'unknown product',
+                'code': 'inventory_count_line.product_unknown',
+            },
+            {
+                'index': 2,
+                'product_code': 'NOPE',
+                'reason': 'unknown product',
+                'code': 'inventory_count_line.product_unknown',
+            },
         ]
 
     def test_not_stockable(self):
         errors = svc.validate_batch([_item(code='SRV')], BY_ID, BY_CODE)
-        assert errors == [{'index': 0, 'product_code': 'SRV', 'reason': 'not stockable'}]
+        assert errors == [
+            {
+                'index': 0,
+                'product_code': 'SRV',
+                'reason': 'not stockable',
+                'code': 'inventory_count_line.not_stockable',
+            }
+        ]
 
     def test_repeated_by_id_or_by_code_flags_each_later_entry(self):
         items = [_item(product=1), _item(code='A'), _item(product=2), _item(product=1)]
         errors = svc.validate_batch(items, BY_ID, BY_CODE)
         assert errors == [
-            {'index': 1, 'product_code': 'A', 'reason': 'repeated in the batch'},
-            {'index': 3, 'product': 1, 'reason': 'repeated in the batch'},
+            {
+                'index': 1,
+                'product_code': 'A',
+                'reason': 'repeated in the batch',
+                'code': 'inventory_count_line.repeated',
+            },
+            {
+                'index': 3,
+                'product': 1,
+                'reason': 'repeated in the batch',
+                'code': 'inventory_count_line.repeated',
+            },
         ]
 
     def test_both_or_neither_of_id_and_code(self):
         items = [_item(product=1, code='A'), _item()]
         errors = svc.validate_batch(items, BY_ID, BY_CODE)
-        assert [(e['index'], e['reason']) for e in errors] == [
-            (0, 'give exactly one of product and product_code'),
-            (1, 'give exactly one of product and product_code'),
+        both = 'give exactly one of product and product_code'
+        ref = 'inventory_count_line.product_reference'
+        assert [(e['index'], e['reason'], e['code']) for e in errors] == [
+            (0, both, ref),
+            (1, both, ref),
         ]
 
     def test_every_bad_entry_is_listed(self):

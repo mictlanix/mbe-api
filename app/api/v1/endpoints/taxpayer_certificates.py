@@ -1,10 +1,12 @@
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Depends, File, Form, Query, UploadFile
 from fastapi import status as http_status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.deps import CurrentUser, require_privilege
+from app.core.errors import not_found
 from app.db.session import get_db
 from app.enums import AccessRight, EntityStatus, SystemObject
+from app.models.fiscal import TaxpayerCertificate
 from app.schemas import ListResponse
 from app.schemas.fiscal import TaxpayerCertificateResponse
 from app.services import csd_service, taxpayer_certificate_service
@@ -44,10 +46,7 @@ async def upload_taxpayer_certificate(
     key_data = await key.read()
     password_bytes = key_password.encode()
 
-    try:
-        parsed = await csd_service.parse_csd(certificate_data, key_data, password_bytes)
-    except ValueError as exc:
-        raise HTTPException(status_code=http_status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc))
+    parsed = await csd_service.parse_csd(certificate_data, key_data, password_bytes)
 
     stored = await taxpayer_certificate_service.create_taxpayer_certificate(
         db,
@@ -68,7 +67,5 @@ async def get_taxpayer_certificate(
 ) -> TaxpayerCertificateResponse:
     certificate = await taxpayer_certificate_service.get_taxpayer_certificate(db, certificate_id)
     if certificate is None:
-        raise HTTPException(
-            status_code=http_status.HTTP_404_NOT_FOUND, detail='Taxpayer certificate not found'
-        )
+        raise not_found(TaxpayerCertificate, certificate_id)
     return TaxpayerCertificateResponse.model_validate(certificate)

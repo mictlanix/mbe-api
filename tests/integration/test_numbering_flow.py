@@ -186,8 +186,10 @@ async def test_a_refused_confirmation_takes_no_serial(
 
     assert unpriced.status_code == 409, unpriced.text
     assert unpriced.json()['detail']['message'] == 'Order has lines priced at zero'
+    assert unpriced.json()['code'] == 'sales_order.zero_priced_lines'
     assert unstocked.status_code == 409, unstocked.text
     assert unstocked.json()['detail']['message'] == 'Insufficient stock'
+    assert unstocked.json()['code'] == 'sales_order.insufficient_stock'
     assert await _max_serial(db, SalesOrder, 1) == first == before + 1
     assert await _confirm('sales order', client, db, 1) == before + 2
 

@@ -1,10 +1,12 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, Query
 from fastapi import status as http_status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.deps import CurrentUser, require_privilege
+from app.core.errors import not_found
 from app.db.session import get_db
 from app.enums import AccessRight, EntityStatus, SystemObject
+from app.models.core import Vehicle
 from app.schemas import ListResponse
 from app.schemas.core import VehicleCreate, VehicleResponse, VehicleUpdate
 from app.services import vehicle_service
@@ -50,7 +52,7 @@ async def get_vehicle(
 ) -> VehicleResponse:
     vehicle = await vehicle_service.get_vehicle(db, vehicle_id)
     if vehicle is None:
-        raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail='Vehicle not found')
+        raise not_found(Vehicle, vehicle_id)
     return VehicleResponse.model_validate(vehicle)
 
 
@@ -63,7 +65,7 @@ async def update_vehicle(
 ) -> VehicleResponse:
     vehicle = await vehicle_service.get_vehicle(db, vehicle_id)
     if vehicle is None:
-        raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail='Vehicle not found')
+        raise not_found(Vehicle, vehicle_id)
     vehicle = await vehicle_service.update_vehicle(db, vehicle, data)
     return VehicleResponse.model_validate(vehicle)
 
@@ -76,5 +78,5 @@ async def delete_vehicle(
 ) -> None:
     vehicle = await vehicle_service.get_vehicle(db, vehicle_id)
     if vehicle is None:
-        raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail='Vehicle not found')
+        raise not_found(Vehicle, vehicle_id)
     await vehicle_service.delete_vehicle(db, vehicle)

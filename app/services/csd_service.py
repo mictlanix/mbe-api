@@ -19,6 +19,9 @@ from cryptography.x509 import (
     load_pem_x509_certificate,
 )
 
+from app.core.error_codes import ErrorCode
+from app.core.errors import DomainError
+
 # Certificates carry their validity window in UTC, but `taxpayer_certificate.valid_from` /
 # `valid_to` hold Mexico City local time. Checked against the certificates the legacy system
 # wrote: `valid_from` matches on every one, and `valid_to` matches on every certificate issued
@@ -48,7 +51,14 @@ def _load_certificate(data: bytes) -> Certificate:
     try:
         return load_pem_x509_certificate(data)
     except ValueError as e:
-        raise ValueError('Unreadable certificate — expected a DER or PEM encoded .cer') from e
+        raise _unreadable_certificate() from e
+
+
+def _unreadable_certificate() -> DomainError:
+    return DomainError(
+        ErrorCode.CSD_CERTIFICATE_UNREADABLE,
+        'Unreadable certificate — expected a DER or PEM encoded .cer',
+    )
 
 
 def _load_key(data: bytes, password: bytes) -> RSAPrivateKey:
@@ -64,7 +74,9 @@ def _load_key(data: bytes, password: bytes) -> RSAPrivateKey:
         except (ValueError, TypeError):
             continue
         if not isinstance(key, RSAPrivateKey):
-            raise ValueError('Private key is not RSA — not a valid CSD key')
+            raise DomainError(
+                ErrorCode.CSD_KEY_NOT_RSA, 'Private key is not RSA — not a valid CSD key'
+            )
         return key
     for loader in (load_der_private_key, load_pem_private_key):
         try:
@@ -72,8 +84,14 @@ def _load_key(data: bytes, password: bytes) -> RSAPrivateKey:
         except (ValueError, TypeError):
             continue
         else:
-            raise ValueError('Private key is not password protected — not a valid CSD key')
-    raise ValueError('Wrong password, or unreadable private key — expected a DER or PEM .key')
+            raise DomainError(
+                ErrorCode.CSD_KEY_NOT_ENCRYPTED,
+                'Private key is not password protected — not a valid CSD key',
+            )
+    raise DomainError(
+        ErrorCode.CSD_KEY_UNREADABLE,
+        'Wrong password, or unreadable private key — expected a DER or PEM .key',
+    )
 
 
 def _certificate_number(certificate: Certificate) -> str:
@@ -114,24 +132,33 @@ def _parse_sync(certificate_data: bytes, key_data: bytes, key_password: bytes) -
     certificate = _load_certificate(certificate_data)
     key = _load_key(key_data, key_password)
 
-    certificate_key = certificate.public_key()
-    if not isinstance(certificate_key, RSAPublicKey):
-        raise ValueError('Certificate does not carry an RSA public key — not a valid CSD')
-    if key.public_key().public_numbers() != certificate_key.public_numbers():
-        raise ValueError('Private key does not match the certificate')
+    # `cryptography` parses a loaded certificate's key and subject lazily, so a malformed one
+    # fails here, with a ValueError, rather than in `_load_certificate`.
+    try:
+        certificate_key = certificate.public_key()
+        parsed = ParsedCsd(
+            certificate_id=_certificate_number(certificate),
+            taxpayer=_taxpayer(certificate),
+            valid_from=_to_local(certificate.not_valid_before_utc),
+            valid_to=_to_local(certificate.not_valid_after_utc),
+        )
+    except ValueError as e:
+        raise _unreadable_certificate() from e
 
-    return ParsedCsd(
-        certificate_id=_certificate_number(certificate),
-        taxpayer=_taxpayer(certificate),
-        valid_from=_to_local(certificate.not_valid_before_utc),
-        valid_to=_to_local(certificate.not_valid_after_utc),
-    )
+    if not isinstance(certificate_key, RSAPublicKey):
+        raise DomainError(
+            ErrorCode.CSD_CERTIFICATE_NOT_RSA,
+            'Certificate does not carry an RSA public key — not a valid CSD',
+        )
+    if key.public_key().public_numbers() != certificate_key.public_numbers():
+        raise DomainError(ErrorCode.CSD_KEY_MISMATCH, 'Private key does not match the certificate')
+    return parsed
 
 
 async def parse_csd(certificate_data: bytes, key_data: bytes, key_password: bytes) -> ParsedCsd:
     """Validate a CSD pair and return the metadata read from the certificate.
 
-    Raises ValueError when the certificate or key is unreadable, the password does not open
-    the key, or the key does not belong to the certificate.
+    Raises DomainError (a `csd.*` code, 422) when the certificate or key is unreadable, the
+    password does not open the key, or the key does not belong to the certificate.
     """
     return await asyncio.to_thread(_parse_sync, certificate_data, key_data, key_password)

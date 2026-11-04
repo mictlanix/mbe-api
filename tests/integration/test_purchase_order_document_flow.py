@@ -15,6 +15,7 @@ from app.services import mail
 from app.services import purchase_order_service as service
 from app.services.mail import MailError
 from tests.integration import inventory_seed as seed
+from tests.problem import assert_problem
 
 URL = '/api/v1/purchase-orders'
 
@@ -100,12 +101,14 @@ async def test_a_draft_or_cancelled_po_is_not_printed_or_emailed(client, db) -> 
         db, lines=[(1, '1', 1)], completed=False, cancelled=True, supplier=vendor
     )
     for order in (draft, gone):
-        assert (await client.get(f'{URL}/{order}/document')).status_code == 409
+        response = await client.get(f'{URL}/{order}/document')
+        body = assert_problem(response, 409, 'purchase_order.not_confirmed')
+        assert body['params'] == {'purchase_order_id': order}
     mailer = RecordingMailer()
     fastapi_app.dependency_overrides[mail.get_mailer] = lambda: mailer
     for order in (draft, gone):
         response = await client.post(f'{URL}/{order}/email', json={'to': ['a@b.mx']})
-        assert response.status_code == 409
+        assert_problem(response, 409, 'purchase_order.not_confirmed')
     assert mailer.sent == []
 
 
@@ -150,6 +153,7 @@ async def test_a_refused_send_is_502_and_not_recorded(client, db, current_user) 
             current=current_user,
         )
     assert caught.value.status_code == 502
+    assert caught.value.code == 'email.send_failed'
     assert await _incidences(db, order) == []
 
 
@@ -158,5 +162,5 @@ async def test_mail_not_configured_is_503(client, db) -> None:
     order = await _confirmed(client, db)
     fastapi_app.dependency_overrides[mail.get_mailer] = lambda: None
     response = await client.post(f'{URL}/{order}/email', json={'to': ['a@b.mx']})
-    assert response.status_code == 503
+    assert_problem(response, 503, 'email.not_configured')
     assert await _incidences(db, order) == []

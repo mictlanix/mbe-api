@@ -126,7 +126,9 @@ class TestPaymentWrites:
         )
 
         assert applied.status_code == 404, applied.text
+        assert applied.json()['code'] == 'resource.not_found'
         assert reversed_.status_code == 404, reversed_.text
+        assert reversed_.json()['code'] == 'resource.not_found'
         assert await _live_applications(db, payment) == 1, 'nothing changed'
 
     async def test_an_own_payment_may_pay_another_facilitys_order(
@@ -264,6 +266,7 @@ class TestLists:
         assert [row['credit_note_id'] for row in listed.json()['items']] == [here]
         assert named.status_code == 403, named.text
         assert read.status_code == 404, read.text
+        assert read.json()['code'] == 'resource.not_found'
 
     async def test_the_unverified_list_covers_every_facility(
         self, client: AsyncClient, db: AsyncSession, world: dict

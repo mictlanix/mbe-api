@@ -95,11 +95,15 @@ class TestRangeBounds:
         with pytest.raises(HTTPException) as exc:
             svc.range_bounds(date(2026, 1, 1), date(2027, 1, 2))
         assert exc.value.status_code == 422
+        assert exc.value.code == 'kardex.range_too_long'
+        assert exc.value.params == {'max_days': 366}
 
     def test_to_before_from_is_422(self):
         with pytest.raises(HTTPException) as exc:
             svc.range_bounds(date(2026, 10, 2), date(2026, 10, 1))
         assert exc.value.status_code == 422
+        assert exc.value.code == 'kardex.range_reversed'
+        assert exc.value.params == {}
 
 
 # ── resolve (FR-032) ──────────────────────────────────────────────────────────

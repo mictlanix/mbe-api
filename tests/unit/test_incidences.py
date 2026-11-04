@@ -11,8 +11,8 @@ The required reason is the point: SC-009 says no reversal is anonymous or unexpl
 from unittest.mock import AsyncMock
 
 import pytest
-from fastapi import HTTPException
 
+from app.core.errors import DomainError
 from app.enums import SourceType
 from app.models.incidence import Incidence
 from app.services.incidences import record
@@ -79,7 +79,7 @@ def test_missing_reason_is_refused(reason: str | None) -> None:
     """A reversal without a stated reason must not be recordable at all."""
     db = _db()
 
-    with pytest.raises(HTTPException) as exc:
+    with pytest.raises(DomainError) as exc:
         record(
             db,
             source=SourceType.CUSTOMER_PAYMENT,
@@ -89,6 +89,8 @@ def test_missing_reason_is_refused(reason: str | None) -> None:
         )
 
     assert exc.value.status_code == 422
+    assert exc.value.code == 'incidence.reason_required'
+    assert exc.value.params == {}
     assert db.added == []
 
 

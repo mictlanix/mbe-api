@@ -8,12 +8,13 @@ from collections.abc import Sequence
 from datetime import datetime
 from decimal import Decimal
 
-from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import rendering
 from app.core.clock import local_now
 from app.core.deps import CurrentUser
+from app.core.error_codes import ErrorCode
+from app.core.errors import DomainError
 from app.enums import SourceType
 from app.models.fiscal import FiscalDocument
 from app.rendering import formatting
@@ -65,10 +66,6 @@ def fiscal_email_message(
     )
 
 
-def _conflict(detail: str) -> HTTPException:
-    return HTTPException(status_code=status.HTTP_409_CONFLICT, detail=detail)
-
-
 async def email_document(
     db: AsyncSession,
     document: FiscalDocument,
@@ -92,13 +89,17 @@ async def email_document(
     if stamped:
         xml = await fiscal_document_service.get_xml(db, document.fiscal_document_id)
     if xml is None:
-        raise _conflict('Only a stamped CFDI 4.0 can be emailed')
+        raise DomainError(
+            ErrorCode.FISCAL_DOCUMENT_NOT_EMAILABLE, 'Only a stamped CFDI 4.0 can be emailed'
+        )
 
     try:
         doc = cfdi.parse(xml)
         template, context = await print_contexts.fiscal_document_context(db, document, xml)
     except cfdi.CfdiError:
-        raise _conflict('Stamped XML is missing or unreadable') from None
+        raise DomainError(
+            ErrorCode.FISCAL_DOCUMENT_XML_UNAVAILABLE, 'Stamped XML is missing or unreadable'
+        ) from None
     pdf = await rendering.render_pdf(template, context)
     message = fiscal_email_message(
         issuer=document.issuer,
@@ -116,9 +117,8 @@ async def email_document(
     try:
         await mailer.send(message)
     except mail.MailError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f'The email could not be sent: {exc}',
+        raise DomainError(
+            ErrorCode.EMAIL_SEND_FAILED, f'The email could not be sent: {exc}'
         ) from exc
 
     sent_at = local_now()

@@ -61,7 +61,7 @@ async def test_a_new_user_changes_the_issued_password_before_anything_else(
     with _as_the_token_holder():
         refused = await client.get('/api/v1/sales-orders', headers=headers)
         assert refused.status_code == 403
-        assert refused.json() == {'detail': 'password_change_required'}
+        assert refused.json()['detail'] == 'password_change_required'
 
         changed = await client.post(
             '/api/v1/auth/change-password',

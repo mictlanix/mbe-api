@@ -7,8 +7,9 @@ same, deleting one order's proof would remove another order's (FR-044b).
 import io
 
 import pytest
-from PIL import Image
+from PIL import Image, ImageFile
 
+from app.core.errors import DomainError
 from app.services.image_service import (
     delete_image,
     image_url,
@@ -36,12 +37,46 @@ class TestNormalisation:
         assert Image.open(io.BytesIO(out)).width == 100
 
     def test_refuses_something_that_is_not_an_image(self) -> None:
-        with pytest.raises(ValueError, match='Unsupported'):
+        with pytest.raises(DomainError, match='Unsupported') as exc:
             normalise_to_png(b'definitely not an image')
 
+        assert exc.value.status_code == 422
+        assert exc.value.code == 'image.unsupported_format'
+        assert exc.value.params == {}
+
+    def test_refuses_an_image_pillow_cannot_decode(self, monkeypatch) -> None:
+        """Pillow recognises the header but fails decoding the pixels: a 422, never a 500."""
+
+        def _fail(self):
+            raise OSError('broken data stream when reading image file')
+
+        monkeypatch.setattr(ImageFile.ImageFile, 'load', _fail)
+
+        with pytest.raises(DomainError) as exc:
+            normalise_to_png(_png())
+
+        assert exc.value.code == 'image.unsupported_format'
+
+    def test_refuses_an_image_pillow_cannot_convert(self, monkeypatch) -> None:
+        def _fail(*args, **kwargs):
+            raise ValueError('conversion not supported')
+
+        monkeypatch.setattr(Image.Image, 'convert', _fail)
+
+        with pytest.raises(DomainError) as exc:
+            normalise_to_png(_png())
+
+        assert exc.value.code == 'image.unsupported_format'
+        assert exc.value.detail == 'Unsupported or unrecognizable image format'
+
     def test_refuses_an_oversized_upload(self) -> None:
-        with pytest.raises(ValueError, match='2 MB'):
+        with pytest.raises(DomainError, match='2 MB') as exc:
             normalise_to_png(b'x' * (2 * 1024 * 1024 + 1))
+
+        assert exc.value.status_code == 422
+        assert exc.value.code == 'image.too_large'
+        assert exc.value.params == {'max_bytes': 2097152}
+        assert isinstance(exc.value.params['max_bytes'], int)
 
 
 class TestStorageStrategies:

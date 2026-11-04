@@ -20,6 +20,7 @@ from app.main import app
 from app.models.core import Employee, Facility
 from app.services import mail
 from app.services.mail import MailError
+from tests.problem import assert_problem
 
 _PDF = b'%PDF-1.7 fake'
 
@@ -96,7 +97,7 @@ async def test_the_document_of_a_missing_quote_is_404() -> None:
             response = await client.get('/api/v1/sales-quotes/7/document')
 
     assert response.status_code == status.HTTP_404_NOT_FOUND
-    assert response.json() == {'detail': 'Sales quote not found'}
+    assert response.json()['detail'] == 'Sales quote not found'
 
 
 @pytest.mark.asyncio
@@ -220,7 +221,7 @@ async def test_only_a_confirmed_quote_is_sent(quote: SimpleNamespace) -> None:
     response, record = await _post_email(quote, {'to': ['a@x.mx']})
 
     assert response.status_code == status.HTTP_409_CONFLICT
-    assert response.json() == {'detail': 'Only a confirmed quote can be emailed'}
+    assert response.json()['detail'] == 'Only a confirmed quote can be emailed'
     assert mailer.sent == []
     record.assert_not_called()
 
@@ -243,7 +244,8 @@ async def test_a_refused_send_is_reported_and_not_recorded() -> None:
 
     response, record = await _post_email(_quote(), {'to': ['a@x.mx']})
 
-    assert response.status_code == status.HTTP_502_BAD_GATEWAY
+    body = assert_problem(response, status.HTTP_502_BAD_GATEWAY, 'email.send_failed')
+    assert 'params' not in body or '550' not in str(body['params'])
     assert response.json()['detail'].startswith('The email could not be sent')
     assert '550' in response.json()['detail']
     record.assert_not_called()
@@ -256,8 +258,8 @@ async def test_without_mail_settings_the_route_is_unavailable() -> None:
 
     response, record = await _post_email(_quote(), {'to': ['a@x.mx']})
 
-    assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
-    assert response.json() == {'detail': 'Email is not configured'}
+    assert_problem(response, status.HTTP_503_SERVICE_UNAVAILABLE, 'email.not_configured')
+    assert response.json()['detail'] == 'Email is not configured'
     record.assert_not_called()
 
 
@@ -268,7 +270,7 @@ async def test_emailing_a_missing_quote_is_404() -> None:
     response, _ = await _post_email(None, {'to': ['a@x.mx']})
 
     assert response.status_code == status.HTTP_404_NOT_FOUND
-    assert response.json() == {'detail': 'Sales quote not found'}
+    assert response.json()['detail'] == 'Sales quote not found'
 
 
 @pytest.mark.asyncio

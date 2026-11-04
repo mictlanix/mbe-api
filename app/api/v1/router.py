@@ -51,8 +51,20 @@ from app.api.v1.endpoints import (
     vehicles,
     warehouses,
 )
+from app.schemas.problem import Problem
 
-api_router = APIRouter()
+# Problem is every route's default error response, so generated clients get a typed error.
+api_router = APIRouter(
+    responses={
+        'default': {
+            'model': Problem,
+            'description': 'Error (RFC 9457 Problem Details)',
+            'content': {
+                'application/problem+json': {'schema': {'$ref': '#/components/schemas/Problem'}}
+            },
+        }
+    }
+)
 api_router.include_router(health.router, prefix='/health', tags=['health'])
 api_router.include_router(auth.router, prefix='/auth', tags=['auth'])
 api_router.include_router(users.router, prefix='/users', tags=['users'])

@@ -167,6 +167,7 @@ async def test_deleting_the_cost_list_is_refused_and_its_prices_survive(
     refused = await client.delete(f'/api/v1/price-lists/{cost_list}')
 
     assert refused.status_code == 404, refused.text
+    assert refused.json()['code'] == 'resource.not_found'
     prices = await db.execute(
         select(func.count()).select_from(ProductPrice).where(ProductPrice.price_list == cost_list)
     )
@@ -222,6 +223,7 @@ async def test_no_verb_on_the_price_list_resource_reaches_the_cost_list(
     )
 
     assert refused.status_code == 404, refused.text
+    assert refused.json()['code'] == 'resource.not_found'
 
 
 async def test_an_ordinary_list_still_answers_every_one_of_those_verbs(

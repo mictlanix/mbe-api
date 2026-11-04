@@ -20,13 +20,13 @@ from decimal import ROUND_HALF_UP, Decimal
 from types import SimpleNamespace
 from typing import Any
 
-from fastapi import HTTPException, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.clock import local_now
 from app.core.constants import COST_PRICE_LIST_ID
 from app.core.deps import CurrentUser
+from app.core.errors import not_found
 from app.models.inventory import InventoryReceipt, InventoryReceiptDetail, LotSerialTracking
 from app.models.product import PriceList, Product, ProductPrice
 from app.models.purchases import ProductCostChange, PurchaseOrderDetail
@@ -365,7 +365,7 @@ async def history(
 ) -> tuple[list[ProductCostChange], int]:
     """A product's cost changes, newest first."""
     if await db.get(Product, product) is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Product not found')
+        raise not_found(Product, product)
     where = ProductCostChange.product == product
     total: int = (
         await db.execute(select(func.count()).select_from(ProductCostChange).where(where))

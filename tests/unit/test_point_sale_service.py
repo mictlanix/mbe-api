@@ -54,6 +54,8 @@ async def test_create_rejects_warehouse_from_another_facility() -> None:
     with pytest.raises(HTTPException) as exc:
         await point_sale_service.create_point_sale(_db(_warehouse(facility=2)), _create())
     assert exc.value.status_code == 422
+    assert exc.value.code == 'point_of_sale.warehouse_facility_mismatch'
+    assert exc.value.params == {'warehouse_id': 7, 'facility_id': 1}
 
 
 @pytest.mark.asyncio

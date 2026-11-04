@@ -1,7 +1,8 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.deps import CurrentUser, require_privilege
+from app.core.errors import not_found
 from app.db.session import get_db
 from app.enums import AccessRight, SystemObject
 from app.schemas import ListResponse
@@ -26,7 +27,7 @@ _CONFIRM = require_privilege(SystemObject.CUSTOMER_REFUND_CONFIRM, AccessRight.U
 async def _refund_or_404(db: AsyncSession, customer_refund_id: int):  # noqa: ANN202
     refund = await customer_refund_service.get_refund(db, customer_refund_id)
     if refund is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Refund not found')
+        raise not_found('customer_refund', customer_refund_id, detail='Refund not found')
     return refund
 
 
@@ -84,7 +85,7 @@ async def update_customer_refund_line(
     refund = await _refund_or_404(db, customer_refund_id)
     line = await customer_refund_service.get_line(db, refund, line_id)
     if line is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Line not found')
+        raise not_found('customer_refund_line', line_id, detail='Line not found')
     refund = await customer_refund_service.update_line(db, refund, line, data, current=current)
     return CustomerRefundResponse.model_validate(refund)
 

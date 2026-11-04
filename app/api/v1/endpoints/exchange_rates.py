@@ -1,11 +1,13 @@
 from datetime import date
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.deps import CurrentUser, require_privilege
+from app.core.errors import not_found
 from app.db.session import get_db
 from app.enums import AccessRight, SystemObject
+from app.models.core import ExchangeRate
 from app.schemas import ListResponse
 from app.schemas.core import ExchangeRateCreate, ExchangeRateResponse, ExchangeRateUpdate
 from app.services import exchange_rate_service
@@ -53,7 +55,7 @@ async def get_exchange_rate(
 ) -> ExchangeRateResponse:
     er = await exchange_rate_service.get_exchange_rate(db, exchange_rate_id)
     if er is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Exchange rate not found')
+        raise not_found(ExchangeRate, exchange_rate_id)
     return ExchangeRateResponse.model_validate(er)
 
 
@@ -66,7 +68,7 @@ async def update_exchange_rate(
 ) -> ExchangeRateResponse:
     er = await exchange_rate_service.get_exchange_rate(db, exchange_rate_id)
     if er is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Exchange rate not found')
+        raise not_found(ExchangeRate, exchange_rate_id)
     er = await exchange_rate_service.update_exchange_rate(db, er, data)
     return ExchangeRateResponse.model_validate(er)
 
@@ -79,5 +81,5 @@ async def delete_exchange_rate(
 ) -> None:
     er = await exchange_rate_service.get_exchange_rate(db, exchange_rate_id)
     if er is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Exchange rate not found')
+        raise not_found(ExchangeRate, exchange_rate_id)
     await exchange_rate_service.delete_exchange_rate(db, er)

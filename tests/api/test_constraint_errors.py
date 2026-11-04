@@ -12,6 +12,7 @@ from sqlalchemy.exc import IntegrityError
 from app.core.deps import CurrentUser, get_current_user
 from app.db.session import get_db
 from app.main import app
+from tests.problem import assert_problem
 
 
 @pytest.fixture(autouse=True)
@@ -103,8 +104,12 @@ async def test_unchecked_integrity_error_becomes_409_not_500() -> None:
             r = await c.post(
                 '/api/v1/warehouses', json={'facility': 1, 'code': 'WH1', 'name': 'Duplicate'}
             )
-    assert r.status_code == 409
-    assert r.json() == {'detail': 'The request conflicts with existing data'}
+    body = assert_problem(r, 409, 'resource.conflict')
+    assert body == {
+        'status': 409,
+        'code': 'resource.conflict',
+        'detail': 'The request conflicts with existing data',
+    }
 
 
 @pytest.mark.asyncio

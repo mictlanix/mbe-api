@@ -1,9 +1,11 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.deps import CurrentUser, require_privilege
+from app.core.errors import not_found
 from app.db.session import get_db
 from app.enums import AccessRight, SystemObject
+from app.models.inventory import InventoryIssue
 from app.schemas import ListResponse
 from app.schemas.inventory import (
     InventoryIssueResponse,
@@ -27,7 +29,7 @@ async def _issue_or_404(db: AsyncSession, issue_id: int):  # noqa: ANN202
     """Header only: the state-changing services load lines after they lock (research R2)."""
     issue = await inv.get_document(db, inv.ISSUE, issue_id)
     if issue is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Issue not found')
+        raise not_found(InventoryIssue, issue_id, 'Issue not found')
     return issue
 
 

@@ -16,6 +16,7 @@ from httpx import AsyncClient
 from app.main import app
 from app.services import mail
 from tests.api.test_fiscal_documents import _auth, _client, _deny_privileges
+from tests.problem import assert_problem
 
 _SERVICE = 'app.services.fiscal_document_service'
 _EMAIL = 'app.services.fiscal_email.email_document'
@@ -95,7 +96,7 @@ async def test_a_missing_document_is_404() -> None:
             response = await _post(client)
 
     assert response.status_code == status.HTTP_404_NOT_FOUND
-    assert response.json() == {'detail': 'Fiscal document not found'}
+    assert response.json()['detail'] == 'Fiscal document not found'
     send.assert_not_awaited()
 
 
@@ -110,8 +111,8 @@ async def test_email_is_503_when_the_mailer_is_not_configured() -> None:
         async with await _client() as client:
             response = await _post(client)
 
-    assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
-    assert response.json() == {'detail': 'Email is not configured'}
+    body = assert_problem(response, status.HTTP_503_SERVICE_UNAVAILABLE, 'email.not_configured')
+    assert body['detail'] == 'Email is not configured'
     send.assert_not_awaited()
 
 
@@ -134,7 +135,7 @@ async def test_the_services_refusal_passes_through(code: int, detail: str) -> No
             response = await _post(client)
 
     assert response.status_code == code
-    assert response.json() == {'detail': detail}
+    assert response.json()['detail'] == detail
 
 
 @pytest.mark.asyncio

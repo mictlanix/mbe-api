@@ -515,6 +515,9 @@ async def test_the_service_refuses_with_a_clear_message(
 
     assert caught.value.status_code == status_code
     assert caught.value.detail == detail
+    if detail == 'Salesperson is not an agent':
+        assert caught.value.code == 'commission_agent.salesperson_not_agent'
+        assert caught.value.params == {'salesperson_id': 9}
     record.assert_not_called()
 
 

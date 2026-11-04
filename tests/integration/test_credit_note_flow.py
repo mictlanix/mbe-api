@@ -118,10 +118,16 @@ async def _lines(db: AsyncSession, invoice: int) -> list[SimpleNamespace]:
     return [SimpleNamespace(**{c: getattr(row, c) for c in columns}) for row in rows.scalars()]
 
 
-async def _status(code: int, call) -> HTTPException:  # noqa: ANN001
+async def _status(
+    code: int, call, error_code: str | None = None, params: dict | None = None
+) -> HTTPException:  # noqa: ANN001
     with pytest.raises(HTTPException) as caught:
         await call
     assert caught.value.status_code == code, caught.value.detail
+    if error_code is not None:
+        assert caught.value.code == error_code
+    if params is not None:
+        assert caught.value.params == params
     return caught.value
 
 
@@ -150,7 +156,12 @@ async def test_only_a_stamped_live_invoice_can_be_credited(
 ) -> None:
     invoice = await _invoice(notes.db, **overrides)
 
-    error = await _status(422, notes.create(invoice))
+    error = await _status(
+        422,
+        notes.create(invoice),
+        'fiscal_document.invoice_not_creditable',
+        {'invoice_id': invoice},
+    )
     assert error.detail == 'The invoice cannot be credited'
 
 
@@ -159,7 +170,9 @@ async def test_create_needs_a_credit_note_series(notes: CreditNotes) -> None:
     await notes.db.execute(update(TaxpayerBatch).where(TaxpayerBatch.type == 100).values(type=1))
     await notes.db.commit()
 
-    error = await _status(422, notes.create(invoice))
+    error = await _status(
+        422, notes.create(invoice), 'fiscal_document.issuer_has_no_series', {'type': 100}
+    )
     assert error.detail == 'The issuer has no credit note series'
 
 
@@ -184,7 +197,10 @@ async def test_a_copied_line_is_capped_at_the_invoice_lines_quantity(notes: Cred
     document = await notes.create(invoice)
 
     error = await _status(
-        422, notes.copy(document, source.fiscal_document_detail_id, quantity='35.0001')
+        422,
+        notes.copy(document, source.fiscal_document_detail_id, quantity='35.0001'),
+        'fiscal_document.credit_quantity_exceeds_line',
+        {'max': '35.0000'},
     )
     assert error.detail == "Quantity exceeds the invoice line's 35.0000"
     document = await notes.copy(document, source.fiscal_document_detail_id, quantity='10')
@@ -199,6 +215,8 @@ async def test_a_copied_line_is_capped_at_the_invoice_lines_quantity(notes: Cred
             line,
             InvoiceLineUpdate(quantity=Decimal('66')),
         ),
+        'fiscal_document.credit_quantity_exceeds_line',
+        {'max': '65.0000'},
     )
 
 
@@ -257,7 +275,12 @@ async def test_confirm_refuses_more_than_the_invoice_still_holds(notes: CreditNo
 
     second = await notes.copy(await notes.create(invoice), lines[2].fiscal_document_detail_id)
 
-    error = await _status(422, notes.confirm(second))
+    error = await _status(
+        422,
+        notes.confirm(second),
+        'fiscal_document.credit_exceeds_invoice',
+        {'invoice_id': invoice, 'remaining': '1750.00'},
+    )
     assert error.detail.startswith('The credit note exceeds what remains of invoice RH11405: ')
 
 
@@ -266,7 +289,9 @@ async def test_confirm_needs_the_actual_payment_form(notes: CreditNotes) -> None
     source = (await _lines(notes.db, invoice))[0]
     document = await notes.copy(await notes.create(invoice), source.fiscal_document_detail_id)
 
-    error = await _status(422, notes.confirm(document))
+    error = await _status(
+        422, notes.confirm(document), 'fiscal_document.payment_form_required', {'type': 100}
+    )
     assert error.detail == 'A credit note needs the actual payment form'
     await svc.update_header(
         notes.db, notes.current, await notes.load(document), InvoiceUpdate(payment_method=3)

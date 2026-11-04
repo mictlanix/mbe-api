@@ -1,10 +1,11 @@
 from collections.abc import Iterable, Sequence
 
-from fastapi import HTTPException, status
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
+from app.core.error_codes import ErrorCode
+from app.core.errors import DomainError, not_found
 from app.enums import EntityStatus
 from app.models.core import Facility, Warehouse
 from app.schemas.core import WarehouseCreate, WarehouseUpdate
@@ -128,11 +129,12 @@ async def assert_sellable(db: AsyncSession, warehouse_id: int) -> None:
     """
     warehouse = await db.get(Warehouse, warehouse_id)
     if warehouse is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Warehouse not found')
+        raise not_found(Warehouse, warehouse_id)
     if warehouse.in_transit:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail=f'Warehouse {warehouse_id} is an in-transit location',
+        raise DomainError(
+            ErrorCode.WAREHOUSE_IN_TRANSIT_LOCATION,
+            f'Warehouse {warehouse_id} is an in-transit location',
+            {'warehouse_id': warehouse_id},
         )
 
 

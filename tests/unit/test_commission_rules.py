@@ -8,11 +8,15 @@ import random
 from dataclasses import replace
 from datetime import datetime
 from decimal import Decimal
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from app.enums import CommissionMovement, CommissionScheme
+from app.core.errors import DomainError
+from app.enums import CommissionMovement, CommissionPeriodStatus, CommissionScheme
 from app.services import commission_rules as rules
+from app.services import commission_service
 
 D = Decimal
 VITALICIO, CANALIZACION, CAMPO = 1, 2, 3
@@ -409,3 +413,88 @@ def test_no_key_is_ever_paid_past_its_full_commission(seed: int) -> None:
                 r.customer_refund_detail for r in rows if r.movement == CommissionMovement.REFUND
             ]
             assert len(refund_ids) == len(set(refund_ids))
+
+
+# ── Period refusals carry the period as params ────────────────────────────────
+
+_CURRENT = SimpleNamespace(employee_id=1)
+_PAST = datetime(2026, 12, 1)
+_PERIOD = {'year': 2026, 'month': 9}
+
+
+def _period(status: CommissionPeriodStatus) -> SimpleNamespace:
+    return SimpleNamespace(status=int(status))
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ('action', 'now', 'period', 'latest', 'code'),
+    [
+        ('close', datetime(2026, 9, 30), None, None, 'commission_period.not_ended'),
+        (
+            'close',
+            _PAST,
+            _period(CommissionPeriodStatus.PAID),
+            None,
+            'commission_period.already_paid',
+        ),
+        (
+            'close',
+            _PAST,
+            _period(CommissionPeriodStatus.CLOSED),
+            None,
+            'commission_period.already_closed',
+        ),
+        (
+            'close',
+            _PAST,
+            None,
+            SimpleNamespace(year=2026, month=10),
+            'commission_period.later_closed',
+        ),
+        (
+            'close',
+            _PAST,
+            None,
+            SimpleNamespace(year=2026, month=7),
+            'commission_period.previous_not_closed',
+        ),
+        (
+            'reopen',
+            _PAST,
+            _period(CommissionPeriodStatus.PAID),
+            None,
+            'commission_period.paid_cannot_reopen',
+        ),
+        ('reopen', _PAST, None, None, 'commission_period.not_closed'),
+        (
+            'reopen',
+            _PAST,
+            _period(CommissionPeriodStatus.CLOSED),
+            SimpleNamespace(year=2026, month=10),
+            'commission_period.later_closed',
+        ),
+        (
+            'pay',
+            _PAST,
+            _period(CommissionPeriodStatus.PAID),
+            None,
+            'commission_period.already_paid',
+        ),
+        ('pay', _PAST, None, None, 'commission_period.not_closed'),
+    ],
+)
+async def test_period_refusals_are_coded_with_the_period(
+    action: str, now: datetime, period: object, latest: object, code: str
+) -> None:
+    with (
+        patch.object(commission_service, 'local_now', return_value=now),
+        patch.object(commission_service, '_period', AsyncMock(return_value=period)),
+        patch.object(commission_service, '_latest_closed', AsyncMock(return_value=latest)),
+        pytest.raises(DomainError) as refused,
+    ):
+        await getattr(commission_service, action)(AsyncMock(), 2026, 9, current=_CURRENT)
+
+    assert refused.value.status_code == 409
+    assert refused.value.code == code
+    assert refused.value.params == _PERIOD

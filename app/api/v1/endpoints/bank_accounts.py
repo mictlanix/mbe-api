@@ -1,10 +1,12 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, Query
 from fastapi import status as http_status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.deps import CurrentUser, require_privilege
+from app.core.errors import not_found
 from app.db.session import get_db
 from app.enums import AccessRight, SystemObject
+from app.models.core import BankAccount
 from app.schemas import ListResponse
 from app.schemas.core import BankAccountCreate, BankAccountResponse, BankAccountUpdate
 from app.services import bank_account_service
@@ -44,9 +46,7 @@ async def get_bank_account(
 ) -> BankAccountResponse:
     account = await bank_account_service.get_bank_account(db, bank_account_id)
     if account is None:
-        raise HTTPException(
-            status_code=http_status.HTTP_404_NOT_FOUND, detail='Bank account not found'
-        )
+        raise not_found(BankAccount, bank_account_id)
     return BankAccountResponse.model_validate(account)
 
 
@@ -59,9 +59,7 @@ async def update_bank_account(
 ) -> BankAccountResponse:
     account = await bank_account_service.get_bank_account(db, bank_account_id)
     if account is None:
-        raise HTTPException(
-            status_code=http_status.HTTP_404_NOT_FOUND, detail='Bank account not found'
-        )
+        raise not_found(BankAccount, bank_account_id)
     account = await bank_account_service.update_bank_account(db, account, data)
     return BankAccountResponse.model_validate(account)
 
@@ -74,7 +72,5 @@ async def delete_bank_account(
 ) -> None:
     account = await bank_account_service.get_bank_account(db, bank_account_id)
     if account is None:
-        raise HTTPException(
-            status_code=http_status.HTTP_404_NOT_FOUND, detail='Bank account not found'
-        )
+        raise not_found(BankAccount, bank_account_id)
     await bank_account_service.delete_bank_account(db, account)

@@ -19,6 +19,7 @@ from app.models.purchases import PurchaseOrderDetail
 from app.services import inventory_documents as inv
 from app.services import stock_ledger
 from tests.integration import inventory_seed as seed
+from tests.problem import assert_problem
 
 URL = '/api/v1/inventory-receipts'
 SOURCE = int(TransactionType.INVENTORY_RECEIPT)
@@ -158,11 +159,15 @@ async def test_a_legacy_draft_with_bad_lines_cannot_be_confirmed(client, db, see
     response = await client.post(f'{URL}/{zero}/confirm')
     assert response.status_code == 422
     assert 'INV' in response.json()['detail']
+    assert response.json()['code'] == 'inventory_document.line_without_quantity'
+    assert response.json()['params'] == {'product_code': response.json()['detail'].split()[1]}
 
     service = await legacy(setup.non_stockable, '2')
     response = await client.post(f'{URL}/{service}/confirm')
     assert response.status_code == 422
     assert 'SRV' in response.json()['detail']
+    assert response.json()['code'] == 'product.not_stockable'
+    assert set(response.json()['params']) == {'product_code'}
     assert await _entries(db, zero) == await _entries(db, service) == []
 
 
@@ -196,6 +201,8 @@ async def test_lines_merge_and_reject_non_stockable(client, db, seeded):
 
     refused = await _add(client, receipt, setup.non_stockable)
     assert refused.status_code == 422
+    assert refused.json()['code'] == 'product.not_stockable'
+    assert isinstance(refused.json()['params']['product_code'], str)
     assert (await _add(client, receipt, 9999)).status_code == 404
 
 
@@ -232,7 +239,8 @@ async def test_cancel_reverses_the_stock(client, db, seeded):
     assert sorted(e.quantity for e in await _entries(db, receipt)) == [Decimal(-4), Decimal(4)]
 
     again = await client.post(f'{URL}/{receipt}/cancel')
-    assert again.status_code == 409
+    body = assert_problem(again, 409, 'inventory_document.already_cancelled')
+    assert body['params'] == {'resource': 'inventory_receipt'}
     assert len(await _entries(db, receipt)) == 2
 
 
@@ -247,6 +255,13 @@ async def test_cancel_is_refused_once_the_goods_have_left(client, db, seeded):
     assert response.status_code == 409
     assert 'INV' in response.json()['detail']
     assert response.json()['detail'].startswith('Not enough stock of INV in ')
+    body = assert_problem(response, 409, 'inventory_document.insufficient_stock')
+    assert body['params'] == {
+        'product_id': setup.stockable,
+        'warehouse_id': 1,
+        'requested': '4.0000',
+        'available': '1.0000',
+    }
     assert (await db.get(InventoryReceipt, receipt)).cancelled is False
     assert len(await _entries(db, receipt)) == 1
 

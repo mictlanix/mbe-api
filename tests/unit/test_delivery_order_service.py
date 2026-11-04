@@ -6,13 +6,14 @@ those two ever disagree, a partial delivery double-counts its remainder.
 """
 
 import inspect
+from datetime import datetime
 from decimal import Decimal
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 import pytest
-from fastapi import HTTPException
 
+from app.core.errors import DomainError
 from app.enums import DeliveryOrderStatus as S
 from app.enums import FulfillmentType
 from app.models.sales import SalesOrder, SalesOrderDetail
@@ -80,10 +81,12 @@ class TestAssertEditable:
         [S.PENDING_APPROVAL, S.APPROVED, S.IN_PREPARATION, S.IN_TRANSIT, S.DELIVERED, S.CANCELLED],
     )
     def test_everything_else_is_refused(self, status: S) -> None:
-        with pytest.raises(HTTPException) as exc:
+        with pytest.raises(DomainError) as exc:
             service.assert_editable(_order(status))
 
         assert exc.value.status_code == 409
+        assert exc.value.code == 'delivery_order.not_editable'
+        assert exc.value.params == {'status': status.value}
         assert status.name in exc.value.detail
 
     def test_does_not_reuse_the_sales_document_guard(self) -> None:
@@ -138,7 +141,7 @@ class TestBuildProof:
         ('name', 'ident'), [('', 'INE 1'), ('Juan', ''), ('   ', '   ')]
     )
     def test_blank_evidence_is_refused(self, name: str, ident: str) -> None:
-        with pytest.raises(HTTPException) as exc:
+        with pytest.raises(DomainError) as exc:
             service.build_proof(
                 self._db(),
                 receiver_name=name,
@@ -148,6 +151,8 @@ class TestBuildProof:
             )
 
         assert exc.value.status_code == 422
+        assert exc.value.code == 'delivery_order.proof_incomplete'
+        assert exc.value.params == {}
 
 
 class TestTransitionsRouteThroughTheChokepoint:
@@ -330,37 +335,47 @@ class TestNarrowingToARequestedSubset:
         assert first[0][1] + second[0][1] == Decimal('10')
 
     def test_asking_for_more_than_is_undelivered_is_refused(self) -> None:
-        with pytest.raises(HTTPException) as exc:
+        with pytest.raises(DomainError) as exc:
             service.narrow_to_requested(self._deliverable((1, '4')), [self._request(1, '5')])
 
         assert exc.value.status_code == 422
         assert '4 undelivered' in exc.value.detail
         assert '5 requested' in exc.value.detail
+        assert exc.value.code == 'delivery_order.quantity_exceeds_remaining'
+        assert exc.value.params == {
+            'sales_order_line_id': 1,
+            'remaining': '4',
+            'requested': '5',
+        }
 
     def test_a_line_from_another_sale_is_refused(self) -> None:
-        with pytest.raises(HTTPException) as exc:
+        with pytest.raises(DomainError) as exc:
             service.narrow_to_requested(self._deliverable((1, '10')), [self._request(99, '1')])
 
         assert exc.value.status_code == 422
         assert 'not an undelivered line' in exc.value.detail
+        assert exc.value.code == 'delivery_order.line_not_deliverable'
+        assert exc.value.params == {'sales_order_line_id': 99}
 
     def test_a_line_already_covered_elsewhere_is_refused_the_same_way(self) -> None:
         """It is absent from `deliverable`, so it is indistinguishable from a foreign id — and the
         client can act no differently on the two."""
-        with pytest.raises(HTTPException) as exc:
+        with pytest.raises(DomainError) as exc:
             service.narrow_to_requested(self._deliverable((2, '5')), [self._request(1, '1')])
 
         assert 'not an undelivered line' in exc.value.detail
 
     def test_naming_the_same_line_twice_is_refused(self) -> None:
         """Otherwise the second entry silently replaces the first, or double-claims the line."""
-        with pytest.raises(HTTPException) as exc:
+        with pytest.raises(DomainError) as exc:
             service.narrow_to_requested(
                 self._deliverable((1, '10')), [self._request(1, '4'), self._request(1, '4')]
             )
 
         assert exc.value.status_code == 422
         assert 'more than once' in exc.value.detail
+        assert exc.value.code == 'delivery_order.line_repeated'
+        assert exc.value.params == {'sales_order_line_id': 1}
 
     def test_claiming_exactly_what_is_left_is_allowed(self) -> None:
         """The boundary: `>` not `>=`, so the last destination can take the remainder."""
@@ -458,7 +473,7 @@ class TestMixedIsNotADeliveryOrderKind:
 
     @pytest.mark.asyncio
     async def test_creation_refuses_it(self) -> None:
-        with pytest.raises(HTTPException) as exc:
+        with pytest.raises(DomainError) as exc:
             await service.create_from_sales_order(
                 AsyncMock(), 42, current=SimpleNamespace(employee_id=7),
                 fulfillment_type=FulfillmentType.MIXED,
@@ -466,6 +481,8 @@ class TestMixedIsNotADeliveryOrderKind:
 
         assert exc.value.status_code == 422
         assert 'describes a sale' in exc.value.detail
+        assert exc.value.code == 'delivery_order.mixed_not_allowed'
+        assert exc.value.params == {}
 
     @pytest.mark.asyncio
     async def test_it_is_refused_before_anything_is_read(self) -> None:
@@ -473,7 +490,7 @@ class TestMixedIsNotADeliveryOrderKind:
         and hide what was actually wrong with the request."""
         db = AsyncMock()
 
-        with pytest.raises(HTTPException):
+        with pytest.raises(DomainError):
             await service.create_from_sales_order(
                 db, 42, current=SimpleNamespace(employee_id=7),
                 fulfillment_type=FulfillmentType.MIXED,
@@ -576,10 +593,11 @@ class TestAddingALineToAnExistingDraft:
     async def test_only_a_draft_accepts_one(self, status: S) -> None:
         db = self._db(sales_line=self._sales_line())
 
-        with pytest.raises(HTTPException) as exc:
+        with pytest.raises(DomainError) as exc:
             await self._add(db, order=self._draft(status))
 
         assert exc.value.status_code == 409
+        assert exc.value.code == 'delivery_order.not_editable'
         assert db.added == []
 
     @pytest.mark.asyncio
@@ -587,11 +605,17 @@ class TestAddingALineToAnExistingDraft:
         """Six already covered elsewhere leaves four, and five is asked for."""
         db = self._db(sales_line=self._sales_line('10'))
 
-        with pytest.raises(HTTPException) as exc:
+        with pytest.raises(DomainError) as exc:
             await self._add(db, request=self._request(quantity='5'), covered={21: Decimal('6')})
 
         assert exc.value.status_code == 422
         assert '4 left to deliver' in exc.value.detail
+        assert exc.value.code == 'delivery_order.quantity_exceeds_remaining'
+        assert exc.value.params == {
+            'sales_order_line_id': 21,
+            'remaining': '4',
+            'requested': '5',
+        }
         assert db.added == []
 
     @pytest.mark.asyncio
@@ -609,22 +633,26 @@ class TestAddingALineToAnExistingDraft:
         amount, so the response says which id to use."""
         db = self._db(sales_line=self._sales_line(), existing=11)
 
-        with pytest.raises(HTTPException) as exc:
+        with pytest.raises(DomainError) as exc:
             await self._add(db)
 
         assert exc.value.status_code == 409
         assert 'as line 11' in exc.value.detail
+        assert exc.value.code == 'delivery_order.line_already_present'
+        assert exc.value.params == {'sales_order_line_id': 21, 'delivery_order_line_id': 11}
         assert db.added == []
 
     @pytest.mark.asyncio
     async def test_an_unknown_sales_order_line_is_refused(self) -> None:
         db = self._db(sales_line=None)
 
-        with pytest.raises(HTTPException) as exc:
+        with pytest.raises(DomainError) as exc:
             await self._add(db)
 
         assert exc.value.status_code == 422
         assert 'not a deliverable line of this customer' in exc.value.detail
+        assert exc.value.code == 'delivery_order.line_not_deliverable'
+        assert exc.value.params == {'sales_order_line_id': 21}
 
     @pytest.mark.asyncio
     async def test_a_second_sales_orders_line_is_accepted(self) -> None:
@@ -650,11 +678,13 @@ class TestAddingALineToAnExistingDraft:
             sales_line=self._sales_line(), sales_orders={42: SimpleNamespace(customer=999)}
         )
 
-        with pytest.raises(HTTPException) as exc:
+        with pytest.raises(DomainError) as exc:
             await self._add(db)
 
         assert exc.value.status_code == 422
         assert 'not a deliverable line of this customer' in exc.value.detail
+        assert exc.value.code == 'delivery_order.line_not_deliverable'
+        assert exc.value.params == {'sales_order_line_id': 21}
         assert db.added == []
 
     @pytest.mark.asyncio
@@ -750,3 +780,184 @@ class TestTheOriginatingSalesAreDerived:
 
         assert 'if sales_order is not None:' in source
         assert 'SalesOrderDetail.sales_order == sales_order' in source
+
+
+class TestCreationGuards:
+    """The refusals `create_from_sales_order` and `_fallback_warehouse` raise before any write."""
+
+    @staticmethod
+    def _sale(**over) -> SimpleNamespace:  # noqa: ANN003
+        base = {
+            'completed': True,
+            'cancelled': False,
+            'paid': True,
+            'payment_terms': None,
+            'ship_to': None,
+            'facility': 1,
+        }
+        return SimpleNamespace(**(base | over))
+
+    @staticmethod
+    def _db(sale) -> SimpleNamespace:  # noqa: ANN001
+        db = SimpleNamespace()
+        db.get = AsyncMock(return_value=sale)
+        db.execute = AsyncMock(
+            return_value=SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: []))
+        )
+        return db
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize('over', [{'completed': False}, {'cancelled': True}])
+    async def test_an_incomplete_or_cancelled_sale_is_refused(self, over: dict) -> None:
+        with pytest.raises(DomainError) as exc:
+            await service.create_from_sales_order(
+                self._db(self._sale(**over)), 42, current=SimpleNamespace(employee_id=7)
+            )
+
+        assert exc.value.status_code == 409
+        assert exc.value.code == 'delivery_order.sales_order_not_deliverable'
+        assert exc.value.params == {}
+
+    @pytest.mark.asyncio
+    async def test_an_unpaid_sale_is_refused_when_the_setting_asks_for_payment(self) -> None:
+        with (
+            patch.object(
+                service.settings, 'delivery_order_requires_paid_or_credit_sales_order', True
+            ),
+            pytest.raises(DomainError) as exc,
+        ):
+            await service.create_from_sales_order(
+                self._db(self._sale(paid=False)), 42, current=SimpleNamespace(employee_id=7)
+            )
+
+        assert exc.value.status_code == 422
+        assert exc.value.code == 'delivery_order.sales_order_unpaid'
+        assert exc.value.params == {}
+
+    @pytest.mark.asyncio
+    async def test_a_sale_with_nothing_left_to_deliver_is_refused(self) -> None:
+        with (
+            patch.object(service, '_covered_quantities', AsyncMock(return_value={})),
+            pytest.raises(DomainError) as exc,
+        ):
+            await service.create_from_sales_order(
+                self._db(self._sale()), 42, current=SimpleNamespace(employee_id=7)
+            )
+
+        assert exc.value.status_code == 409
+        assert exc.value.code == 'delivery_order.sales_order_fully_delivered'
+        assert exc.value.params == {}
+
+    @pytest.mark.asyncio
+    async def test_a_facility_without_a_dispatch_warehouse_is_refused(self) -> None:
+        db = SimpleNamespace(
+            execute=AsyncMock(
+                return_value=SimpleNamespace(scalar_one_or_none=lambda: None)
+            )
+        )
+
+        with pytest.raises(DomainError) as exc:
+            await service._fallback_warehouse(db, 7)
+
+        assert exc.value.status_code == 422
+        assert exc.value.code == 'facility.no_dispatch_warehouse'
+        assert exc.value.params == {'facility_id': 7}
+
+
+class TestUpdateLineBound:
+    @pytest.mark.asyncio
+    async def test_raising_a_quantity_past_what_the_sale_owes_is_refused(self) -> None:
+        line = SimpleNamespace(delivery_order=1, sales_order_detail=21, quantity=Decimal('4'))
+        sales_line = SimpleNamespace(sales_order=42, quantity=Decimal('10'))
+        db = SimpleNamespace()
+        db.get = AsyncMock(side_effect=[line, sales_line])
+
+        with (
+            patch.object(
+                service, '_covered_quantities', AsyncMock(return_value={21: Decimal('6')})
+            ),
+            pytest.raises(DomainError) as exc,
+        ):
+            await service.update_line(db, _order(S.DRAFT), 11, Decimal('9'))
+
+        assert exc.value.status_code == 422
+        assert exc.value.code == 'delivery_order.quantity_exceeds_remaining'
+        assert exc.value.params == {
+            'sales_order_line_id': 21,
+            'remaining': '8',
+            'requested': '9',
+        }
+
+
+class TestLifecycleGuards:
+    @staticmethod
+    def _current() -> SimpleNamespace:
+        return SimpleNamespace(employee_id=7, administrator=False)
+
+    @pytest.mark.asyncio
+    async def test_confirming_an_order_with_no_lines_is_refused(self) -> None:
+        order = _order(S.DRAFT)
+        order.facility = 1
+        db = SimpleNamespace(
+            execute=AsyncMock(return_value=SimpleNamespace(scalar_one=lambda: order))
+        )
+
+        with (
+            patch.object(service.documents, 'lock_facility', AsyncMock()),
+            patch.object(service, 'lines_of', AsyncMock(return_value=[])),
+            pytest.raises(DomainError) as exc,
+        ):
+            await service._confirm_locked(db, 1, current=self._current())
+
+        assert exc.value.status_code == 409
+        assert exc.value.code == 'delivery_order.no_lines'
+        assert exc.value.params == {}
+
+    @pytest.mark.asyncio
+    async def test_confirming_sooner_than_the_notice_allows_is_refused(self) -> None:
+        order = _order(S.DRAFT)
+        order.facility = 1
+        order.date = datetime(2020, 1, 1)
+        db = SimpleNamespace(
+            execute=AsyncMock(return_value=SimpleNamespace(scalar_one=lambda: order))
+        )
+
+        with (
+            patch.object(service.documents, 'lock_facility', AsyncMock()),
+            patch.object(service, 'lines_of', AsyncMock(return_value=[_line()])),
+            patch.object(service.settings, 'min_span_hours_for_deliveries', 24),
+            patch.object(service, 'local_now', lambda: datetime(2026, 5, 1, 10, 0)),
+            pytest.raises(DomainError) as exc,
+        ):
+            await service._confirm_locked(db, 1, current=self._current())
+
+        assert exc.value.status_code == 422
+        assert exc.value.code == 'delivery_order.insufficient_notice'
+        assert exc.value.params == {'min_hours': 24, 'earliest': '2026-05-02T10:00:00'}
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(('fn', 'action'), [('approve', 'approve'), ('reject', 'reject')])
+    async def test_approving_or_rejecting_needs_an_order_awaiting_approval(
+        self, fn: str, action: str
+    ) -> None:
+        call = getattr(service, fn)
+        args = (AsyncMock(), _order(S.APPROVED))
+        kwargs = {'current': self._current()}
+        if fn == 'reject':
+            kwargs['reason'] = 'wrong address'
+
+        with pytest.raises(DomainError) as exc:
+            await call(*args, **kwargs)
+
+        assert exc.value.status_code == 409
+        assert exc.value.code == 'delivery_order.not_pending_approval'
+        assert exc.value.params == {'status': S.APPROVED.value, 'action': action}
+
+    @pytest.mark.asyncio
+    async def test_requeueing_an_order_that_did_not_fail_is_refused(self) -> None:
+        with pytest.raises(DomainError) as exc:
+            await service.requeue(AsyncMock(), _order(S.DELIVERED), current=self._current())
+
+        assert exc.value.status_code == 409
+        assert exc.value.code == 'delivery_order.not_failed'
+        assert exc.value.params == {'status': S.DELIVERED.value}

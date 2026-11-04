@@ -15,12 +15,13 @@ from collections.abc import Sequence
 from datetime import date, datetime, time, timedelta
 from decimal import Decimal
 
-from fastapi import HTTPException, status
 from sqlalchemy import ColumnElement, and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.clock import local_now
 from app.core.deps import CurrentUser
+from app.core.error_codes import ErrorCode
+from app.core.errors import DomainError, not_found
 from app.enums import SourceType
 from app.models.core import CashDrawer, CashSession, Employee, Expense
 from app.models.purchases import ExpenseVoucher, ExpenseVoucherDetail
@@ -59,30 +60,43 @@ def _state_clause(value: str) -> ColumnElement[bool]:
         return and_(header.completed.is_(True), header.cancelled.is_not(True))
     if value == DocumentStatus.CANCELLED:
         return header.cancelled.is_(True)
-    raise HTTPException(
-        status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-        detail='status must be one of draft, completed, cancelled',
+    raise DomainError(
+        ErrorCode.STATUS_FILTER_UNSUPPORTED,
+        'status must be one of draft, completed, cancelled',
+        {'resource': 'expense_voucher', 'status': value},
     )
 
 
-def _conflict(reason: str) -> HTTPException:
-    return HTTPException(status_code=status.HTTP_409_CONFLICT, detail=reason)
+def _session_required() -> DomainError:
+    return DomainError(ErrorCode.CASH_SESSION_NOT_OPEN, _SESSION_REQUIRED)
+
+
+def _not_confirmed(voucher: ExpenseVoucher, action: str, reason: str) -> DomainError:
+    return DomainError(
+        ErrorCode.EXPENSE_VOUCHER_NOT_CONFIRMED,
+        reason,
+        {'status': voucher_state(voucher), 'action': action},
+    )
 
 
 def _assert_draft_by(voucher: ExpenseVoucher, current: CurrentUser) -> None:
     """FR-002, FR-003: only the creator, its cashier, changes a draft."""
     if voucher.creator != current.employee_id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only the voucher's cashier can change it",
+        raise DomainError(
+            ErrorCode.EXPENSE_VOUCHER_NOT_CASHIER, "Only the voucher's cashier can change it"
         )
-    if voucher_state(voucher) is not DocumentStatus.DRAFT:
-        raise _conflict('Only a draft expense voucher can be changed')
+    state = voucher_state(voucher)
+    if state is not DocumentStatus.DRAFT:
+        raise DomainError(
+            ErrorCode.DOCUMENT_NOT_EDITABLE,
+            'Only a draft expense voucher can be changed',
+            {'status': state},
+        )
 
 
 def _assert_voidable(voucher: ExpenseVoucher) -> None:
     if voucher_state(voucher) is not DocumentStatus.COMPLETED:
-        raise _conflict('Only a confirmed voucher can be voided')
+        raise _not_confirmed(voucher, 'void', 'Only a confirmed voucher can be voided')
 
 
 def _touch(voucher: ExpenseVoucher, current: CurrentUser) -> None:
@@ -170,7 +184,7 @@ async def list_vouchers(
     header = ExpenseVoucher
     clauses: list[ColumnElement[bool]] = []
     if facility is not None:
-        inv.assert_facility(current, facility)
+        inv.assert_facility(current, facility, resource='expense_voucher')
     if not current.administrator:
         clauses.append(header.facility == current.facility_id)
     elif facility is not None:
@@ -218,9 +232,7 @@ async def _lock_voucher(db: AsyncSession, voucher_id: int) -> ExpenseVoucher:
         )
     ).scalar_one_or_none()
     if voucher is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail='Expense voucher not found'
-        )
+        raise not_found(ExpenseVoucher, voucher_id)
     return voucher
 
 
@@ -245,7 +257,7 @@ async def create_voucher(
     """A draft in the caller's open session. It takes no lock: a draft does not touch the cut."""
     session = await cash_session_service.open_session_for_cashier(db, current.employee_id)
     if session is None:
-        raise _conflict(_SESSION_REQUIRED)
+        raise _session_required()
     now = local_now()
     voucher = ExpenseVoucher(
         creator=current.employee_id,
@@ -280,8 +292,10 @@ async def update_voucher(
 async def _expense(db: AsyncSession, expense_id: int) -> Expense:
     expense = await db.get(Expense, expense_id)
     if expense is None:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail='Unknown expense category'
+        raise DomainError(
+            ErrorCode.EXPENSE_VOUCHER_UNKNOWN_CATEGORY,
+            'Unknown expense category',
+            {'expense_id': expense_id},
         )
     return expense
 
@@ -317,7 +331,7 @@ async def _locked_line(
         )
     ).scalar_one_or_none()
     if line is None or line.expense_voucher != voucher_id:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Line not found')
+        raise not_found(ExpenseVoucherDetail, line_id, detail='Line not found')
     return voucher, line
 
 
@@ -365,19 +379,17 @@ async def confirm_voucher(
     async with inv.busy_as_conflict(db):
         # 1. Pre-reads, then the commit.
         if await db.get(ExpenseVoucher, voucher_id) is None:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail='Expense voucher not found'
-            )
+            raise not_found(ExpenseVoucher, voucher_id)
         session = await cash_session_service.open_session_for_cashier(db, current.employee_id)
         if session is None:
-            raise _conflict(_SESSION_REQUIRED)
+            raise _session_required()
         session_id = session.cash_session_id
         await db.commit()
 
         # 2. Locks: the session, then the voucher.
         session = await cash_session_service.lock_open_session(db, session_id)
         if session.cashier != current.employee_id:
-            raise _conflict(_SESSION_REQUIRED)
+            raise _session_required()
         voucher = await _lock_voucher(db, voucher_id)
         _assert_draft_by(voucher, current)
 
@@ -390,7 +402,9 @@ async def confirm_voucher(
             )
         ).scalar_one_or_none()
         if not total or total <= 0:
-            raise _conflict('The total must be above 0')
+            raise DomainError(
+                ErrorCode.EXPENSE_VOUCHER_TOTAL_NOT_POSITIVE, 'The total must be above 0'
+            )
 
         now = local_now()
         voucher.cash_session = session_id
@@ -427,10 +441,8 @@ async def void_voucher(
         # 1. Pre-reads, then the commit.
         voucher = await db.get(ExpenseVoucher, voucher_id)
         if voucher is None:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail='Expense voucher not found'
-            )
-        inv.assert_facility(current, voucher.facility)
+            raise not_found(ExpenseVoucher, voucher_id)
+        inv.assert_facility(current, voucher.facility, resource='expense_voucher')
         _assert_voidable(voucher)
         session_id = voucher.cash_session
         await db.commit()
@@ -440,7 +452,7 @@ async def void_voucher(
         voucher = await _lock_voucher(db, voucher_id)
         _assert_voidable(voucher)
         if voucher.cash_session != session_id:
-            raise _conflict('Only a confirmed voucher can be voided')
+            raise _not_confirmed(voucher, 'void', 'Only a confirmed voucher can be voided')
 
         voucher.cancelled = True
         _touch(voucher, current)

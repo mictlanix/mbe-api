@@ -13,6 +13,7 @@ from app.enums import SourceType
 from app.models.core import Expense
 from app.models.incidence import Incidence
 from app.services import cash_session_service
+from tests.problem import assert_problem
 
 URL = '/api/v1/expense-vouchers'
 
@@ -155,7 +156,8 @@ async def test_the_ticket_renders_for_a_confirmed_voucher_only(client, db, seede
     await client.post(f'{URL}/{voucher}/confirm')
     printed = await client.get(f'{URL}/{voucher}/ticket')
 
-    assert draft.status_code == 409
+    body = assert_problem(draft, 409, 'expense_voucher.not_confirmed')
+    assert body['params'] == {'status': 'draft', 'action': 'print'}
     assert printed.status_code == 200, printed.text
     assert printed.headers['content-type'] == 'application/pdf'
     assert printed.content.startswith(b'%PDF')

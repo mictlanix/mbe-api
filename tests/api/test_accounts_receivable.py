@@ -18,6 +18,7 @@ from app.db.session import get_db
 from app.enums import AccessRight, SystemObject
 from app.main import app
 from app.services import mail
+from tests.problem import assert_problem
 
 BASE = '/api/v1/accounts-receivable'
 ROUTE = 'app.api.v1.endpoints.accounts_receivable'
@@ -156,7 +157,16 @@ class TestTheSummary:
                 same = await client.get(BASE, params={'facility': 1})
 
         assert summary.await_args_list[0].kwargs['facility'] == 1
-        assert refused.status_code == status.HTTP_403_FORBIDDEN
+        body = assert_problem(refused, 403, 'facility.other_facility')
+        assert body['params'] == {
+            'resource': 'receivable',
+            'required': [
+                {
+                    'system_object': SystemObject.SEARCH_CREDITS_FROM_ALL_STORES,
+                    'right': AccessRight.READ,
+                }
+            ],
+        }
         assert same.status_code == 200
 
     @pytest.mark.parametrize('administrator', [True, False], ids=['administrator', 'holds-101'])
@@ -321,7 +331,7 @@ class TestTheStatement:
             async with _client() as client:
                 response = await client.post(f'{BASE}/21/statement/email', json={'to': ['a@x.mx']})
 
-        assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
+        assert_problem(response, status.HTTP_503_SERVICE_UNAVAILABLE, 'email.not_configured')
         send.assert_not_awaited()
 
     async def test_email_answers_when_and_to_whom(self) -> None:

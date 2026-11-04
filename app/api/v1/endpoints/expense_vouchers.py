@@ -1,12 +1,15 @@
 from datetime import date
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from fastapi import APIRouter, Depends, Query, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import rendering
 from app.core.deps import CurrentUser, require_privilege
+from app.core.error_codes import ErrorCode
+from app.core.errors import DomainError, not_found
 from app.db.session import get_db
 from app.enums import AccessRight, SystemObject
+from app.models.purchases import ExpenseVoucher
 from app.schemas import ListResponse
 from app.schemas.customer_payment import ReversalRequest
 from app.schemas.expense_vouchers import (
@@ -34,10 +37,8 @@ async def _voucher_or_404(db: AsyncSession, voucher_id: int, current: CurrentUse
     """Another facility's voucher answers 403 to a non-administrator (FR-008)."""
     voucher = await service.get_voucher(db, voucher_id)
     if voucher is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail='Expense voucher not found'
-        )
-    inv.assert_facility(current, voucher.facility)
+        raise not_found(ExpenseVoucher, voucher_id)
+    inv.assert_facility(current, voucher.facility, resource='expense_voucher')
     return voucher
 
 
@@ -177,9 +178,10 @@ async def print_expense_voucher(
     """The ticket the person who takes the cash signs (FR-009)."""
     voucher = await _voucher_or_404(db, voucher_id, current)
     if service.voucher_state(voucher) is not DocumentStatus.COMPLETED:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail='Only a confirmed voucher can be printed',
+        raise DomainError(
+            ErrorCode.EXPENSE_VOUCHER_NOT_CONFIRMED,
+            'Only a confirmed voucher can be printed',
+            {'status': service.voucher_state(voucher), 'action': 'print'},
         )
     template, context = await print_contexts.expense_voucher_context(db, voucher)
     pdf = await rendering.render_pdf(template, context)

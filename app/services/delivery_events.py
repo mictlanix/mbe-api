@@ -11,10 +11,11 @@ branch happens *at* approval (FR-024), a plain `{from: {to}}` mapping would let 
 reach `READY_FOR_PICKUP`.
 """
 
-from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.clock import local_now
+from app.core.error_codes import ErrorCode
+from app.core.errors import DomainError
 from app.enums import DeliveryOrderStatus as S
 from app.enums import FulfillmentType
 from app.models.logistics import DeliveryOrder, DeliveryOrderEvent
@@ -55,24 +56,30 @@ def assert_legal(order: DeliveryOrder, to_status: S) -> None:
     from_status = S(order.status)
 
     if from_status in TERMINAL:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=(f'{from_status.name} is terminal; cannot move to {to_status.name}'),
+        raise DomainError(
+            ErrorCode.STATE_TRANSITION_INVALID,
+            f'{from_status.name} is terminal; cannot move to {to_status.name}',
+            {'resource': 'delivery_order', 'from': from_status, 'to': to_status},
         )
 
     if to_status not in LEGAL[from_status]:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=f'Cannot move a delivery order from {from_status.name} to {to_status.name}',
+        raise DomainError(
+            ErrorCode.STATE_TRANSITION_INVALID,
+            f'Cannot move a delivery order from {from_status.name} to {to_status.name}',
+            {'resource': 'delivery_order', 'from': from_status, 'to': to_status},
         )
 
     required = TYPE_RESTRICTED.get((from_status, to_status))
     if required is not None and FulfillmentType(order.fulfillment_type) is not required:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=(
-                f'{from_status.name} to {to_status.name} is only valid for a {required.name} order'
-            ),
+        raise DomainError(
+            ErrorCode.STATE_TRANSITION_INVALID,
+            f'{from_status.name} to {to_status.name} is only valid for a {required.name} order',
+            {
+                'resource': 'delivery_order',
+                'from': from_status,
+                'to': to_status,
+                'required': required,
+            },
         )
 
 
@@ -88,9 +95,10 @@ def transition(
     assert_legal(order, to_status)
 
     if to_status in REASON_REQUIRED and not (reason or '').strip():
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail=f'A reason is required to move an order to {to_status.name}',
+        raise DomainError(
+            ErrorCode.DELIVERY_ORDER_REASON_REQUIRED,
+            f'A reason is required to move an order to {to_status.name}',
+            {'to': to_status},
         )
 
     event = DeliveryOrderEvent(

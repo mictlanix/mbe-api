@@ -11,6 +11,7 @@ from enum import StrEnum
 from typing import Annotated
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic_core import PydanticCustomError
 
 from app.core.clock import local_now
 from app.enums import PaymentMethod
@@ -31,7 +32,9 @@ class PaymentStatus(StrEnum):
 def _distinct(items: list['ApplicationItem']) -> list['ApplicationItem']:
     orders = [item.purchase_order for item in items]
     if len(orders) != len(set(orders)):
-        raise ValueError('Each purchase order can appear only once')
+        raise PydanticCustomError(
+            'supplier_payment_duplicate_order', 'Each purchase order can appear only once'
+        )
     return items
 
 
@@ -61,16 +64,25 @@ class SupplierPaymentCreate(BaseModel):
     @classmethod
     def _not_in_the_future(cls, value: datetime | None) -> datetime | None:
         if value is not None and value > local_now():
-            raise ValueError('The payment date cannot be in the future')
+            raise PydanticCustomError(
+                'supplier_payment_date_in_future',
+                'The payment date cannot be in the future',
+                {'date': value.isoformat()},
+            )
         return value
 
     @model_validator(mode='after')
     def _cash_takes_its_session(self) -> 'SupplierPaymentCreate':
         if self.method is PaymentMethod.CASH:
             if self.date is not None:
-                raise ValueError('A cash payment is dated now; send no date')
+                raise PydanticCustomError(
+                    'supplier_payment_cash_has_date', 'A cash payment is dated now; send no date'
+                )
             if self.facility is not None:
-                raise ValueError("A cash payment takes its session's facility; send no facility")
+                raise PydanticCustomError(
+                    'supplier_payment_cash_has_facility',
+                    "A cash payment takes its session's facility; send no facility",
+                )
         return self
 
 

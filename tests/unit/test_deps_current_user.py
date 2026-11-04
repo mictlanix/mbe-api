@@ -85,6 +85,8 @@ async def test_inactive_user_still_rejected() -> None:
         await _resolve(user)
 
     assert exc.value.status_code == 401
+    assert exc.value.code == 'auth.not_authenticated'
+    assert exc.value.headers == {'WWW-Authenticate': 'Bearer'}
 
 
 def test_only_the_settings_fields_default() -> None:
@@ -110,3 +112,4 @@ async def test_a_pending_password_change_signs_in_but_is_refused_everywhere_else
 
     assert exc.value.status_code == 403
     assert exc.value.detail == 'password_change_required'
+    assert exc.value.code == 'auth.password_change_required'

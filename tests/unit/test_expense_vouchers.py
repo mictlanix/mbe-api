@@ -153,12 +153,22 @@ async def _stored(db: AsyncSession, voucher_id: int) -> ExpenseVoucher:
     ).scalar_one()
 
 
-async def _refused(call, status: int, detail: str | None = None) -> None:  # noqa: ANN001
+async def _refused(  # noqa: ANN202
+    call,  # noqa: ANN001
+    status: int,
+    detail: str | None = None,
+    code: str | None = None,
+    params: dict | None = None,
+):
     with pytest.raises(HTTPException) as exc:
         await call
     assert exc.value.status_code == status
     if detail is not None:
         assert exc.value.detail == detail
+    if code is not None:
+        assert exc.value.code == code
+        assert exc.value.params == (params or {})
+    return exc.value
 
 
 # ── States (research R1) ──────────────────────────────────────────────────────
@@ -191,7 +201,7 @@ class TestVoucherState:
 
 class TestCreate:
     async def test_without_an_open_session_it_is_refused(self, db: AsyncSession) -> None:
-        await _refused(_draft(db), 409, SESSION_REQUIRED)
+        await _refused(_draft(db), 409, SESSION_REQUIRED, 'cash_session.not_open')
 
     async def test_the_draft_takes_the_session_and_its_drawers_facility(
         self, db: AsyncSession
@@ -252,13 +262,23 @@ class TestEdits:
         voucher = await _with_line(db)
         await _session(db, cashier=OTHER)
 
-        await _refused(_write(write, db, voucher, _user(OTHER)), 403, NOT_THE_CASHIER)
+        await _refused(
+            _write(write, db, voucher, _user(OTHER)),
+            403,
+            NOT_THE_CASHIER,
+            'expense_voucher.not_cashier',
+        )
 
     @pytest.mark.parametrize('write', WRITES)
     async def test_a_confirmed_voucher_is_refused(self, db: AsyncSession, write: str) -> None:
         voucher = await _confirmed(db)
 
-        await _refused(_write(write, db, voucher, _user()), 409)
+        await _refused(
+            _write(write, db, voucher, _user()),
+            409,
+            code='document.not_editable',
+            params={'status': 'completed'},
+        )
 
     async def test_an_unknown_voucher_is_404(self, db: AsyncSession) -> None:
         await _session(db)
@@ -308,6 +328,8 @@ class TestEdits:
                 current=_user(),
             ),
             422,
+            code='expense_voucher.unknown_category',
+            params={'expense_id': 99},
         )
         await _refused(
             service.update_line(
@@ -377,7 +399,11 @@ class TestConfirm:
     async def test_a_total_of_zero_is_refused(self, db: AsyncSession) -> None:
         voucher_id = (await _draft_in_session(db)).expense_voucher_id
 
-        await _refused(service.confirm_voucher(db, voucher_id, current=_user()), 409)
+        await _refused(
+            service.confirm_voucher(db, voucher_id, current=_user()),
+            409,
+            code='expense_voucher.total_not_positive',
+        )
         assert (await _stored(db, voucher_id)).completed is False
 
     async def test_without_an_open_session_it_is_refused(self, db: AsyncSession) -> None:
@@ -388,6 +414,7 @@ class TestConfirm:
             service.confirm_voucher(db, voucher.expense_voucher_id, current=_user()),
             409,
             SESSION_REQUIRED,
+            'cash_session.not_open',
         )
 
     async def test_it_moves_to_the_callers_open_session(self, db: AsyncSession) -> None:
@@ -430,7 +457,12 @@ class TestCancelDraft:
         voucher = await _with_line(db)
         await service.cancel_draft(db, voucher.expense_voucher_id, current=_user())
 
-        await _refused(service.cancel_draft(db, voucher.expense_voucher_id, current=_user()), 409)
+        await _refused(
+            service.cancel_draft(db, voucher.expense_voucher_id, current=_user()),
+            409,
+            code='document.not_editable',
+            params={'status': 'cancelled'},
+        )
 
 
 # ── Void (FR-004, FR-005, research R3) ────────────────────────────────────────
@@ -446,8 +478,13 @@ class TestVoid:
         cancelled = (await _with_line(db)).expense_voucher_id
         await service.cancel_draft(db, cancelled, current=_user())
 
-        for voucher_id in (draft, cancelled):
-            await _refused(service.void_voucher(db, voucher_id, 'error', current=_user()), 409)
+        for voucher_id, state in ((draft, 'draft'), (cancelled, 'cancelled')):
+            await _refused(
+                service.void_voucher(db, voucher_id, 'error', current=_user()),
+                409,
+                code='expense_voucher.not_confirmed',
+                params={'status': state, 'action': 'void'},
+            )
         assert await _incidences(db) == []
 
     async def test_a_voided_voucher_cannot_be_voided_again(self, db: AsyncSession) -> None:
@@ -455,7 +492,10 @@ class TestVoid:
         await service.void_voucher(db, voucher.expense_voucher_id, 'error', current=_user())
 
         await _refused(
-            service.void_voucher(db, voucher.expense_voucher_id, 'error', current=_user()), 409
+            service.void_voucher(db, voucher.expense_voucher_id, 'error', current=_user()),
+            409,
+            code='expense_voucher.not_confirmed',
+            params={'status': 'cancelled', 'action': 'void'},
         )
 
     async def test_a_caller_without_a_session_voids_another_cashiers_voucher(
@@ -594,7 +634,12 @@ class TestReads:
         assert await ids(date_from=datetime(2026, 10, 28).date()) == []
         assert await ids(date_to=datetime(2026, 10, 26).date()) == []
         assert await ids(skip=1, limit=1) == [confirmed.expense_voucher_id]
-        await _refused(service.list_vouchers(db, current=admin, state='paid'), 422)
+        await _refused(
+            service.list_vouchers(db, current=admin, state='paid'),
+            422,
+            code='status_filter.unsupported',
+            params={'resource': 'expense_voucher', 'status': 'paid'},
+        )
 
     async def test_list_summaries_carry_totals_and_voided(self, db: AsyncSession) -> None:
         voucher = await _confirmed(db)

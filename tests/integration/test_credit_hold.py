@@ -293,6 +293,9 @@ class TestTheCreditLimit:
 
         assert created.status_code == 422, created.text
         assert 'over their credit limit' in created.json()['detail']
+        assert created.json()['code'] == 'customer.credit_limit_exceeded'
+        assert created.json()['params']['customer_id'] == 4
+        assert created.json()['params']['limit'] == '1000.0000'
 
     async def test_a_customer_inside_their_limit_is_untouched(
         self, client: AsyncClient, db: AsyncSession, seeded: None
@@ -350,6 +353,7 @@ class TestTheCreditLimit:
         detail = str(created.json().get('detail'))
         assert detail.startswith('Customer must settle their credit'), detail
         assert 'over their credit limit' not in detail
+        assert created.json()['code'] == 'customer.credit_limit_reached'
 
     async def test_the_walk_in_customer_is_exempt_from_the_limit_too(
         self, client: AsyncClient, db: AsyncSession, seeded: None

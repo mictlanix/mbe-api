@@ -2,6 +2,7 @@ import re
 from decimal import Decimal
 
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator
+from pydantic_core import PydanticCustomError
 
 from app.enums import EntityStatus
 from app.schemas.core import LabelResponse
@@ -13,13 +14,15 @@ _WHITESPACE_RE = re.compile(r'\s')
 
 def _validate_code(v: str) -> str:
     if _WHITESPACE_RE.search(v):
-        raise ValueError('Code must not contain whitespace')
+        raise PydanticCustomError('product_code_has_whitespace', 'Code must not contain whitespace')
     return v
 
 
 def _validate_bar_code(v: str | None) -> str | None:
     if v and not re.fullmatch(r'\d{13}', v):
-        raise ValueError('Barcode must be empty or exactly 13 digits (EAN-13)')
+        raise PydanticCustomError(
+            'product_barcode_invalid', 'Barcode must be empty or exactly 13 digits (EAN-13)'
+        )
     return v
 
 

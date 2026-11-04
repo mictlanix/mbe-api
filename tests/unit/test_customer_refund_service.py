@@ -10,10 +10,12 @@ This is where the lifecycle clarifications concentrate. Two invariants matter mo
 
 from decimal import Decimal
 from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi import HTTPException
 
+from app.services import customer_refund_service
 from app.services.customer_refund_service import (
     assert_not_invoiced,
     assert_quantity_refundable,
@@ -43,12 +45,14 @@ class TestAssertRefundableOrder:
         assert exc.value.status_code == 409
         assert 'not paid' in exc.value.detail.lower()
         assert 'cancelling' in exc.value.detail.lower()
+        assert exc.value.code == 'refund.order_not_paid'
 
     def test_draft_order_is_refused_for_a_different_reason(self) -> None:
         with pytest.raises(HTTPException) as exc:
             assert_refundable_order(_order(completed=False, paid=False))
 
         assert 'not completed' in exc.value.detail.lower()
+        assert exc.value.code == 'refund.order_not_completed'
 
     def test_the_two_refusals_are_distinguishable(self) -> None:
         """The clerk must learn whether to confirm the order or cancel it."""
@@ -113,6 +117,8 @@ class TestAssertNotInvoiced:
         assert exc.value.detail == (
             'Units of line P1 are on invoice A42; cancel the invoice to refund them'
         )
+        assert exc.value.code == 'refund.line_invoiced'
+        assert exc.value.params == {'product_code': 'P1', 'invoice': 'A42'}
 
     def test_more_than_was_sold_is_left_to_the_422(self) -> None:
         self._check('11')
@@ -140,6 +146,8 @@ class TestAssertQuantityRefundable:
             assert_quantity_refundable(Decimal('7'), Decimal('6'))
 
         assert exc.value.status_code == 422
+        assert exc.value.code == 'refund.quantity_exceeds_refundable'
+        assert exc.value.params == {'requested': '7', 'refundable': '6'}
 
 
 class TestReconcileLines:
@@ -196,3 +204,92 @@ class TestReconcileLines:
 
         assert keep[0][1] == Decimal('3')
         assert first_refund + keep[0][1] == sold
+
+
+class TestRefundCodes:
+    def test_an_invoice_without_a_folio_is_left_out_of_the_params(self) -> None:
+        with pytest.raises(HTTPException) as exc:
+            assert_not_invoiced(
+                Decimal('5'),
+                sold=Decimal('10'),
+                refunded=Decimal('0'),
+                invoiced=Decimal('6'),
+                product_code='P1',
+                invoice=None,
+            )
+
+        assert exc.value.code == 'refund.line_invoiced'
+        assert exc.value.params == {'product_code': 'P1'}
+
+    @pytest.mark.asyncio
+    async def test_a_completed_refund_cannot_be_cancelled(self) -> None:
+        with pytest.raises(HTTPException) as exc:
+            await customer_refund_service.cancel_refund(
+                AsyncMock(), SimpleNamespace(completed=True, cancelled=False), current=None
+            )
+
+        assert exc.value.code == 'refund.completed_cannot_cancel'
+
+    @pytest.mark.asyncio
+    async def test_a_cancelled_refund_cannot_be_cancelled_again(self) -> None:
+        with pytest.raises(HTTPException) as exc:
+            await customer_refund_service.cancel_refund(
+                AsyncMock(), SimpleNamespace(completed=False, cancelled=True), current=None
+            )
+
+        assert exc.value.code == 'refund.already_cancelled'
+
+    @pytest.mark.asyncio
+    async def test_confirming_without_an_open_session_is_refused(self) -> None:
+        current = SimpleNamespace(employee_id=7)
+        with (
+            patch.object(
+                customer_refund_service,
+                'documents',
+                MagicMock(assert_editable=lambda refund: None),
+            ),
+            patch.object(
+                customer_refund_service.cash_session_service,
+                'open_session_for_cashier',
+                AsyncMock(return_value=None),
+            ),
+            pytest.raises(HTTPException) as exc,
+        ):
+            await customer_refund_service.confirm_refund(
+                AsyncMock(), SimpleNamespace(), payout=None, current=current
+            )
+
+        assert exc.value.status_code == 409
+        assert exc.value.code == 'cash_session.not_open'
+
+    @pytest.mark.asyncio
+    async def test_a_refund_with_no_lines_has_nothing_to_return(self) -> None:
+        def result(value: object) -> MagicMock:
+            found = MagicMock()
+            found.scalar_one.return_value = value
+            found.scalar_one_or_none.return_value = value
+            found.scalars.return_value.all.return_value = []
+            return found
+
+        refund = SimpleNamespace(customer_refund_id=1, sales_order=2, facility=1)
+        db = AsyncMock()
+        db.execute = AsyncMock(
+            side_effect=[result(refund), result(SimpleNamespace()), result(None)]
+        )
+        with (
+            patch.object(
+                customer_refund_service,
+                'documents',
+                MagicMock(assert_editable=lambda refund: None, lock_facility=AsyncMock()),
+            ),
+            patch.object(
+                customer_refund_service.cash_session_service, 'lock_open_session', AsyncMock()
+            ),
+            pytest.raises(HTTPException) as exc,
+        ):
+            await customer_refund_service._confirm_locked(
+                db, 1, payout=None, session_id=3, employee=7
+            )
+
+        assert exc.value.status_code == 409
+        assert exc.value.code == 'refund.no_returnable_lines'

@@ -176,7 +176,7 @@ async def test_create_for_a_paid_payment_is_409() -> None:
             response = await _call(client, 'create')
 
     assert response.status_code == status.HTTP_409_CONFLICT
-    assert response.json() == {'detail': 'This payment already has receipt P1'}
+    assert response.json()['detail'] == 'This payment already has receipt P1'
 
 
 # ── Add a paid invoice ────────────────────────────────────────────────────────
@@ -273,7 +273,7 @@ async def test_add_paid_invoice_over_the_balance_is_422() -> None:
             response = await _call(client, 'add')
 
     assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
-    assert response.json() == {'detail': 'Amount exceeds the invoice balance of 0.00'}
+    assert response.json()['detail'] == 'Amount exceeds the invoice balance of 0.00'
 
 
 # ── Update a paid invoice ─────────────────────────────────────────────────────
@@ -327,7 +327,7 @@ async def test_update_paid_invoice_over_the_payment_is_422() -> None:
             response = await _call(client, 'update')
 
     assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
-    assert response.json() == {'detail': 'The amounts paid exceed the payment amount'}
+    assert response.json()['detail'] == 'The amounts paid exceed the payment amount'
 
 
 # ── Remove a paid invoice ─────────────────────────────────────────────────────
@@ -364,7 +364,7 @@ async def test_remove_an_unknown_paid_invoice_is_404() -> None:
             response = await _call(client, 'remove')
 
     assert response.status_code == status.HTTP_404_NOT_FOUND
-    assert response.json() == {'detail': 'Paid invoice not found'}
+    assert response.json()['detail'] == 'Paid invoice not found'
 
 
 # ── Every route ───────────────────────────────────────────────────────────────
@@ -407,5 +407,5 @@ async def test_a_missing_document_is_404(key: str) -> None:
             response = await _call(client, key)
 
     assert response.status_code == status.HTTP_404_NOT_FOUND
-    assert response.json() == {'detail': 'Fiscal document not found'}
+    assert response.json()['detail'] == 'Fiscal document not found'
     called.assert_not_awaited()

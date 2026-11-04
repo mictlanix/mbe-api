@@ -1,9 +1,11 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.deps import CurrentUser, require_privilege
+from app.core.errors import not_found
 from app.db.session import get_db
 from app.enums import AccessRight, SystemObject
+from app.models.core import Expense
 from app.schemas import ListResponse
 from app.schemas.core import ExpenseCreate, ExpenseResponse, ExpenseUpdate
 from app.services import expense_service
@@ -46,7 +48,7 @@ async def get_expense(
 ) -> ExpenseResponse:
     expense = await expense_service.get_expense(db, expense_id)
     if expense is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Expense not found')
+        raise not_found(Expense, expense_id)
     return ExpenseResponse.model_validate(expense)
 
 
@@ -59,7 +61,7 @@ async def update_expense(
 ) -> ExpenseResponse:
     expense = await expense_service.get_expense(db, expense_id)
     if expense is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Expense not found')
+        raise not_found(Expense, expense_id)
     expense = await expense_service.update_expense(db, expense, data)
     return ExpenseResponse.model_validate(expense)
 
@@ -72,5 +74,5 @@ async def delete_expense(
 ) -> None:
     expense = await expense_service.get_expense(db, expense_id)
     if expense is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Expense not found')
+        raise not_found(Expense, expense_id)
     await expense_service.delete_expense(db, expense)

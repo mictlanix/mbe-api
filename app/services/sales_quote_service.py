@@ -10,7 +10,6 @@ from collections.abc import Sequence
 from datetime import datetime, timedelta
 from decimal import Decimal
 
-from fastapi import HTTPException, status
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -18,6 +17,8 @@ from app import rendering
 from app.core.clock import local_now
 from app.core.config import settings
 from app.core.deps import CurrentUser
+from app.core.error_codes import ErrorCode
+from app.core.errors import DomainError, not_found
 from app.enums import CurrencyCode, OrderOrigin, PaymentTerms, SourceType
 from app.models.core import Employee, Facility
 from app.models.customer import Customer
@@ -59,18 +60,16 @@ def assert_convertible(quote: object, *, now: datetime | None = None) -> None:
     re-quote, which is a different action from confirming a draft.
     """
     if getattr(quote, 'cancelled', False):
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT, detail='A cancelled quote cannot be converted'
-        )
+        raise DomainError(ErrorCode.QUOTE_CANCELLED, 'A cancelled quote cannot be converted')
     if not getattr(quote, 'completed', False):
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail='Only a confirmed quote can be converted; confirm it first',
+        raise DomainError(
+            ErrorCode.QUOTE_NOT_CONFIRMED,
+            'Only a confirmed quote can be converted; confirm it first',
         )
     if has_expired(quote, now=now):
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail='Quote has expired and cannot be converted; duplicate it to re-quote',
+        raise DomainError(
+            ErrorCode.QUOTE_EXPIRED,
+            'Quote has expired and cannot be converted; duplicate it to re-quote',
         )
 
 
@@ -169,7 +168,7 @@ async def attach_summary_totals(db: AsyncSession, quotes: Sequence[SalesQuote]) 
 async def _customer_or_404(db: AsyncSession, customer_id: int) -> Customer:
     customer = await db.get(Customer, customer_id)
     if customer is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Customer not found')
+        raise not_found(Customer, customer_id)
     return customer
 
 
@@ -178,10 +177,7 @@ async def create_quote(
 ) -> SalesQuote:
     employee = current.employee_id
     if current.facility_id is None:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail='No facility is configured for your user',
-        )
+        raise DomainError(ErrorCode.USER_NO_FACILITY, 'No facility is configured for your user')
 
     customer = await _customer_or_404(
         db, data.customer if data.customer is not None else settings.default_customer_id
@@ -370,11 +366,13 @@ async def add_line(
 
     product = await db.get(Product, data.product)
     if product is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Product not found')
+        raise not_found(Product, data.product)
 
     customer = await _customer_or_404(db, quote.customer)
     quantity = data.quantity if data.quantity is not None else Decimal(product.min_order_qty)
-    sales_order_service.assert_quantity_allowed(quantity, min_order_qty=product.min_order_qty)
+    sales_order_service.assert_quantity_allowed(
+        quantity, min_order_qty=product.min_order_qty, product_id=product.product_id
+    )
     # As on an order line: the override only fills a rate the request did not name (spec 023).
     discount = data.discount_rate
     if discount is None:
@@ -422,7 +420,9 @@ async def update_line(
     if 'quantity' in changes and changes['quantity'] is not None:
         product = await db.get(Product, line.product)
         sales_order_service.assert_quantity_allowed(
-            changes['quantity'], min_order_qty=product.min_order_qty if product else 1
+            changes['quantity'],
+            min_order_qty=product.min_order_qty if product else 1,
+            product_id=line.product,
         )
         line.quantity = changes['quantity']
     for field in ('price', 'price_adjustment', 'discount_rate', 'comment'):
@@ -458,7 +458,9 @@ async def confirm_quote(db: AsyncSession, quote: SalesQuote, *, current: Current
     then the facility, so the `MAX(serial)` read after them is current.
     """
     await db.commit()
-    async with inventory_documents.busy_as_conflict(db, detail='The facility is busy, retry'):
+    async with inventory_documents.busy_as_conflict(
+        db, detail='The facility is busy, retry', resource='facility'
+    ):
         quote = (
             await db.execute(
                 select(SalesQuote)
@@ -479,9 +481,7 @@ async def confirm_quote(db: AsyncSession, quote: SalesQuote, *, current: Current
 
 async def cancel_quote(db: AsyncSession, quote: SalesQuote, *, current: CurrentUser) -> SalesQuote:
     if quote.cancelled:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT, detail='Quote is already cancelled'
-        )
+        raise DomainError(ErrorCode.QUOTE_ALREADY_CANCELLED, 'Quote is already cancelled')
     quote.cancelled = True
     quote.updater = current.employee_id
     quote.modification_time = local_now()
@@ -534,9 +534,7 @@ async def email_quote(
     after a send loses the record of one email that did go out, the rarer and more honest error.
     """
     if not quote.completed or quote.cancelled:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT, detail='Only a confirmed quote can be emailed'
-        )
+        raise DomainError(ErrorCode.QUOTE_NOT_CONFIRMED, 'Only a confirmed quote can be emailed')
 
     await attach_derived(db, quote)
     template, context = await print_contexts.sales_quote_context(db, quote)
@@ -554,9 +552,8 @@ async def email_quote(
     try:
         await mailer.send(message)
     except mail.MailError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f'The email could not be sent: {exc}',
+        raise DomainError(
+            ErrorCode.EMAIL_SEND_FAILED, f'The email could not be sent: {exc}'
         ) from exc
 
     sent_at = local_now()
@@ -647,9 +644,9 @@ async def convert_to_order(
 
     point_sale = current.point_sale_id
     if point_sale is None:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail='No point of sale is configured for your user; set one or supply it explicitly',
+        raise DomainError(
+            ErrorCode.USER_NO_POINT_OF_SALE,
+            'No point of sale is configured for your user; set one or supply it explicitly',
         )
 
     customer = await _customer_or_404(db, quote.customer)

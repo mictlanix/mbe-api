@@ -257,6 +257,7 @@ class TestCreationIsAtomic:
     ) -> None:
         refused = await _new_user(client, 'qsghost', profile_id=99999)
         assert refused.status_code == 404, refused.text
+        assert refused.json()['code'] == 'resource.not_found'
         assert (await client.get('/api/v1/users/qsghost')).status_code == 404
         assert (await db.execute(select(User).where(User.user_id == 'qsghost'))).first() is None
 

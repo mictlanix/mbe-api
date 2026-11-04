@@ -21,7 +21,6 @@ from dataclasses import dataclass
 from decimal import Decimal
 from typing import Any, NamedTuple
 
-from fastapi import HTTPException, status
 from pydantic import BaseModel
 from sqlalchemy import ColumnElement, and_, func, or_, select
 from sqlalchemy.exc import DBAPIError
@@ -29,6 +28,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.clock import local_now
 from app.core.deps import CurrentUser, has_any_privilege
+from app.core.error_codes import ErrorCode
+from app.core.errors import DomainError, not_found, resource_name
 from app.enums import AccessRight, SystemObject, TransactionType
 from app.models.core import Warehouse
 from app.models.inventory import (
@@ -187,9 +188,10 @@ def warehouses_to_lock(
     """
     transit = transit_map.get(document.facility)
     if transit is None:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail=f'Facility {document.facility} has no in-transit location',
+        raise DomainError(
+            ErrorCode.FACILITY_NO_IN_TRANSIT_LOCATION,
+            f'Facility {document.facility} has no in-transit location',
+            {'facility_ids': [document.facility]},
         )
     header = {getattr(document, attr) for attr in kind.warehouses}
     return sorted({transit, *header, *ledger_warehouses})
@@ -236,7 +238,7 @@ async def lock_document(db: AsyncSession, kind: Kind, document_id: int) -> Any:
         )
     ).scalar_one_or_none()
     if document is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f'{kind.label} not found')
+        raise not_found(kind.header, document_id, f'{kind.label} not found')
     return document
 
 
@@ -327,31 +329,36 @@ def _mariadb_code(error: DBAPIError) -> int | None:
 
 @asynccontextmanager
 async def busy_as_conflict(
-    db: AsyncSession, detail: str = 'The warehouse is busy, retry'
+    db: AsyncSession, detail: str = 'The warehouse is busy, retry', resource: str = 'warehouse'
 ) -> AsyncIterator[None]:
     """Roll back any failure; a deadlock or lock wait timeout answers 409 (R2, known limits).
 
     Another writer's ledger insert can take warehouse locks in the opposite order; InnoDB then
     rolls one side back. The caller can retry, so that is a conflict rather than a 500. `detail`
-    names what was busy for callers that lock something other than warehouses.
+    names what was busy for callers that lock something other than warehouses; `resource` is the
+    public name of what was busy.
     """
     try:
         yield
     except BaseException as error:
         await db.rollback()
         if isinstance(error, DBAPIError) and _mariadb_code(error) in _BUSY:
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=detail) from error
+            raise DomainError(
+                ErrorCode.LOCK_BUSY, detail, {'resource': resource}
+            ) from error
         raise
 
 
 # ── Rules ─────────────────────────────────────────────────────────────────────
 
 
-def assert_facility(current: CurrentUser, *facilities: int) -> None:
+def assert_facility(current: CurrentUser, *facilities: int, resource: str) -> None:
     """FR-011, R6: a non-administrator acts only on documents of their own facility."""
     if not current.administrator and current.facility_id not in facilities:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN, detail='Document belongs to another facility'
+        raise DomainError(
+            ErrorCode.FACILITY_OTHER_FACILITY,
+            'Document belongs to another facility',
+            {'resource': resource},
         )
 
 
@@ -366,12 +373,18 @@ async def assert_available(db: AsyncSession, required: dict[int, Decimal], wareh
         product, have, need = short[0]
         product_row = await db.get(Product, product)
         warehouse_row = await db.get(Warehouse, warehouse)
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=(
+        raise DomainError(
+            ErrorCode.INVENTORY_DOCUMENT_INSUFFICIENT_STOCK,
+            (
                 f'Not enough stock of {product_row.code} in {warehouse_row.code}: '
                 f'{have} available, {need} required'
             ),
+            {
+                'product_id': product,
+                'warehouse_id': warehouse,
+                'requested': need,
+                'available': have,
+            },
         )
 
 
@@ -383,9 +396,9 @@ async def _usable_warehouse(db: AsyncSession, warehouse_id: int) -> Warehouse:
 
 def _assert_distinct(origin: int, destination: int) -> None:
     if origin == destination:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail='The origin and destination warehouses must differ',
+        raise DomainError(
+            ErrorCode.INVENTORY_TRANSFER_SAME_WAREHOUSE,
+            'The origin and destination warehouses must differ',
         )
 
 
@@ -479,11 +492,12 @@ async def add_line(
 
         row = await db.get(Product, product)
         if row is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Product not found')
+            raise not_found(Product, product)
         if not row.stockable:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-                detail=f'Product {row.code} is not stockable',
+            raise DomainError(
+                ErrorCode.PRODUCT_NOT_STOCKABLE,
+                f'Product {row.code} is not stockable',
+                {'product_code': row.code},
             )
 
         line, total = merge_line_quantity(
@@ -517,7 +531,7 @@ async def _locked_line(
     documents.assert_editable(document)
     line = await get_line(db, kind, document, line_id)
     if line is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Line not found')
+        raise not_found(kind.line, line_id, 'Line not found')
     return document, line
 
 
@@ -572,13 +586,15 @@ async def confirm_simple(
         if costed:
             await purchase_cost_service.lock(db, document_id)
         # Another facility learns nothing about the document's state or lines.
-        assert_facility(current, document.facility)
+        assert_facility(current, document.facility, resource=resource_name(kind.header))
         documents.assert_editable(document)
 
         lines = await _lines(db, kind, document_id)
         if not lines:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT, detail=f'{kind.label} has no lines'
+            raise DomainError(
+                ErrorCode.INVENTORY_DOCUMENT_NO_LINES,
+                f'{kind.label} has no lines',
+                {'resource': resource_name(kind.header)},
             )
         products = {
             row.product_id: row
@@ -592,14 +608,16 @@ async def confirm_simple(
         }
         for line in lines:
             if line.quantity <= 0:
-                raise HTTPException(
-                    status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-                    detail=f'Line {line.product_code} has no quantity',
+                raise DomainError(
+                    ErrorCode.INVENTORY_DOCUMENT_LINE_WITHOUT_QUANTITY,
+                    f'Line {line.product_code} has no quantity',
+                    {'product_code': line.product_code},
                 )
             if not products[line.product].stockable:
-                raise HTTPException(
-                    status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-                    detail=f'Product {products[line.product].code} is not stockable',
+                raise DomainError(
+                    ErrorCode.PRODUCT_NOT_STOCKABLE,
+                    f'Product {products[line.product].code} is not stockable',
+                    {'product_code': products[line.product].code},
                 )
 
         serial = await next_serial(db, kind.header, document.facility)
@@ -654,16 +672,17 @@ async def cancel(db: AsyncSession, kind: Kind, document_id: int, *, current: Cur
             # every product it changed is on one of them. A locking read of `product_cost_change`
             # instead would gap-lock past the newest receipt and deadlock with its inserts.
             await purchase_cost_service.lock(db, document_id)
-        assert_facility(current, document.facility)
+        assert_facility(current, document.facility, resource=resource_name(kind.header))
         if document.completed and not kind.cancellable_when_completed:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail='A confirmed count cannot be cancelled',
+            raise DomainError(
+                ErrorCode.INVENTORY_COUNT_CONFIRMED_CANNOT_CANCEL,
+                'A confirmed count cannot be cancelled',
             )
         if document.cancelled:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail=f'{kind.label} is already cancelled',
+            raise DomainError(
+                ErrorCode.INVENTORY_DOCUMENT_ALREADY_CANCELLED,
+                f'{kind.label} is already cancelled',
+                {'resource': resource_name(kind.header)},
             )
 
         if document.completed:
@@ -746,9 +765,10 @@ def simple_status_clause(kind: Kind, value: str) -> ColumnElement[bool]:
         return and_(header.completed.is_(True), header.cancelled.is_(False))
     if value == 'cancelled':
         return header.cancelled.is_(True)
-    raise HTTPException(
-        status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-        detail='status must be one of draft, completed, cancelled',
+    raise DomainError(
+        ErrorCode.STATUS_FILTER_UNSUPPORTED,
+        'status must be one of draft, completed, cancelled',
+        {'allowed': ['draft', 'completed', 'cancelled']},
     )
 
 

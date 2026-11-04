@@ -4,16 +4,25 @@ The referencing tables are derived from the mapped metadata, so these tests use 
 and assert against the real foreign keys rather than a hand-written list.
 """
 
+import re
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from fastapi import HTTPException
 
+from app.core.errors import RESOURCE_NAMES
+from app.db.base import Base
 from app.enums import EntityStatus, FacilityType
 from app.models.core import Facility, Warehouse
 from app.models.product import Product
 from app.models.user import User
-from app.services.references import assert_not_referenced, find_blocking_references
+from app.services.references import (
+    assert_not_referenced,
+    assert_unique,
+    find_blocking_references,
+)
+
+RENAMED = {table for table, name in RESOURCE_NAMES.items() if table != name}
 
 
 def _db_counting(rows: list[tuple[str, int]]) -> AsyncMock:
@@ -61,25 +70,111 @@ async def test_no_blockers_when_every_count_is_zero() -> None:
 
 
 @pytest.mark.asyncio
-async def test_names_the_blocking_tables_in_the_error() -> None:
-    db = _db_counting([('warehouse.facility', 9), ('cash_drawer.facility', 2)])
+async def test_names_the_blockers_by_public_resource_name() -> None:
+    db = _db_counting([('warehouse.facility', 9), ('point_sale.facility', 2)])
 
     with pytest.raises(HTTPException) as exc:
         await assert_not_referenced(db, _facility())
 
     assert exc.value.status_code == 409
-    assert 'warehouse.facility (9)' in exc.value.detail
-    assert 'cash_drawer.facility (2)' in exc.value.detail
+    assert exc.value.code == 'resource.still_referenced'
+    assert exc.value.params == {
+        'references': [
+            {'resource': 'warehouse', 'count': 9},
+            {'resource': 'point_of_sale', 'count': 2},
+        ],
+        'more': 0,
+    }
+    assert exc.value.detail == (
+        'Still referenced by warehouse (9), point_of_sale (2) — remove those records first'
+    )
+
+
+@pytest.mark.asyncio
+async def test_two_columns_of_one_table_count_as_one_resource() -> None:
+    """A transfer's source and destination warehouse are one `inventory_transfer` blocker."""
+    db = _db_counting(
+        [('inventory_transfer.warehouse', 3), ('inventory_transfer.warehouse_to', 2)]
+    )
+
+    with pytest.raises(HTTPException) as exc:
+        await assert_not_referenced(db, Warehouse(warehouse_id=1))
+
+    assert exc.value.params['references'] == [{'resource': 'inventory_transfer', 'count': 5}]
 
 
 @pytest.mark.asyncio
 async def test_long_blocker_lists_are_truncated() -> None:
-    db = _db_counting([(f't{i}', i) for i in range(1, 9)])
+    tables = [
+        'sales_order', 'cash_drawer', 'warehouse', 'point_sale', 'expenses', 'customer_payment',
+        'sales_quote', 'purchase_order',
+    ]
+    db = _db_counting([(f'{table}.facility', 10 - i) for i, table in enumerate(tables)])
 
     with pytest.raises(HTTPException) as exc:
         await assert_not_referenced(db, _facility())
 
+    assert len(exc.value.params['references']) == 5
+    assert exc.value.params['more'] == 3
     assert 'and 3 more' in exc.value.detail
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    'model',
+    sorted(
+        {fk.column.table for t in Base.metadata.tables.values() for fk in t.foreign_keys},
+        key=lambda t: t.name,
+    ),
+    ids=lambda t: t.name,
+)
+async def test_no_table_name_reaches_a_still_referenced_error(model) -> None:
+    """SC-006: whatever references whatever, the body carries public names only."""
+    columns = [
+        (table.name, column.name)
+        for table in Base.metadata.tables.values()
+        for fk in table.foreign_keys
+        if fk.column.table is model
+        for column in [fk.parent]
+    ]
+    db = _db_counting([(f'{t}.{c}', 1) for t, c in columns])
+
+    with pytest.raises(HTTPException) as exc:
+        await _assert_blocked(db, model, columns)
+
+    text = f'{exc.value.detail} {exc.value.params}'
+    leaked = {t for t, _ in columns if t in RENAMED and re.search(rf'\b{t}\b', text)}
+    assert not leaked
+
+
+async def _assert_blocked(db, model, columns) -> None:
+    from app.services import references
+
+    async def _blockers(*_args, **_kwargs):
+        return sorted(((f'{t}.{c}', 1) for t, c in columns), key=lambda b: b[0])
+
+    original = references.find_blocking_references
+    references.find_blocking_references = _blockers
+    try:
+        await assert_not_referenced(db, object())
+    finally:
+        references.find_blocking_references = original
+
+
+@pytest.mark.asyncio
+async def test_assert_unique_names_the_resource_and_field() -> None:
+    result = MagicMock()
+    result.first.return_value = object()
+    db = AsyncMock()
+    db.execute = AsyncMock(return_value=result)
+
+    with pytest.raises(HTTPException) as exc:
+        await assert_unique(db, Warehouse, Warehouse.code, 'WH1', label='Warehouse code')
+
+    assert exc.value.status_code == 409
+    assert exc.value.code == 'resource.already_exists'
+    assert exc.value.params == {'resource': 'warehouse', 'field': 'code'}
+    assert exc.value.detail == 'Warehouse code already exists'
 
 
 @pytest.mark.asyncio

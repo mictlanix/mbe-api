@@ -18,6 +18,7 @@ from httpx import ASGITransport, AsyncClient
 from app.core.deps import CurrentUser, get_current_user
 from app.db.session import get_db
 from app.main import app
+from tests.problem import assert_problem
 
 
 @pytest.fixture(autouse=True)
@@ -573,7 +574,11 @@ async def test_listing_another_facility_is_forbidden_without_the_editor_right() 
         async with await _client() as client:
             response = await client.get('/api/v1/customer-payments?facility=51')
 
-    assert response.status_code == status.HTTP_403_FORBIDDEN
+    body = assert_problem(response, 403, 'facility.other_facility')
+    assert body['params'] == {
+        'resource': 'customer_payment',
+        'required': [{'system_object': 100, 'right': 2}],
+    }
     listing.assert_not_awaited()
 
 
@@ -603,6 +608,17 @@ async def test_another_facilitys_payment_ticket_is_not_found_without_the_editor_
             response = await client.get('/api/v1/customer-payments/1/ticket')
 
     assert response.status_code == status.HTTP_404_NOT_FOUND
+
+
+@pytest.mark.asyncio
+async def test_a_payment_without_a_ticket_is_refused_naming_its_type() -> None:
+    get, attach, apps, names = _by_id_patches(_payment(facility=1, payment_type=1))
+    with _clerk(editor=False), get, attach, apps, names:
+        async with await _client() as client:
+            response = await client.get('/api/v1/customer-payments/1/ticket')
+
+    body = assert_problem(response, 409, 'payment.no_ticket')
+    assert body['params'] == {'payment_type': 1}
 
 
 # ── Facility scope on writes (spec 034, FR-010) ───────────────────────────────

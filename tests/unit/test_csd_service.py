@@ -7,10 +7,12 @@ from zoneinfo import ZoneInfo
 import pytest
 from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
-from cryptography.hazmat.primitives.asymmetric import rsa
+from cryptography.hazmat.primitives.asymmetric import ec, rsa
 from cryptography.x509 import load_der_x509_certificate
 from cryptography.x509.oid import NameOID
 
+from app.core.errors import DomainError
+from app.services import csd_service
 from app.services.csd_service import parse_csd
 
 # SAT carries the 20-digit certificate number as the ASCII bytes of the X.509 serial.
@@ -91,8 +93,11 @@ async def test_validity_is_converted_to_mexico_city_local_time() -> None:
 async def test_wrong_password_is_rejected() -> None:
     certificate_data, key_data = _make_csd()
 
-    with pytest.raises(ValueError, match='Wrong password'):
+    with pytest.raises(DomainError) as exc:
         await parse_csd(certificate_data, key_data, b'not-the-password')
+    assert exc.value.code == 'csd.key_unreadable'
+    assert exc.value.params == {}
+    assert 'Wrong password' in exc.value.detail
 
 
 @pytest.mark.asyncio
@@ -101,16 +106,57 @@ async def test_key_from_another_pair_is_rejected() -> None:
     certificate_data, _ = _make_csd()
     _, foreign_key = _make_csd(key=rsa.generate_private_key(public_exponent=65537, key_size=2048))
 
-    with pytest.raises(ValueError, match='does not match'):
+    with pytest.raises(DomainError) as exc:
         await parse_csd(certificate_data, foreign_key, _PASSWORD)
+    assert exc.value.code == 'csd.key_mismatch'
+    assert exc.value.params == {}
+    assert 'does not match' in exc.value.detail
 
 
 @pytest.mark.asyncio
 async def test_unreadable_certificate_is_rejected() -> None:
     _, key_data = _make_csd()
 
-    with pytest.raises(ValueError, match='Unreadable certificate'):
+    with pytest.raises(DomainError) as exc:
         await parse_csd(b'not a certificate', key_data, _PASSWORD)
+    assert exc.value.code == 'csd.certificate_unreadable'
+    assert exc.value.params == {}
+    assert 'Unreadable certificate' in exc.value.detail
+
+
+@pytest.mark.asyncio
+async def test_a_certificate_with_an_unreadable_subject_is_rejected(monkeypatch) -> None:
+    """`cryptography` parses the subject lazily, so a malformed one fails after loading."""
+    certificate_data, key_data = _make_csd()
+
+    def _malformed(certificate):
+        raise ValueError('error parsing asn1 value')
+
+    monkeypatch.setattr(csd_service, '_taxpayer', _malformed)
+
+    with pytest.raises(DomainError) as exc:
+        await parse_csd(certificate_data, key_data, _PASSWORD)
+    assert exc.value.code == 'csd.certificate_unreadable'
+    assert 'Unreadable certificate' in exc.value.detail
+
+
+@pytest.mark.asyncio
+async def test_a_certificate_whose_public_key_cannot_be_read_is_rejected(monkeypatch) -> None:
+    certificate_data, key_data = _make_csd()
+    real = csd_service._load_certificate(certificate_data)
+
+    class _Broken:
+        def __getattr__(self, name):
+            return getattr(real, name)
+
+        def public_key(self):
+            raise ValueError('unsupported key type')
+
+    monkeypatch.setattr(csd_service, '_load_certificate', lambda data: _Broken())
+
+    with pytest.raises(DomainError) as exc:
+        await parse_csd(certificate_data, key_data, _PASSWORD)
+    assert exc.value.code == 'csd.certificate_unreadable'
 
 
 @pytest.mark.asyncio
@@ -122,5 +168,45 @@ async def test_unencrypted_key_is_rejected() -> None:
         encryption_algorithm=serialization.NoEncryption(),
     )
 
-    with pytest.raises(ValueError, match='not password protected'):
+    with pytest.raises(DomainError) as exc:
         await parse_csd(certificate_data, plain_key, _PASSWORD)
+    assert exc.value.code == 'csd.key_not_encrypted'
+    assert exc.value.params == {}
+    assert 'not password protected' in exc.value.detail
+
+
+@pytest.mark.asyncio
+async def test_non_rsa_key_is_rejected() -> None:
+    certificate_data, _ = _make_csd()
+    ec_key = ec.generate_private_key(ec.SECP256R1()).private_bytes(
+        encoding=serialization.Encoding.DER,
+        format=serialization.PrivateFormat.PKCS8,
+        encryption_algorithm=serialization.BestAvailableEncryption(_PASSWORD),
+    )
+
+    with pytest.raises(DomainError) as exc:
+        await parse_csd(certificate_data, ec_key, _PASSWORD)
+    assert exc.value.code == 'csd.key_not_rsa'
+    assert exc.value.params == {}
+
+
+@pytest.mark.asyncio
+async def test_non_rsa_certificate_is_rejected() -> None:
+    _, key_data = _make_csd()
+    ec_key = ec.generate_private_key(ec.SECP256R1())
+    subject = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, 'EC Issuer')])
+    certificate = (
+        x509.CertificateBuilder()
+        .subject_name(subject)
+        .issuer_name(subject)
+        .public_key(ec_key.public_key())
+        .serial_number(_serial_from(_CERTIFICATE_NUMBER))
+        .not_valid_before(datetime(2024, 1, 1, tzinfo=UTC))
+        .not_valid_after(datetime(2025, 1, 1, tzinfo=UTC))
+        .sign(ec_key, hashes.SHA256())
+    )
+
+    with pytest.raises(DomainError) as exc:
+        await parse_csd(certificate.public_bytes(serialization.Encoding.DER), key_data, _PASSWORD)
+    assert exc.value.code == 'csd.certificate_not_rsa'
+    assert exc.value.params == {}

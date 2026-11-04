@@ -72,7 +72,7 @@ You (Opus) are the orchestrator. Plan, decompose, synthesize. Reason through the
 <!-- SPECKIT START -->
 For additional context about technologies to be used, project structure,
 shell commands, and other important information, read the current plan
-at specs/035-serials-stock-bank-access/plan.md
+at specs/036-localizable-error-codes/plan.md
 <!-- SPECKIT END -->
 
 # Roadmap tracking

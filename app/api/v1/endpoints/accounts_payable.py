@@ -7,11 +7,13 @@ cutoff (spec 032), so the view is empty until it's set.
 
 from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from fastapi import APIRouter, Depends, Query, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import rendering
 from app.core.deps import CurrentUser, require_privilege
+from app.core.error_codes import ErrorCode
+from app.core.errors import DomainError
 from app.db.session import get_db
 from app.enums import AccessRight, CurrencyCode, SystemObject
 from app.schemas.accounts import (
@@ -115,9 +117,7 @@ async def email_statement(
     """Email the statement to the supplier's contacts and typed addresses, and record the send on
     the supplier (FR-024)."""
     if mailer is None:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail='Email is not configured'
-        )
+        raise DomainError(ErrorCode.EMAIL_NOT_CONFIGURED, 'Email is not configured')
     sent_at, to = await account_email.email_statement(
         db,
         accounts_service.SUPPLIERS,

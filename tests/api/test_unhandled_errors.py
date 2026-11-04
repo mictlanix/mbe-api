@@ -9,6 +9,7 @@ from httpx import ASGITransport, AsyncClient
 from app.core.deps import CurrentUser, get_current_user
 from app.db.session import get_db
 from app.main import app
+from tests.problem import assert_problem
 
 
 @pytest.fixture(autouse=True)
@@ -39,7 +40,7 @@ async def test_an_unhandled_exception_is_a_json_500_with_cors_headers() -> None:
         async with AsyncClient(transport=transport, base_url='http://test') as c:
             r = await c.get('/api/v1/warehouses/1', headers={'Origin': 'http://localhost:5000'})
 
-    assert r.status_code == 500
     assert r.headers['access-control-allow-origin'] == '*'
-    assert r.json() == {'detail': 'Internal server error'}
+    body = assert_problem(r, 500, 'server.error')
+    assert body == {'status': 500, 'code': 'server.error', 'detail': 'Internal server error'}
     assert 'disk on fire' not in r.text

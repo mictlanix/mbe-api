@@ -203,6 +203,7 @@ async def test_get_product_price_returns_404() -> None:
         async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as c:
             r = await c.get('/api/v1/product-prices/999')
     assert r.status_code == 404
+    assert r.json()['code'] == 'resource.not_found'
 
 
 # ── Update ────────────────────────────────────────────────────────────────────
@@ -239,6 +240,7 @@ async def test_update_product_price_returns_404() -> None:
         async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as c:
             r = await c.put('/api/v1/product-prices/999', json={'price': '1'})
     assert r.status_code == 404
+    assert r.json()['code'] == 'resource.not_found'
 
 
 # ── Delete ────────────────────────────────────────────────────────────────────
@@ -272,6 +274,7 @@ async def test_delete_product_price_returns_404() -> None:
         async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as c:
             r = await c.delete('/api/v1/product-prices/999')
     assert r.status_code == 404
+    assert r.json()['code'] == 'resource.not_found'
 
 
 # ── List / filter ─────────────────────────────────────────────────────────────

@@ -14,11 +14,11 @@ Two things about this module are easy to get backwards:
 
 from collections.abc import Sequence
 
-from fastapi import HTTPException
-from fastapi import status as http_status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.error_codes import ErrorCode
+from app.core.errors import DomainError
 from app.enums import EntityStatus
 from app.models.user import UserProfile, UserProfilePrivilege
 from app.schemas.user import ProfilePrivilegeUpdate, UserProfileCreate, UserProfileUpdate
@@ -113,8 +113,10 @@ def assert_applyable(profile: UserProfile) -> None:
     state that refuses, which is what 409 means elsewhere in this API.
     """
     if profile.status != EntityStatus.ACTIVE:
-        raise HTTPException(
-            status_code=http_status.HTTP_409_CONFLICT, detail='Profile is not active'
+        raise DomainError(
+            ErrorCode.USER_PROFILE_NOT_ACTIVE,
+            'Profile is not active',
+            {'profile_id': profile.user_profile_id},
         )
 
 

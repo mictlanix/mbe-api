@@ -1,8 +1,9 @@
 """Guards that keep database constraint violations from surfacing as 500s (#107).
 
 A delete is refused while anything still points at the row: the client removes the
-references itself and retries. The blocking tables are named in the error, because a client
-can act on "referenced by 3 warehouses" and cannot act on a bare conflict.
+references itself and retries. The blockers are named in the error, by their public resource
+names (spec 036), because a client can act on "referenced by 3 warehouses" and cannot act on a
+bare conflict.
 
 The referencing tables are derived from the mapped metadata rather than listed by hand, so a
 new foreign key is covered the moment its model exists. Metadata does not cover the handful
@@ -12,13 +13,14 @@ those, trading the named blocker for a generic 409.
 
 from typing import Any, cast
 
-from fastapi import HTTPException, status
 from sqlalchemy import Column, Select, Table, func, literal, select, union_all
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.inspection import inspect
 from sqlalchemy.orm import Mapper
 
 import app.models  # noqa: F401  — registers every table, so no FK is missed
+from app.core.error_codes import ErrorCode
+from app.core.errors import DomainError, resource_name
 from app.db.base import Base
 
 
@@ -76,16 +78,30 @@ async def find_blocking_references(
 async def assert_not_referenced(
     db: AsyncSession, instance: object, *, exempt: frozenset[str] = frozenset()
 ) -> None:
-    """Raise 409 naming what still references `instance`, listing the largest blockers."""
+    """Raise 409 naming what still references `instance`, listing the largest blockers.
+
+    Blockers are counted per public resource, so a transfer's source and destination warehouse
+    are one `inventory_transfer` entry, and no table name reaches the client (SC-006).
+    """
     blockers = await find_blocking_references(db, instance, exempt=exempt)
     if not blockers:
         return
-    shown = ', '.join(f'{name} ({rows})' for name, rows in blockers[:5])
-    if len(blockers) > 5:
-        shown += f', and {len(blockers) - 5} more'
-    raise HTTPException(
-        status_code=status.HTTP_409_CONFLICT,
-        detail=f'Still referenced by {shown} — remove those records first',
+    counts: dict[str, int] = {}
+    for reference, rows in blockers:
+        name = resource_name(reference.split('.')[0])
+        counts[name] = counts.get(name, 0) + rows
+    references = sorted(counts.items(), key=lambda c: (-c[1], c[0]))
+    shown = ', '.join(f'{name} ({rows})' for name, rows in references[:5])
+    more = max(len(references) - 5, 0)
+    if more:
+        shown += f', and {more} more'
+    raise DomainError(
+        ErrorCode.RESOURCE_STILL_REFERENCED,
+        f'Still referenced by {shown} — remove those records first',
+        {
+            'references': [{'resource': n, 'count': c} for n, c in references[:5]],
+            'more': more,
+        },
     )
 
 
@@ -108,4 +124,8 @@ async def assert_unique(
         mapper = cast(Mapper[Any], inspect(model))
         query = query.where(mapper.primary_key[0] != exclude_pk)
     if (await db.execute(query)).first() is not None:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f'{label} already exists')
+        raise DomainError(
+            ErrorCode.RESOURCE_ALREADY_EXISTS,
+            f'{label} already exists',
+            {'resource': resource_name(model), 'field': column.key},
+        )

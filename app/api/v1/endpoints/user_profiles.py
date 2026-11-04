@@ -1,10 +1,12 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, Query
 from fastapi import status as http_status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.deps import CurrentUser, require_admin
+from app.core.errors import not_found
 from app.db.session import get_db
 from app.enums import EntityStatus
+from app.models.user import User, UserProfile
 from app.schemas.user import (
     UserProfileCreate,
     UserProfileListResponse,
@@ -96,7 +98,7 @@ async def apply_user_profile(
 
     user = await user_service.get_user(db, user_id)
     if user is None:
-        raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail='User not found')
+        raise not_found(User, user_id)
 
     user = await user_service.apply_profile(db, user, profile, updater=current.employee_id)
     return await user_service.to_response(db, user)
@@ -105,5 +107,5 @@ async def apply_user_profile(
 async def _require_profile(db: AsyncSession, profile_id: int):  # noqa: ANN202
     profile = await user_profile_service.get_profile(db, profile_id)
     if profile is None:
-        raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail='Profile not found')
+        raise not_found(UserProfile, profile_id, detail='Profile not found')
     return profile

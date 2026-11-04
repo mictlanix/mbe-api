@@ -1,10 +1,11 @@
 from collections.abc import Sequence
 from decimal import Decimal
 
-from fastapi import HTTPException, status
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.error_codes import ErrorCode
+from app.core.errors import DomainError, not_found
 from app.models.product import PriceList, Product, ProductPrice
 from app.schemas.product_price import (
     ProductPriceBulkItem,
@@ -105,11 +106,13 @@ async def get_product_price(db: AsyncSession, product_price_id: int) -> ProductP
 
 async def create_product_price(db: AsyncSession, data: ProductPriceCreate) -> ProductPrice:
     if await db.get(Product, data.product) is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Product not found')
+        raise not_found(Product, data.product)
     pl = await db.get(PriceList, data.price_list)
     if pl is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Price list not found')
-    assert_not_cost_list(data.price_list, detail=COST_LIST_READ_ONLY)
+        raise not_found(PriceList, data.price_list)
+    assert_not_cost_list(
+        data.price_list, ErrorCode.PRICE_LIST_COST_READ_ONLY, detail=COST_LIST_READ_ONLY
+    )
 
     existing = (
         await db.execute(
@@ -120,9 +123,10 @@ async def create_product_price(db: AsyncSession, data: ProductPriceCreate) -> Pr
         )
     ).scalar_one_or_none()
     if existing is not None:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail='Price already exists for this product and price list',
+        raise DomainError(
+            ErrorCode.RESOURCE_ALREADY_EXISTS,
+            'Price already exists for this product and price list',
+            {'resource': 'product_price', 'field': 'product,price_list'},
         )
 
     pp = ProductPrice(
@@ -142,7 +146,9 @@ async def update_product_price(
     db: AsyncSession, pp: ProductPrice, data: ProductPriceUpdate
 ) -> ProductPrice:
     # `ProductPriceUpdate` has no `price_list`, so the row's list is what makes this a cost write.
-    assert_not_cost_list(pp.price_list, detail=COST_LIST_READ_ONLY)
+    assert_not_cost_list(
+        pp.price_list, ErrorCode.PRICE_LIST_COST_READ_ONLY, detail=COST_LIST_READ_ONLY
+    )
     if data.price is not None:
         pp.price = data.price
     sent = data.model_dump()
@@ -156,12 +162,13 @@ async def update_product_price(
     return pp
 
 
-def _assert_none_missing(wanted: set[int], found: set[int], what: str) -> None:
+def _assert_none_missing(wanted: set[int], found: set[int], what: str, resource: str) -> None:
     missing = sorted(wanted - found)
     if missing:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f'{what} not found: {", ".join(str(i) for i in missing)}',
+        raise DomainError(
+            ErrorCode.PRODUCT_PRICE_REFERENCES_NOT_FOUND,
+            f'{what} not found: {", ".join(str(i) for i in missing)}',
+            {'resource': resource, 'ids': missing},
         )
 
 
@@ -169,7 +176,7 @@ async def _assert_products_exist(db: AsyncSession, ids: set[int]) -> None:
     found = (
         await db.execute(select(Product.product_id).where(Product.product_id.in_(ids)))
     ).scalars()
-    _assert_none_missing(ids, set(found.all()), 'Product')
+    _assert_none_missing(ids, set(found.all()), 'Product', 'product')
 
 
 async def _price_lists_by_id(db: AsyncSession, ids: set[int]) -> dict[int, PriceList]:
@@ -179,7 +186,7 @@ async def _price_lists_by_id(db: AsyncSession, ids: set[int]) -> dict[int, Price
         .all()
     )
     by_id = {pl.price_list_id: pl for pl in rows}
-    _assert_none_missing(ids, set(by_id), 'Price list')
+    _assert_none_missing(ids, set(by_id), 'Price list', 'price_list')
     return by_id
 
 
@@ -207,15 +214,16 @@ async def bulk_upsert_product_prices(
     for item in items:
         key = (item.product, item.price_list)
         if key in seen:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=(
-                    f'Duplicate entry for product {item.product} on price list {item.price_list}'
-                ),
+            raise DomainError(
+                ErrorCode.PRODUCT_PRICE_DUPLICATE_ENTRY,
+                f'Duplicate entry for product {item.product} on price list {item.price_list}',
+                {'product_id': item.product, 'price_list_id': item.price_list},
             )
         seen.add(key)
         # Here rather than in the write loop, so one cost cell refuses the whole body.
-        assert_not_cost_list(item.price_list, detail=COST_LIST_READ_ONLY)
+        assert_not_cost_list(
+            item.price_list, ErrorCode.PRICE_LIST_COST_READ_ONLY, detail=COST_LIST_READ_ONLY
+        )
 
     await _assert_products_exist(db, {i.product for i in items})
     lists = await _price_lists_by_id(db, {i.price_list for i in items})
@@ -266,7 +274,9 @@ async def bulk_upsert_product_prices(
 
 
 async def delete_product_price(db: AsyncSession, pp: ProductPrice) -> None:
-    assert_not_cost_list(pp.price_list, detail=COST_LIST_READ_ONLY)
+    assert_not_cost_list(
+        pp.price_list, ErrorCode.PRICE_LIST_COST_READ_ONLY, detail=COST_LIST_READ_ONLY
+    )
     await db.delete(pp)
     await db.commit()
 

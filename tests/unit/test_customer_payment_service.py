@@ -41,6 +41,8 @@ class TestAssertOrderPayable:
             assert_order_payable(_order(completed=False))
 
         assert exc.value.status_code == 409
+        assert exc.value.code == 'payment.order_not_completed'
+        assert exc.value.params == {}
         assert 'confirm' in exc.value.detail.lower()
 
     def test_cancelled_order_is_refused(self) -> None:
@@ -48,6 +50,7 @@ class TestAssertOrderPayable:
             assert_order_payable(_order(cancelled=True))
 
         assert exc.value.status_code == 409
+        assert exc.value.code == 'payment.order_cancelled'
 
     def test_cancelled_takes_precedence_over_incomplete(self) -> None:
         with pytest.raises(HTTPException) as exc:
@@ -66,6 +69,11 @@ class TestAssertSameCurrency:
             assert_same_currency(CurrencyCode.USD, CurrencyCode.MXN)
 
         assert exc.value.status_code == 422
+        assert exc.value.code == 'payment.currency_mismatch'
+        assert exc.value.params == {
+            'payment_currency': CurrencyCode.USD.value,
+            'order_currency': CurrencyCode.MXN.value,
+        }
 
 
 class TestAssertWithinUnapplied:
@@ -80,6 +88,8 @@ class TestAssertWithinUnapplied:
             assert_within_unapplied(Decimal('101'), Decimal('100'))
 
         assert exc.value.status_code == 422
+        assert exc.value.code == 'payment.exceeds_unapplied'
+        assert exc.value.params == {'amount': '101', 'unapplied': '100'}
 
 
 class TestAssertSameCustomer:
@@ -91,6 +101,8 @@ class TestAssertSameCustomer:
             assert_same_customer(5, 6)
 
         assert exc.value.status_code == 422
+        assert exc.value.code == 'payment.customer_mismatch'
+        assert exc.value.params == {'payment_customer_id': 5, 'order_customer_id': 6}
 
 
 class TestTheOrderBalanceGuards:
@@ -106,6 +118,8 @@ class TestTheOrderBalanceGuards:
 
         assert exc.value.status_code == 422
         assert exc.value.detail == 'Amount 350.00 exceeds the order balance of 300.00'
+        assert exc.value.code == 'payment.exceeds_order_balance'
+        assert exc.value.params == {'amount': '350.00', 'balance': '300.00'}
 
     @pytest.mark.parametrize(
         ('paid', 'balance'),
@@ -118,6 +132,7 @@ class TestTheOrderBalanceGuards:
 
         assert exc.value.status_code == 409
         assert exc.value.detail == 'Sales order is already settled'
+        assert exc.value.code == 'payment.order_settled'
 
     def test_an_unpaid_order_that_owes_is_allowed(self) -> None:
         assert_not_settled(SimpleNamespace(paid=False), Decimal('0.02'))
@@ -253,3 +268,35 @@ class TestReopen:
 
         assert order.paid is not cleared
         assert order.balance_zeroed_time == self.STAMP, 'the commission month never moves'
+
+
+class TestPaymentCodes:
+    @pytest.mark.asyncio
+    async def test_verifying_a_verified_payment_is_refused(self) -> None:
+        payment = SimpleNamespace(verifier=3)
+
+        with pytest.raises(HTTPException) as exc:
+            await customer_payment_service.verify_payment(
+                AsyncMock(), payment, current=SimpleNamespace(employee_id=7)
+            )
+
+        assert exc.value.status_code == 409
+        assert exc.value.code == 'payment.already_verified'
+
+    @pytest.mark.asyncio
+    async def test_reversing_a_reversed_application_is_refused(self) -> None:
+        payment = SimpleNamespace(customer_payment_id=4)
+        application = SimpleNamespace(cancelled=True)
+        db = AsyncMock()
+        with patch.object(customer_payment_service, '_lock_payment', AsyncMock()):
+            with pytest.raises(HTTPException) as exc:
+                await customer_payment_service.reverse_application(
+                    db,
+                    payment,
+                    application,
+                    reason='x',
+                    current=SimpleNamespace(employee_id=7),
+                )
+
+        assert exc.value.status_code == 409
+        assert exc.value.code == 'payment.application_reversed'

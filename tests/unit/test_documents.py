@@ -111,6 +111,8 @@ class TestAssignFolio:
             await assign_folio(db, SalesOrder, facility=999)
 
         assert exc.value.status_code == 404
+        assert exc.value.code == 'resource.not_found'
+        assert exc.value.params == {'resource': 'facility', 'id': 999}
 
 
 class TestAssertEditable:
@@ -128,6 +130,15 @@ class TestAssertEditable:
             assert_editable(SimpleNamespace(completed=False, cancelled=True))
 
         assert exc.value.status_code == 409
+
+    @pytest.mark.parametrize('state', ['completed', 'cancelled'])
+    def test_refusal_is_coded_with_the_state(self, state: str) -> None:
+        document = SimpleNamespace(completed=state == 'completed', cancelled=state == 'cancelled')
+        with pytest.raises(HTTPException) as exc:
+            assert_editable(document)
+
+        assert exc.value.code == 'document.not_editable'
+        assert exc.value.params == {'status': state}
 
     def test_refusal_says_which_state_blocked_it(self) -> None:
         with pytest.raises(HTTPException) as exc:

@@ -1,6 +1,7 @@
 import re
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic_core import PydanticCustomError
 
 from app.core.password_policy import NewPassword
 from app.enums import EntityStatus, SystemObject
@@ -49,7 +50,11 @@ class ProfilePrivilegeUpdate(BaseModel):
         # A profile naming an object outside the catalog could never be applied, so it is refused
         # at write time rather than stored and failed later (FR-010)
         if v not in _KNOWN_OBJECTS:
-            raise ValueError(f'Unknown system object: {v}')
+            raise PydanticCustomError(
+                'profile_unknown_system_object',
+                'Unknown system object: {system_object}',
+                {'system_object': v},
+            )
         return v
 
 
@@ -61,7 +66,9 @@ def _reject_duplicate_objects(
         return None
     seen = {entry.system_object for entry in entries}
     if len(seen) != len(entries):
-        raise ValueError('Duplicate system_object in privileges')
+        raise PydanticCustomError(
+            'profile_duplicate_system_object', 'Duplicate system_object in privileges'
+        )
     return entries
 
 
@@ -160,7 +167,9 @@ class UserCreate(BaseModel):
     @classmethod
     def validate_username(cls, v: str) -> str:
         if not _USERNAME_RE.match(v):
-            raise ValueError('Username must contain only alphanumeric characters')
+            raise PydanticCustomError(
+                'user_id_not_alphanumeric', 'Username must contain only alphanumeric characters'
+            )
         return v
 
 

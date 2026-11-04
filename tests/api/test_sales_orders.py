@@ -16,8 +16,11 @@ from fastapi import HTTPException, status
 from httpx import ASGITransport, AsyncClient
 
 from app.core.deps import CurrentUser, get_current_user
+from app.core.error_codes import ErrorCode
+from app.core.errors import DomainError
 from app.db.session import get_db
 from app.main import app
+from tests.problem import assert_problem
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
 
@@ -278,9 +281,9 @@ async def test_cancelling_a_paid_order_is_409_and_points_at_refund() -> None:
 async def test_confirming_with_zero_priced_lines_names_them() -> None:
     """FR-017 — the caller has to learn which lines blocked it, not just that something did."""
     _auth()
-    conflict = HTTPException(
-        status_code=status.HTTP_409_CONFLICT,
-        detail={'message': 'Order has lines priced at zero', 'lines': ['Widget (line 5)']},
+    conflict = DomainError(
+        ErrorCode.SALES_ORDER_ZERO_PRICED_LINES,
+        {'message': 'Order has lines priced at zero', 'lines': ['Widget (line 5)']},
     )
     with patch(
         'app.services.sales_order_service.get_order', AsyncMock(return_value=_order())
@@ -288,8 +291,12 @@ async def test_confirming_with_zero_priced_lines_names_them() -> None:
         async with await _client() as client:
             response = await client.post('/api/v1/sales-orders/1/confirm')
 
-    assert response.status_code == status.HTTP_409_CONFLICT
-    assert response.json()['detail']['lines'] == ['Widget (line 5)']
+    body = assert_problem(response, status.HTTP_409_CONFLICT, 'sales_order.zero_priced_lines')
+    assert body['detail'] == {
+        'message': 'Order has lines priced at zero',
+        'lines': ['Widget (line 5)'],
+    }
+    assert 'params' not in body
 
 
 # ── Missing user context ──────────────────────────────────────────────────────
@@ -299,16 +306,16 @@ async def test_confirming_with_zero_priced_lines_names_them() -> None:
 async def test_create_without_a_point_of_sale_is_422_distinguishably() -> None:
     """FR-004a — `sales_order.point_sale` is NOT NULL but the user's setting is optional."""
     _auth(point_sale_id=None)
-    error = HTTPException(
-        status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-        detail='No point of sale is configured for your user; set one or supply it explicitly',
+    error = DomainError(
+        ErrorCode.USER_NO_POINT_OF_SALE,
+        'No point of sale is configured for your user; set one or supply it explicitly',
     )
     with patch('app.services.sales_order_service.create_order', AsyncMock(side_effect=error)):
         async with await _client() as client:
             response = await client.post('/api/v1/sales-orders', json={})
 
-    assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
-    detail = response.json()['detail'].lower()
+    body = assert_problem(response, status.HTTP_422_UNPROCESSABLE_CONTENT, 'user.no_point_of_sale')
+    detail = body['detail'].lower()
     assert 'point of sale' in detail
     assert 'employee' not in detail
 
@@ -891,3 +898,36 @@ async def test_another_facilitys_list_needs_101(all_stores: bool) -> None:
 
     assert other.status_code == (status.HTTP_200_OK if all_stores else status.HTTP_403_FORBIDDEN)
     assert own.status_code == status.HTTP_200_OK
+    if not all_stores:
+        body = assert_problem(other, status.HTTP_403_FORBIDDEN, 'facility.other_facility')
+        assert body['params'] == {
+            'resource': 'sales_order',
+            'required': [{'system_object': 101, 'right': 2}],
+        }
+
+
+@pytest.mark.asyncio
+async def test_product_lookup_needs_a_pattern_or_products() -> None:
+    _auth()
+    async with await _client() as client:
+        response = await client.get('/api/v1/sales-orders/product-lookup', params={'customer': 1})
+
+    body = assert_problem(
+        response, status.HTTP_422_UNPROCESSABLE_CONTENT, 'product.lookup_criteria_required'
+    )
+    assert 'params' not in body
+
+
+@pytest.mark.asyncio
+async def test_product_lookup_caps_the_ids() -> None:
+    _auth()
+    async with await _client() as client:
+        response = await client.get(
+            '/api/v1/sales-orders/product-lookup',
+            params={'customer': 1, 'products': list(range(1, 102))},
+        )
+
+    body = assert_problem(
+        response, status.HTTP_422_UNPROCESSABLE_CONTENT, 'product.lookup_too_many'
+    )
+    assert body['params'] == {'max': 100}

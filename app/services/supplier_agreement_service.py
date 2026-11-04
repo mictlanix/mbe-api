@@ -10,19 +10,21 @@ Agreements of one supplier may overlap, and an agreement may start and end on th
 from collections.abc import Sequence
 from datetime import date
 
-from fastapi import HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.error_codes import ErrorCode
+from app.core.errors import DomainError
 from app.models.supplier import SupplierAgreement
 from app.schemas.supplier import SupplierAgreementCreate, SupplierAgreementUpdate
 
 
 def _assert_period(start: date, end: date) -> None:
     if end < start:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail='End must not be before start',
+        raise DomainError(
+            ErrorCode.SUPPLIER_AGREEMENT_END_BEFORE_START,
+            'End must not be before start',
+            {'start': start, 'end': end},
         )
 
 

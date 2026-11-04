@@ -1,10 +1,12 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, Query
 from fastapi import status as http_status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.deps import CurrentUser, require_privilege
+from app.core.errors import not_found
 from app.db.session import get_db
 from app.enums import AccessRight, EntityStatus, SystemObject
+from app.models.core import PointSale
 from app.schemas import ListResponse
 from app.schemas.core import PointSaleCreate, PointSaleResponse, PointSaleUpdate
 from app.services import point_sale_service
@@ -53,9 +55,7 @@ async def get_point_of_sale(
 ) -> PointSaleResponse:
     ps = await point_sale_service.get_point_sale(db, point_sale_id)
     if ps is None:
-        raise HTTPException(
-            status_code=http_status.HTTP_404_NOT_FOUND, detail='Point of sale not found'
-        )
+        raise not_found(PointSale, point_sale_id)
     return PointSaleResponse.model_validate(ps)
 
 
@@ -68,9 +68,7 @@ async def update_point_of_sale(
 ) -> PointSaleResponse:
     ps = await point_sale_service.get_point_sale(db, point_sale_id)
     if ps is None:
-        raise HTTPException(
-            status_code=http_status.HTTP_404_NOT_FOUND, detail='Point of sale not found'
-        )
+        raise not_found(PointSale, point_sale_id)
     ps = await point_sale_service.update_point_sale(db, ps, data)
     return PointSaleResponse.model_validate(ps)
 
@@ -83,7 +81,5 @@ async def delete_point_of_sale(
 ) -> None:
     ps = await point_sale_service.get_point_sale(db, point_sale_id)
     if ps is None:
-        raise HTTPException(
-            status_code=http_status.HTTP_404_NOT_FOUND, detail='Point of sale not found'
-        )
+        raise not_found(PointSale, point_sale_id)
     await point_sale_service.delete_point_sale(db, ps)
