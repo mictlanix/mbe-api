@@ -24,6 +24,7 @@ from app.core.deps import CurrentUser
 from app.core.error_codes import ErrorCode
 from app.core.errors import DomainError, not_found
 from app.enums import CurrencyCode, PaymentMethod, PaymentType, TransactionType
+from app.models.customer import Customer
 from app.models.fiscal import FiscalDocument, FiscalDocumentDetail, FiscalDocumentXml
 from app.models.product import Product
 from app.models.sales import (
@@ -407,9 +408,13 @@ async def list_refunds(
     customer: int | None = None,
     sales_order: int | None = None,
     refund_status: str | None = None,
+    search: str | None = None,
+    mine: bool = False,
     skip: int = 0,
     limit: int = 20,
 ) -> tuple[Sequence[CustomerRefund], int]:
+    """Open refunds first, then newest by date and id, as the current system's list orders them
+    (`CustomerRefundsController.SearchRefunds`, #285)."""
     base = select(CustomerRefund)
     count_q = select(func.count()).select_from(CustomerRefund)
 
@@ -430,9 +435,34 @@ async def list_refunds(
         both(CustomerRefund.completed.is_(True))
     elif refund_status == 'cancelled':
         both(CustomerRefund.cancelled.is_(True))
+    if mine and current.employee_id is not None:
+        both(
+            or_(
+                CustomerRefund.creator == current.employee_id,
+                CustomerRefund.updater == current.employee_id,
+            )
+        )
+    if search and customer_payment_service.is_barcode_or_id(search):
+        # The current system's `Id == n || Serial == n || SalesOrder.Id == n`
+        number = int(search)
+        both(
+            or_(
+                CustomerRefund.customer_refund_id == number,
+                CustomerRefund.serial == number,
+                CustomerRefund.sales_order == number,
+            )
+        )
+    elif search:
+        named = select(Customer.customer_id).where(Customer.name.ilike(f'%{search}%'))
+        both(CustomerRefund.customer.in_(named))
 
     total: int = (await db.execute(count_q)).scalar_one()
-    page = base.order_by(CustomerRefund.customer_refund_id.desc()).offset(skip).limit(limit)
+    closed = or_(CustomerRefund.completed.is_(True), CustomerRefund.cancelled.is_(True))
+    page = (
+        base.order_by(closed, CustomerRefund.date.desc(), CustomerRefund.customer_refund_id.desc())
+        .offset(skip)
+        .limit(limit)
+    )
     items = (await db.execute(page)).scalars().all()
     await attach_summary_totals(db, items)
     return items, total

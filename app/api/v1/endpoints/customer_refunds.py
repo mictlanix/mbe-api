@@ -36,6 +36,12 @@ async def list_customer_refunds(
     customer: int | None = Query(None),
     sales_order: int | None = Query(None),
     refund_status: str | None = Query(None, alias='status'),
+    search: str | None = Query(
+        None,
+        description='A number matches the refund id, its folio or the source order id; text '
+        "matches the customer's name",
+    ),
+    mine: bool = Query(False, description='Only refunds the caller created or last updated'),
     skip: int = Query(0, ge=0),
     limit: int = Query(20, ge=1, le=100),
     current: CurrentUser = Depends(_READ),
@@ -47,6 +53,8 @@ async def list_customer_refunds(
         customer=customer,
         sales_order=sales_order,
         refund_status=refund_status,
+        search=search,
+        mine=mine,
         skip=skip,
         limit=limit,
     )
