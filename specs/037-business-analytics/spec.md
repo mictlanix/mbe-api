@@ -34,7 +34,7 @@ These measurements drive the decisions below.
 | Distinct (day, facility, product, customer, salesperson) in 2025 | 67,837, which is 96% of the line count |
 | Lines whose price includes VAT | 70,683 of 70,683 (VAT 16% on all but 56) |
 | Lines with cost 0 | 12,397 (17.5%), including the top-selling ready-mix concrete |
-| Lines priced below cost | 4,112 |
+| Lines priced below cost | 9,822 (price without VAT below a cost recorded without VAT; research R4) |
 | Non-MXN documents | 0 |
 | Sales order confirmation timestamp | None: `date` equals the creation time on every 2025 order; confirming sets no date |
 | Order times | Real times: 8:00–18:00, peaking 9:00–12:00; Monday–Saturday |
@@ -183,7 +183,7 @@ A cashier supervisor reviews payments received by method, facility, cash session
   | Net sales | Gross sales − refunds − credit notes | Each part on its own date |
   | Costed net sales | The part of net sales, without VAT, that comes from lines with a cost (cost > 0); refund lines follow the cost of the sale line they return | As its parts |
   | Cost coverage | Costed net sales ÷ net sales without VAT; null when net sales are 0 | As its parts |
-  | Cost of sales | Sum of quantity × the line's cost snapshot without VAT (the cost includes VAT like the price, so it is divided by 1 + the line's VAT rate), for sales lines with a cost, minus the same for refund lines (through the refunded sale line's cost) | As its sale or refund |
+  | Cost of sales | Sum of quantity × the line's cost snapshot, which is recorded without VAT (spec 031), for sales lines with a cost, minus the same for refund lines (through the refunded sale line's cost) | As its sale or refund |
   | Gross margin | Costed net sales − cost of sales | As its parts |
   | Margin % | Gross margin ÷ costed net sales; null when costed net sales are 0 | As its parts |
   | Units | Sum of line quantities of sales minus refunded quantities | As its parts |
@@ -231,7 +231,7 @@ A cashier supervisor reviews payments received by method, facility, cash session
   Every number in it is without VAT except average ticket (with VAT, FR-004), and equals the query's answer for the same measure, period, scope and VAT treatment.
 - **FR-032**: The dashboard MUST include these alerts, each with a count, an amount where it applies, and the drill-down filter that lists its documents:
   - **Overdue credit orders:** confirmed credit orders with a balance past their due date (spec 033's rule), in scope, as of today whatever the period.
-  - **Lines sold below cost** in the period: lines whose net price is below their cost (4,112 in 2025); the amount is those lines' sales without VAT. Only for holders of the cost privilege.
+  - **Lines sold below cost** in the period: lines whose net price without VAT is below their cost (9,822 in 2025); the amount is those lines' sales without VAT. Only for holders of the cost privilege.
   - **Lines sold without a cost** in the period (12,397 in 2025), since they distort margin; the amount is those lines' sales without VAT. Only for holders of the cost privilege.
   - **Refund rate above normal:** refunds ÷ gross sales for the period, per facility, one alert for each facility where it is raised, with the count and sum of that facility's refunds in the period. It is raised when the rate exceeds both twice the median of the facility's monthly rates over the 12 calendar months before the period starts and 20%, with at least $20,000 refunded in the period (whatever its length). With fewer than 12 prior months the available ones are used; with none, the alert isn't raised. A plain "twice the average" rule fires on 28 of 158 facility-months since 2024; the thresholds are backtested before release and fire on at most 1 in 20 (7 of 169 facility-months over 2024–2026, research R14).
   No other alerts in this spec; each must be justified by mbe_dev data when it is built (thresholds recorded in the plan).
@@ -331,7 +331,7 @@ How each sales, payments and product question of the current system is answered.
 
 ## Assumptions
 
-- **Line cost includes VAT, like price**: the cost price list matches the 2025 purchase prices with VAT (median ratio 1.16 over 4,175 products), and every 2025 line has its price with VAT. Cost of sales without VAT is therefore quantity × cost ÷ (1 + the line's VAT rate) (research R4).
+- **Line cost is without VAT**: the cost list and purchase prices are without VAT (spec 031's clarification), and the cost list equals the latest purchase price for 86% of products. Cost of sales without VAT is therefore quantity × cost, never divided by 1 + the VAT rate (research R4, corrected 2026-11-05).
 - **Customer type is current, not historical**: "credit or cash" uses the customer's current credit limit. A customer whose limit changed is classified by today's value; payment terms on the order give the historical credit/immediate split.
 - **Labels are the category**: products have no category field; the legacy system already calls labels categories.
 - **Brand and model are free text**: they are grouped by their trimmed, case-insensitive value.

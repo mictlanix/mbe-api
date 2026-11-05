@@ -309,7 +309,7 @@ async def test_margin_shows_only_with_the_cost_privilege(
     with_cost = (await http.post(f'{BASE}/query', json=query('margin_pct'))).json()
 
     assert sensitive_keys(without) == set()
-    assert with_cost['totals']['values'] == {'margin_pct': '0.5000'}
+    assert with_cost['totals']['values'] == {'margin_pct': '0.4200'}
 
 
 async def test_a_repeated_query_answers_304_to_its_etag(http: AsyncClient) -> None:

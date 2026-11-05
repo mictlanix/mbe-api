@@ -49,18 +49,19 @@ This is done in SQL with window functions (`SUM() OVER (PARTITION BY document)`,
 - Rounding in Python after fetching lines: about 70k rows a year would be fetched for every year-wide request.
 - Rounding per (document × requested dimensions): rows don't agree across groupings.
 
-## R4. Cost includes VAT; margin is computed without VAT on costed lines
+## R4. Cost is without VAT; margin is computed without VAT on costed lines
 
-**Decision**:
-- A line's cost without VAT = quantity × cost ÷ (1 + the line's VAT rate) when the line's price includes VAT, and quantity × cost otherwise. Cost is on the same basis as price.
+**Decision** (corrected 2026-11-05, see below):
+- A line's cost without VAT = quantity × cost, as recorded. The cost snapshot is without VAT whatever the line's price is.
+- A line is below cost when its unit price after discount and without VAT (÷ 1 + the VAT rate when the price includes it) is below its cost.
 - Margin = costed net sales without VAT − cost of sales without VAT.
 - A line has a cost when `cost > 0` (clarified). Refund lines take the cost of the sale line they return (`customer_refund_detail.sales_order_detail` → `sales_order_detail.cost`, scaled by the refunded quantity), since refunds carry no cost.
 
 **Rationale**:
-- Over 4,175 products, the median ratio of the cost list price to the latest 2025 purchase price without VAT is exactly 1.1600, and 3,160 products fall within 1.13–1.19. Cost is therefore recorded with VAT, like price: all 9,421 purchase lines of 2025 and all 70,683 sales lines have tax included.
-- Subtracting a cost with VAT from a price without VAT would understate margin by 16% of cost.
+- Spec 031's clarification: the cost list and purchase order prices are both without IVA. The "tax included" flag on purchase order lines is a copy of the product's sales flag, not a statement about the price; purchase order printouts add IVA on top of the line prices (spec 031, SC-006: 203.00 + 32.48 IVA = 235.48).
+- The cost list equals the latest purchase price as typed for 86% of products (measured 2026-11-05).
 
-**Correction to the spec**: its assumption "line cost is without VAT" is reversed. Updated in the spec.
+**Correction (2026-11-05)**: this decision first read the purchase lines' "tax included" flag as meaning their prices include VAT, divided them by 1.16, found the cost list 1.16 times higher, and concluded that cost includes VAT. The flag means nothing for purchase prices (spec 031), so cost was being divided by 1.16 a second time: cost of sales was understated by about 14% and margin overstated. Fixed on branch `fix/analytics-cost-without-vat`. Effect on 2025: cost of costed lines is 65.7M rather than 56.7M, and lines below cost are 9,822 rather than 4,112. The typical line sells 10–20% above cost; aggregate margin is distorted by a minority of lines whose cost is far above their price (placeholder costs such as 99,999), which the below-cost alert lists.
 
 ## R5. CFDI credit notes stand alone; refunds are customer_refund
 
@@ -237,7 +238,7 @@ The first payment fact grouped every `sales_order_payment` row (298,958) for the
 ## R14. Alerts, from the data
 
 - **Overdue credit orders:** 601 across 5 facilities today (201 due in the last 90 days). It is useful, and it is the spec 033 rule. It is as of today, whatever the period, and its drill-down uses the detail flag `overdue`, since a balance isn't a dimension. Its `open_credit_orders` cost wasn't measured in R9; implementation times it (quickstart §4).
-- **Lines below cost:** 4,112 in 2025, about 6% of lines, so it would fire every period. It is shown as a count and amount for the period, not as a red alert, and it is cost-privileged.
+- **Lines below cost:** 9,822 in 2025 (4,112 before the R4 correction), about 14% of lines, so it would fire every period. It is shown as a count and amount for the period, not as a red alert, and it is cost-privileged.
 - **Lines without a cost:** 12,397 in 2025 (17.5%). Same treatment, and it drives the cost coverage KPI.
 - **Refund rate** (per facility; the baseline is the median of the monthly rates of the 12 calendar months before the period starts, whatever the period's length): a naive "2× the trailing-12-month mean" fires on 28 of 158 facility-months, 22 of them in 2024 when the baseline was ramping up. **Decision**: raise only when the period's rate exceeds both 2× the trailing-12-month median and 15%, with refunds of at least $20,000 in the period. Implementation re-runs the backtest over 2024–2026 (task) and records how many facility-months fire, with a target of at most 1 in 20. If not met, the thresholds are tuned there and recorded here.
   - **Backtest (T064, 2026-11-05, mbe_dev, `vat=excluded`, every facility-month of 2024-01 to 2026-10 with sales):** with 15% the alert fired on 11 of 169 facility-months (1 in 15), missing the target. Grid over the floor and the multiple (fired / 169): 15% ×2 → 11, ×2.5 → 9, ×3 → 7; **20% ×2 → 7**, ×2.5 → 6, ×3 → 5; 25% any → 3. **Tuned:** the floor is raised to 20%, keeping 2× the median and $20,000, the smallest change that meets 1 in 20 (7 of 169, 1 in 24). It fires on 2024-08 facility 51, 2025-06, 2025-11, 2026-04 and 2026-06 facility 47, 2025-10 and 2026-01 facility 52; facility 47's months each refunded $1.9M–$4.5M at rates of 20–67%.

@@ -152,7 +152,8 @@ async def test_a_cancelled_credit_note_reduces_nothing(
 async def test_lines_without_cost_are_left_out_of_margin(
     client: AsyncClient, db: AsyncSession
 ) -> None:
-    # 116 with VAT, cost 58 with VAT: subtotal 100, cost 50, margin 50. The 232 line has no cost.
+    # 116 with VAT, cost 58 without VAT (spec 031): subtotal 100, cost 58, margin 42. The 232 line
+    # has no cost.
     await sale(db, AT, [L('1', '116', cost='58'), L('2', '116')])
     measures = ['net_sales', 'costed_net_sales', 'cost_coverage', 'cost_of_sales']
     values = (await _query(client, measures=[*measures, 'gross_margin', 'margin_pct']))['totals'][
@@ -162,9 +163,9 @@ async def test_lines_without_cost_are_left_out_of_margin(
     assert values['net_sales'] == '300.00'
     assert values['costed_net_sales'] == '100.00'
     assert values['cost_coverage'] == '0.3333'
-    assert values['cost_of_sales'] == '50.00'
-    assert values['gross_margin'] == '50.00'
-    assert values['margin_pct'] == '0.5000'
+    assert values['cost_of_sales'] == '58.00'
+    assert values['gross_margin'] == '42.00'
+    assert values['margin_pct'] == '0.4200'
 
 
 async def test_with_no_costed_line_margin_pct_is_null(

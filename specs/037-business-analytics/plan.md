@@ -16,7 +16,7 @@ The approach (research R1–R15):
   - creates the `analytics_export` table for background exports (R12).
 - **Four facts** (sale lines, refund lines, CFDI credit notes, payments) are each one grouped SQL statement. Money is in cents, with each document's rounding residual placed on one line, so every grouping adds up and a day reconciles with the sales order screens (R3, R8).
 - **Python merges the facts** and computes net and ratio measures, shares, comparisons and top N with "others".
-- **Cost includes VAT**, like price (median ratio 1.16 over 4,175 products), so margin is computed without VAT on lines that have a cost (R4).
+- **Cost is without VAT** (spec 031; R4 as corrected on 2026-11-05), so margin is price without VAT minus cost as recorded, on lines that have a cost.
 - **Payments are classified exactly as the cash cut does**, so collected reconciles per session and method (R6).
 - **The dashboard runs eight fact queries concurrently** (R9).
 - **Exports:** XlsxWriter (new dependency), the existing WeasyPrint printing with inline SVG charts, and the standard library CSV. Over 10,000 rows, an export runs as a background job tracked in the new table (R12).
@@ -69,7 +69,7 @@ Export files go in `settings.exports_dir` (`exports/`, not mounted).
 | Principle | Check | Status |
 |---|---|---|
 | I. Simplicity First | No summary tables, refresh jobs or scheduler: the measurements showed them unnecessary (R1). One catalog and one engine serve the query, dashboard, drill-down and exports. Charts are four Jinja SVG macros, not a library. The background export uses an in-process task plus one table, not a queue. | Pass |
-| II. Think Before Coding | Every premise of the request was measured before deciding, and four didn't hold: no confirmation date, no summary-table need, cost with VAT, the cash cut measures money not sales. Each departure is in the spec's clarifications or in research (R2, R1, R4, R6). The refund-rate alert threshold is backtested before it ships (R14). | Pass |
+| II. Think Before Coding | Every premise of the request was measured before deciding, and four didn't hold: no confirmation date, no summary-table need, the cost basis (first read as with VAT, corrected to without VAT per spec 031), the cash cut measures money not sales. Each departure is in the spec's clarifications or in research (R2, R1, R4, R6). The refund-rate alert threshold is backtested before it ships (R14). | Pass |
 | III. Surgical Changes | Outside the new package, the edits are: one line in `_confirm_locked`, one model column, one response field, one `RESOURCE_NAMES` entry, one setting, and new error codes in spec 036's catalog. The duplicate unique key on `sales_order` is noted, not touched (R10). | Pass |
 | IV. Goal-Driven Execution | SC-001 (reconciliation), SC-003 (timing) and SC-007 (drill-down sums) are checked on mbe_dev with recorded numbers (quickstart §3–§4). SC-004 and SC-005 are tests. | Pass |
 | V. Reuse Over Rebuild | Reused: `totals.line_amounts` formulas (mirrored in SQL and tested against the Python), the `cut_figures` classification, `open_credit_orders` for the overdue alert, `is_credit_customer`, `require_any_privilege`/`has_any_privilege`/`can_see_every_facility`, the rendering pipeline and its filters, `ListResponse` paging conventions, the `app/jobs` CLI pattern. The new dependency and new modules are justified below. | Pass, see Complexity Tracking |
