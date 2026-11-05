@@ -217,12 +217,12 @@ Measured for 2025: 57% coverage by amount; $130.6M of $287M invoiced is standalo
 
 **Decision**: tables `analytics_view` and `analytics_view_share` (data-model).
 - **Stored definition:** the JSON of a query, dashboard, detail or customer 360 request, with `start`/`end` replaced by a `period`: a `RelativePeriod` key plus `days` for "last N days", or fixed dates.
-- **Validation:** every save and every open validates the definition against the catalog. A view that no longer validates is refused with `analytics.view_invalid`, with params `key` and `reason`.
+- **Validation:** every save and every open validates the definition against the catalog. A view that no longer validates is refused with `analytics.view_invalid`, with params `key` and `reason`. Validating means parsing the definition, with the resolved dates, into its kind's request model; `key` is the dotted path of the first field that fails (`measures.1`) and `reason` the parser's message. A save then makes the kind's privilege and scope checks as the owner; a run is the kind's route as the opener, so a measure the opener may not see is refused as in a query (`auth.forbidden`), not as an invalid view.
 - **Run:** `POST /analytics/views/{id}/run` resolves the period with `local_today()` and dispatches to the same engine call as the matching route, as the opener.
 - **Changes and visibility:** only the owner may change, delete or schedule a view. Shared users see it in their list.
 - **User deletion** removes their views and schedules, extending spec 037's `delete_for_user`.
 
-**Relative periods** (`app/services/analytics/periods.py`): `today`, `yesterday`, `this_week`, `this_month`, `this_quarter` and `this_year` (to date), `last_week`, `last_month`, `last_quarter`, `last_year`, `last_n_days` and `fixed`. Weeks are ISO weeks, in business time. A comparison stays a comparison kind.
+**Relative periods** (`app/services/analytics/periods.py`): `today`, `yesterday`, `this_week`, `this_month`, `this_quarter` and `this_year` (to date), `last_week`, `last_month`, `last_quarter`, `last_year`, `last_n_days` (the N days ending today) and `fixed`. Weeks are ISO weeks, in business time. A comparison stays a comparison kind.
 
 ## R15. Scheduled reports: a CLI job, claimed in the database
 

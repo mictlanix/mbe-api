@@ -7,6 +7,7 @@ with FastAPI's 422 and the allowed values are published in OpenAPI (FR-011).
 from datetime import date
 from decimal import Decimal
 from enum import StrEnum
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from pydantic_core import PydanticCustomError
@@ -749,3 +750,68 @@ class AnalyticsExportResponse(BaseModel):
     completion_time: LocalDateTime | None
     expiry_time: LocalDateTime | None
     download_url: str | None
+
+
+# ── Saved views (spec 038, R14) ───────────────────────────────────────────────
+
+#: The longest "last N days" a view may name.
+MAX_PERIOD_DAYS = 3650
+
+
+class AnalyticsPeriod(BaseModel):
+    """A view's period: a relative key resolved the day it runs, N days, or fixed dates."""
+
+    key: RelativePeriod
+    days: int | None = Field(
+        default=None, ge=1, le=MAX_PERIOD_DAYS, description='last_n_days only: 1-3,650.'
+    )
+    start: date | None = Field(default=None, description='fixed only.')
+    end: date | None = Field(default=None, description='fixed only; not before start.')
+
+    @model_validator(mode='after')
+    def _fits_the_key(self) -> 'AnalyticsPeriod':
+        days = self.key is RelativePeriod.LAST_N_DAYS
+        fixed = self.key is RelativePeriod.FIXED
+        if days != (self.days is not None):
+            raise PydanticCustomError(
+                'analytics_period', 'days goes with last_n_days, and only with it'
+            )
+        if fixed != (self.start is not None and self.end is not None) or (
+            not fixed and (self.start is not None or self.end is not None)
+        ):
+            raise PydanticCustomError(
+                'analytics_period', 'start and end go with fixed, and only with it'
+            )
+        if fixed and self.start > self.end:
+            raise PydanticCustomError('analytics_period', 'The start must not follow the end')
+        return self
+
+
+class AnalyticsViewCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=100, description='Unique per owner.')
+    kind: ViewKind
+    definition: dict[str, Any] = Field(
+        description="The kind's request (query, dashboard, detail or customer 360) without "
+        '`start` and `end`; the period gives them.'
+    )
+    period: AnalyticsPeriod
+    shared_with: list[str] = Field(default=[], description='Active user ids.')
+
+
+class AnalyticsViewUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=100)
+    definition: dict[str, Any] | None = None
+    period: AnalyticsPeriod | None = None
+    shared_with: list[str] | None = Field(default=None, description='Replaces the list.')
+
+
+class AnalyticsViewResponse(BaseModel):
+    analytics_view_id: int
+    name: str
+    kind: ViewKind
+    owner: str
+    definition: dict[str, Any]
+    period: AnalyticsPeriod
+    shared_with: list[str] = Field(description='Shown to the owner only; empty for shared users.')
+    creation_time: LocalDateTime
+    modification_time: LocalDateTime

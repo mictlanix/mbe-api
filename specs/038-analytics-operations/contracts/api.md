@@ -266,7 +266,7 @@ AnalyticsCustomerResponse:
 ```
 AnalyticsViewCreate:
   name: str
-  kind: str              # query | dashboard | detail | customer
+  kind: ViewKind         # query | dashboard | detail | customer
   definition: dict
   period: AnalyticsPeriod
   shared_with: [str, ...]
@@ -286,7 +286,7 @@ AnalyticsPeriod:
 AnalyticsViewResponse:
   analytics_view_id: int
   name: str
-  kind: str
+  kind: ViewKind
   owner: str
   definition: dict
   period: AnalyticsPeriod
@@ -295,9 +295,9 @@ AnalyticsViewResponse:
   modification_time: datetime
 ```
 
-- **Relative periods:** `RelativePeriod` is one of `today`, `yesterday`, `this_week`, `this_month`, `this_quarter`, `this_year`, `last_week`, `last_month`, `last_quarter`, `last_year`, `last_n_days` (needs `days`, 1–3,650) or `fixed` (needs `start` and `end`).
+- **Relative periods:** `RelativePeriod` is one of `today`, `yesterday`, `this_week`, `this_month`, `this_quarter`, `this_year`, `last_week`, `last_month`, `last_quarter`, `last_year`, `last_n_days` (needs `days`, 1–3,650; the N days ending today) or `fixed` (needs `start` and `end`, start not after end). `days` goes only with `last_n_days`, and `start`/`end` only with `fixed`; otherwise 422.
 - **Run:** `POST /views/{id}/run` returns the same response as the view's route (query, dashboard, detail or customer). It takes the optional `If-None-Match` and caching of that route.
-- **Sharing:** `shared_with` holds user ids, which must be active users. `shared_with` is shown only to the owner; shared users see an empty list.
+- **Sharing:** `shared_with` holds user ids, which must be active users (an unknown or inactive one is `resource.not_found` for `user`). The owner is left out of the list. Only the owner changes or deletes a view; a shared user is refused with `auth.forbidden` (empty `required`), anyone else gets `resource.not_found`. `shared_with` is shown only to the owner; shared users see an empty list.
 
 ## Schedules
 

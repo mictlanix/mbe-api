@@ -327,8 +327,8 @@ T077 confirms that none remain.
 
 ### Tests
 
-- [ ] T047 [P] [US7] Write `tests/unit/test_analytics_periods.py`: every `RelativePeriod` on edge dates (31 March, 29 February 2028, 1 January, a Sunday, ISO week 53 of 2026); `last_n_days` from 1 to 3,650; and `fixed` with `start` after `end` refused.
-- [ ] T048 [P] [US7] Write `tests/integration/test_analytics_views.py`:
+- [X] T047 [P] [US7] Write `tests/unit/test_analytics_periods.py`: every `RelativePeriod` on edge dates (31 March, 29 February 2028, 1 January, a Sunday, ISO week 53 of 2026); `last_n_days` from 1 to 3,650; and `fixed` with `start` after `end` refused.
+- [X] T048 [P] [US7] Write `tests/integration/test_analytics_views.py`:
   - create, list (own and shared), get, rename, change and delete;
   - names are unique per owner (`resource.already_exists`);
   - run resolves the period against today and equals the matching route's response;
@@ -337,20 +337,20 @@ T077 confirms that none remain.
   - only the owner may change or delete it (`auth.forbidden`);
   - `shared_with` is empty for shared users;
   - deleting the owner removes their views.
-- [ ] T049 [P] [US7] Write `tests/api/test_analytics_views.py`: 401 on every view route; 404 for another user's unshared view; 422 on an invalid period.
+- [X] T049 [P] [US7] Write `tests/api/test_analytics_views.py`: 401 on every view route; 404 for another user's unshared view; 422 on an invalid period.
 
 ### Implementation
 
-- [ ] T050 [US7] Write `app/services/analytics/periods.py` (R14): `resolve(period, today) -> (start, end)` with ISO weeks in business time. T047 passes.
-- [ ] T051 [US7] Add `AnalyticsPeriod`, `AnalyticsViewCreate`, `AnalyticsViewUpdate` and `AnalyticsViewResponse` to `app/schemas/analytics.py`.
-- [ ] T052 [US7] Write `app/services/analytics/views.py`:
+- [X] T050 [US7] Write `app/services/analytics/periods.py` (R14): `resolve(period, today) -> (start, end)` with ISO weeks in business time. T047 passes.
+- [X] T051 [US7] Add `AnalyticsPeriod`, `AnalyticsViewCreate`, `AnalyticsViewUpdate` and `AnalyticsViewResponse` to `app/schemas/analytics.py`.
+- [X] T052 [US7] Write `app/services/analytics/views.py`:
   - CRUD with owner checks;
   - validation by parsing the definition into the kind's request model, then `engine.check_privileges`, with errors mapped to `analytics.view_invalid`;
   - `run(db, view, current)`, which dispatches to the query, dashboard, detail or customer service;
   - sharing to active users only.
 
   Extend `exports.delete_for_user` in `app/services/analytics/exports.py` to delete the user's views and schedules.
-- [ ] T053 [US7] Create `app/api/v1/endpoints/analytics_views.py` with the six view routes of contracts/api.md (run keeps the caching and `If-None-Match` of the route it dispatches to). Include it in `app/api/v1/router.py` under the `analytics` prefix. T048 and T049 pass, and `test_contract_docs` passes for the view blocks.
+- [X] T053 [US7] Create `app/api/v1/endpoints/analytics_views.py` with the six view routes of contracts/api.md (run keeps the caching and `If-None-Match` of the route it dispatches to). Include it in `app/api/v1/router.py` under the `analytics` prefix. T048 and T049 pass, and `test_contract_docs` passes for the view blocks.
 
 **Checkpoint**: views save, share and run with rolled-forward periods.
 
