@@ -1,8 +1,9 @@
 """The dashboard (spec 037, FR-031–FR-033, research R9, R14): every tile for a period in one call.
 
-Every KPI and series is a query definition run through the engine, so each number equals what
-`POST /analytics/query` answers for the same measure, period and scope (FR-031). The definitions
-that don't depend on each other run concurrently, each on its own session from the request's
+Every KPI and series is a query definition assembled by the engine, so each number equals what
+`POST /analytics/query` answers for the same measure, period and scope (FR-031). The tiles and
+alerts first list the fact queries they read; each distinct one runs once (tiles share totals,
+comparisons and the alerts' facts), concurrently, each on its own session from the request's
 engine; on SQLite, where one connection can't serve concurrent queries, they run in sequence.
 
 Every tile is without VAT except average ticket, which is with VAT (FR-004); each drill and each
@@ -105,13 +106,17 @@ async def _concurrently(db: AsyncSession, jobs: Sequence[Callable[[AsyncSession]
     return await asyncio.gather(*(run(job) for job in jobs))
 
 
-def _query_job(
-    prepared: engine.Prepared,
-) -> Callable[[AsyncSession], Awaitable[AnalyticsQueryResponse]]:
-    async def job(session: AsyncSession) -> AnalyticsQueryResponse:
-        return await engine.execute(session, prepared)
+def _fact_job(fact: Fact, slice_: facts.Slice) -> Callable[[AsyncSession], Awaitable[list[Any]]]:
+    async def job(session: AsyncSession) -> list[Any]:
+        return await engine.run_fact(session, fact, slice_)
 
     return job
+
+
+async def _overdue_job(session: AsyncSession, facility: int | None) -> list[Any]:
+    return await sales_order_service.open_credit_orders(
+        session, facility=facility, due_before=local_now()
+    )
 
 
 def _definition(
@@ -228,10 +233,21 @@ async def build(
         )  # fmt: skip
         plan('payment_mix', 'donut', collected, DimensionKey.PAYMENT_METHOD)
 
-    results = await _concurrently(
-        db, [_query_job(_prepared(definition, facility, held)) for _, _, definition in planned]
-    )
-    answered = {name: result for (name, _, _), result in zip(planned, results, strict=True)}
+    prepared = [_prepared(definition, facility, held) for _, _, definition in planned]
+    wanted = [pair for one in prepared for pair in engine.wanted(one)]
+    if sales:
+        wanted += _alert_facts(request, facility)
+    distinct = {engine.fact_key(fact, slice_): (fact, slice_) for fact, slice_ in wanted}
+    jobs = [_fact_job(fact, slice_) for fact, slice_ in distinct.values()]
+    if sales:
+        jobs.append(lambda session: _overdue_job(session, facility))
+    results = await _concurrently(db, jobs)
+    found = dict(zip(distinct, results[: len(distinct)], strict=True))
+    overdue = results[-1] if sales else []
+    answered = {
+        name: await engine.assemble(db, one, found)
+        for (name, _, _), one in zip(planned, prepared, strict=True)
+    }
 
     kpis: list[AnalyticsKpi] = []
     if sales:
@@ -270,7 +286,7 @@ async def build(
         for name, chart, _ in planned
         if chart
     ]
-    alerts = await _alerts(db, request, facility, sales=sales, cost=cost)
+    alerts = _alerts(request, facility, found, overdue, sales=sales, cost=cost)
     return AnalyticsDashboardResponse(
         as_of=local_now(),
         definition=request,
@@ -293,10 +309,38 @@ def _detail(
     )
 
 
-async def _alerts(
-    db: AsyncSession,
+def _alert_slices(
+    request: AnalyticsDashboardRequest, facility: int | None
+) -> tuple[facts.Slice, facts.Slice, facts.Slice]:
+    """The period's totals, the period by facility, and the 12 months before by month × facility."""
+    first, last = baseline_months(request.start)
+    return (
+        facts.Slice(start=request.start, end=request.end, facility=facility),
+        facts.Slice(
+            (DimensionKey.FACILITY,), start=request.start, end=request.end, facility=facility
+        ),
+        facts.Slice(
+            (DimensionKey.DATE, DimensionKey.FACILITY), Grain.MONTH, start=first, end=last,
+            facility=facility,
+        ),
+    )  # fmt: skip
+
+
+def _alert_facts(
+    request: AnalyticsDashboardRequest, facility: int | None
+) -> list[tuple[Fact, facts.Slice]]:
+    period, by_facility, history = _alert_slices(request, facility)
+    return [
+        (Fact.SALE_LINE, period),
+        *((fact, s) for s in (by_facility, history) for fact in (Fact.SALE_LINE, Fact.REFUND_LINE)),
+    ]
+
+
+def _alerts(
     request: AnalyticsDashboardRequest,
     facility: int | None,
+    found: engine.Found,
+    overdue: Sequence[Any],
     *,
     sales: bool,
     cost: bool,
@@ -304,10 +348,8 @@ async def _alerts(
     if not sales:
         return []
     alerts: list[AnalyticsAlert] = []
+    period, by_facility, history = _alert_slices(request, facility)
 
-    overdue = await sales_order_service.open_credit_orders(
-        db, facility=facility, due_before=local_now()
-    )
     if overdue:
         alerts.append(
             AnalyticsAlert(
@@ -318,9 +360,8 @@ async def _alerts(
             )
         )
 
-    period = facts.Slice(start=request.start, end=request.end, facility=facility)
     if cost:
-        lines = (await engine.run_facts(db, [Fact.SALE_LINE], period))[Fact.SALE_LINE]
+        lines = found[engine.fact_key(Fact.SALE_LINE, period)]
         sums = lines[0] if lines else {}
         for key, count, amount, flag in (
             ('lines_below_cost', 'below', 'below_sub_c', DetailFlag.BELOW_COST),
@@ -336,38 +377,26 @@ async def _alerts(
                     )
                 )
 
-    alerts += await _refund_rate_alerts(db, request, facility)
+    alerts += _refund_rate_alerts(request, facility, found, by_facility, history)
     return alerts
 
 
-async def _refund_rate_alerts(
-    db: AsyncSession, request: AnalyticsDashboardRequest, facility: int | None
+def _refund_rate_alerts(
+    request: AnalyticsDashboardRequest,
+    facility: int | None,
+    found: engine.Found,
+    by_facility: facts.Slice,
+    history: facts.Slice,
 ) -> list[AnalyticsAlert]:
     """Refunds ÷ gross sales per facility, against each facility's prior 12 calendar months."""
-    by_facility = (DimensionKey.FACILITY,)
-    needed = [Fact.SALE_LINE, Fact.REFUND_LINE]
-    period = engine.merge(
-        await engine.run_facts(
-            db,
-            needed,
-            facts.Slice(by_facility, start=request.start, end=request.end, facility=facility),
-        ),
-        1,
-    )
-    first, last = baseline_months(request.start)
-    history = engine.merge(
-        await engine.run_facts(
-            db,
-            needed,
-            facts.Slice(
-                (DimensionKey.DATE, DimensionKey.FACILITY), Grain.MONTH, start=first, end=last,
-                facility=facility,
-            ),
-        ),
-        2,
-    )  # fmt: skip
+    needed = (Fact.SALE_LINE, Fact.REFUND_LINE)
+
+    def merged(slice_: facts.Slice, width: int) -> engine.Merged:
+        return engine.merge({f: found[engine.fact_key(f, slice_)] for f in needed}, width)
+
+    period = merged(by_facility, 1)
     monthly: dict[Any, list[Decimal]] = {}
-    for (month, place), sums in history.sums.items():
+    for (month, place), sums in merged(history, 2).sums.items():
         rate = _rate(sums)
         if rate is not None:
             monthly.setdefault(place, []).append(rate)

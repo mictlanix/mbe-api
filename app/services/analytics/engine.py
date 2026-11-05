@@ -6,8 +6,8 @@ totals and ratios are always recomputed from their parts. The dashboard, the det
 call the same functions, which is what makes their numbers match (FR-050).
 """
 
-from collections.abc import Iterable, Mapping, Sequence
-from dataclasses import dataclass, field
+from collections.abc import Hashable, Iterable, Mapping, Sequence
+from dataclasses import dataclass, field, replace
 from datetime import date, datetime, timedelta
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Any
@@ -291,10 +291,30 @@ def _normalize(value: Any) -> Any:
 async def run_facts(
     db: AsyncSession, needed: Iterable[Fact], slice_: facts.Slice
 ) -> dict[Fact, list[Mapping[str, Any]]]:
-    return {
-        fact: list((await db.execute(facts.query(fact, slice_))).mappings().all())
-        for fact in sorted(needed)
-    }
+    return {fact: await run_fact(db, fact, slice_) for fact in sorted(needed)}
+
+
+async def run_fact(db: AsyncSession, fact: Fact, slice_: facts.Slice) -> list[Mapping[str, Any]]:
+    return list((await db.execute(facts.query(fact, slice_))).mappings().all())
+
+
+def fact_key(fact: Fact, slice_: facts.Slice) -> Hashable:
+    """What makes two fact queries the same SQL, so a caller running many definitions (the
+    dashboard) runs each once. The grain only matters with a date dimension or date filter."""
+    dated = DimensionKey.DATE in slice_.dimensions or DimensionKey.DATE in slice_.filters
+    return (
+        fact,
+        slice_.dimensions,
+        slice_.grain if dated else None,
+        tuple(sorted((d.value, tuple(v)) for d, v in slice_.filters.items())),
+        slice_.start,
+        slice_.end,
+        slice_.facility,
+    )
+
+
+#: Fact rows by `fact_key`.
+Found = Mapping[Hashable, list[Mapping[str, Any]]]
 
 
 # ── Deriving measures ─────────────────────────────────────────────────────────
@@ -565,45 +585,69 @@ async def run(
     return await execute(db, await prepare(db, definition, current))
 
 
+def _slices(prepared: Prepared) -> list[facts.Slice]:
+    """The rows, the totals, and with a comparison the same two over the comparison period."""
+    definition = prepared.definition
+    base = facts.Slice(
+        dimensions=tuple(definition.dimensions),
+        grain=definition.grain,
+        filters=prepared.filters,
+        start=definition.start,
+        end=definition.end,
+        facility=prepared.facility,
+    )
+    totals = replace(base, dimensions=())
+    if definition.comparison is None:
+        return [base, totals]
+    before_start, before_end = comparison_period(
+        definition.start, definition.end, definition.comparison
+    )
+    return [
+        base,
+        totals,
+        _shifted(base, before_start, before_end),
+        _shifted(totals, before_start, before_end),
+    ]
+
+
+def wanted(prepared: Prepared) -> list[tuple[Fact, facts.Slice]]:
+    """Every fact query `assemble` reads for this definition."""
+    needed = sorted(facts_for(prepared.definition.measures))
+    return [(fact, slice_) for slice_ in _slices(prepared) for fact in needed]
+
+
 async def execute(db: AsyncSession, prepared: Prepared) -> AnalyticsQueryResponse:
     """Run a prepared definition: rows, others, totals and comparisons (FR-010–FR-013)."""
+    found = {
+        fact_key(fact, slice_): await run_fact(db, fact, slice_)
+        for fact, slice_ in wanted(prepared)
+    }
+    return await assemble(db, prepared, found)
+
+
+async def assemble(db: AsyncSession, prepared: Prepared, found: Found) -> AnalyticsQueryResponse:
+    """The answer from the fact rows of `wanted(prepared)`; `db` only looks up labels."""
     definition = prepared.definition
     as_of = local_now()
-    needed = facts_for(definition.measures)
+    needed = sorted(facts_for(definition.measures))
     dimensions = tuple(definition.dimensions)
     width = len(dimensions)
-    base = facts.Slice(
-        dimensions=dimensions,
-        grain=definition.grain,
-        filters=prepared.filters,
-        start=definition.start,
-        end=definition.end,
-        facility=prepared.facility,
-    )
-    merged = merge(await run_facts(db, needed, base), width)
-    total_slice = facts.Slice(
-        grain=definition.grain,
-        filters=prepared.filters,
-        start=definition.start,
-        end=definition.end,
-        facility=prepared.facility,
-    )
-    total_sums = merge(await run_facts(db, needed, total_slice), 0).sums.get((), {})
+
+    def merged_of(slice_: facts.Slice, size: int) -> Merged:
+        return merge({fact: found[fact_key(fact, slice_)] for fact in needed}, size)
+
+    base, total_slice, *before = _slices(prepared)
+    merged = merged_of(base, width)
+    total_sums = merged_of(total_slice, 0).sums.get((), {})
 
     previous: Merged | None = None
     previous_totals: Sums = {}
     position: dict[date, date] = {}
-    if definition.comparison is not None:
-        before_start, before_end = comparison_period(
-            definition.start, definition.end, definition.comparison
-        )
-        previous = merge(
-            await run_facts(db, needed, _shifted(base, before_start, before_end)),
-            width,
-        )
-        previous_totals = merge(
-            await run_facts(db, needed, _shifted(total_slice, before_start, before_end)), 0
-        ).sums.get((), {})
+    if before:
+        before_base, before_totals = before
+        before_start, before_end = before_base.start, before_base.end
+        previous = merged_of(before_base, width)
+        previous_totals = merged_of(before_totals, 0).sums.get((), {})
         if DimensionKey.DATE in dimensions:
             here = buckets(definition.start, definition.end, definition.grain)
             there = buckets(before_start, before_end, definition.grain)
@@ -730,7 +774,7 @@ def _shifted(slice_: facts.Slice, start: date, end: date) -> facts.Slice:
         there = buckets(start, end, slice_.grain)
         moved = dict(zip(here, there, strict=False))
         filters[DimensionKey.DATE] = tuple(moved.get(v, v) for v in filters[DimensionKey.DATE])
-    return facts.Slice(slice_.dimensions, slice_.grain, filters, start, end, slice_.facility)
+    return replace(slice_, filters=filters, start=start, end=end)
 
 
 def drill(

@@ -16,7 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.clock import local_now
 from app.enums import PaymentTerms
 from app.services import sales_order_service
-from app.services.analytics import cache
+from app.services.analytics import cache, engine
 from tests.integration.analytics_seed import (
     CREDIT_CUSTOMER,
     L,
@@ -61,6 +61,25 @@ async def may(db: AsyncSession) -> None:
 
 
 # ── T028: tiles ───────────────────────────────────────────────────────────────
+
+
+async def test_each_fact_query_runs_once(
+    client: AsyncClient, may: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Tiles share their totals and comparisons, and the alerts reuse the tiles' facts (R9)."""
+    ran: list = []
+    run_fact = engine.run_fact
+
+    async def counted(db: AsyncSession, fact, slice_):  # noqa: ANN001, ANN202
+        ran.append(engine.fact_key(fact, slice_))
+        return await run_fact(db, fact, slice_)
+
+    monkeypatch.setattr(engine, 'run_fact', counted)
+
+    await _dashboard(client)
+
+    assert ran
+    assert len(ran) == len(set(ran))
 
 
 async def test_each_kpi_equals_the_query_for_its_measure(client: AsyncClient, may: None) -> None:
