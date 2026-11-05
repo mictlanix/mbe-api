@@ -146,6 +146,19 @@ Dimensions map to columns per fact. A dimension a fact can't provide (product fo
 
 **Measured**: Every query takes 0.06–0.23 s for a full year on mbe_dev without the new indexes (R10). Eight run concurrently in about the slowest one, which fits the 500 ms p95. Each concurrent query takes a session from `async_sessionmaker(db.bind)`, built from the request's session rather than the global `AsyncSessionLocal`, so the SQLite tests (which override `get_db`) reach the same database. If the year view misses SC-003 after the indexes, summary tables per R1 are the fallback.
 
+**As built, measured (T063, 2026-11-05, mbe_dev after migration 031):** timed in-process on xolotl through the full route stack, the response cache cleared before each run, all facilities, administrator.
+
+| Request | p50 | p95 | Target |
+|---|---|---|---|
+| Dashboard, October 2025 (30 runs) | 2.17 s | 2.26 s | < 500 ms: **missed** |
+| Dashboard, 2025 (30 runs) | 8.51 s | 8.93 s | < 500 ms: **missed** |
+| Query, 2025, product × month, the 10 non-sensitive measures, 24,423 rows (10 runs) | 4.34 s | 4.46 s | < 2 s: **missed** |
+| `open_credit_orders`, all facilities (30 runs) | 0.27 s | 0.40 s | recorded |
+| Detail lines export, 2024-07-01 to 2025-12-31, 104,718 rows, CSV | 8.2 s (7.4 query + 0.8 write) | — | < 30 s: met |
+| The same, XLSX | 15.6 s (7.7 query + 8.0 write) | — | < 30 s: met |
+
+**Why:** the dashboard isn't R9's eight queries. Each tile is its own `engine.execute`, which runs the facts once for its rows, once more for the totals, and again for the comparison. A 2025 dashboard issues 94 fact queries: 31 over sale lines (32.4 s of database time), 27 over refunds, 24 over credit notes and 12 over payments, about 8.7 s of wall time even when concurrent. One sale-line fact for 2025 now takes about 1 s rather than R1's 0.22–0.25 s, because of the per-document residual (`ROW_NUMBER`/`SUM OVER`) on every line. Summary tables at R1's daily grain would hold 96% of the line rows, so they wouldn't remove that cost by themselves. Per T063, this is reported before any of them is built.
+
 ## R10. Indexes (migration 031)
 
 **Decision**: Add:
@@ -214,6 +227,7 @@ The first payment fact grouped every `sales_order_payment` row (298,958) for the
 - **Lines below cost:** 4,112 in 2025, about 6% of lines, so it would fire every period. It is shown as a count and amount for the period, not as a red alert, and it is cost-privileged.
 - **Lines without a cost:** 12,397 in 2025 (17.5%). Same treatment, and it drives the cost coverage KPI.
 - **Refund rate** (per facility; the baseline is the median of the monthly rates of the 12 calendar months before the period starts, whatever the period's length): a naive "2× the trailing-12-month mean" fires on 28 of 158 facility-months, 22 of them in 2024 when the baseline was ramping up. **Decision**: raise only when the period's rate exceeds both 2× the trailing-12-month median and 15%, with refunds of at least $20,000 in the period. Implementation re-runs the backtest over 2024–2026 (task) and records how many facility-months fire, with a target of at most 1 in 20. If not met, the thresholds are tuned there and recorded here.
+  - **Backtest (T064, 2026-11-05, mbe_dev, `vat=excluded`, every facility-month of 2024-01 to 2026-10 with sales):** with 15% the alert fired on 11 of 169 facility-months (1 in 15), missing the target. Grid over the floor and the multiple (fired / 169): 15% ×2 → 11, ×2.5 → 9, ×3 → 7; **20% ×2 → 7**, ×2.5 → 6, ×3 → 5; 25% any → 3. **Tuned:** the floor is raised to 20%, keeping 2× the median and $20,000, the smallest change that meets 1 in 20 (7 of 169, 1 in 24). It fires on 2024-08 facility 51, 2025-06, 2025-11, 2026-04 and 2026-06 facility 47, 2025-10 and 2026-01 facility 52; facility 47's months each refunded $1.9M–$4.5M at rates of 20–67%.
 - **Considered and not added**: 1,017 confirmed, unpaid orders with immediate terms exist. That is a receivables question for the next spec, noted rather than alerted.
 
 ## R15. Dimensions as measured

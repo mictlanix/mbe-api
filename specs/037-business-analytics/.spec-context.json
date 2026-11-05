@@ -535,5 +535,29 @@
       "at": "2026-11-05T03:28:17.661Z"
     }
   ],
-  "currentTask": "T061"
+  "currentTask": "T061",
+  "verified": [
+    {
+      "what": "T061 migration 031 on mbe_dev",
+      "result": "Applied 2026-11-05 (7 statements, 7.7 s). 0 of 329,666 confirmed orders lack confirmation_time; 0 differ from date; 0 drafts have one. The 4 indexes and analytics_export exist. EXPLAIN for October 2025: range on sales_order_confirmation_time_idx, customer_refund_date_idx, fiscal_document_type_issued_idx and customer_payment_date_idx. Confirming a draft not exercised (a write); pending."
+    },
+    {
+      "what": "T062 reconciliation on dev :8765 (SC-001)",
+      "result": "10 days (2025-02-14, 04-16, 07-07, 11-20, 12-22, 2026-03-02, 06-15, 09-01, 10-18, 10-21; refunds on 8, cancellations after confirmation on 3, credit notes on 1): gross_sales by facility = sum of GET /sales-orders?status=completed totals, refunds = sum of GET /customer-refunds/{id} totals, net = gross - refunds - credit notes, all to the cent, 0 failures. 9 cash sessions closed since 2026-10-01: collected by method = cut_figures sales_by_method, 0 failures (none had refunds, so refunds_by_method was only compared empty)."
+    },
+    {
+      "what": "T062 drill-down on dev (SC-007)",
+      "result": "Top 5 products and top 5 customers of November 2025: lines sums.amount = gross_sales, refunds = refunds, lines - refunds - credit_notes = net_sales, and for customers payments(collected) = collected; 10 of 10 equal to the cent."
+    },
+    {
+      "what": "T064 refund-rate backtest",
+      "result": "15% floor fired on 11/169 facility-months (1 in 15), missing 1 in 20; tuned the floor to 20% (2x median and $20,000 kept): 7/169 (1 in 24). Recorded in research R14."
+    }
+  ],
+  "concerns": [
+    {
+      "note": "T063: SC-003 missed on mbe_dev. Dashboard p95 2.3 s (month) and 8.9 s (year) vs 500 ms; 12-month product x month query p95 4.5 s vs 2 s. Exports pass (100k lines: CSV 8.2 s, XLSX 15.6 s). A year dashboard runs 94 fact queries, 31 of them over sale lines (32 s of DB time). Stopped for the user decision per T063.",
+      "kind": "performance"
+    }
+  ]
 }

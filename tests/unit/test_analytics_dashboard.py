@@ -26,10 +26,10 @@ NORMAL = [Decimal('0.04')] * 6 + [Decimal('0.05')] * 6  # median 0.045
 @pytest.mark.parametrize(
     ('rate', 'refunds', 'fires'),
     [
-        (Decimal('0.20'), Decimal('25000'), True),
-        (Decimal('0.20'), Decimal('19999.99'), False),  # under the $20,000 floor
-        (Decimal('0.15'), Decimal('25000'), False),  # not above 15%
-        (Decimal('0.1501'), Decimal('25000'), True),
+        (Decimal('0.25'), Decimal('25000'), True),
+        (Decimal('0.25'), Decimal('19999.99'), False),  # under the $20,000 floor
+        (Decimal('0.20'), Decimal('25000'), False),  # not above 20%
+        (Decimal('0.2001'), Decimal('25000'), True),
     ],
 )
 def test_the_refund_rate_needs_every_threshold(
@@ -39,17 +39,18 @@ def test_the_refund_rate_needs_every_threshold(
 
 
 def test_twice_the_median_is_a_threshold_of_its_own() -> None:
-    high = [Decimal('0.10')] * 12  # median 0.10, so 2× is 0.20
+    high = [Decimal('0.12')] * 12  # median 0.12, so 2× is 0.24
 
-    assert refund_rate_alert(Decimal('0.20'), Decimal('30000'), high) is False
-    assert refund_rate_alert(Decimal('0.2001'), Decimal('30000'), high) is True
+    assert refund_rate_alert(Decimal('0.24'), Decimal('30000'), high) is False
+    assert refund_rate_alert(Decimal('0.2401'), Decimal('30000'), high) is True
 
 
 def test_the_median_not_the_mean() -> None:
     """One bad month lifts a mean; the median ignores it."""
     months = [Decimal('0.05')] * 11 + [Decimal('0.90')]
+    # Mean 0.1208: twice it (0.2417) would hold 0.21 back; twice the median (0.10) doesn't.
 
-    assert refund_rate_alert(Decimal('0.16'), Decimal('30000'), months) is True
+    assert refund_rate_alert(Decimal('0.21'), Decimal('30000'), months) is True
 
 
 def test_fewer_months_use_what_there_is_and_none_means_no_alert() -> None:

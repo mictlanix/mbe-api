@@ -48,7 +48,7 @@ DAY_LIMIT = 62
 WEEK_LIMIT = 366
 TOP = 10
 #: The refund-rate alert's thresholds (FR-032, research R14).
-RATE_FLOOR = Decimal('0.15')
+RATE_FLOOR = Decimal('0.20')
 RATE_MULTIPLE = 2
 REFUND_FLOOR = Decimal('20000')
 BASELINE_MONTHS = 12
@@ -69,7 +69,7 @@ def refund_rate_alert(
     """Whether a facility's refund rate is above normal (FR-032).
 
     `monthly` are the facility's refund rates of the calendar months before the period starts, at
-    most 12. It fires only when the period's rate exceeds both twice their median and 15%, with at
+    most 12. It fires only when the period's rate exceeds both twice their median and 20%, with at
     least $20,000 refunded in the period. Without a prior month there is no normal to exceed.
     """
     if period_rate is None or not monthly:
