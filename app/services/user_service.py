@@ -15,6 +15,7 @@ from app.schemas.user import (
     UserUpdate,
 )
 from app.services import incidences, user_profile_service
+from app.services.analytics import exports
 from app.services.references import assert_not_referenced
 
 
@@ -252,8 +253,12 @@ async def update_user(db: AsyncSession, user: User, data: UserUpdate, *, updater
 
 
 async def delete_user(db: AsyncSession, user: User, *, updater: int) -> None:
-    await assert_not_referenced(db, user, exempt=frozenset({'user_settings', 'access_privilege'}))
+    await assert_not_referenced(
+        db, user, exempt=frozenset({'user_settings', 'access_privilege', 'analytics_export'})
+    )
     user_id, employee_id = user.user_id, user.employee_id
+    # A user's analytics exports are private and short-lived (spec 037): they go with the user.
+    await exports.delete_for_user(db, user_id)
     incidences.record(
         db,
         source=SourceType.USER_SETTINGS,

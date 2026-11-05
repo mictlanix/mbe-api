@@ -93,6 +93,9 @@ class Settings(BaseSettings):
     # like `pod_dir`: outside `images_dir` and never mounted, because a license is personal data.
     # Served only through the authenticated license-photo route.
     license_photos_dir: str = 'license-photos'
+    # Background analytics exports (spec 037). Private like `pod_dir`: never mounted, served only to
+    # the export's owner through the authenticated download route, and purged after 24 hours.
+    exports_dir: str = 'exports'
 
     # Outgoing mail (spec 024): the quote email now, the invoice email later. Optional: mail is off,
     # and routes that send it answer 503, while either `smtp_host` or `mail_from` is empty. Plain

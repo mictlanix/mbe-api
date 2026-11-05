@@ -1527,6 +1527,7 @@ async def _confirm_locked(
             )
 
     order.completed = True
+    order.confirmation_time = local_now()
     order.updater = employee
     order.modification_time = local_now()
     await db.commit()

@@ -277,7 +277,13 @@ def test_pdf_routes_declare_binary_schema() -> None:
     assert declared
     assert _PDF_ROUTES <= declared
 
+    binary = {'schema': {'type': 'string', 'format': 'binary'}}
     paths = app.openapi()['paths']
     for path in declared | _PDF_ROUTES:
-        content = paths[path]['get']['responses']['200']['content']
-        assert content == {'application/pdf': {'schema': {'type': 'string', 'format': 'binary'}}}
+        # The analytics exports (spec 037) also serve XLSX and CSV, and one is a POST: every file
+        # type they declare must be binary too.
+        for operation in paths[path].values():
+            content = operation['responses']['200']['content']
+            if 'application/pdf' in content:
+                assert content['application/pdf'] == binary, path
+                assert all(media == binary for media in content.values()), path

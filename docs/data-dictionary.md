@@ -658,6 +658,7 @@ Confirmed sales order (invoice source).
 | `sales_quote` | int(11) | YES | FK → `sales_quote` — originating quote |
 | `payment_terms` | tinyint(4) | NO | Payment terms enum |
 | `date` | datetime | NO | Order date |
+| `confirmation_time` | datetime | YES | When the order was confirmed, set once by the API's confirm and never changed afterwards; NULL only on drafts. The date analytics count the sale on (spec 037, FR-002). Added by migration 031, which filled it from `date` for every order already confirmed. Indexed |
 | `promise_date` | datetime | NO | Promised delivery date |
 | `recipient` | varchar(13) | YES | RFC for invoicing |
 | `recipient_name` | varchar(250) | YES | Recipient name (fiscal) |
@@ -800,6 +801,23 @@ Credit note issued when a refund results in credit balance.
 | `date` | datetime | YES | Date |
 
 ---
+
+### `analytics_export`
+One background analytics export (spec 037, FR-054): an XLSX or CSV over 10,000 rows, written to `settings.exports_dir` and downloadable by its owner for 24 hours. **API-only**, added by migration 031.
+
+| Column | Type | Null | Description |
+|--------|------|------|-------------|
+| `analytics_export_id` | int(11) | NO | PK |
+| `user` | varchar(20) | NO | FK → `user` — the owner; only they can read or download it |
+| `source` | tinyint(4) | NO | 0 query, 1 dashboard, 2 detail |
+| `format` | tinyint(4) | NO | 0 xlsx, 1 pdf, 2 csv |
+| `definition` | text | NO | The normalized request as JSON; re-running it gives the same numbers |
+| `status` | tinyint(4) | NO | 0 pending, 1 running, 2 ready, 3 failed. A running row older than 10 minutes reads as failed |
+| `file_name` | varchar(100) | YES | File under `settings.exports_dir`; set when ready |
+| `row_count` | int(11) | YES | Rows written |
+| `creation_time` | datetime | NO | When it was requested |
+| `completion_time` | datetime | YES | When the file was written |
+| `expiry_time` | datetime | YES | `completion_time` + 24 h; afterwards the file is deleted and a download answers `analytics.export_expired`. Indexed for the purge job |
 
 ## 7. Inventory
 

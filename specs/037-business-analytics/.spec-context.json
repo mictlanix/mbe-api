@@ -1,0 +1,758 @@
+{
+  "workflow": "speckit",
+  "specName": "Business analytics (sales, margin and payments)",
+  "branch": "037-business-analytics",
+  "currentStep": "implement",
+  "status": "implementing",
+  "history": [
+    {
+      "step": "specify",
+      "substep": null,
+      "kind": "start",
+      "by": "extension",
+      "at": "2026-11-04T19:11:36.000Z"
+    },
+    {
+      "step": "specify",
+      "substep": null,
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-11-04T19:40:07.142Z"
+    },
+    {
+      "step": "plan",
+      "substep": null,
+      "kind": "start",
+      "by": "extension",
+      "at": "2026-11-04T20:05:10.413Z"
+    },
+    {
+      "step": "plan",
+      "substep": null,
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-11-04T20:16:39.240Z"
+    },
+    {
+      "step": "tasks",
+      "substep": null,
+      "kind": "start",
+      "by": "extension",
+      "at": "2026-11-04T21:20:18.166Z"
+    },
+    {
+      "step": "tasks",
+      "substep": null,
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-11-04T21:22:53.429Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "kind": "start",
+      "by": "extension",
+      "at": "2026-11-05T02:28:59.051Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T001",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-11-05T03:28:17.660Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T002",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-11-05T03:28:17.660Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T003",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-11-05T03:28:17.660Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T004",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-11-05T03:28:17.660Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T005",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-11-05T03:28:17.660Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T006",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-11-05T03:28:17.660Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T007",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-11-05T03:28:17.660Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T008",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-11-05T03:28:17.660Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T009",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-11-05T03:28:17.660Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T010",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-11-05T03:28:17.660Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T011",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-11-05T03:28:17.660Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T012",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-11-05T03:28:17.660Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T013",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-11-05T03:28:17.660Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T014",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-11-05T03:28:17.660Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T015",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-11-05T03:28:17.660Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T016",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-11-05T03:28:17.660Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T017",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-11-05T03:28:17.660Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T018",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-11-05T03:28:17.660Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T019",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-11-05T03:28:17.660Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T020",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-11-05T03:28:17.660Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T021",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-11-05T03:28:17.660Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T022",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-11-05T03:28:17.660Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T023",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-11-05T03:28:17.660Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T024",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-11-05T03:28:17.660Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T025",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-11-05T03:28:17.660Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T026",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-11-05T03:28:17.660Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T027",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-11-05T03:28:17.660Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T028",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-11-05T03:28:17.660Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T029",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-11-05T03:28:17.660Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T030",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-11-05T03:28:17.660Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T031",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-11-05T03:28:17.660Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T032",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-11-05T03:28:17.660Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T033",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-11-05T03:28:17.661Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T034",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-11-05T03:28:17.661Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T035",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-11-05T03:28:17.661Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T036",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-11-05T03:28:17.661Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T037",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-11-05T03:28:17.661Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T038",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-11-05T03:28:17.661Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T039",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-11-05T03:28:17.661Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T040",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-11-05T03:28:17.661Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T041",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-11-05T03:28:17.661Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T042",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-11-05T03:28:17.661Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T043",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-11-05T03:28:17.661Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T044",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-11-05T03:28:17.661Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T045",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-11-05T03:28:17.661Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T046",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-11-05T03:28:17.661Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T047",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-11-05T03:28:17.661Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T048",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-11-05T03:28:17.661Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T049",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-11-05T03:28:17.661Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T050",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-11-05T03:28:17.661Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T051",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-11-05T03:28:17.661Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T052",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-11-05T03:28:17.661Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T053",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-11-05T03:28:17.661Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T054",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-11-05T03:28:17.661Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T055",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-11-05T03:28:17.661Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T056",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-11-05T03:28:17.661Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T057",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-11-05T03:28:17.661Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T058",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-11-05T03:28:17.661Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T059",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-11-05T03:28:17.661Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T060",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-11-05T03:28:17.661Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T061",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-11-05T07:35:12.531Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T062",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-11-05T07:35:12.532Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T063",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-11-05T07:35:12.532Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T064",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-11-05T07:35:12.532Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T065",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-11-05T07:35:12.532Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T066",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-11-05T07:54:34.955Z"
+    }
+  ],
+  "currentTask": "T067",
+  "verified": [
+    {
+      "what": "T061 migration 031 on mbe_dev",
+      "result": "Applied 2026-11-05 (7 statements, 7.7 s). 0 of 329,666 confirmed orders lack confirmation_time; 0 differ from date; 0 drafts have one. The 4 indexes and analytics_export exist. EXPLAIN for October 2025: range on sales_order_confirmation_time_idx, customer_refund_date_idx, fiscal_document_type_issued_idx and customer_payment_date_idx. Confirming a draft not exercised (a write); pending."
+    },
+    {
+      "what": "T062 reconciliation on dev :8765 (SC-001)",
+      "result": "10 days (2025-02-14, 04-16, 07-07, 11-20, 12-22, 2026-03-02, 06-15, 09-01, 10-18, 10-21; refunds on 8, cancellations after confirmation on 3, credit notes on 1): gross_sales by facility = sum of GET /sales-orders?status=completed totals, refunds = sum of GET /customer-refunds/{id} totals, net = gross - refunds - credit notes, all to the cent, 0 failures. 9 cash sessions closed since 2026-10-01: collected by method = cut_figures sales_by_method, 0 failures (none had refunds, so refunds_by_method was only compared empty)."
+    },
+    {
+      "what": "T062 drill-down on dev (SC-007)",
+      "result": "Top 5 products and top 5 customers of November 2025: lines sums.amount = gross_sales, refunds = refunds, lines - refunds - credit_notes = net_sales, and for customers payments(collected) = collected; 10 of 10 equal to the cent."
+    },
+    {
+      "what": "T064 refund-rate backtest",
+      "result": "15% floor fired on 11/169 facility-months (1 in 15), missing 1 in 20; tuned the floor to 20% (2x median and $20,000 kept): 7/169 (1 in 24). Recorded in research R14."
+    },
+    {
+      "what": "SC-006 freshness on dev",
+      "result": "2026-11-05 00:44: confirmed draft 344059 (facility 51, $72, created 2026-10-22) through POST /sales-orders/{id}/confirm; confirmation_time = 2026-11-05T00:44:17 (now, not the creation date). POST /analytics/query for today at facility 51 went from 0 orders to 1 order, $72.00, 62 s after the confirmation, bounded by the 60 s response cache; SC-006 allows five minutes."
+    },
+    {
+      "what": "T063 after sharing fact queries",
+      "result": "Dashboard 58 fact queries per 2025 call (was 94). p95 October 2025 1.53 s (was 2.26), 2025 4.59 s (was 8.93). Still misses 500 ms; recorded in research R9."
+    },
+    {
+      "what": "T063 against the relaxed SC-003",
+      "result": "Met: dashboard month p95 1.53 s (< 2 s), year 4.59 s (< 5 s, thin margin), 12-month product x month query 4.46 s (< 5 s), 100k-line exports CSV 8.2 s and XLSX 15.6 s (< 30 s)."
+    },
+    {
+      "what": "T065 legacy question 1 on dev (SC-002)",
+      "command": "detail payments, filter payment_method=1 (cash)",
+      "result": "1906 payments, sums 8720332.70"
+    },
+    {
+      "what": "T065 legacy question 2 on dev (SC-002)",
+      "command": "query units, net_sales, cost, margin by product, filter brand='casa maestra', top 5",
+      "result": "5 rows; BKML381912R30NA BLOCK MACIZO: units 52945.0000, net_sales 409571.18, cost_of_sales 221541.02, gross_margin 39249.14"
+    },
+    {
+      "what": "T065 legacy question 3 on dev (SC-002)",
+      "command": "query net_sales, cost, margin, margin_pct, cost_coverage by customer, top 5",
+      "result": "ING. CARLOS OLVERA: net_sales 6040207.49, cost_of_sales 317028.27, gross_margin 51463.11, margin_pct 0.1397, cost_coverage 0.0610"
+    },
+    {
+      "what": "T065 legacy question 4 on dev (SC-002)",
+      "command": "query orders, net_sales, cost, margin, margin_pct by salesperson, top 5",
+      "result": "KAREN CECILIA RODRÍGUEZ LÓPE: orders 554, net_sales 361913.76, cost_of_sales 569712.68, gross_margin -234344.05, margin_pct -0.6988"
+    },
+    {
+      "what": "T065 legacy question 5 on dev (SC-002)",
+      "command": "query units, net_sales, cost, margin, margin_pct by product, sort -gross_margin, top 5",
+      "result": "BUCPGR3025FORS BULTO CEMENTO: units 14667.0000, net_sales 1310789.50, cost_of_sales 320358.74, gross_margin 54922.14, margin_pct 0.1463"
+    },
+    {
+      "what": "T065 legacy question 6 on dev (SC-002)",
+      "command": "query units, net_sales by product, filter customer=6579, top 10",
+      "result": "10 rows + others; TAMC24126R60RO TABIQUE MACIZ: units 12000.0000, net_sales 48275.87"
+    },
+    {
+      "what": "T065 legacy question 7 on dev (SC-002)",
+      "command": "query units, net_sales by product, filter salesperson=3, top 10",
+      "result": "10 rows; MR045284014TDC1 CONCRETO PAV: units 2135.0000, net_sales 4748534.46"
+    },
+    {
+      "what": "T065 legacy question 9 on dev (SC-002)",
+      "command": "query orders, units, net_sales by customer",
+      "result": "357 customers, totals {'orders': '2986', 'units': '173414.1120', 'net_sales': '30524977.45'}"
+    },
+    {
+      "what": "T065 legacy question 10 on dev (SC-002)",
+      "command": "query orders, net_sales, gross_margin by salesperson",
+      "result": "19 salespeople; ALFONSO RAMOS GODINEZ: orders 5, net_sales 77221.53, gross_margin 1724.14"
+    },
+    {
+      "what": "T065 legacy question 11 on dev (SC-002)",
+      "command": "detail orders, filter customer=6579",
+      "result": "76 orders, sums 7970155.93"
+    },
+    {
+      "what": "T065 legacy question 12 on dev (SC-002)",
+      "command": "detail orders, filter salesperson=3",
+      "result": "175 orders, sums 15514284.50"
+    },
+    {
+      "what": "T065 legacy question 13 on dev (SC-002)",
+      "command": "query gross_sales, refunds, net_sales, gross_margin by salesperson",
+      "result": "19 rows; ALFONSO RAMOS GODINEZ: gross_sales 77221.53, refunds 0.00, net_sales 77221.53, gross_margin 1724.14"
+    },
+    {
+      "what": "T065 legacy question 14 on dev (SC-002)",
+      "command": "query by product filter customer=6579; and by customer filter product=20285",
+      "result": "12 products; 3 customers"
+    },
+    {
+      "what": "T065 legacy question 15 on dev (SC-002)",
+      "command": "query units, net_sales by brand, top 5",
+      "result": "CASA MAESTRA: units 89422.0000, net_sales 18382697.32"
+    },
+    {
+      "what": "T065 legacy question 16 on dev (SC-002)",
+      "command": "query units, net_sales by product, filter model='mre-piso0-001'",
+      "result": "1 rows; ROMAEL2540HI ROLLO DE MALLA : units 108.0000, net_sales 209224.12"
+    },
+    {
+      "what": "T065 legacy question 17 on dev (SC-002)",
+      "command": "query units, net_sales by salesperson, product",
+      "result": "3371 rows; overlapping=False"
+    },
+    {
+      "what": "T065 legacy question 18 on dev (SC-002)",
+      "command": "query units, net_sales by salesperson, label",
+      "result": "242 rows; overlapping=True"
+    },
+    {
+      "what": "T065 legacy question 19 on dev (SC-002)",
+      "command": "query units, net_sales by salesperson, brand",
+      "result": "946 rows; overlapping=False"
+    },
+    {
+      "what": "T065 legacy question 20 on dev (SC-002)",
+      "command": "query units, net_sales by salesperson, model",
+      "result": "2647 rows; overlapping=False"
+    },
+    {
+      "what": "T065 legacy question 21 on dev (SC-002)",
+      "command": "query orders, gross_sales, refunds, net_sales, collected by date (day); dashboard for the month",
+      "result": "25 days, totals {'orders': '2986', 'gross_sales': '37203002.97', 'refunds': '6604103.11', 'net_sales': '30524977.45', 'collected': '27682916.09'}; dashboard 8 KPIs, 8 series"
+    },
+    {
+      "what": "T065 legacy question 22 on dev (SC-002)",
+      "command": "detail lines",
+      "result": "5936 lines, sums 37203002.97"
+    },
+    {
+      "what": "T065 legacy question 31 on dev (SC-002)",
+      "command": "query units_sold, units_refunded, units, gross_sales, refunds, net_sales by salesperson, product",
+      "result": "3371 rows; totals units 173414.1120"
+    },
+    {
+      "what": "T065 legacy question 35 on dev (SC-002)",
+      "command": "query the KPI measures, filter customer=6579, comparison previous_period; and by product top 10",
+      "result": "net 6040207.49 vs 6396978.87; 10 products"
+    },
+    {
+      "what": "T065 legacy question 36 on dev (SC-002)",
+      "command": "query collected, refunds_paid_out, store_credit_issued by facility, payment_method",
+      "result": "28 rows, totals {'collected': '27682916.09', 'refunds_paid_out': '0.00', 'store_credit_issued': '1324904.93'}"
+    },
+    {
+      "what": "T065 legacy question 38 on dev (SC-002)",
+      "command": "export CSV of detail lines 2025-11-03..04 (bulk: needs 113; admin)",
+      "result": "200 text/csv; charset=utf-8, 88425 bytes, 623 lines"
+    },
+    {
+      "what": "T065 row 4 negative margin explained",
+      "result": "Salesperson 16 shows -70% margin in November 2025 because of placeholder costs in the cost snapshot, e.g. order 310362 sells TERR02 at $3 with cost $99,999 (2 units, $199,998 of cost). Data, not the engine; the lines_below_cost alert lists them."
+    }
+  ],
+  "concerns": [
+    {
+      "note": "T063: SC-003 missed on mbe_dev. Dashboard p95 2.3 s (month) and 8.9 s (year) vs 500 ms; 12-month product x month query p95 4.5 s vs 2 s. Exports pass (100k lines: CSV 8.2 s, XLSX 15.6 s). A year dashboard runs 94 fact queries, 31 of them over sale lines (32 s of DB time). Stopped for the user decision per T063.",
+      "kind": "performance"
+    }
+  ],
+  "decisions": [
+    {
+      "decision": "SC-003 relaxed to the measured numbers: dashboard p95 under 2 s (month) and 5 s (year), 12-month query under 5 s; response cache lengthened from 60 s to 3 minutes (within FR-020 five minutes). Chosen by the user over summary tables or precomputed dashboards.",
+      "step": "implement"
+    }
+  ]
+}

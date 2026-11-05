@@ -1,0 +1,83 @@
+{#- Analytics PDF (spec 037, FR-052): a query, a detail or the dashboard, on the letter layout.
+
+Context: header (see _print_layout), title, cover [(name, value)], landscape, and either
+  table: exports.Table (columns, rows, totals), or
+  kpis and charts: the dashboard's KPIs and its series prepared as chart data. -#}
+{% extends '_print_layout.html' %}
+{% from '_charts.html' import line_chart, bar_chart, donut, heatmap %}
+
+{% macro cell(value, unit) -%}
+{%- if value is none -%}
+{%- elif value is string -%}{{ value }}
+{%- elif unit == 'money' -%}{{ value | money }}
+{%- elif unit == 'ratio' -%}{{ value | percent }}
+{%- elif unit in ('quantity', 'count') -%}{{ value | qty }}
+{%- elif unit == 'datetime' -%}{{ value | date_time }}
+{%- elif unit == 'date' -%}{{ value | date_short }}
+{%- else -%}{{ value }}
+{%- endif -%}
+{%- endmacro %}
+
+{% block main %}
+<style>
+	@page analytics-wide { size: Letter landscape; margin: 8mm; }
+	@page { @bottom-right { content: 'Página ' counter(page) ' de ' counter(pages); font-size: 7pt; } }
+	.analytics-wide { page: analytics-wide; }
+	.analytics table.data { width: 100%; border-collapse: collapse; font-size: 7.5pt; }
+	.analytics table.data thead { display: table-header-group; }
+	.analytics table.data th { border-bottom: 1px solid #333; text-align: left; padding: 2px 3px; }
+	.analytics table.data td { border-bottom: 0.5px solid #ddd; padding: 2px 3px; }
+	.analytics table.data td.number, .analytics table.data th.number { text-align: right; }
+	.analytics table.data tr.totals td { font-weight: bold; border-top: 1px solid #333; }
+	.analytics dl.cover { font-size: 8pt; margin: 2mm 0 4mm; }
+	.analytics dl.cover dt { font-weight: bold; float: left; width: 30mm; }
+	.analytics .kpis { display: flex; flex-wrap: wrap; gap: 3mm; margin-bottom: 4mm; }
+	.analytics .kpi { border: 0.5px solid #999; padding: 2mm; width: 40mm; }
+	.analytics .kpi .value { font-size: 12pt; font-weight: bold; }
+	.analytics h3 { margin: 4mm 0 1mm; font-size: 9pt; }
+	.analytics .chart-block { page-break-inside: avoid; }
+</style>
+<section class="analytics{% if landscape %} analytics-wide{% endif %}">
+	<h2>{{ title }}</h2>
+	<dl class="cover">
+		{%- for name, value in cover %}<dt>{{ name }}</dt><dd>{{ value }}</dd>{% endfor %}
+	</dl>
+
+	{% if table %}
+	<table class="data">
+		<thead><tr>
+			{%- for column in table.columns %}<th class="{{ 'number' if column.unit in ('money', 'quantity', 'count', 'ratio') }}">{{ column.label }}</th>{% endfor %}
+		</tr></thead>
+		<tbody>
+			{%- for row in table.rows %}
+			<tr>{% for value in row %}{% set unit = table.columns[loop.index0].unit %}<td class="{{ 'number' if unit in ('money', 'quantity', 'count', 'ratio') }}">{{ cell(value, unit) }}</td>{% endfor %}</tr>
+			{%- endfor %}
+			{%- if table.totals %}
+			<tr class="totals">{% for value in table.totals %}{% set unit = table.columns[loop.index0].unit %}<td class="{{ 'number' if unit in ('money', 'quantity', 'count', 'ratio') }}">{{ cell(value, unit) }}</td>{% endfor %}</tr>
+			{%- endif %}
+		</tbody>
+	</table>
+	{% endif %}
+
+	{% if kpis %}
+	<div class="kpis">
+		{%- for kpi in kpis %}
+		<div class="kpi">
+			<div>{{ kpi.label }}</div>
+			<div class="value">{{ cell(kpi.value, kpi.unit) }}</div>
+			<div>{{ cell(kpi.comparison, kpi.unit) }}{% if kpi.change_pct is not none %} ({{ kpi.change_pct | percent }}){% endif %}</div>
+		</div>
+		{%- endfor %}
+	</div>
+	{% for chart in charts %}
+	<div class="chart-block">
+		<h3>{{ chart.title }}</h3>
+		{%- if chart.chart == 'line' %}{{ line_chart(chart.points, chart.comparison) }}
+		{%- elif chart.chart == 'donut' %}{{ donut(chart.points) }}
+		{%- elif chart.chart == 'heatmap' %}{{ heatmap(chart.cells, chart.days, chart.hours) }}
+		{%- else %}{{ bar_chart(chart.points) }}{% endif %}
+	</div>
+	{% endfor %}
+	{% endif %}
+</section>
+{% endblock %}

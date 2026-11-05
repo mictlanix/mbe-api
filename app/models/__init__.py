@@ -1,6 +1,7 @@
 # Import all model modules so they register with Base.metadata.
 # Required for SQLAlchemy relationship resolution.
 from app.models import (  # noqa: F401
+    analytics,
     commission,
     core,
     customer,

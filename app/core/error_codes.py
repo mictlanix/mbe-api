@@ -18,6 +18,16 @@ class ErrorCode(StrEnum):
         member.status = status
         return member
 
+    # analytics
+    ANALYTICS_DIMENSION_NOT_APPLICABLE = 'analytics.dimension_not_applicable', 422
+    ANALYTICS_EXPORT_EXPIRED = 'analytics.export_expired', 410
+    ANALYTICS_EXPORT_NOT_READY = 'analytics.export_not_ready', 409
+    ANALYTICS_EXPORT_SOURCE_INVALID = 'analytics.export_source_invalid', 422
+    ANALYTICS_PDF_TOO_LARGE = 'analytics.pdf_too_large', 422
+    ANALYTICS_PERIOD_INVALID = 'analytics.period_invalid', 422
+    ANALYTICS_SORT_INVALID = 'analytics.sort_invalid', 422
+    ANALYTICS_TOO_MANY_DIMENSIONS = 'analytics.too_many_dimensions', 422
+
     # auth
     AUTH_ADMINISTRATOR_REQUIRED = 'auth.administrator_required', 403
     AUTH_FORBIDDEN = 'auth.forbidden', 403
