@@ -3,7 +3,7 @@
   "specName": "Business analytics (sales, margin and payments)",
   "branch": "037-business-analytics",
   "currentStep": "implement",
-  "status": "implementing",
+  "status": "completed",
   "history": [
     {
       "step": "specify",
@@ -581,9 +581,24 @@
       "kind": "complete",
       "by": "extension",
       "at": "2026-11-05T07:54:34.955Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T067",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-11-05T07:59:47.486Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-11-05T07:59:47.487Z"
     }
   ],
-  "currentTask": "T067",
+  "currentTask": null,
   "verified": [
     {
       "what": "T061 migration 031 on mbe_dev",
@@ -741,6 +756,14 @@
     {
       "what": "T065 row 4 negative margin explained",
       "result": "Salesperson 16 shows -70% margin in November 2025 because of placeholder costs in the cost snapshot, e.g. order 310362 sells TERR02 at $3 with cost $99,999 (2 units, $199,998 of cost). Data, not the engine; the lines_below_cost alert lists them."
+    },
+    {
+      "what": "T066 PR merged",
+      "result": "mictlanix/mbe-api#295 merged into main as 6a805ee (closes mictlanix/mbe-roadmap#88, #90, #92, #98, #104; part of #9)."
+    },
+    {
+      "what": "T067 mbe-ui hand-off",
+      "result": "mictlanix/mbe-ui#233 opened: routes, the 19 measure and 15 dimension keys, grains, comparisons, detail kinds and flags, the dashboard tiles and alerts, drill and export flows, and the eight analytics.* codes for mbe-ui#232."
     }
   ],
   "concerns": [
@@ -754,5 +777,6 @@
       "decision": "SC-003 relaxed to the measured numbers: dashboard p95 under 2 s (month) and 5 s (year), 12-month query under 5 s; response cache lengthened from 60 s to 3 minutes (within FR-020 five minutes). Chosen by the user over summary tables or precomputed dashboards.",
       "step": "implement"
     }
-  ]
+  ],
+  "telemetryInstanceId": "11461bd5-33de-432a-a3a2-2dd6d022780f"
 }

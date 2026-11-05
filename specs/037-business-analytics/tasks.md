@@ -388,7 +388,7 @@ Deploying the branch to dev :8765 is pre-authorized. Applying migration 031 writ
 - [X] T064 Backtest the refund-rate alert over 2024–2026 on mbe_dev (read only): count the facility-months it fires on with the R14 thresholds, against the target of at most 1 in 20. Record the count, and any tuned threshold, in research.md R14.
 - [X] T065 Run quickstart §5 (SC-002): for each legacy row marked Q, D or Detail, run the stated request on dev and record the request and a one-line result in the verifications.
 - [X] T066 Open the PR from `037-business-analytics`. Under "Roadmap": `Closes mictlanix/mbe-roadmap#88`, `#90`, `#92`, `#98`, `#104`, and `Part of mictlanix/mbe-roadmap#9`. End the body with "🤖 Generated with [Claude Code](https://claude.com/claude-code)".
-- [ ] T067 After merge, open the mbe-ui issue of quickstart §6 (linking contracts/api.md, the measure and dimension keys, the tiles and the eight codes). Then record the verifications, mark the spec complete, commit `.spec-context.json` to main, delete the branch locally and remotely, and remove the worktree.
+- [X] T067 After merge, open the mbe-ui issue of quickstart §6 (linking contracts/api.md, the measure and dimension keys, the tiles and the eight codes). Then record the verifications, mark the spec complete, commit `.spec-context.json` to main, delete the branch locally and remotely, and remove the worktree.
 
 ---
 
