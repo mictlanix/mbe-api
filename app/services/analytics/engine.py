@@ -296,6 +296,9 @@ def parse_value(dimension: DimensionKey, value: str) -> Any:
             | DimensionKey.AGING_BUCKET
             | DimensionKey.DUE_BUCKET
             | DimensionKey.COMMISSION_STATUS
+            | DimensionKey.ISSUER
+            | DimensionKey.DOCUMENT_STATUS
+            | DimensionKey.DOCUMENT_TYPE
         ):
             return value
     return int(value)
@@ -538,6 +541,7 @@ def fact_key(fact: Fact, slice_: facts.Slice) -> Hashable:
         slice_.facility,
         slice_.moments,
         slice_.stock_options,
+        slice_.stamped_only,
     )
 
 
@@ -632,7 +636,39 @@ def derive(
     }
     values |= _stock_measures(sums, cost, days)
     values |= _receivable_measures(sums, days)
+    values |= _fiscal_measures(sums, with_vat)
     return values
+
+
+def _fiscal_measures(sums: Mapping[str, Any], with_vat: bool) -> dict[MeasureKey, Decimal | None]:
+    """Invoices, output VAT and invoice coverage (spec 038, research R12)."""
+
+    def get(name: str) -> int:
+        return int(sums.get(name, 0) or 0)
+
+    def amount(fact: str, prefix: str = '') -> int:
+        return get(f'{fact}.{prefix}sub_c') + (get(f'{fact}.{prefix}tax_c') if with_vat else 0)
+
+    sold, invoiced = get('invoice_coverage.sub_c'), get('invoice_coverage.inv_sub_c')
+    return {
+        MeasureKey.INVOICED: money(amount('invoice_line')),
+        MeasureKey.INVOICES: Decimal(get('invoice_line.invoices')),
+        MeasureKey.STANDALONE_INVOICED: money(amount('invoice_line', 'standalone_')),
+        MeasureKey.PAYMENT_RECEIPTS: money(get('invoice_line.receipt_c')),
+        MeasureKey.OUTPUT_VAT: money(get('invoice_line.vat_c')),
+        MeasureKey.INVOICED_SALES: money(amount('invoice_coverage', 'inv_')),
+        MeasureKey.UNINVOICED_SALES: money(
+            amount('invoice_coverage') - amount('invoice_coverage', 'inv_')
+        ),
+        MeasureKey.INVOICE_COVERAGE: ratio(Decimal(invoiced), Decimal(sold)),
+        MeasureKey.INVOICING_LAG: (
+            (Decimal(get('invoice_coverage.lag_w')) / invoiced).quantize(
+                DAYS, rounding=ROUND_HALF_UP
+            )
+            if invoiced
+            else None
+        ),
+    }
 
 
 def _receivable_measures(
@@ -999,7 +1035,13 @@ def stock_options(definition: AnalyticsQueryRequest) -> StockOptions | None:
 
 def fact_slice(prepared: Prepared, fact: Fact, slice_: facts.Slice) -> facts.Slice:
     """What `fact` is asked for one of `_slices(prepared)`: a balance fact gets moments in place
-    of the slice's dates, and the stock fact its options."""
+    of the slice's dates, and the stock fact its options. The invoice fact counts stamped
+    documents only, unless the request groups or filters by document status (R12)."""
+    if fact is Fact.INVOICE_LINE:
+        named = DimensionKey.DOCUMENT_STATUS in prepared.definition.dimensions
+        return replace(
+            slice_, stamped_only=not (named or DimensionKey.DOCUMENT_STATUS in prepared.filters)
+        )
     if fact not in BALANCE_FACTS:
         return slice_
     asked = balance_slice(slice_, _plan(prepared, slice_))
@@ -1041,7 +1083,7 @@ async def assemble(db: AsyncSession, prepared: Prepared, found: Found) -> Analyt
 
     def rows_of(fact: Fact, slice_: facts.Slice, by_bucket: bool = False) -> list:
         if fact not in BALANCE_FACTS:
-            return found[fact_key(fact, slice_)]
+            return found[fact_key(fact, fact_slice(prepared, fact, slice_))]
         plan = _plan(prepared, slice_)
         rows = found[fact_key(fact, fact_slice(prepared, fact, slice_))]
         if DimensionKey.DATE in slice_.dimensions:

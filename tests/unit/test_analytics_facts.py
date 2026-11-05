@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 from app.db.base import Base
 from app.enums import TransactionType
 from app.models.core import Warehouse
+from app.models.fiscal import FiscalDocument, FiscalDocumentDetail
 from app.models.inventory import LotSerialTracking
 from app.models.product import Product
 from app.models.sales import (
@@ -23,10 +24,11 @@ from app.models.sales import (
     SalesOrder,
     SalesOrderDetail,
 )
-from app.schemas.analytics import DimensionKey
+from app.schemas.analytics import DimensionKey, MeasureKey, VatTreatment
 from app.services import totals
 from app.services.analytics import facts
 from app.services.analytics.catalog import Fact
+from app.services.analytics.engine import derive as engine_derive
 
 DAY = datetime(2026, 5, 4, 10, 0)
 TABLES = [t.__table__ for t in (SalesOrder, SalesOrderDetail, CustomerRefund, CustomerRefundDetail)]
@@ -353,4 +355,221 @@ def test_the_credit_flow_fact_compiles_for_mariadb() -> None:
     assert 'UNION ALL' in sql
     assert 'GROUP BY K0, K1, K2' in sql
     assert 'RECEIVABLE_SNAPSHOT.MONTH_END =' in sql
+    assert 'SALES_ORDER.FACILITY =' in sql
+
+
+# ── Spec 038, T042: invoices and invoice coverage (research R12) ──────────────
+
+FISCAL_TABLES = [
+    t.__table__ for t in (SalesOrder, SalesOrderDetail, FiscalDocument, FiscalDocumentDetail)
+]
+SOLD = datetime(2026, 5, 4, 10, 0)
+
+
+def _document(doc_id: int, kind: int, day: int, **kw: object) -> dict:
+    """A fiscal document issued on May `day`: stamped and live unless told otherwise."""
+    issued = datetime(2026, 5, day, 12, 0)
+    return dict(
+        fiscal_document_id=doc_id, creation_time=issued, modification_time=issued, creator=1,
+        updater=1, issuer=kw.get('issuer', 'AAA010101AAA'), customer=1, recipient='XAXX010101000',
+        type=kind, facility=kw.get('facility', 1), issued=issued, issued_location='Mérida',
+        completed=True, cancelled=kw.get('cancelled', False),
+        cancellation_date=issued if kw.get('cancelled') else None, payment_method=99,
+        exchange_rate=1, currency=0, payment_terms=0, version=Decimal('4.0'), provider=0,
+        retention_rate=0, local_retention_rate=0,
+        stamped=issued if kw.get('stamped', True) else None,
+        payment_amount=kw.get('payment'),
+    )  # fmt: skip
+
+
+def _fiscal_line(line_id: int, doc: int, qty: str, price: str, order_detail: int | None) -> dict:
+    return dict(
+        fiscal_document_detail_id=line_id, document=doc, product=1, order_detail=order_detail,
+        product_name='P', quantity=Decimal(qty), price=Decimal(price), discount=Decimal(0),
+        tax_rate=Decimal('0.16'), exchange_rate=1, currency=0, tax_included=False,
+    )  # fmt: skip
+
+
+INVOICE, NOTE, RECEIPT = 0, 100, 200
+#: Order 21 (May 4) sells line 31 (3 at 100 with VAT) and line 32 (2 at 50 without VAT).
+#: Line 31 is invoiced 2 on May 6 and 0.5 on May 20, and 0.5 more on a cancelled invoice; line 32
+#: is invoiced 5 on May 20, more than it sold. A pending invoice and the first stamped one carry a
+#: standalone line; a draft cancelled before stamping, a credit note and a payment receipt complete
+#: the month.
+DOCUMENTS = [
+    _document(41, INVOICE, 6),
+    _document(42, INVOICE, 20),
+    _document(43, INVOICE, 7, cancelled=True),
+    _document(44, INVOICE, 9, stamped=False),
+    _document(45, INVOICE, 9, stamped=False, cancelled=True),
+    _document(46, NOTE, 10),
+    _document(47, RECEIPT, 12, payment=Decimal('500')),
+]
+DOCUMENT_LINES = {
+    41: [_fiscal_line(51, 41, '2', '86.21', 31), _fiscal_line(52, 41, '1', '10.005', None)],
+    42: [_fiscal_line(53, 42, '0.5', '86.21', 31), _fiscal_line(54, 42, '5', '50', 32)],
+    43: [_fiscal_line(55, 43, '0.5', '86.21', 31)],
+    44: [_fiscal_line(56, 44, '1', '20', None)],
+    45: [_fiscal_line(57, 45, '1', '30', None)],
+    46: [_fiscal_line(58, 46, '1', '25.125', None)],
+    47: [_fiscal_line(59, 47, '1', '0', None)],
+}
+
+
+@pytest.fixture
+async def fiscal() -> AsyncEngine:
+    engine = create_async_engine('sqlite+aiosqlite://')
+    async with engine.begin() as connection:
+        await connection.run_sync(lambda c: Base.metadata.create_all(c, tables=FISCAL_TABLES))
+        await connection.execute(insert(SalesOrder.__table__).values(**_order(21)))
+        await connection.execute(
+            insert(SalesOrderDetail.__table__),
+            [_line(31, 21, '3', '100'), _line(32, 21, '2', '50', included=False)],
+        )
+        await connection.execute(insert(FiscalDocument.__table__), DOCUMENTS)
+        await connection.execute(
+            insert(FiscalDocumentDetail.__table__),
+            [line for lines in DOCUMENT_LINES.values() for line in lines],
+        )
+    yield engine
+    await engine.dispose()
+
+
+async def _fact(engine: AsyncEngine, fact: Fact, **kw: object) -> list:
+    async with engine.connect() as connection:
+        statement = facts.query(fact, _slice(**kw))
+        return (await connection.execute(statement)).mappings().all()
+
+
+def _sums(fact: Fact, row: dict) -> dict:
+    return {f'{fact.value}.{name}': value for name, value in row.items()}
+
+
+def _document_tax(lines: list[dict]) -> Decimal:
+    return totals.document_totals(
+        totals.Line(
+            quantity=line['quantity'], price=line['price'], discount_rate=line['discount'],
+            tax_rate=line['tax_rate'], tax_included=line['tax_included'],
+        )
+        for line in lines
+    ).tax_total  # fmt: skip
+
+
+async def test_the_invoiced_quantity_is_capped_at_the_line_quantity(fiscal: AsyncEngine) -> None:
+    rows = facts.coverage_lines(date(2026, 5, 1), date(2026, 5, 31), None)
+    async with fiscal.connect() as connection:
+        lines = {r['id']: r for r in (await connection.execute(select(rows))).mappings().all()}
+
+    # 2 + 0.5 live; the cancelled invoice's 0.5 does not count.
+    assert lines[31]['inv_qty'] == Decimal('2.5')
+    # 5 invoiced, 2 sold.
+    assert lines[32]['inv_qty'] == 2
+    assert (lines[32]['inv_sub_c'], lines[32]['inv_tax_c']) == (
+        lines[32]['sub_c'], lines[32]['tax_c'],
+    )  # fmt: skip
+
+
+async def test_invoiced_and_not_invoiced_add_up_to_the_sale(fiscal: AsyncEngine) -> None:
+    """Each line's invoiced cents are its sale cents × invoiced ÷ sold, rounded, valued at the sale
+    line's price; not invoiced is the rest, so the two add up to sold to the cent."""
+    rows = facts.coverage_lines(date(2026, 5, 1), date(2026, 5, 31), None)
+    async with fiscal.connect() as connection:
+        lines = {r['id']: r for r in (await connection.execute(select(rows))).mappings().all()}
+    [sold] = await _fact(fiscal, Fact.SALE_LINE)
+    [covered] = await _fact(fiscal, Fact.INVOICE_COVERAGE)
+
+    line = lines[31]
+    share = Decimal(line['sub_c']) * Decimal('2.5') / 3
+    assert line['inv_sub_c'] == int(share.quantize(Decimal(1), rounding='ROUND_HALF_UP'))
+    for vat in VatTreatment:
+        derived = engine_derive(_sums(Fact.INVOICE_COVERAGE, covered), vat)
+        gross = engine_derive(_sums(Fact.SALE_LINE, sold), vat)[MeasureKey.GROSS_SALES]
+        invoiced = derived[MeasureKey.INVOICED_SALES]
+        assert invoiced + derived[MeasureKey.UNINVOICED_SALES] == gross, vat
+        assert 0 < invoiced < gross, vat
+
+
+async def test_the_lag_is_weighted_by_invoiced_cents(fiscal: AsyncEngine) -> None:
+    """Line 31 was first invoiced 2 days after the sale, line 32 16 days after: the average is
+    weighted by each line's invoiced cents, not a plain mean of 9 days."""
+    rows = facts.coverage_lines(date(2026, 5, 1), date(2026, 5, 31), None)
+    async with fiscal.connect() as connection:
+        lines = {r['id']: r for r in (await connection.execute(select(rows))).mappings().all()}
+    [covered] = await _fact(fiscal, Fact.INVOICE_COVERAGE)
+
+    weights = {31: lines[31]['inv_sub_c'], 32: lines[32]['inv_sub_c']}
+    expected = Decimal(2 * weights[31] + 16 * weights[32]) / (weights[31] + weights[32])
+    lag = engine_derive(_sums(Fact.INVOICE_COVERAGE, covered), VatTreatment.EXCLUDED)[
+        MeasureKey.INVOICING_LAG
+    ]
+    assert lag == expected.quantize(Decimal('0.1'), rounding='ROUND_HALF_UP')
+    assert lag != Decimal('9.0')
+
+
+async def test_statuses_follow_r12(fiscal: AsyncEngine) -> None:
+    """Stamped and live, cancelled after stamping, and pending; the draft cancelled before
+    stamping is not counted at all. Without a status grouping or filter, only stamped count."""
+    by_status = {
+        r['k0']: r
+        for r in await _fact(
+            fiscal, Fact.INVOICE_LINE, dimensions=(DimensionKey.DOCUMENT_STATUS,),
+            stamped_only=False,
+        )
+    }  # fmt: skip
+    [stamped_only] = await _fact(fiscal, Fact.INVOICE_LINE, stamped_only=True)
+
+    assert {k: r['invoices'] for k, r in by_status.items()} == {
+        'stamped': 2, 'cancelled': 1, 'pending': 1,
+    }  # fmt: skip
+    assert stamped_only['invoices'] == 2
+    # The pending invoice's standalone 20.00; the excluded draft's 30.00 is nowhere.
+    pending = engine_derive(_sums(Fact.INVOICE_LINE, by_status['pending']), VatTreatment.EXCLUDED)
+    assert pending[MeasureKey.STANDALONE_INVOICED] == Decimal('20.00')
+    assert pending[MeasureKey.INVOICED] == Decimal('20.00')
+
+
+async def test_output_vat_is_invoice_vat_less_credit_note_vat(fiscal: AsyncEngine) -> None:
+    """Stamped live invoices' VAT less stamped live credit notes' VAT; the payment receipt is
+    listed, not added, and cancelled or pending invoices add nothing whatever the grouping."""
+    expected = (
+        _document_tax(DOCUMENT_LINES[41]) + _document_tax(DOCUMENT_LINES[42])
+        - _document_tax(DOCUMENT_LINES[46])
+    )  # fmt: skip
+    [stamped] = await _fact(fiscal, Fact.INVOICE_LINE, stamped_only=True)
+    [every] = await _fact(fiscal, Fact.INVOICE_LINE, stamped_only=False)
+
+    for row in (stamped, every):
+        derived = engine_derive(_sums(Fact.INVOICE_LINE, row), VatTreatment.EXCLUDED)
+        assert derived[MeasureKey.OUTPUT_VAT] == expected
+        assert derived[MeasureKey.PAYMENT_RECEIPTS] == Decimal('500.00')
+
+
+def test_the_invoice_fact_compiles_for_mariadb() -> None:
+    statement = facts.query(
+        Fact.INVOICE_LINE,
+        _slice(
+            dimensions=(DimensionKey.DATE, DimensionKey.ISSUER, DimensionKey.DOCUMENT_STATUS),
+            facility=1,
+            stamped_only=True,
+        ),
+    )
+    sql = str(statement.compile(dialect=mysql.dialect())).upper()
+
+    assert 'STRFTIME' not in sql
+    assert 'UNION ALL' in sql
+    assert 'GROUP BY K0, K1, K2' in sql
+    assert 'ROW_NUMBER() OVER (PARTITION BY' in sql
+    assert 'FISCAL_DOCUMENT.FACILITY =' in sql
+
+
+def test_the_coverage_fact_compiles_for_mariadb() -> None:
+    statement = facts.query(
+        Fact.INVOICE_COVERAGE,
+        _slice(dimensions=(DimensionKey.DATE, DimensionKey.SALESPERSON), facility=1),
+    )
+    sql = str(statement.compile(dialect=mysql.dialect())).upper()
+
+    assert 'STRFTIME' not in sql and 'JULIANDAY' not in sql
+    assert 'DATEDIFF(' in sql
+    assert 'GROUP BY K0, K1' in sql
     assert 'SALES_ORDER.FACILITY =' in sql

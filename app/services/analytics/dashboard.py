@@ -214,6 +214,7 @@ async def build(
         balances.read_day(min(before_end, today), today) >= engine.RECEIVABLE_HISTORY_START
     )
     payables = Family.PAYABLES in held and await supplier_payment_service.get_cutoff(db) is not None
+    fiscal = Family.FISCAL in held
 
     planned: list[tuple[str, str, AnalyticsQueryRequest]] = []
 
@@ -275,6 +276,10 @@ async def build(
             [MeasureKey.DUE_IN_PERIOD, MeasureKey.DUE_COLLECTED, MeasureKey.COLLECTED_ON_CREDIT],
             comparison=None,
         )  # fmt: skip
+    if fiscal:
+        uninvoiced = [MeasureKey.UNINVOICED_SALES]
+        plan('uninvoiced_sales', '', uninvoiced, DimensionKey.DATE, grain=grain)
+        plan('invoice_coverage', 'bar', [MeasureKey.INVOICE_COVERAGE], DimensionKey.FACILITY)
 
     prepared = [_prepared(definition, facility, held) for _, _, definition in planned]
     wanted = [pair for one in prepared for pair in engine.wanted(one)]
@@ -345,6 +350,13 @@ async def build(
         )  # fmt: skip
         if 'dso' in answered:
             kpis.append(_kpi('dso', MeasureKey.DSO, answered['dso'], request, facility, grain))
+    if fiscal:
+        kpis.append(
+            _kpi(
+                'uninvoiced_sales', MeasureKey.UNINVOICED_SALES, answered['uninvoiced_sales'],
+                request, facility, grain,
+            )
+        )  # fmt: skip
 
     series = [
         AnalyticsSeries(key=name, chart=chart, query=answered[name])

@@ -467,7 +467,7 @@ MEASURES: dict[MeasureKey, Measure] = {
             definition="Payment receipts' payment amount. Listed, never added to VAT.",
         ),
         _measure(
-            MeasureKey.OUTPUT_VAT, 'Output VAT', 'money', _INV, _NOTE, family=_FISCAL,
+            MeasureKey.OUTPUT_VAT, 'Output VAT', 'money', _INV, family=_FISCAL,
             definition='Invoice VAT − credit note VAT, stamped and not cancelled.',
         ),
         _measure(

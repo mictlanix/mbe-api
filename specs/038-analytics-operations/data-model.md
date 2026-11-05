@@ -97,7 +97,7 @@ Each fact is one grouped SQL statement (spec 037 R3), except commissions (R11).
 | `credit_flow` | flow | applications to credit orders by application date; due-in-period from the start balance (R9) | application date, due date | order's facility |
 | `payable` | balance | spec 033's supplier balances, now | now | PO lines' warehouse's facility (R17) |
 | `commission` | flow | spec 025 `read_period` lines, per month (Python) | the line's month | agent's facility |
-| `invoice_line` | flow | `fiscal_document_detail` of types 0 and 200, priced like spec 037 | `issued` | issuing facility |
+| `invoice_line` | flow | `fiscal_document_detail` of invoices (0) and credit notes (100), priced like spec 037, and one row per payment receipt (200) with its `payment_amount` (R12) | `issued` | issuing facility |
 | `invoice_coverage` | flow | spec 037's `sale_lines` joined to invoiced quantity per sale line (R12) | sale date | order's facility |
 | `purchase_line` | flow | `purchase_order_detail` of completed, not cancelled POs; received quantity from receipts | PO `modification_time` | PO's facility |
 
@@ -156,7 +156,7 @@ Units follow spec 037: money, quantity, count, ratio, days. "Cost" marks a sensi
 | `invoices` | count | Distinct invoices |
 | `standalone_invoiced` | money | Invoice lines with no sale line |
 | `payment_receipts` | money | Type 200 documents' `payment_amount` |
-| `output_vat` | money | Invoice VAT − credit note VAT (stamped, live) |
+| `output_vat` | money | Invoice VAT − credit note VAT (stamped, live), both from `invoice_line`, so it groups by issuer |
 | `invoiced_sales`, `uninvoiced_sales` | money | Coverage fact (R12) |
 | `invoice_coverage` | ratio | invoiced_sales ÷ (invoiced + uninvoiced) |
 | `invoicing_lag` | days | Weighted average days, sale to first invoice |
@@ -187,7 +187,7 @@ Units follow spec 037: money, quantity, count, ratio, days. "Cost" marks a sensi
 | `commission_participation`, `commission_status` | commission | participation id; provisional, closed |
 | `issuer` | invoice_line | taxpayer |
 | `document_status` | invoice_line | stamped, cancelled, pending |
-| `document_type` | invoice_line | invoice, payment_receipt |
+| `document_type` | invoice_line | invoice, credit_note, payment_receipt |
 
 Spec 037's dimensions apply where the fact has them: date, facility, product, brand, model, label, customer, salesperson.
 

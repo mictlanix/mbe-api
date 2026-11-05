@@ -167,6 +167,16 @@ AnalyticsDetailFigures:
 - `figures.values`: `movement_type`, `source` (the type's name) and `reference`.
 - `sums`: `quantity` (net), `units_in` and `units_out`, equal to the measures. `sort`: `amount` is the quantity, `document` the reference.
 
+**`invoices`** lists the fiscal documents the invoice fact sums (invoices, credit notes and payment receipts), stamped only unless the request filters by `document_status`, as the query counts them:
+- `id` and `document_id` are the fiscal document, `folio` its series-folio, `date` its issue, `facility` the issuing facility; `amount` the invoice's or credit note's lines (with the request's VAT treatment), or a receipt's payment amount.
+- `figures.values`: `type` (invoice, credit_note, payment_receipt), `status` (stamped, cancelled, pending), `issuer`, `uuid`, `issued`, `stamped`, `cancelled` (the cancellation date, for a cancelled one), `subtotal`, `vat` and `total`.
+- `sums`: `invoiced`, `output_vat` and `payment_receipts`, equal to the measures; with a `document_type` filter of `invoice`, `total` is `invoices`. `sort`: `amount` is the amount, `document` the fiscal document id.
+
+**`uninvoiced_lines`** lists the sale lines of the period not wholly invoiced by live stamped invoices, from the coverage fact (R12):
+- `id` is the sale line, `document_id` and `folio` its order; `quantity` and `amount` are what is not invoiced (the amount with the request's VAT treatment).
+- `figures.values`: `sold`, `invoiced` (capped at sold), `invoiced_amount`, `first_invoiced` and `lag_days` (days from the sale to the first invoice; null when none).
+- `sums`: `amount` (`uninvoiced_sales`) and `quantity`. `sort`: `amount` is the amount, `document` the order.
+
 **`commission_lines`** lists spec 025's lines of the months the period touches, as `read_period` gives them (stored once a month is closed, live while it is open):
 - `id` is the sale line, `document_id` and `folio` its order, `date` the paid date (a refund's date for a refund line), `facility` the agent's user's, `salesperson` the earning agent, `quantity` the line's (or the refund's), `amount` the commission.
 - `figures.values`: `month`, `status` (provisional, closed), `movement` (sale, refund), `scheme`, `sales_order`, `sales_order_detail`, `customer_refund_detail`, `order_date`, `paid_date`, `product`, `label`, `label_name`, `label_rate`, `participation`, `participation_name`, `participation_rate` (the agent's share), `rate`, `price`, `base` (price × quantity, negative for a refund), `share` (paid share, partial-payment scheme), `full_commission` and `amount`.

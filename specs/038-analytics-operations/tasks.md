@@ -292,14 +292,14 @@ T077 confirms that none remain.
 
 ### Tests
 
-- [ ] T042 [P] [US5] Extend `tests/unit/test_analytics_facts.py` with `invoice_line` and `invoice_coverage`:
+- [X] T042 [P] [US5] Extend `tests/unit/test_analytics_facts.py` with `invoice_line` and `invoice_coverage`:
   - the invoiced quantity is capped at the line quantity;
   - invoiced + not invoiced cents = sale cents per line;
   - the lag is weighted by invoiced cents;
   - stamped, cancelled and pending follow R12, and a draft cancelled before stamping is excluded;
   - output VAT = invoice VAT − credit note VAT;
   - both compile on MariaDB.
-- [ ] T043 [P] [US5] Write `tests/integration/test_analytics_fiscal.py`:
+- [X] T043 [P] [US5] Write `tests/integration/test_analytics_fiscal.py`:
   - coverage by facility, customer and salesperson;
   - standalone invoices appear in `standalone_invoiced` and not in coverage;
   - an invoice issued after the period raises that period's coverage;
@@ -311,9 +311,9 @@ T077 confirms that none remain.
 
 ### Implementation
 
-- [ ] T044 [US5] Add the `invoice_line` and `invoice_coverage` facts to `app/services/analytics/facts.py` (R12). Reuse spec 037's line rule and `sale_lines`. Add the issuer, document status and document type dimensions. T042 passes.
-- [ ] T045 [US5] Add the `invoices` (read on 23) and `uninvoiced_lines` (read on 7) detail kinds to `app/services/analytics/detail.py`. T043 passes.
-- [ ] T046 [US5] Add the KPI `uninvoiced_sales` and the series `invoice_coverage` by facility to `app/services/analytics/dashboard.py`, for fiscal readers only. T043 passes.
+- [X] T044 [US5] Add the `invoice_line` and `invoice_coverage` facts to `app/services/analytics/facts.py` (R12). Reuse spec 037's line rule and `sale_lines`. Add the issuer, document status and document type dimensions. T042 passes.
+- [X] T045 [US5] Add the `invoices` (read on 23) and `uninvoiced_lines` (read on 7) detail kinds to `app/services/analytics/detail.py`. T043 passes.
+- [X] T046 [US5] Add the KPI `uninvoiced_sales` and the series `invoice_coverage` by facility to `app/services/analytics/dashboard.py`, for fiscal readers only. T043 passes.
 
 **Checkpoint**: the fiscal questions answer and reconcile on fixtures.
 

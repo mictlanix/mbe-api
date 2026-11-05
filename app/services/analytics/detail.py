@@ -12,7 +12,7 @@ from decimal import Decimal
 from types import SimpleNamespace
 from typing import Any
 
-from sqlalchemy import Select, case, func, literal, null, select, true
+from sqlalchemy import Select, and_, case, func, literal, null, or_, select, true
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql.expression import ColumnElement
 
@@ -32,6 +32,7 @@ from app.schemas.analytics import (
     AnalyticsDetailResponse,
     DetailFlag,
     DetailKind,
+    DimensionKey,
     Grain,
     MeasureKey,
     StockOptions,
@@ -51,6 +52,8 @@ KIND_FACT = {
     DetailKind.MOVEMENTS: Fact.MOVEMENT,
     DetailKind.RECEIVABLES: Fact.RECEIVABLE,
     DetailKind.COMMISSION_LINES: Fact.COMMISSION,
+    DetailKind.INVOICES: Fact.INVOICE_LINE,
+    DetailKind.UNINVOICED_LINES: Fact.INVOICE_COVERAGE,
 }
 #: The measure a kind's refusals name (`analytics.dimension_not_applicable`).
 KIND_MEASURE = {
@@ -63,6 +66,8 @@ KIND_MEASURE = {
     DetailKind.MOVEMENTS: MeasureKey.UNITS_IN,
     DetailKind.RECEIVABLES: MeasureKey.RECEIVABLE,
     DetailKind.COMMISSION_LINES: MeasureKey.COMMISSION,
+    DetailKind.INVOICES: MeasureKey.INVOICED,
+    DetailKind.UNINVOICED_LINES: MeasureKey.UNINVOICED_SALES,
 }
 #: The family a kind belongs to; the rest are sales.
 KIND_FAMILY = {
@@ -71,6 +76,8 @@ KIND_FAMILY = {
     DetailKind.MOVEMENTS: Family.INVENTORY,
     DetailKind.RECEIVABLES: Family.RECEIVABLES,
     DetailKind.COMMISSION_LINES: Family.COMMISSIONS,
+    DetailKind.INVOICES: Family.FISCAL,
+    DetailKind.UNINVOICED_LINES: Family.FISCAL,
 }
 #: Read on the document kind, besides the family (FR-060); stock pairs need none.
 KIND_PRIVILEGE = {
@@ -81,6 +88,8 @@ KIND_PRIVILEGE = {
     DetailKind.PAYMENTS: SystemObject.CUSTOMER_PAYMENTS,
     DetailKind.MOVEMENTS: SystemObject.KARDEX,
     DetailKind.RECEIVABLES: SystemObject.SALES_ORDERS,
+    DetailKind.INVOICES: SystemObject.FISCAL_DOCUMENTS,
+    DetailKind.UNINVOICED_LINES: SystemObject.SALES_ORDERS,
 }
 COST_FLAGS = {DetailFlag.BELOW_COST, DetailFlag.WITHOUT_COST}
 SENSITIVE_KEYS = {'cost', 'margin'}
@@ -258,6 +267,10 @@ async def execute(
         return await _movements(db, request, facility, as_of, everything=everything)
     if request.kind is DetailKind.COMMISSION_LINES:
         return await _commission_lines(db, request, facility, as_of, everything=everything)
+    if request.kind is DetailKind.INVOICES:
+        return await _invoices(db, request, facility, as_of, everything=everything)
+    if request.kind is DetailKind.UNINVOICED_LINES:
+        return await _uninvoiced_lines(db, request, facility, as_of, everything=everything)
     base = _base(request, facility).subquery('detail')
     total = (await db.execute(select(func.count()).select_from(base))).scalar_one()
     aggregate = (
@@ -762,3 +775,197 @@ async def _commission_lines(
         'base': engine.money(sum(commissions.cents(e.line.total) for e in found)),
     }
     return AnalyticsDetailResponse(as_of=as_of, items=items, total=len(found), sums=sums)
+
+
+# ── Fiscal (spec 038) ─────────────────────────────────────────────────────────
+
+
+def _iso(value: datetime | None) -> str | None:
+    return None if value is None else value.isoformat()
+
+
+def _money_text(cents: Any) -> str:
+    return str(engine.money(cents or 0))
+
+
+async def _invoices(
+    db: AsyncSession,
+    request: AnalyticsDetailRequest,
+    facility: int | None,
+    as_of: datetime,
+    *,
+    everything: bool,
+) -> AnalyticsDetailResponse:
+    """The fiscal documents the invoice fact sums, one item each: stamped only unless the request
+    filters by status, as the query counts them (R12). `sums` are `invoiced`, `output_vat` and
+    `payment_receipts`; with `document_type` invoice, `total` is `invoices`."""
+    rows, joins, conditions = _filtered(Fact.INVOICE_LINE, request, facility)
+    c = rows.c
+    if DimensionKey.DOCUMENT_STATUS not in {item.dimension for item in request.filters}:
+        conditions.append(c.document_status == facts.STAMPED)
+    sub, tax, receipt = func.sum(c.sub_c), func.sum(c.tax_c), func.sum(c.receipt_c)
+    amount = (sub + tax if request.vat is VatTreatment.INCLUDED else sub) + receipt
+    base = (
+        joins.apply(
+            select(
+                c.doc.label('id'), func.max(c.at).label('at'),
+                func.max(c.facility).label('facility'), func.max(c.customer).label('customer'),
+                func.max(c.document_type).label('document_type'),
+                func.max(c.document_status).label('document_status'),
+                func.max(c.issuer).label('issuer'), sub.label('sub_c'), tax.label('tax_c'),
+                receipt.label('receipt_c'), amount.label('amount_c'),
+            ).select_from(rows)
+        )
+        .where(true(), *conditions)
+        .group_by(c.doc)
+        .subquery('detail')
+    )  # fmt: skip
+    b = base.c
+    invoice, stamped = b.document_type == facts.INVOICE, b.document_status == facts.STAMPED
+    total = (await db.execute(select(func.count()).select_from(base))).scalar_one()
+    aggregate = (
+        await db.execute(
+            select(
+                func.coalesce(func.sum(case((invoice, b.amount_c), else_=0)), 0),
+                func.coalesce(
+                    func.sum(
+                        case(
+                            (and_(stamped, invoice), b.tax_c),
+                            (and_(stamped, b.document_type == facts.CREDIT_NOTE), -b.tax_c),
+                            else_=0,
+                        )
+                    ),
+                    0,
+                ),
+                func.coalesce(func.sum(b.receipt_c), 0),
+            )
+        )
+    ).one()
+    sums = {
+        'invoiced': engine.money(aggregate[0]),
+        'output_vat': engine.money(aggregate[1]),
+        'payment_receipts': engine.money(aggregate[2]),
+    }
+    name, descending = parse_sort(request.sort)
+    order = {'date': b.at, 'amount': b.amount_c, 'document': b.id}[name]
+    document = FiscalDocument
+    page = (
+        select(
+            base, Customer.name.label('customer_name'), document.batch, document.serial,
+            document.stamp_uuid, document.stamped, document.cancellation_date,
+        )
+        .join(document, document.fiscal_document_id == b.id)
+        .outerjoin(Customer, Customer.customer_id == b.customer)
+        .order_by(order.desc() if descending else order.asc(), b.id.desc() if descending else b.id)
+    )  # fmt: skip
+    if not everything:
+        page = page.offset(request.skip).limit(request.limit)
+    items = []
+    for row in (await db.execute(page)).all():
+        folio = None if row.serial is None else str(row.serial)
+        if folio is not None and row.batch:
+            folio = f'{row.batch}-{folio}'
+        receipt_only = row.document_type == facts.PAYMENT_RECEIPT
+        items.append(
+            AnalyticsDetailItem(
+                kind=DetailKind.INVOICES, id=row.id, document_id=row.id, folio=folio,
+                date=row.at, facility=row.facility, customer=row.customer,
+                customer_name=row.customer_name, salesperson=None, product=None,
+                product_code=None, product_name=None, quantity=None,
+                amount=engine.money(row.amount_c), payment_method=None,
+                figures=AnalyticsDetailFigures(
+                    values={
+                        'type': row.document_type,
+                        'status': row.document_status,
+                        'issuer': row.issuer,
+                        'uuid': row.stamp_uuid,
+                        'issued': _iso(row.at),
+                        'stamped': _iso(row.stamped),
+                        'cancelled': _iso(row.cancellation_date)
+                        if row.document_status == facts.CANCELLED
+                        else None,
+                        'subtotal': _money_text(row.sub_c),
+                        'vat': _money_text(row.tax_c),
+                        'total': _money_text(
+                            row.receipt_c if receipt_only else (row.sub_c or 0) + (row.tax_c or 0)
+                        ),
+                    }
+                ),
+            )
+        )  # fmt: skip
+    return AnalyticsDetailResponse(as_of=as_of, items=items, total=total, sums=sums)
+
+
+async def _uninvoiced_lines(
+    db: AsyncSession,
+    request: AnalyticsDetailRequest,
+    facility: int | None,
+    as_of: datetime,
+    *,
+    everything: bool,
+) -> AnalyticsDetailResponse:
+    """The sale lines of the period not wholly invoiced, from the coverage fact: `quantity` and
+    `amount` are what is not invoiced, so `sums.amount` is `uninvoiced_sales` (R12)."""
+    rows, joins, conditions = _filtered(Fact.INVOICE_COVERAGE, request, facility)
+    c = rows.c
+    with_vat = request.vat is VatTreatment.INCLUDED
+    left = c.sub_c - c.inv_sub_c + ((c.tax_c - c.inv_tax_c) if with_vat else 0)
+    invoiced = c.inv_sub_c + (c.inv_tax_c if with_vat else 0)
+    conditions.append(or_(c.inv_qty < c.qty, c.sub_c != c.inv_sub_c, c.tax_c != c.inv_tax_c))
+    base = (
+        joins.apply(
+            select(
+                c.id, c.doc.label('document_id'), c.at, c.facility, c.customer, c.salesperson,
+                c.product, (c.qty - c.inv_qty).label('quantity'), c.qty.label('sold'),
+                c.inv_qty, left.label('amount_c'), invoiced.label('invoiced_c'),
+                c.first_invoiced,
+            ).select_from(rows)
+        )
+        .where(true(), *conditions)
+        .subquery('detail')
+    )  # fmt: skip
+    b = base.c
+    total = (await db.execute(select(func.count()).select_from(base))).scalar_one()
+    aggregate = (
+        await db.execute(
+            select(func.coalesce(func.sum(b.amount_c), 0), func.coalesce(func.sum(b.quantity), 0))
+        )
+    ).one()
+    sums = {'amount': engine.money(aggregate[0]), 'quantity': engine.quantity(aggregate[1])}
+    name, descending = parse_sort(request.sort)
+    order = {'date': b.at, 'amount': b.amount_c, 'document': b.document_id}[name]
+    page = (
+        select(
+            base, Customer.name.label('customer_name'), Product.code.label('product_code'),
+            Product.name.label('product_name'),
+        )
+        .outerjoin(Customer, Customer.customer_id == b.customer)
+        .outerjoin(Product, Product.product_id == b.product)
+        .order_by(order.desc() if descending else order.asc(), b.id.desc() if descending else b.id)
+    )  # fmt: skip
+    if not everything:
+        page = page.offset(request.skip).limit(request.limit)
+    found = (await db.execute(page)).all()
+    folios = await _folios(db, DetailKind.ORDERS, [row.document_id for row in found])
+    items = [
+        AnalyticsDetailItem(
+            kind=DetailKind.UNINVOICED_LINES, id=row.id, document_id=row.document_id,
+            folio=folios.get(row.document_id), date=row.at, facility=row.facility,
+            customer=row.customer, customer_name=row.customer_name, salesperson=row.salesperson,
+            product=row.product, product_code=row.product_code, product_name=row.product_name,
+            quantity=engine.quantity(row.quantity), amount=engine.money(row.amount_c),
+            payment_method=None,
+            figures=AnalyticsDetailFigures(
+                values={
+                    'sold': _text(engine.quantity(row.sold)),
+                    'invoiced': _text(engine.quantity(row.inv_qty)),
+                    'invoiced_amount': _money_text(row.invoiced_c),
+                    'first_invoiced': _iso(row.first_invoiced),
+                    'lag_days': None if row.first_invoiced is None
+                    else str((row.first_invoiced.date() - row.at.date()).days),
+                }
+            ),
+        )
+        for row in found
+    ]  # fmt: skip
+    return AnalyticsDetailResponse(as_of=as_of, items=items, total=total, sums=sums)

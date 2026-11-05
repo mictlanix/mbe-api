@@ -288,7 +288,7 @@ TEXT_VALUES: dict[DimensionKey, tuple[str, ...]] = {
     DimensionKey.DUE_BUCKET: ('overdue', '1-7', '8-30', '31-60', '60+'),
     DimensionKey.COMMISSION_STATUS: ('provisional', 'closed'),
     DimensionKey.DOCUMENT_STATUS: ('stamped', 'cancelled', 'pending'),
-    DimensionKey.DOCUMENT_TYPE: ('invoice', 'payment_receipt'),
+    DimensionKey.DOCUMENT_TYPE: ('invoice', 'credit_note', 'payment_receipt'),
 }
 
 #: Each stock option's allowed values: a range, or for `dead_days` a set (research R5).
@@ -338,8 +338,8 @@ class AnalyticsFilter(BaseModel):
             'payment_terms (immediate, credit), weekday (1 = Monday), hour, issuer (RFC), '
             'aging_bucket (current, 1-30, 31-60, 61-90, 90+), due_bucket (overdue, 1-7, 8-30, '
             '31-60, 60+), commission_status (provisional, closed), document_status (stamped, '
-            'cancelled, pending) and document_type (invoice, payment_receipt); the ISO date of '
-            'the period start for date. An empty string selects "none".'
+            'cancelled, pending) and document_type (invoice, credit_note, payment_receipt); the '
+            'ISO date of the period start for date. An empty string selects "none".'
         ),
     )
 
@@ -516,7 +516,7 @@ class AnalyticsDetailItem(BaseModel):
     id: int = Field(
         description='sales_order_id | sales_order_detail_id | customer_refund_id | '
         'fiscal_document_id | customer_payment_id | product (stock) | lot_serial_tracking_id '
-        '(movements) | sales_order_detail_id (commission_lines)'
+        '(movements) | sales_order_detail_id (commission_lines, uninvoiced_lines)'
     )
     document_id: int | None = Field(
         default=None,

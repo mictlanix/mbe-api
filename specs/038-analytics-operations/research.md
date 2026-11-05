@@ -183,6 +183,8 @@ Two dimensions name a person:
 
 Drafts cancelled without ever being stamped are excluded. **Output VAT** = invoice VAT − credit note VAT, stamped and live.
 
+The credit notes are rows of `invoice_line` itself (document type `credit_note`), priced with the same line rule as spec 037's credit-note fact, so output VAT is one fact and groups by issuer, which spec 037's credit-note fact does not have. Without a `document_status` grouping or filter, the invoice measures count stamped documents only (`invoiced` "stamped by default"); output VAT counts stamped live documents whatever the status grouping. A payment receipt is one row carrying its `payment_amount`, never VAT.
+
 **invoice_coverage**: the sale lines of spec 037 (by sale date), each joined to the quantity invoiced on it: Σ `fiscal_document_detail.quantity` over live stamped invoices, by `order_detail`, capped at the line quantity.
 - **Invoiced cents** = the line's sale cents × invoiced ÷ quantity, rounded.
 - **Not invoiced** = sale cents − invoiced cents, so the two add up to sold exactly.
