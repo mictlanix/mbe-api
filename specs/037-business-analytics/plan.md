@@ -20,7 +20,7 @@ The approach (research R1–R15):
 - **Payments are classified exactly as the cash cut does**, so collected reconciles per session and method (R6).
 - **The dashboard runs eight fact queries concurrently** (R9).
 - **Exports:** XlsxWriter (new dependency), the existing WeasyPrint printing with inline SVG charts, and the standard library CSV. Over 10,000 rows, an export runs as a background job tracked in the new table (R12).
-- **Caching:** a 60-second per-process cache plus ETag (R13).
+- **Caching:** a 3-minute per-process cache plus ETag (R13).
 - **Privileges:** the existing report privileges gate each family. The gross-profit ones (37–39) gate cost and margin (R11).
 
 ## Technical Context
@@ -47,8 +47,8 @@ Export files go in `settings.exports_dir` (`exports/`, not mounted).
 **Project Type**: web service (REST API under `/api/v1`)
 
 **Performance Goals** (SC-003):
-- the dashboard p95 under 500 ms for a month and for a year across all facilities;
-- a 12-month query under 2 s;
+- the dashboard p95 under 2 s for a month and under 5 s for a year across all facilities (relaxed from 500 ms after T063, R9);
+- a 12-month query under 5 s;
 - a 100,000-row export under 30 s.
 
 **Constraints**:

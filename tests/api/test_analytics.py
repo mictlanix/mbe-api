@@ -321,7 +321,7 @@ async def test_a_repeated_query_answers_304_to_its_etag(http: AsyncClient) -> No
     )
 
     assert first.status_code == 200
-    assert first.headers['cache-control'] == 'private, max-age=60'
+    assert first.headers['cache-control'] == 'private, max-age=180'
     assert again.status_code == 304
     assert again.headers['etag'] == first.headers['etag']
 

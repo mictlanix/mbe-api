@@ -236,7 +236,7 @@ async def download_export(
 def cached_response(body: bytes, if_none_match: str | None) -> Response:
     """The body with its ETag, or 304 when the client already holds it (research R13)."""
     tag = cache.etag(body)
-    headers = {'ETag': tag, 'Cache-Control': 'private, max-age=60'}
+    headers = {'ETag': tag, 'Cache-Control': f'private, max-age={int(cache.TTL_SECONDS)}'}
     if if_none_match is not None and tag in [t.strip() for t in if_none_match.split(',')]:
         return Response(status_code=304, headers=headers)
     return Response(content=body, media_type='application/json', headers=headers)

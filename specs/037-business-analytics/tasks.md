@@ -164,7 +164,7 @@ description: "Task list for spec 037, business analytics"
   - `facility.other_facility` for a caller without 101 who names another facility, either as the `facility` parameter or as a `facility` filter value; the own facility for one who omits it;
   - with the cost privilege, `margin_pct` is returned; without it, the response has no key containing `cost` or `margin` anywhere.
 - [X] T024 [P] [US2] Write `tests/unit/test_analytics_cache.py`:
-  - a hit within 60 s; a miss after (frozen clock);
+  - a hit within 3 minutes; a miss after (frozen clock);
   - LRU eviction past 256 entries;
   - different scope or cost visibility never share an entry;
   - the ETag is stable for the same body, and `If-None-Match` gives 304 at the route.
@@ -190,7 +190,7 @@ description: "Task list for spec 037, business analytics"
   - `overlapping` when `label` is grouped.
 
   T021–T023 pass.
-- [X] T027 [US2] Write `app/services/analytics/cache.py`: a TTL (60 s) LRU (256) keyed by a SHA-256 of the normalized definition JSON plus the resolved facility scope and the cost and family visibility; `etag(body_bytes)`. Use it in the query route, which sets `ETag` and `Cache-Control: private, max-age=60` and answers 304 on a matching `If-None-Match`. T024 passes.
+- [X] T027 [US2] Write `app/services/analytics/cache.py`: a TTL (3 minutes; 60 s until T063) LRU (256) keyed by a SHA-256 of the normalized definition JSON plus the resolved facility scope and the cost and family visibility; `etag(body_bytes)`. Use it in the query route, which sets `ETag` and `Cache-Control: private, max-age` of the TTL and answers 304 on a matching `If-None-Match`. T024 passes.
 
 **Checkpoint**: any legacy sales question is one query.
 
@@ -382,9 +382,9 @@ Deploying the branch to dev :8765 is pre-authorized. Applying migration 031 writ
 - [X] T060 Before the migration, on mbe_dev (read only):
   - record the EXPLAIN of each fact query for 2025 in research.md R10 (expected: `type ALL` on `sales_order` and `customer_payment`);
   - count the documents whose `currency` isn't MXN in `sales_order`, `customer_refund`, `customer_payment` and `fiscal_document`, and record the counts (expected 0, FR-003). If any exist, stop and report.
-- [ ] T061 **Ask the user**, then apply migration 031 on mbe_dev with `uv run python -m app.db.migrate`. Check that no confirmed order lacks `confirmation_time`, that EXPLAIN now shows `range` on the new indexes, and that confirming a draft sets the moment. Record the results in the verifications.
-- [ ] T062 Deploy the branch to dev :8765 (as mictlanix@, tmux). Run quickstart §3, reconciliation (SC-001 and SC-007): 10 business days (one with refunds, one with a cancellation after confirmation), the cash sessions of those days, and 10 drill-downs (base measures against their kind, net sales as `lines` − `refunds` − `credit_notes`). Also confirm a draft and check it shows in the query within 60 s (SC-006). Record each comparison in the verifications.
-- [ ] T063 Run quickstart §4, performance (SC-003): 30 warm runs each of the month and year dashboards, the 12-month product × month query, and the 100,000-line CSV and XLSX exports. Also time the overdue alert's `open_credit_orders` call alone, across all facilities, because its Python balance computation wasn't in R9's measurements. Record the p95s in research.md R9. If the year dashboard misses 500 ms, **stop and report** before building summary tables (R1). If the overdue alert is the cause, report that too: it can be cached on its own, since it doesn't depend on the period. The dashboard's concurrent sessions run only on MariaDB (SQLite tests use the sequential fallback), so also check the dev log shows no session or connection errors over the 30 runs.
+- [X] T061 **Ask the user**, then apply migration 031 on mbe_dev with `uv run python -m app.db.migrate`. Check that no confirmed order lacks `confirmation_time`, that EXPLAIN now shows `range` on the new indexes, and that confirming a draft sets the moment. Record the results in the verifications.
+- [X] T062 Deploy the branch to dev :8765 (as mictlanix@, tmux). Run quickstart §3, reconciliation (SC-001 and SC-007): 10 business days (one with refunds, one with a cancellation after confirmation), the cash sessions of those days, and 10 drill-downs (base measures against their kind, net sales as `lines` − `refunds` − `credit_notes`). Also confirm a draft and check it shows in the query within five minutes (SC-006). Record each comparison in the verifications.
+- [X] T063 Run quickstart §4, performance (SC-003): 30 warm runs each of the month and year dashboards, the 12-month product × month query, and the 100,000-line CSV and XLSX exports. Also time the overdue alert's `open_credit_orders` call alone, across all facilities, because its Python balance computation wasn't in R9's measurements. Record the p95s in research.md R9. If the year dashboard misses 500 ms, **stop and report** before building summary tables (R1). If the overdue alert is the cause, report that too: it can be cached on its own, since it doesn't depend on the period. The dashboard's concurrent sessions run only on MariaDB (SQLite tests use the sequential fallback), so also check the dev log shows no session or connection errors over the 30 runs.
 - [X] T064 Backtest the refund-rate alert over 2024–2026 on mbe_dev (read only): count the facility-months it fires on with the R14 thresholds, against the target of at most 1 in 20. Record the count, and any tuned threshold, in research.md R14.
 - [ ] T065 Run quickstart §5 (SC-002): for each legacy row marked Q, D or Detail, run the stated request on dev and record the request and a one-line result in the verifications.
 - [ ] T066 Open the PR from `037-business-analytics`. Under "Roadmap": `Closes mictlanix/mbe-roadmap#88`, `#90`, `#92`, `#98`, `#104`, and `Part of mictlanix/mbe-roadmap#9`. End the body with "🤖 Generated with [Claude Code](https://claude.com/claude-code)".

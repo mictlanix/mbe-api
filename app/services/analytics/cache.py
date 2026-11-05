@@ -1,9 +1,9 @@
 """A short per-process cache of analytics responses (spec 037, FR-021, research R13).
 
-Identical requests within 60 seconds are answered from memory. The key holds everything that
+Identical requests within three minutes are answered from memory. The key holds everything that
 changes the answer: the normalized definition, the resolved facility scope and the families the
 caller holds, so one caller's figures never reach a caller who may see less. Freshness stays within
-FR-020's five minutes because nothing is kept longer than a minute.
+FR-020's five minutes because nothing is kept longer than three.
 """
 
 import hashlib
@@ -12,7 +12,7 @@ import time
 from collections import OrderedDict
 from collections.abc import Callable, Iterable
 
-TTL_SECONDS = 60.0
+TTL_SECONDS = 180.0
 MAX_ENTRIES = 256
 
 

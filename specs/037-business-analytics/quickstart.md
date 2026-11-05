@@ -50,7 +50,7 @@ Apply the migration on mbe_dev only after asking: `uv run python -m app.db.migra
 |---|---|
 | `SELECT COUNT(*) FROM sales_order WHERE completed = 1 AND confirmation_time IS NULL` | 0 |
 | EXPLAIN of each fact query for October 2025 | `range` on the new date indexes |
-| Confirm a draft on dev | its `confirmation_time` is within seconds of now, and it shows in `POST /analytics/query` within 60 s (SC-006) |
+| Confirm a draft on dev | its `confirmation_time` is within seconds of now, and it shows in `POST /analytics/query` within the 3-minute cache (SC-006 allows five minutes) |
 
 ## 3. Reconciliation on mbe_dev (SC-001)
 
@@ -66,11 +66,11 @@ Run each 30 times warm and take the p95:
 
 | Request | Target |
 |---|---|
-| Dashboard, one month, all facilities | < 500 ms |
-| Dashboard, 2025, all facilities | < 500 ms |
-| Query, 12 months, all facilities, by product × month, every non-sensitive measure | < 2 s |
+| Dashboard, one month, all facilities | < 2 s |
+| Dashboard, 2025, all facilities | < 5 s |
+| Query, 12 months, all facilities, by product × month, every non-sensitive measure | < 5 s |
 | CSV and XLSX export of 100,000 detail lines (2024–2026) | < 30 s each, as a background job |
-| The overdue alert's `open_credit_orders` alone, all facilities | recorded (part of the dashboard's 500 ms) |
+| The overdue alert's `open_credit_orders` alone, all facilities | recorded (part of the dashboard's time) |
 
 Record the numbers in research.md (R9). If the year dashboard misses its target, that is R1's trigger for summary tables; stop and report before building them.
 

@@ -12,12 +12,12 @@ class Clock:
         return self.now
 
 
-def test_a_hit_within_sixty_seconds_and_a_miss_after() -> None:
+def test_a_hit_within_three_minutes_and_a_miss_after() -> None:
     clock = Clock()
     store = ResponseCache(clock=clock)
     store.put('k', b'{}')
 
-    clock.now += 59.9
+    clock.now += 179.9
     hit = store.get('k')
     clock.now += 0.2
     miss = store.get('k')

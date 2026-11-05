@@ -9,7 +9,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Added
 - **Business analytics** (mictlanix/mbe-roadmap#88, #90, #92, #98, #104, spec 037). One catalog of 19 measures and 15 dimensions, defined once (`specs/037-business-analytics/spec.md`, FR-004) and served under `/api/v1/analytics`:
   - `GET /analytics/catalog`: the measures and dimensions the caller may use.
-  - `POST /analytics/query`: any measures by up to three dimensions, with filters, a time grain, a comparison period, shares, sort and top N with "others", computed server-side; rows add up to the totals to the cent. Identical requests within a minute are cached, with an `ETag` and 304.
+  - `POST /analytics/query`: any measures by up to three dimensions, with filters, a time grain, a comparison period, shares, sort and top N with "others", computed server-side; rows add up to the totals to the cent. Identical requests within three minutes are cached, with an `ETag` and 304.
   - `GET /analytics/dashboard`: KPIs with comparison and sparklines, charts series and alerts (overdue credit orders, lines below cost or without one, a facility's refund rate above normal) in one call.
   - `POST /analytics/detail`: the orders, lines, refunds, credit notes or payments behind any number, paged and sorted, with sums that equal it.
   - `POST /analytics/exports`, `GET /analytics/exports/{id}` and `/file`: XLSX, PDF or CSV of a query, the dashboard (PDF) or a detail, matching the JSON. Over 10,000 rows an XLSX or CSV runs in the background for its owner to download within 24 hours; a PDF holds at most 2,000 rows. `app.jobs.purge_exports` deletes expired files.

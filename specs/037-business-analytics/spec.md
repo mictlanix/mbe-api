@@ -46,6 +46,7 @@ These measurements drive the decisions below.
 - Q: A sale's date: the request asks for the confirmation date, but no confirmation timestamp exists. → A: Record one. From now on, confirming a sales order stores the moment of confirmation. The migration that adds it fills it for every order already confirmed, with the order's date. Sales orders are retired from the legacy system, so every confirmed order has one and no fallback is needed. A delivery date was considered and set aside: 8,018 of 2025's sales have only delivery orders the legacy system left unfinished, so most history has no delivery date.
 - Q: Lines with no cost (17.5% of 2025 lines) make margins look like 80%. How should margin treat them? → A: Cost, margin and margin % cover only lines that have a cost; a cost coverage measure shows the share of net sales they represent, and an alert lists the lines without a cost.
 - Q: Measurements show a full year of raw lines aggregates in a quarter of a second, and a daily summary would barely compress. Build pre-aggregated summary tables anyway? → A: No. Query the documents directly, with new indexes and a short cache. Summary tables are built only if a performance target (SC-003) is missed, and the plan records the measurement that shows it.
+- Q: On mbe_dev the built dashboard takes 1.5 s (month) and 4.6 s (year), and a 12-month product × month query 4.5 s, against SC-003's 500 ms and 2 s; summary tables wouldn't compress the lines. Keep the targets and add summary tables or precomputed dashboards, or relax them? → A: Relax SC-003 to the measured numbers (month dashboard under 2 s, year under 5 s, 12-month query under 5 s) and lengthen the cache to 3 minutes, still within FR-020 (research R9).
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -217,7 +218,7 @@ A cashier supervisor reviews payments received by method, facility, cash session
 **Freshness and performance**
 
 - **FR-020**: Data MUST be fresh within five minutes of a document being confirmed, cancelled or paid. Analytics read the documents directly, so they are as fresh as the documents. Summary tables are added only if a performance target is missed (see Clarifications); if they are, they are maintained incrementally, a command rebuilds them in full, and `as_of` reports their refresh time.
-- **FR-021**: Identical requests within a short window (at most 60 seconds) MAY be answered from a cache, which never serves data older than FR-020 allows and never serves one caller's response to a caller with different privileges or facility scope.
+- **FR-021**: Identical requests within a short window (at most 3 minutes) MAY be answered from a cache, which never serves data older than FR-020 allows and never serves one caller's response to a caller with different privileges or facility scope.
 - **FR-022**: The confirmation moment (FR-002) and the indexes needed to meet SC-003 are added through numbered SQL migrations (spec 009); the indexes are checked against the query plans. The confirmation column's migration fills it for every existing confirmed order; it is empty only on drafts.
 
 **Dashboard**
@@ -322,7 +323,7 @@ How each sales, payments and product question of the current system is answered.
 
 - **SC-001**: For 10 sampled business days on mbe_dev, net sales equal the totals of the orders confirmed that day as the sales order screens show them, net of that day's refunds and credit notes, and collected payments equal the sum of that day's cash cuts by method, to the cent.
 - **SC-002**: Every legacy question in the table above marked Q, D or Detail is answered on mbe_dev by the stated query; none needs a new endpoint.
-- **SC-003**: The dashboard responds in under 500 ms at the 95th percentile for a month and for a year across all facilities; any query over 12 months across all facilities in under 2 s; an export of 100,000 rows completes in under 30 s.
+- **SC-003**: The dashboard responds in under 2 s at the 95th percentile for a month and under 5 s for a year across all facilities; any query over 12 months across all facilities in under 5 s; an export of 100,000 rows completes in under 30 s.
 - **SC-004**: For 20 sampled queries, every value in the XLSX, PDF and CSV exports equals the JSON response for the same request.
 - **SC-005**: A caller without the cost privilege finds no cost, margin or margin % in any catalog, query, dashboard, detail or export response (checked by tests over every route of this spec).
 - **SC-006**: A confirmed, cancelled or paid document shows in the analytics within five minutes.

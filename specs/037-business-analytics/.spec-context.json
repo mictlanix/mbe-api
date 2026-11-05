@@ -560,12 +560,22 @@
     {
       "what": "T063 after sharing fact queries",
       "result": "Dashboard 58 fact queries per 2025 call (was 94). p95 October 2025 1.53 s (was 2.26), 2025 4.59 s (was 8.93). Still misses 500 ms; recorded in research R9."
+    },
+    {
+      "what": "T063 against the relaxed SC-003",
+      "result": "Met: dashboard month p95 1.53 s (< 2 s), year 4.59 s (< 5 s, thin margin), 12-month product x month query 4.46 s (< 5 s), 100k-line exports CSV 8.2 s and XLSX 15.6 s (< 30 s)."
     }
   ],
   "concerns": [
     {
       "note": "T063: SC-003 missed on mbe_dev. Dashboard p95 2.3 s (month) and 8.9 s (year) vs 500 ms; 12-month product x month query p95 4.5 s vs 2 s. Exports pass (100k lines: CSV 8.2 s, XLSX 15.6 s). A year dashboard runs 94 fact queries, 31 of them over sale lines (32 s of DB time). Stopped for the user decision per T063.",
       "kind": "performance"
+    }
+  ],
+  "decisions": [
+    {
+      "decision": "SC-003 relaxed to the measured numbers: dashboard p95 under 2 s (month) and 5 s (year), 12-month query under 5 s; response cache lengthened from 60 s to 3 minutes (within FR-020 five minutes). Chosen by the user over summary tables or precomputed dashboards.",
+      "step": "implement"
     }
   ]
 }

@@ -4,7 +4,7 @@ All mbe_dev figures were measured read only on 2026-11-04 (MariaDB 10.11.13). "C
 
 ## R1. Query documents directly; no summary tables
 
-**Decision**: Every measure is computed from the documents at request time. New indexes remove the full scans. A cache of at most 60 seconds absorbs repeated requests. Summary tables are added only if SC-003 is missed on mbe_dev, and the measurement that shows it is recorded here.
+**Decision**: Every measure is computed from the documents at request time. New indexes remove the full scans. A cache of at most 3 minutes absorbs repeated requests. Summary tables are added only if SC-003 is missed on mbe_dev, and the measurement that shows it is recorded here.
 
 **Rationale**:
 - Volume is small: 70,683 confirmed lines and 34,163 orders in 2025, growing about 15% a year.
@@ -170,6 +170,8 @@ Both still miss 500 ms. A profile of one year dashboard: about 2.4 s waiting on 
 
 **Tried and not kept:** rounding per document with a `GROUP BY` on the order instead of the window, for groupings without a line dimension. Alone it takes 0.64 s rather than 0.99 s for 2025, but 12 concurrent copies take 2.43 s against the window's 1.74 s, so it doesn't help the dashboard.
 
+**Decision (2026-11-05, the user):** relax SC-003 to the measured numbers rather than build summary tables or precomputed dashboards: the dashboard under 2 s for a month and under 5 s for a year, and a 12-month query under 5 s, all at p95 across all facilities. The cache is lengthened from 60 s to 3 minutes, so a repeated view is instant and freshness stays within FR-020's five minutes. The measurements above meet the relaxed targets.
+
 ## R10. Indexes (migration 031)
 
 **Decision**: Add:
@@ -228,8 +230,8 @@ The first payment fact grouped every `sales_order_payment` row (298,958) for the
 ## R13. Cache and ETag
 
 **Decision**:
-- A per-process TTL cache (60 s, LRU, 256 entries) keyed by a hash of the normalized request plus the caller's facility scope and cost visibility. It is never keyed by user. Two callers with the same scope and visibility share entries, so one caller can't see a response built for different privileges.
-- Responses carry `ETag` (a hash of the body) and `Cache-Control: private, max-age=60`. A matching `If-None-Match` gets 304.
+- A per-process TTL cache (3 minutes, raised from 60 s after T063; LRU, 256 entries) keyed by a hash of the normalized request plus the caller's facility scope and cost visibility. It is never keyed by user. Two callers with the same scope and visibility share entries, so one caller can't see a response built for different privileges.
+- Responses carry `ETag` (a hash of the body) and `Cache-Control: private, max-age=180` (60 until T063). A matching `If-None-Match` gets 304.
 - No invalidation hook: with direct queries (R1) the TTL is the only staleness, and it is inside FR-020.
 
 ## R14. Alerts, from the data
