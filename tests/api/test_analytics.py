@@ -320,3 +320,33 @@ async def test_a_repeated_query_answers_304_to_its_etag(http: AsyncClient) -> No
     assert first.headers['cache-control'] == 'private, max-age=60'
     assert again.status_code == 304
     assert again.headers['etag'] == first.headers['etag']
+
+
+# ── US6 (T054) ────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.parametrize(
+    'privilege', [SystemObject.RECEIVED_PAYMENTS, SystemObject.RECEIVED_PAYMENTS_SUMMARY]
+)
+async def test_either_payments_report_opens_payment_measures(
+    http: AsyncClient,
+    db: AsyncSession,  # noqa: F811
+    privilege: SystemObject,
+) -> None:
+    await grant(db, privilege)
+    body = query('collected', 'refunds_paid_out', dimensions=['payment_method', 'cash_session'])
+
+    response = await http.post(f'{BASE}/query', json=body)
+
+    assert response.status_code == 200, response.text
+
+
+async def test_collected_by_label_is_refused(
+    http: AsyncClient,
+    db: AsyncSession,  # noqa: F811
+) -> None:
+    await grant(db, PAYMENTS)
+
+    response = await http.post(f'{BASE}/query', json=query('collected', dimensions=['label']))
+
+    assert_problem(response, 422, 'analytics.dimension_not_applicable')

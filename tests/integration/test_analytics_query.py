@@ -443,3 +443,85 @@ async def test_comparison_against_the_previous_period(
     assert april['totals']['comparison'] == {'net_sales': '100.00'}
     assert april['totals']['change'] == {'net_sales': '200.00'}
     assert april['totals']['change_pct'] == {'net_sales': '2.0000'}
+
+
+# ── US6 (T053): payments received, reconciled with the cash cuts ──────────────
+
+
+async def test_collected_over_two_sessions_equals_their_cuts(
+    client: AsyncClient, db: AsyncSession
+) -> None:
+    morning = await cash_session(db, datetime(2026, 5, 4, 8, 0))
+    evening = await cash_session(db, datetime(2026, 5, 4, 15, 0))
+    order, _ = await sale(db, AT, [L('1', '464')])
+    await payment(db, AT, '500', session=morning, applied_to=order, change='36')
+    await payment(db, AT, '300', method=3, session=evening)
+    await payment(db, AT, '-40', session=evening)
+    await payment(db, AT, '60', session=evening, kind=PaymentType.CREDIT_NOTE, method=0)
+
+    result = await _query(
+        client,
+        measures=['collected', 'refunds_paid_out', 'store_credit_issued'],
+        dimensions=['payment_method'],
+    )
+    cuts = [await cut_figures(db, session) for session in (morning, evening)]
+
+    sales: dict[int, Decimal] = {}
+    refunds: dict[int, Decimal] = {}
+    for cut in cuts:
+        for method, amount in cut.sales_by_method:
+            sales[method] = sales.get(method, Decimal(0)) + amount
+        for method, amount in cut.refunds_by_method:
+            refunds[method] = refunds.get(method, Decimal(0)) + amount
+    rows = {int(r['keys'][0]['value']): r['values'] for r in result['rows']}
+    assert {m: Decimal(v['collected']) for m, v in rows.items() if Decimal(v['collected'])} == sales
+    assert {
+        m: Decimal(v['refunds_paid_out']) + Decimal(v['store_credit_issued'])
+        for m, v in rows.items()
+        if Decimal(v['refunds_paid_out']) or Decimal(v['store_credit_issued'])
+    } == refunds
+    assert rows[0]['store_credit_issued'] == '60.00'  # store credit has method N/A
+
+
+async def test_a_cash_refund_is_paid_out_never_negative_collected(
+    client: AsyncClient, db: AsyncSession
+) -> None:
+    await payment(db, AT, '200')
+    await payment(db, AT, '-80')
+
+    values = (await _query(client, measures=['collected', 'refunds_paid_out']))['totals']['values']
+
+    assert values == {'collected': '200.00', 'refunds_paid_out': '80.00'}
+
+
+async def test_payments_by_salesperson_use_the_sessions_cashier(
+    client: AsyncClient, db: AsyncSession
+) -> None:
+    session = await cash_session(db, AT, cashier=1)
+    await payment(db, AT, '150', session=session)
+    await payment(db, AT, '50')  # no session: no cashier
+
+    result = await _query(client, measures=['collected'], dimensions=['salesperson'])
+
+    rows = {
+        r['keys'][0]['value']: (r['keys'][0]['label'], r['values']['collected'])
+        for r in result['rows']
+    }
+    assert rows == {'1': ('Ana Ruiz', '150.00'), None: ('(none)', '50.00')}
+
+
+async def test_a_cash_session_filter_keeps_one_session(
+    client: AsyncClient, db: AsyncSession
+) -> None:
+    first = await cash_session(db, AT)
+    second = await cash_session(db, AT)
+    await payment(db, AT, '100', session=first)
+    await payment(db, AT, '250', session=second)
+
+    result = await _query(
+        client,
+        measures=['collected', 'payments'],
+        filters=[{'dimension': 'cash_session', 'values': [str(second)]}],
+    )
+
+    assert result['totals']['values'] == {'collected': '250.00', 'payments': '1'}

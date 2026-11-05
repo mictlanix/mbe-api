@@ -352,17 +352,17 @@ description: "Task list for spec 037, business analytics"
 
 ### Tests
 
-- [ ] T053 [P] [US6] Extend `tests/integration/test_analytics_query.py`:
+- [X] T053 [P] [US6] Extend `tests/integration/test_analytics_query.py`:
   - for two closed sessions in a period, collected by `payment_method` equals the sum of `cut_figures(...).sales_by_method`;
   - refunds paid out + store credit issued equal `refunds_by_method`, with store credit under method N/A;
   - a refund paid in cash shows in refunds paid out, never as negative collected;
   - grouped by `salesperson`, payments use the cash session's cashier;
   - `cash_session` as a filter limits to one session.
-- [ ] T054 [P] [US6] Extend `tests/api/test_analytics.py`: a holder of only 109 or only 33 can query payment measures; `collected` by `label` is refused with `analytics.dimension_not_applicable`.
+- [X] T054 [P] [US6] Extend `tests/api/test_analytics.py`: a holder of only 109 or only 33 can query payment measures; `collected` by `label` is refused with `analytics.dimension_not_applicable`.
 
 ### Implementation
 
-- [ ] T055 [US6] In `app/services/analytics/facts.py`, map the payment-only dimensions: `cash_session`, `payment_method`, and `salesperson` as the session's employee (`cash_session.cashier`). A payment without a session groups under "none". T053 and T054 pass.
+- [X] T055 [US6] In `app/services/analytics/facts.py`, map the payment-only dimensions: `cash_session`, `payment_method`, and `salesperson` as the session's employee (`cash_session.cashier`). A payment without a session groups under "none". T053 and T054 pass.
 
 **Checkpoint**: the received-payments reports are answered by the query.
 
