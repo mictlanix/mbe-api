@@ -6,6 +6,7 @@ window functions the integration tests run only through SQLite's.
 
 from datetime import date, datetime
 from decimal import Decimal
+from types import SimpleNamespace
 
 import pytest
 from sqlalchemy import insert, select
@@ -16,8 +17,9 @@ from app.db.base import Base
 from app.enums import TransactionType
 from app.models.core import Warehouse
 from app.models.fiscal import FiscalDocument, FiscalDocumentDetail
-from app.models.inventory import LotSerialTracking
+from app.models.inventory import InventoryReceipt, InventoryReceiptDetail, LotSerialTracking
 from app.models.product import Product
+from app.models.purchases import PurchaseOrder, PurchaseOrderDetail
 from app.models.sales import (
     CustomerRefund,
     CustomerRefundDetail,
@@ -25,7 +27,7 @@ from app.models.sales import (
     SalesOrderDetail,
 )
 from app.schemas.analytics import DimensionKey, MeasureKey, VatTreatment
-from app.services import totals
+from app.services import purchase_order_service, totals
 from app.services.analytics import facts
 from app.services.analytics.catalog import Fact
 from app.services.analytics.engine import derive as engine_derive
@@ -573,3 +575,214 @@ def test_the_coverage_fact_compiles_for_mariadb() -> None:
     assert 'DATEDIFF(' in sql
     assert 'GROUP BY K0, K1' in sql
     assert 'SALES_ORDER.FACILITY =' in sql
+
+
+# ── Spec 038, T054: the purchase line fact (research R13) ─────────────────────
+
+PURCHASE_TABLES = [
+    t.__table__
+    for t in (
+        PurchaseOrder, PurchaseOrderDetail, InventoryReceipt, InventoryReceiptDetail, Warehouse,
+    )
+]  # fmt: skip
+
+
+def _po(po_id: int, supplier: int, day: date, **kw: object) -> dict:
+    """A purchase order confirmed on `day`: completed and not cancelled unless told otherwise."""
+    at = datetime(day.year, day.month, day.day, 11)
+    return dict(
+        purchase_order_id=po_id, supplier=supplier, creation_time=datetime(2026, 4, 1),
+        modification_time=at, creator=1, updater=1, completed=kw.get('completed', True),
+        cancelled=kw.get('cancelled', False), approved=True,
+    )  # fmt: skip
+
+
+def _po_line(
+    line_id: int, po_id: int, qty: str, price: str, warehouse: int | None = 1, **kw: object
+) -> dict:
+    return dict(
+        purchase_order_detail_id=line_id, purchase_order=po_id, product=kw.get('product', 1),
+        warehouse=warehouse, quantity=Decimal(qty), price=Decimal(price),
+        discount=Decimal(kw.get('discount', '0')), tax_rate=Decimal('0.16'), product_code='P',
+        product_name='P', exchange_rate=1, currency=0, tax_included=kw.get('included', False),
+    )  # fmt: skip
+
+
+#: PO 61 (supplier 7, May 5) has a tax-included line with a discount, a line in facility 2's
+#: warehouse and two half-cent lines, which round up one by one but not together: the order's
+#: residual of −1 cent lands on its largest line, in facility 2. PO 64 (supplier 8, May 8) has a
+#: line with no warehouse. PO 62 is cancelled, PO 63 a draft and PO 65 confirmed in June: none of
+#: them counts in May.
+PURCHASE_LINES = {
+    61: [
+        _po_line(71, 61, '3', '10.005', discount='0.1', included=True),
+        _po_line(72, 61, '2', '50', warehouse=2),
+        _po_line(73, 61, '1', '0.005'),
+        _po_line(79, 61, '1', '0.005'),
+    ],
+    62: [_po_line(74, 62, '1', '100')],
+    63: [_po_line(75, 63, '1', '100')],
+    64: [_po_line(76, 64, '4', '20'), _po_line(77, 64, '1', '10', warehouse=None)],
+    65: [_po_line(78, 65, '1', '999')],
+}
+PURCHASE_ORDERS = [
+    _po(61, 7, date(2026, 5, 5)),
+    _po(62, 7, date(2026, 5, 6), cancelled=True),
+    _po(63, 8, date(2026, 5, 7), completed=False),
+    _po(64, 8, date(2026, 5, 8)),
+    _po(65, 8, date(2026, 6, 2)),
+]
+
+
+def _receipt(receipt_id: int, po_id: int, **kw: object) -> dict:
+    at = datetime(2026, 5, 20, 9)
+    return dict(
+        inventory_receipt_id=receipt_id, facility=1, creation_time=at, modification_time=at,
+        creator=1, updater=1, warehouse=1, purchase_order=po_id,
+        completed=kw.get('completed', True), cancelled=kw.get('cancelled', False),
+    )  # fmt: skip
+
+
+def _receipt_line(line_id: int, receipt: int, po_line: int, qty: str) -> dict:
+    return dict(
+        receipt_detail_id=line_id, receipt=receipt, product=1, purchase_order_detail=po_line,
+        quantity=Decimal(qty), quantity_ordered=Decimal(qty),
+    )  # fmt: skip
+
+
+#: Receipt 81 is confirmed; 82 was cancelled and 83 is a draft: only 81's quantities are received.
+RECEIPTS = [_receipt(81, 61), _receipt(82, 61, cancelled=True), _receipt(83, 64, completed=False)]
+RECEIPT_LINES = [
+    _receipt_line(91, 81, 71, '2'),
+    _receipt_line(92, 81, 72, '2'),
+    _receipt_line(93, 82, 71, '1'),
+    _receipt_line(94, 83, 76, '4'),
+]
+
+
+@pytest.fixture
+async def purchases() -> AsyncEngine:
+    engine = create_async_engine('sqlite+aiosqlite://')
+    async with engine.begin() as connection:
+        await connection.run_sync(lambda c: Base.metadata.create_all(c, tables=PURCHASE_TABLES))
+        await connection.execute(
+            insert(Warehouse.__table__),
+            [
+                {'warehouse_id': 1, 'facility': 1, 'code': 'W1', 'name': 'W1'},
+                {'warehouse_id': 2, 'facility': 2, 'code': 'W2', 'name': 'W2'},
+            ],
+        )
+        await connection.execute(insert(PurchaseOrder.__table__), PURCHASE_ORDERS)
+        await connection.execute(
+            insert(PurchaseOrderDetail.__table__),
+            [line for lines in PURCHASE_LINES.values() for line in lines],
+        )
+        await connection.execute(insert(InventoryReceipt.__table__), RECEIPTS)
+        await connection.execute(insert(InventoryReceiptDetail.__table__), RECEIPT_LINES)
+    yield engine
+    await engine.dispose()
+
+
+def _po_subtotal_cents(po_id: int) -> int:
+    """Spec 031's subtotal of the PO, which ignores the tax-included flag (FR-034)."""
+    lines = [
+        SimpleNamespace(
+            quantity=line['quantity'], price=line['price'], discount=line['discount'],
+            tax_rate=line['tax_rate'],
+        )
+        for line in PURCHASE_LINES[po_id]
+    ]  # fmt: skip
+    return int(purchase_order_service.order_totals(lines)[0] * 100)
+
+
+async def test_a_purchase_line_is_quantity_by_price_less_discount_before_tax(
+    purchases: AsyncEngine,
+) -> None:
+    """The tax-included flag is ignored: 3 × 10.005 × 0.9 = 27.0135 is before tax as typed."""
+    rows = facts.purchase_lines(date(2026, 5, 1), date(2026, 5, 31), None)
+    async with purchases.connect() as connection:
+        lines = {r['id']: r for r in (await connection.execute(select(rows))).mappings().all()}
+
+    assert set(lines) == {71, 72, 73, 76, 77, 79}, 'cancelled, draft and June orders are left out'
+    assert lines[71]['sub_c'] == 2701
+    assert (lines[72]['sub_c'], lines[73]['sub_c'], lines[79]['sub_c']) == (9999, 1, 1)
+    assert sum(lines[i]['sub_c'] for i in (71, 72, 73, 79)) == _po_subtotal_cents(61)
+    assert (lines[71]['supplier'], lines[71]['facility'], lines[71]['warehouse']) == (7, 1, 1)
+    assert lines[72]['facility'] == 2, "each line is placed by its own warehouse's facility"
+    assert lines[77]['facility'] is None
+    assert lines[71]['at'] == datetime(2026, 5, 5, 11)
+
+
+async def test_received_quantity_comes_from_confirmed_receipts(purchases: AsyncEngine) -> None:
+    rows = facts.purchase_lines(date(2026, 5, 1), date(2026, 5, 31), None)
+    async with purchases.connect() as connection:
+        lines = {r['id']: r for r in (await connection.execute(select(rows))).mappings().all()}
+
+    assert {i: lines[i]['received'] for i in lines} == {71: 2, 72: 2, 73: 0, 76: 0, 77: 0, 79: 0}
+
+
+async def test_purchases_group_by_supplier_and_respect_the_line_facility(
+    purchases: AsyncEngine,
+) -> None:
+    [total] = await _fact(purchases, Fact.PURCHASE_LINE)
+    by_supplier = {
+        r['k0']: r for r in await _fact(purchases, Fact.PURCHASE_LINE, dimensions=(
+            DimensionKey.SUPPLIER,
+        ))
+    }  # fmt: skip
+    [scoped] = await _fact(purchases, Fact.PURCHASE_LINE, facility=2)
+
+    assert (total['qty'], total['received'], total['orders']) == (12, 4, 2)
+    assert total['sub_c'] == _po_subtotal_cents(61) + 9000
+    assert {k: (r['sub_c'], r['qty'], r['orders']) for k, r in by_supplier.items()} == {
+        7: (_po_subtotal_cents(61), 7, 1),
+        8: (9000, 5, 1),
+    }
+    # The scope keeps the residual where the whole order placed it.
+    assert (scoped['sub_c'], scoped['qty'], scoped['orders']) == (9999, 2, 1)
+    derived = engine_derive(_sums(Fact.PURCHASE_LINE, total), VatTreatment.EXCLUDED)
+    assert derived[MeasureKey.PURCHASES] == Decimal(total['sub_c']) / 100
+    assert derived[MeasureKey.PURCHASE_QUANTITY] == Decimal(12)
+    assert derived[MeasureKey.RECEIVED_QUANTITY] == Decimal(4)
+    assert derived[MeasureKey.PURCHASE_ORDERS] == Decimal(2)
+    assert derived[MeasureKey.AVERAGE_PURCHASE_PRICE] == (
+        Decimal(total['sub_c']) / 100 / 12
+    ).quantize(Decimal('0.01'), rounding='ROUND_HALF_UP')
+
+
+def test_average_sale_price_and_the_spread() -> None:
+    """Average sale price is gross sales without VAT ÷ units sold; the spread is the difference
+    of the two averages, and its % is over the average sale price."""
+    sums = {
+        'sale_line.sub_c': 30000, 'sale_line.tax_c': 4800, 'sale_line.qty': 4,
+        'purchase_line.sub_c': 12000, 'purchase_line.qty': 2,
+    }  # fmt: skip
+    derived = engine_derive(sums, VatTreatment.INCLUDED)
+
+    assert derived[MeasureKey.AVERAGE_SALE_PRICE] == Decimal('75.00')
+    assert derived[MeasureKey.AVERAGE_PURCHASE_PRICE] == Decimal('60.00')
+    assert derived[MeasureKey.PURCHASE_SALE_SPREAD] == Decimal('15.00')
+    assert derived[MeasureKey.PURCHASE_SALE_SPREAD_PCT] == Decimal('0.2000')
+    nothing = engine_derive({}, VatTreatment.EXCLUDED)
+    assert nothing[MeasureKey.AVERAGE_PURCHASE_PRICE] is None
+    assert nothing[MeasureKey.AVERAGE_SALE_PRICE] is None
+    assert nothing[MeasureKey.PURCHASE_SALE_SPREAD] is None
+    assert nothing[MeasureKey.PURCHASE_SALE_SPREAD_PCT] is None
+
+
+def test_the_purchase_fact_compiles_for_mariadb() -> None:
+    statement = facts.query(
+        Fact.PURCHASE_LINE,
+        _slice(
+            dimensions=(DimensionKey.DATE, DimensionKey.SUPPLIER, DimensionKey.WAREHOUSE),
+            facility=1,
+        ),
+    )
+    sql = str(statement.compile(dialect=mysql.dialect())).upper()
+
+    assert 'STRFTIME' not in sql
+    assert 'GROUP BY K0, K1, K2' in sql
+    assert 'ROW_NUMBER() OVER (PARTITION BY' in sql
+    assert 'PLACED_LINES.FACILITY =' in sql, 'scoped after the residual is placed'
+    assert 'PURCHASE_ORDER.MODIFICATION_TIME >=' in sql
+    assert 'INVENTORY_RECEIPT.COMPLETED' in sql

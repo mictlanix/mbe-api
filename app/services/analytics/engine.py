@@ -637,7 +637,34 @@ def derive(
     values |= _stock_measures(sums, cost, days)
     values |= _receivable_measures(sums, days)
     values |= _fiscal_measures(sums, with_vat)
+    values |= _purchase_measures(sums, sold)
     return values
+
+
+def _purchase_measures(sums: Mapping[str, Any], sold: Decimal) -> dict[MeasureKey, Decimal | None]:
+    """Purchases and purchase against sale (spec 038, research R13). Both averages are before
+    tax; the spread is taken between the rounded averages, so the three shown figures agree."""
+    amount = int(sums.get('purchase_line.sub_c', 0) or 0)
+    bought = quantity(sums.get('purchase_line.qty', 0) or 0)
+
+    def average(cents: int, units: Decimal) -> Decimal | None:
+        if not units:
+            return None
+        return (Decimal(cents) / 100 / units).quantize(CENT, rounding=ROUND_HALF_UP)
+
+    purchase = average(amount, bought)
+    sale = average(int(sums.get('sale_line.sub_c', 0) or 0), sold)
+    spread = None if purchase is None or sale is None else sale - purchase
+    return {
+        MeasureKey.PURCHASES: money(amount),
+        MeasureKey.PURCHASE_QUANTITY: bought,
+        MeasureKey.RECEIVED_QUANTITY: quantity(sums.get('purchase_line.received', 0) or 0),
+        MeasureKey.PURCHASE_ORDERS: Decimal(int(sums.get('purchase_line.orders', 0) or 0)),
+        MeasureKey.AVERAGE_PURCHASE_PRICE: purchase,
+        MeasureKey.AVERAGE_SALE_PRICE: sale,
+        MeasureKey.PURCHASE_SALE_SPREAD: spread,
+        MeasureKey.PURCHASE_SALE_SPREAD_PCT: ratio(spread, sale),
+    }
 
 
 def _fiscal_measures(sums: Mapping[str, Any], with_vat: bool) -> dict[MeasureKey, Decimal | None]:

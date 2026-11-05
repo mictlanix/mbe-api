@@ -127,6 +127,23 @@ Inventory tiles appear for an inventory reader when the period starts within the
 | `purchases` | PO lines: date, supplier, product, quantity, unit price, previous price, change, change % | `price_change` | 20 |
 | `commission_lines` | spec 025 lines: order, line, product, label, participation, label rate, agent share, base, amount, status | — | — |
 
+`AnalyticsDetailRequest` gains `price_change_pct`, the threshold of the `price_change` flag (R13). The field is also added to spec 037's block.
+
+```
+AnalyticsDetailRequest:
+  kind: DetailKind
+  start: date
+  end: date
+  facility: int | None
+  filters: [AnalyticsFilter, ...]
+  flag: DetailFlag | None
+  vat: VatTreatment
+  sort: str | None
+  skip: int
+  limit: int
+  price_change_pct: int | None   # NEW: whole percent, 0-1000, default 10; purchases with flag price_change only
+```
+
 ```
 AnalyticsDetailItem:
   kind: DetailKind
@@ -176,6 +193,13 @@ AnalyticsDetailFigures:
 - `id` is the sale line, `document_id` and `folio` its order; `quantity` and `amount` are what is not invoiced (the amount with the request's VAT treatment).
 - `figures.values`: `sold`, `invoiced` (capped at sold), `invoiced_amount`, `first_invoiced` and `lag_days` (days from the sale to the first invoice; null when none).
 - `sums`: `amount` (`uninvoiced_sales`) and `quantity`. `sort`: `amount` is the amount, `document` the order.
+
+**`purchases`** lists the lines the purchase fact sums (R13): lines of confirmed, not cancelled purchase orders dated in the period, each placed by its own warehouse's facility:
+- `id` is the purchase order line, `document_id` its purchase order (`folio` null: purchase orders have no serial), `date` the order's confirmation (`modification_time`), `facility` and `warehouse` the line's; `quantity` the line's, `amount` quantity × price × (1 − discount), before tax whatever `vat` says.
+- `figures.values`: `supplier`, `supplier_name`, `unit_price` (after discount, before tax), `previous_price`, `change`, `change_pct` (a ratio: 0.1429 is 14.29%) and `received` (from confirmed receipts).
+- The previous price is the unit price of the product's purchase before it, by (date, line id), from any supplier, facility or date before the period (`LAG` over the product's history), whatever the request's filters and scope. Lines at price 0 after discount are listed, since they are purchases, but are left out of the history: they have no previous price and are never one.
+- Flag `price_change`: the lines whose |change| is more than `price_change_pct` percent (default 10) of the previous price.
+- `sums`: `amount` (`purchases`), `quantity` (`purchase_quantity`) and `received` (`received_quantity`). `sort`: `amount` is the amount, `document` the purchase order.
 
 **`commission_lines`** lists spec 025's lines of the months the period touches, as `read_period` gives them (stored once a month is closed, live while it is open):
 - `id` is the sale line, `document_id` and `folio` its order, `date` the paid date (a refund's date for a refund line), `facility` the agent's user's, `salesperson` the earning agent, `quantity` the line's (or the refund's), `amount` the commission.

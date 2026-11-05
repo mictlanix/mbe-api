@@ -14,6 +14,7 @@ from typing import Any
 
 from sqlalchemy import Select, and_, case, func, literal, null, or_, select, true
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 from sqlalchemy.sql.expression import ColumnElement
 
 from app.core.clock import local_now
@@ -24,7 +25,9 @@ from app.enums import AccessRight, CommissionMovement, SystemObject
 from app.models.customer import Customer
 from app.models.fiscal import FiscalDocument
 from app.models.product import Product
+from app.models.purchases import PurchaseOrder, PurchaseOrderDetail
 from app.models.sales import CustomerPayment, CustomerRefund, SalesOrder
+from app.models.supplier import Supplier
 from app.schemas.analytics import (
     AnalyticsDetailFigures,
     AnalyticsDetailItem,
@@ -41,6 +44,7 @@ from app.schemas.analytics import (
 from app.services import accounts_service, kardex_service, sales_order_service, totals
 from app.services.analytics import balances, commissions, engine, facts
 from app.services.analytics.catalog import DIMENSIONS, Availability, Fact, Family
+from app.services.analytics.sql import period_bounds
 
 KIND_FACT = {
     DetailKind.ORDERS: Fact.SALE_LINE,
@@ -54,6 +58,7 @@ KIND_FACT = {
     DetailKind.COMMISSION_LINES: Fact.COMMISSION,
     DetailKind.INVOICES: Fact.INVOICE_LINE,
     DetailKind.UNINVOICED_LINES: Fact.INVOICE_COVERAGE,
+    DetailKind.PURCHASES: Fact.PURCHASE_LINE,
 }
 #: The measure a kind's refusals name (`analytics.dimension_not_applicable`).
 KIND_MEASURE = {
@@ -68,6 +73,7 @@ KIND_MEASURE = {
     DetailKind.COMMISSION_LINES: MeasureKey.COMMISSION,
     DetailKind.INVOICES: MeasureKey.INVOICED,
     DetailKind.UNINVOICED_LINES: MeasureKey.UNINVOICED_SALES,
+    DetailKind.PURCHASES: MeasureKey.PURCHASES,
 }
 #: The family a kind belongs to; the rest are sales.
 KIND_FAMILY = {
@@ -78,6 +84,7 @@ KIND_FAMILY = {
     DetailKind.COMMISSION_LINES: Family.COMMISSIONS,
     DetailKind.INVOICES: Family.FISCAL,
     DetailKind.UNINVOICED_LINES: Family.FISCAL,
+    DetailKind.PURCHASES: Family.PURCHASES,
 }
 #: Read on the document kind, besides the family (FR-060); stock pairs need none.
 KIND_PRIVILEGE = {
@@ -90,6 +97,7 @@ KIND_PRIVILEGE = {
     DetailKind.RECEIVABLES: SystemObject.SALES_ORDERS,
     DetailKind.INVOICES: SystemObject.FISCAL_DOCUMENTS,
     DetailKind.UNINVOICED_LINES: SystemObject.SALES_ORDERS,
+    DetailKind.PURCHASES: SystemObject.PURCHASES_ORDERS,
 }
 COST_FLAGS = {DetailFlag.BELOW_COST, DetailFlag.WITHOUT_COST}
 SENSITIVE_KEYS = {'cost', 'margin'}
@@ -271,6 +279,8 @@ async def execute(
         return await _invoices(db, request, facility, as_of, everything=everything)
     if request.kind is DetailKind.UNINVOICED_LINES:
         return await _uninvoiced_lines(db, request, facility, as_of, everything=everything)
+    if request.kind is DetailKind.PURCHASES:
+        return await _purchases(db, request, facility, as_of, everything=everything)
     base = _base(request, facility).subquery('detail')
     total = (await db.execute(select(func.count()).select_from(base))).scalar_one()
     aggregate = (
@@ -967,5 +977,148 @@ async def _uninvoiced_lines(
             ),
         )
         for row in found
+    ]  # fmt: skip
+    return AnalyticsDetailResponse(as_of=as_of, items=items, total=total, sums=sums)
+
+
+# ── Purchases (spec 038) ──────────────────────────────────────────────────────
+
+#: Price history flags a change above this whole percent unless the request says otherwise (R13).
+PRICE_CHANGE_PCT = 10
+#: Unit prices and their changes are shown to four decimals, as purchase prices are typed.
+PRICE = Decimal('0.0001')
+
+
+def purchases_select(request: AnalyticsDetailRequest, facility: int | None) -> Select:
+    """The purchase lines the purchase fact sums, each with the product's previous purchase price.
+
+    The previous price is `LAG` over every earlier confirmed purchase of the product, by
+    (product, date, line id), from before the period too and whatever the supplier, facility or
+    filters: the product's price history (R13). Lines at price 0 (after discount) are left out of
+    that history: they are never a previous price and have none. With flag `price_change`, only
+    lines whose price moved by more than `price_change_pct` percent of the previous one.
+    """
+    rows, joins, conditions = _filtered(Fact.PURCHASE_LINE, request, facility)
+    c = rows.c
+    since, until = period_bounds(request.start, request.end)
+    # Only the products bought in the period need their history.
+    some, its = aliased(PurchaseOrderDetail), aliased(PurchaseOrder)
+    bought = (
+        select(some.product)
+        .join(its, its.purchase_order_id == some.purchase_order)
+        .where(
+            its.completed.is_(True),
+            its.cancelled.is_(False),
+            its.modification_time >= since,
+            its.modification_time < until,
+        )
+    )
+    line, order = PurchaseOrderDetail, PurchaseOrder
+    unit = line.price * (1 - line.discount)
+    history = (
+        select(
+            line.purchase_order_detail_id.label('id'),
+            func.lag(unit, type_=unit.type)
+            .over(
+                partition_by=line.product,
+                order_by=(order.modification_time, line.purchase_order_detail_id),
+            )
+            .label('previous'),
+        )
+        .join(order, order.purchase_order_id == line.purchase_order)
+        .where(
+            order.completed.is_(True),
+            order.cancelled.is_(False),
+            order.modification_time < until,
+            unit > 0,
+            line.product.in_(bought),
+        )
+        .subquery('price_history')
+    )
+    previous = history.c.previous
+    if request.flag is DetailFlag.PRICE_CHANGE:
+        pct = request.price_change_pct
+        threshold = PRICE_CHANGE_PCT if pct is None else pct
+        conditions.append(func.abs(c.unit - previous) * 100 > previous * threshold)
+    return (
+        joins.apply(
+            select(
+                c.id, c.doc.label('document_id'), c.at, c.facility, c.warehouse, c.product,
+                c.supplier, c.qty.label('quantity'), c.sub_c.label('amount_c'), c.unit,
+                previous.label('previous'), c.received,
+            )
+            .select_from(rows)
+            .outerjoin(history, history.c.id == c.id)
+        )
+        .where(true(), *conditions)
+    )  # fmt: skip
+
+
+def _price_figures(row: Any) -> dict[str, str | None]:
+    unit = Decimal(str(row.unit))
+    previous = None if row.previous is None else Decimal(str(row.previous))
+    change = None if previous is None else unit - previous
+    return {
+        'supplier': None if row.supplier is None else str(row.supplier),
+        'supplier_name': row.supplier_name,
+        'unit_price': _text(unit, PRICE),
+        'previous_price': _text(previous, PRICE),
+        'change': _text(change, PRICE),
+        'change_pct': None if change is None else _text(change / previous, engine.RATIO),
+        'received': _text(engine.quantity(row.received)),
+    }
+
+
+async def _purchases(
+    db: AsyncSession,
+    request: AnalyticsDetailRequest,
+    facility: int | None,
+    as_of: datetime,
+    *,
+    everything: bool,
+) -> AnalyticsDetailResponse:
+    """Purchase order lines with their price history (R13). `amount` is the line before tax,
+    whatever `vat` says; `sums` are `amount` (`purchases`), `quantity` (`purchase_quantity`) and
+    `received` (`received_quantity`)."""
+    base = purchases_select(request, facility).subquery('detail')
+    b = base.c
+    total = (await db.execute(select(func.count()).select_from(base))).scalar_one()
+    aggregate = (
+        await db.execute(
+            select(
+                func.coalesce(func.sum(b.amount_c), 0),
+                func.coalesce(func.sum(b.quantity), 0),
+                func.coalesce(func.sum(b.received), 0),
+            )
+        )
+    ).one()
+    sums = {
+        'amount': engine.money(aggregate[0]),
+        'quantity': engine.quantity(aggregate[1]),
+        'received': engine.quantity(aggregate[2]),
+    }
+    name, descending = parse_sort(request.sort)
+    order = {'date': b.at, 'amount': b.amount_c, 'document': b.document_id}[name]
+    page = (
+        select(
+            base, Product.code.label('product_code'), Product.name.label('product_name'),
+            Supplier.name.label('supplier_name'),
+        )
+        .outerjoin(Product, Product.product_id == b.product)
+        .outerjoin(Supplier, Supplier.supplier_id == b.supplier)
+        .order_by(order.desc() if descending else order.asc(), b.id.desc() if descending else b.id)
+    )  # fmt: skip
+    if not everything:
+        page = page.offset(request.skip).limit(request.limit)
+    items = [
+        AnalyticsDetailItem(
+            kind=DetailKind.PURCHASES, id=row.id, document_id=row.document_id, folio=None,
+            date=row.at, facility=row.facility, customer=None, customer_name=None,
+            salesperson=None, product=row.product, product_code=row.product_code,
+            product_name=row.product_name, quantity=engine.quantity(row.quantity),
+            amount=engine.money(row.amount_c), payment_method=None, warehouse=row.warehouse,
+            figures=AnalyticsDetailFigures(values=_price_figures(row)),
+        )
+        for row in (await db.execute(page)).all()
     ]  # fmt: skip
     return AnalyticsDetailResponse(as_of=as_of, items=items, total=total, sums=sums)

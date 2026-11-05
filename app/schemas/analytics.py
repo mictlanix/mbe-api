@@ -483,6 +483,13 @@ class AnalyticsDetailRequest(BaseModel):
     )
     skip: int = Field(default=0, ge=0)
     limit: int = Field(default=20, ge=1, le=100)
+    price_change_pct: int | None = Field(
+        default=None,
+        ge=0,
+        le=1000,
+        description='Whole percent: flag price_change selects purchases whose price changed by '
+        'more than it (default 10).',
+    )
 
     @model_validator(mode='after')
     def _flag_fits_the_kind(self) -> 'AnalyticsDetailRequest':
@@ -508,7 +515,8 @@ class AnalyticsDetailFigures(BaseModel):
         'movement_type, source, reference | commission_lines: month, status, movement, scheme, '
         'sales_order, sales_order_detail, customer_refund_detail, order_date, paid_date, product, '
         'label, label_name, label_rate, participation, participation_name, participation_rate, '
-        'rate, price, base, share, full_commission, amount'
+        'rate, price, base, share, full_commission, amount | purchases: supplier, '
+        'supplier_name, unit_price, previous_price, change, change_pct, received'
     )
 
 
@@ -517,7 +525,8 @@ class AnalyticsDetailItem(BaseModel):
     id: int = Field(
         description='sales_order_id | sales_order_detail_id | customer_refund_id | '
         'fiscal_document_id | customer_payment_id | product (stock) | lot_serial_tracking_id '
-        '(movements) | sales_order_detail_id (commission_lines, uninvoiced_lines)'
+        '(movements) | sales_order_detail_id (commission_lines, uninvoiced_lines) | '
+        'purchase_order_detail_id (purchases)'
     )
     document_id: int | None = Field(
         default=None,
@@ -549,7 +558,7 @@ class AnalyticsDetailItem(BaseModel):
         default=None, description='Cost privilege only, absent otherwise.'
     )
     payment_method: int | None
-    warehouse: int | None = Field(default=None, description='Stock and movements.')
+    warehouse: int | None = Field(default=None, description='Stock, movements and purchases.')
     figures: AnalyticsDetailFigures | None = Field(
         default=None, description="Spec 038 kinds: the kind's own columns."
     )

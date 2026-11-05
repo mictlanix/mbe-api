@@ -364,8 +364,8 @@ T077 confirms that none remain.
 
 ### Tests
 
-- [ ] T054 [P] [US6] Extend `tests/unit/test_analytics_facts.py` with `purchase_line`: the amount is quantity × price × (1 − discount) with the tax-included flag ignored; cancelled and draft POs are excluded; received quantity comes from confirmed receipts; it compiles on MariaDB.
-- [ ] T055 [P] [US6] Write `tests/integration/test_analytics_purchases.py`:
+- [X] T054 [P] [US6] Extend `tests/unit/test_analytics_facts.py` with `purchase_line`: the amount is quantity × price × (1 − discount) with the tax-included flag ignored; cancelled and draft POs are excluded; received quantity comes from confirmed receipts; it compiles on MariaDB.
+- [X] T055 [P] [US6] Write `tests/integration/test_analytics_purchases.py`:
   - purchases by supplier, product and warehouse;
   - the `purchases` detail has the previous price and change % through the window;
   - price-0 lines are excluded from the history;
@@ -376,8 +376,8 @@ T077 confirms that none remain.
 
 ### Implementation
 
-- [ ] T056 [US6] Add the `purchase_line` fact to `app/services/analytics/facts.py` (R13), dated by the PO's `modification_time`, with the supplier dimension. Derive average purchase and sale prices and the spread in `engine.assemble`. T054 passes.
-- [ ] T057 [US6] Add the `purchases` detail kind (read on 20, flag `price_change`) to `app/services/analytics/detail.py`, with `LAG` over (product, date, line id). T055 passes.
+- [X] T056 [US6] Add the `purchase_line` fact to `app/services/analytics/facts.py` (R13), dated by the PO's `modification_time`, with the supplier dimension. Derive average purchase and sale prices and the spread in `engine.assemble`. T054 passes.
+- [X] T057 [US6] Add the `purchases` detail kind (read on 20, flag `price_change`) to `app/services/analytics/detail.py`, with `LAG` over (product, date, line id). T055 passes.
 
 **Checkpoint**: purchases and price history reconcile on fixtures.
 

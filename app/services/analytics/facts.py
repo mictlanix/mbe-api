@@ -37,8 +37,9 @@ from app.models.analytics import ReceivableSnapshot
 from app.models.core import CashSession, Warehouse
 from app.models.customer import Customer
 from app.models.fiscal import FiscalDocument, FiscalDocumentDetail
-from app.models.inventory import LotSerialTracking
+from app.models.inventory import InventoryReceipt, InventoryReceiptDetail, LotSerialTracking
 from app.models.product import Product, product_label
+from app.models.purchases import PurchaseOrder, PurchaseOrderDetail
 from app.models.sales import (
     CustomerPayment,
     CustomerRefund,
@@ -583,6 +584,65 @@ def coverage_lines(start: date, end: date, facility: int | None) -> Subquery:
     )  # fmt: skip
 
 
+def purchase_lines(start: date, end: date, facility: int | None) -> Subquery:
+    """Every line of the purchase orders confirmed in the period: completed, not cancelled, and
+    dated by the order's `modification_time`, the moment spec 033 dates them by (spec 038, R13).
+
+    Legacy orders count. The amount is quantity × price × (1 − discount), before tax, whatever the
+    tax-included flag says (spec 031, FR-034), with each order's rounding residual on its largest
+    line, so an order's lines sum to its subtotal. Each line is placed by its own warehouse's
+    facility (R17); a line without a warehouse has none. An order can span facilities, so the
+    scope applies after the residual is placed. `received` is the quantity of confirmed receipt
+    lines linked to it. `unit` is the price after discount, which price history reads.
+    """
+    line, order = PurchaseOrderDetail, PurchaseOrder
+    since, until = period_bounds(start, end)
+    dated = [
+        order.completed.is_(True),
+        order.cancelled.is_(False),
+        order.modification_time >= since,
+        order.modification_time < until,
+    ]
+    # Only the receipts of the period's orders, so the grouping never reads the whole history.
+    receipt, got = InventoryReceipt, InventoryReceiptDetail
+    received = (
+        select(got.purchase_order_detail.label('line'), func.sum(got.quantity).label('qty'))
+        .join(receipt, receipt.inventory_receipt_id == got.receipt)
+        .join(line, line.purchase_order_detail_id == got.purchase_order_detail)
+        .join(order, order.purchase_order_id == line.purchase_order)
+        .where(receipt.completed.is_(True), receipt.cancelled.is_(False), *dated)
+        .group_by(got.purchase_order_detail)
+        .subquery('received')
+    )
+    unit = line.price * (1 - line.discount)
+    amount = line.quantity * unit
+    query = (
+        select(
+            line.purchase_order_detail_id.label('id'),
+            line.purchase_order.label('doc'),
+            line.product.label('product'),
+            line.warehouse.label('warehouse'),
+            Warehouse.facility.label('facility'),
+            order.supplier.label('supplier'),
+            order.modification_time.label('at'),
+            line.quantity.label('qty'),
+            unit.label('unit'),
+            _with_residual(
+                amount, line.purchase_order, line.purchase_order_detail_id, amount
+            ).label('sub_c'),
+            func.coalesce(received.c.qty, 0).label('received'),
+        )
+        .join(order, order.purchase_order_id == line.purchase_order)
+        .outerjoin(Warehouse, Warehouse.warehouse_id == line.warehouse)
+        .outerjoin(received, received.c.line == line.purchase_order_detail_id)
+        .where(*dated)
+    )
+    if facility is None:
+        return query.subquery('purchase_lines')
+    placed = query.subquery('placed_lines')
+    return select(placed).where(placed.c.facility == facility).subquery('purchase_lines')
+
+
 #: The row source of each fact, by period and facility scope.
 SOURCES = {
     Fact.SALE_LINE: sale_lines,
@@ -593,6 +653,7 @@ SOURCES = {
     Fact.CREDIT_FLOW: credit_flow_rows,
     Fact.INVOICE_LINE: invoice_lines,
     Fact.INVOICE_COVERAGE: coverage_lines,
+    Fact.PURCHASE_LINE: purchase_lines,
 }
 
 #: What each fact sums, by output name.
@@ -605,6 +666,7 @@ _SUMS = {
     Fact.CREDIT_FLOW: ('credit_sales_c', 'collected_c', 'due_c', 'due_collected_c'),
     Fact.INVOICE_LINE: ('receipt_c',),
     Fact.INVOICE_COVERAGE: ('sub_c', 'tax_c', 'inv_sub_c', 'inv_tax_c', 'lag_w'),
+    Fact.PURCHASE_LINE: ('sub_c', 'qty', 'received'),
 }
 
 
@@ -739,6 +801,8 @@ def query(fact: Fact, slice_: Slice) -> Select:
         ]
     if fact is Fact.REFUND_LINE:
         columns.append(func.count(func.distinct(c.doc)).label('documents'))
+    if fact is Fact.PURCHASE_LINE:
+        columns.append(func.count(func.distinct(c.doc)).label('orders'))
     if fact is Fact.PAYMENT:
         columns.append(_sum(case((c['class'] == COLLECTED, 1), else_=0)).label('payments'))
     if fact is Fact.INVOICE_LINE:

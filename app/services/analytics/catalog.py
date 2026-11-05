@@ -53,7 +53,7 @@ SCOPE_COLUMNS: dict[Fact, str] = {
     Fact.COMMISSION: 'commission_agent.employee.facility',
     Fact.INVOICE_LINE: 'fiscal_document.facility',
     Fact.INVOICE_COVERAGE: 'sales_order.facility',
-    Fact.PURCHASE_LINE: 'purchase_order.facility',
+    Fact.PURCHASE_LINE: 'purchase_order_detail.warehouse.facility',
 }
 
 

@@ -206,7 +206,7 @@ Measured for 2025: 57% coverage by amount; $130.6M of $287M invoiced is standalo
 - **Received:** quantity from confirmed receipt lines linked to the PO line.
 - **Legacy orders count**, from 2012 on.
 
-**Price history**: the `purchases` detail kind lists lines with the previous purchase price of the same product, via `LAG` over (product, date, line id). It shows the change and the change %, and flags it when |change %| > `price_change_pct` (default 10, per request). Lines with price 0 are excluded from the history.
+**Price history**: the `purchases` detail kind lists lines with the previous purchase price of the same product, via `LAG` over (product, date, line id) across the product's whole history (any supplier, facility, or date before the period). It shows the change and the change %, and flags it when |change %| > `price_change_pct` (default 10), a field of the detail request. Lines with price 0 (after discount) are excluded from the history: they are listed, being purchases the measures count, but have no previous price and are never one.
 
 **Purchase against sale**:
 - **Average purchase price** = purchase amount ÷ purchase quantity. Visible to any purchases reader (FR-145), who already sees every line's price.
@@ -276,7 +276,7 @@ It stops (failed, `auth.forbidden`) if the owner's status is not active: the err
 Facility scope:
 - inventory: the warehouse's facility;
 - receivables: the order's facility;
-- payables and purchases: the facility of the PO lines' warehouse. `purchase_order` has neither a facility nor a warehouse column (the header warehouse is the purchase request's); a PO line carries its request line's warehouse, or the request header's when the line had none. A PO whose lines span facilities takes the lowest facility id; one with no line warehouse is visible only to callers with no facility scope;
+- payables and purchases: the facility of the PO lines' warehouse. `purchase_order` has neither a facility nor a warehouse column (the header warehouse is the purchase request's); a PO line carries its request line's warehouse, or the request header's when the line had none. For payables, a PO whose lines span facilities takes the lowest facility id, and one with no line warehouse is visible only to callers with no facility scope. The purchase line fact places each line by its own warehouse's facility, so a PO split across facilities counts in each for its own lines; a line with no warehouse is visible only to callers with no facility scope;
 - fiscal: the issuing facility;
 - commissions: the facility of the agent's user record (`user.employee` = the line's `salesperson`). An agent with no user is visible only to callers with no facility scope.
 

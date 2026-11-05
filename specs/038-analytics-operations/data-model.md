@@ -99,7 +99,7 @@ Each fact is one grouped SQL statement (spec 037 R3), except commissions (R11).
 | `commission` | flow | spec 025 `read_period` lines, per month (Python) | the line's month | agent's facility |
 | `invoice_line` | flow | `fiscal_document_detail` of invoices (0) and credit notes (100), priced like spec 037, and one row per payment receipt (200) with its `payment_amount` (R12) | `issued` | issuing facility |
 | `invoice_coverage` | flow | spec 037's `sale_lines` joined to invoiced quantity per sale line (R12) | sale date | order's facility |
-| `purchase_line` | flow | `purchase_order_detail` of completed, not cancelled POs; received quantity from receipts | PO `modification_time` | PO's facility |
+| `purchase_line` | flow | `purchase_order_detail` of completed, not cancelled POs; received quantity from confirmed receipts | PO `modification_time` | the line's warehouse's facility (R17) |
 
 ## Catalog additions
 

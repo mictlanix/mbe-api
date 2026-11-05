@@ -9,7 +9,9 @@ from sqlalchemy.dialects import mysql
 from app.core.errors import DomainError
 from app.schemas.analytics import (
     AnalyticsDetailItem,
+    AnalyticsDetailRequest,
     AnalyticsDetailResponse,
+    DetailFlag,
     DetailKind,
 )
 from app.services.analytics import detail, facts
@@ -73,3 +75,22 @@ def test_the_cost_flags_are_the_facts_own_predicates() -> None:
 
     assert 'SALES_ORDER_DETAIL.COST > ' in sql
     assert 'AS BELOW' in sql and 'AS COSTED' in sql
+
+
+def test_price_history_compiles_for_mariadb() -> None:
+    """Spec 038, T057: `LAG` (MariaDB 10.2+) over the product's earlier confirmed purchases, by
+    date and line id, with price-0 lines left out; the flag compares the change with the
+    threshold."""
+    request = AnalyticsDetailRequest(
+        kind=DetailKind.PURCHASES, start=datetime(2026, 5, 1).date(),
+        end=datetime(2026, 5, 31).date(), flag=DetailFlag.PRICE_CHANGE, price_change_pct=15,
+    )  # fmt: skip
+    sql = str(detail.purchases_select(request, 1).compile(dialect=mysql.dialect())).upper()
+
+    assert 'LAG(' in sql
+    assert (
+        'OVER (PARTITION BY PURCHASE_ORDER_DETAIL.PRODUCT ORDER BY '
+        'PURCHASE_ORDER.MODIFICATION_TIME, PURCHASE_ORDER_DETAIL.PURCHASE_ORDER_DETAIL_ID)'
+    ) in sql
+    assert 'ABS(' in sql
+    assert 'PLACED_LINES.FACILITY =' in sql

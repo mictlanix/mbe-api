@@ -185,6 +185,7 @@ AnalyticsDetailRequest:
   sort: str | None         # date | amount | document; "-" = descending (default -date)
   skip: int
   limit: int               # 1-100, default 20
+  price_change_pct: int | None  # spec 038: whole percent, default 10; purchases' price_change flag
 
 AnalyticsDetailResponse:
   as_of: datetime
