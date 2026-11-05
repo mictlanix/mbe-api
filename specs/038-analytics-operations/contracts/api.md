@@ -328,7 +328,7 @@ AnalyticsViewResponse:
 ```
 AnalyticsScheduleCreate:
   analytics_view: int
-  cadence: str           # daily | weekly | monthly
+  cadence: Cadence       # daily | weekly | monthly
   weekdays: [int, ...]   # 1 (Monday) to 7; weekly only
   month_day: int | None  # 1-31; monthly only
   time_of_day: time
@@ -338,7 +338,7 @@ AnalyticsScheduleCreate:
   enabled: bool
 
 AnalyticsScheduleUpdate:
-  cadence: str | None
+  cadence: Cadence | None
   weekdays: [int, ...] | None
   month_day: int | None
   time_of_day: time | None
@@ -350,7 +350,7 @@ AnalyticsScheduleUpdate:
 AnalyticsScheduleResponse:
   analytics_schedule_id: int
   analytics_view: int
-  cadence: str
+  cadence: Cadence
   weekdays: [int, ...]
   month_day: int | None
   time_of_day: time
@@ -365,7 +365,7 @@ AnalyticsSendResponse:
   occurrence: datetime
   started_at: datetime
   finished_at: datetime | None
-  outcome: str           # running | sent | failed | skipped
+  outcome: SendOutcome   # running | sent | failed | skipped
   code: str | None
   sent_to: [str, ...]
   dropped: [str, ...]

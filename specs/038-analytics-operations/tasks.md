@@ -393,13 +393,13 @@ T077 confirms that none remain.
 
 ### Tests
 
-- [ ] T058 [P] [US8] Write `tests/unit/test_analytics_schedules.py`, for `next_occurrence`:
+- [X] T058 [P] [US8] Write `tests/unit/test_analytics_schedules.py`, for `next_occurrence`:
   - daily;
   - weekly with several weekdays;
   - monthly on day 31 in February, April and a leap year;
   - a time already passed today;
   - a run missed for 3 days gives one occurrence (the latest), then the next future one.
-- [ ] T059 [P] [US8] Write `tests/integration/test_analytics_schedules.py`, for the routes:
+- [X] T059 [P] [US8] Write `tests/integration/test_analytics_schedules.py`, for the routes:
   - create, list (administrators see all), get, change, disable and delete;
   - only the view's owner may schedule it;
   - weekly needs a weekday, and monthly a day 1–31;
@@ -407,7 +407,7 @@ T077 confirms that none remain.
   - an inactive recipient, or one lacking a family (or the cost privilege for a sensitive measure), gives `analytics.recipient_ineligible` with `user` and `family`;
   - deleting a view deletes its schedules;
   - the send history is newest first and paged.
-- [ ] T060 [P] [US8] Write `tests/integration/test_send_scheduled_reports.py`, for the job with a fake mailer and a frozen clock:
+- [X] T060 [P] [US8] Write `tests/integration/test_send_scheduled_reports.py`, for the job with a fake mailer and a frozen clock:
   - nothing runs while `scheduled_reports_enabled` is false;
   - a due schedule sends one email per run with the attachment, recording outcome `sent`, recipients, size and row count;
   - two claims of the same `next_run_time` send once (SC-008), as do 30 days of occurrences run twice each;
@@ -418,24 +418,24 @@ T077 confirms that none remain.
   - `get_mailer()` returning None records `skipped` with `email.not_configured`;
   - a mailer raising `MailError` records `failed` with `email.send_failed`, and `sent` is recorded only after the mailer returns;
   - a row left running for over 10 minutes reads as failed.
-- [ ] T061 [P] [US8] Extend `tests/api/test_analytics_views.py`: 401 on every schedule route; 404 for another user's schedule.
+- [X] T061 [P] [US8] Extend `tests/api/test_analytics_views.py`: 401 on every schedule route; 404 for another user's schedule.
 
 ### Implementation
 
-- [ ] T062 [US8] Add `AnalyticsScheduleCreate`, `AnalyticsScheduleUpdate`, `AnalyticsScheduleResponse` and `AnalyticsSendResponse` to `app/schemas/analytics.py`.
-- [ ] T063 [US8] Write `app/services/analytics/schedules.py`, part 1:
+- [X] T062 [US8] Add `AnalyticsScheduleCreate`, `AnalyticsScheduleUpdate`, `AnalyticsScheduleResponse` and `AnalyticsSendResponse` to `app/schemas/analytics.py`.
+- [X] T063 [US8] Write `app/services/analytics/schedules.py`, part 1:
   - `next_occurrence(schedule, after)` in business time (R15);
   - recipient eligibility through `engine.families` (R16);
   - CRUD with owner checks;
   - sends listing.
 
   T058 passes.
-- [ ] T064 [US8] Add the five schedule routes and the sends route to `app/api/v1/endpoints/analytics_views.py`. T059 and T061 pass, and `test_contract_docs` passes for the schedule blocks.
-- [ ] T065 [US8] Write `app/services/analytics/schedules.py`, part 2:
+- [X] T064 [US8] Add the five schedule routes and the sends route to `app/api/v1/endpoints/analytics_views.py`. T059 and T061 pass, and `test_contract_docs` passes for the schedule blocks.
+- [X] T065 [US8] Write `app/services/analytics/schedules.py`, part 2:
   - `claim(db, schedule_id, read_next_run_time, now)`, the conditional `UPDATE` of R15, returning whether one row changed;
   - `rebuild_owner(db, user_id) -> CurrentUser` (R16);
   - `send(db, schedule, occurrence, now)`, which inserts the running row, resolves the period, builds the file through `exports.check`, `build_table` and `file_bytes` or `render_pdf`, applies the size cap, drops ineligible recipients, sends through `mail.get_mailer()` off the event loop as spec 024 does, and finishes the row.
-- [ ] T066 [US8] Write `app/jobs/send_scheduled_reports.py` in the style of `app/jobs/purge_exports.py`: exit unless enabled, select the due schedules, claim each, and send. Add a docstring giving the cron entry (`*/5 * * * *` as the instance's user). T060 passes.
+- [X] T066 [US8] Write `app/jobs/send_scheduled_reports.py` in the style of `app/jobs/purge_exports.py`: exit unless enabled, select the due schedules, claim each, and send. Add a docstring giving the cron entry (`*/5 * * * *` as the instance's user). T060 passes.
 
 **Checkpoint**: schedules send exactly once on fixtures, and every attempt is recorded.
 

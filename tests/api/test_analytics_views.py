@@ -14,7 +14,7 @@ from app.core.clock import local_now
 from app.core.deps import CurrentUser, get_current_user
 from app.db.session import get_db
 from app.main import app
-from app.models.analytics import AnalyticsView
+from app.models.analytics import AnalyticsSchedule, AnalyticsView
 from tests.integration.conftest import db, engine, seeded, sessions  # noqa: F401  (fixtures)
 from tests.problem import assert_problem
 
@@ -29,6 +29,15 @@ ROUTES = [
     ('PATCH', f'{VIEWS}/1'),
     ('DELETE', f'{VIEWS}/1'),
     ('POST', f'{VIEWS}/1/run'),
+]
+SCHEDULES = '/api/v1/analytics/schedules'
+SCHEDULE_ROUTES = [
+    ('GET', SCHEDULES),
+    ('POST', SCHEDULES),
+    ('GET', f'{SCHEDULES}/1'),
+    ('PATCH', f'{SCHEDULES}/1'),
+    ('DELETE', f'{SCHEDULES}/1'),
+    ('GET', f'{SCHEDULES}/1/sends'),
 ]
 
 
@@ -69,7 +78,7 @@ async def someone_elses(db: AsyncSession) -> int:  # noqa: F811
     return row.analytics_view_id
 
 
-@pytest.mark.parametrize(('method', 'url'), ROUTES)
+@pytest.mark.parametrize(('method', 'url'), ROUTES + SCHEDULE_ROUTES)
 async def test_every_view_route_needs_a_token(http: AsyncClient, method: str, url: str) -> None:
     app.dependency_overrides.pop(get_current_user)
 
@@ -114,3 +123,27 @@ async def test_an_invalid_period_is_422(http: AsyncClient, period: dict) -> None
 
     assert response.status_code == 422, response.text
     assert any(error['loc'][:2] == ['body', 'period'] for error in response.json()['detail'])
+
+
+@pytest.mark.parametrize(('method', 'url'), [r for r in SCHEDULE_ROUTES if r[1] != SCHEDULES])
+async def test_another_users_schedule_is_not_found(
+    http: AsyncClient,
+    db: AsyncSession,  # noqa: F811
+    someone_elses: int,
+    method: str,
+    url: str,
+) -> None:
+    now = local_now().replace(microsecond=0)
+    row = AnalyticsSchedule(
+        analytics_view=someone_elses, cadence=0, weekdays=0, time_of_day=now.time(), format=0,
+        subject='Ajena', enabled=True, next_run_time=now, creation_time=now, modification_time=now,
+    )  # fmt: skip
+    db.add(row)
+    await db.commit()
+    url = url.replace('/1', f'/{row.analytics_schedule_id}')
+
+    response = await http.request(method, url, json={} if method == 'PATCH' else None)
+
+    body = assert_problem(response, 404, 'resource.not_found')
+    assert body['params'] == {'resource': 'analytics_schedule', 'id': row.analytics_schedule_id}
+    assert (await http.get(SCHEDULES)).json() == []

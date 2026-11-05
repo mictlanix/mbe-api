@@ -4,10 +4,10 @@ The keys are StrEnums, so an unknown measure, dimension, grain or format fails r
 with FastAPI's 422 and the allowed values are published in OpenAPI (FR-011).
 """
 
-from datetime import date
+from datetime import date, time
 from decimal import Decimal
 from enum import StrEnum
-from typing import Any
+from typing import Annotated, Any
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from pydantic_core import PydanticCustomError
@@ -824,3 +824,83 @@ class AnalyticsViewResponse(BaseModel):
     shared_with: list[str] = Field(description='Shown to the owner only; empty for shared users.')
     creation_time: LocalDateTime
     modification_time: LocalDateTime
+
+
+# ── Schedules (spec 038, R15–R16) ─────────────────────────────────────────────
+
+MAX_RECIPIENTS = 10
+Weekday = Annotated[int, Field(ge=1, le=7)]
+
+
+def timing_problem(cadence: Cadence, weekdays: list[int], month_day: int | None) -> str | None:
+    """Why a cadence and its days don't fit together, or None when they do."""
+    if (cadence is Cadence.WEEKLY) != bool(weekdays):
+        return 'weekdays go with weekly, which needs at least one'
+    if (cadence is Cadence.MONTHLY) != (month_day is not None):
+        return 'month_day goes with monthly, which needs it'
+    return None
+
+
+class AnalyticsScheduleCreate(BaseModel):
+    analytics_view: int = Field(description="One of the caller's own views.")
+    cadence: Cadence
+    weekdays: list[Weekday] = Field(default=[], description='1 (Monday) to 7; weekly only.')
+    month_day: int | None = Field(
+        default=None, ge=1, le=31, description="Monthly only; past the month's end, its last day."
+    )
+    time_of_day: time = Field(description='Business time.')
+    format: ExportFormat
+    subject: str = Field(min_length=1, max_length=150)
+    recipients: list[str] = Field(
+        default=[],
+        max_length=MAX_RECIPIENTS,
+        description="Active users who hold the view's families (and cost for a sensitive measure).",
+    )
+    enabled: bool = True
+
+    @model_validator(mode='after')
+    def _days_fit_the_cadence(self) -> 'AnalyticsScheduleCreate':
+        problem = timing_problem(self.cadence, self.weekdays, self.month_day)
+        if problem:
+            raise PydanticCustomError('analytics_schedule', problem)
+        return self
+
+
+class AnalyticsScheduleUpdate(BaseModel):
+    """Only the fields given change. A cadence change clears the days that don't apply to it."""
+
+    cadence: Cadence | None = None
+    weekdays: list[Weekday] | None = None
+    month_day: int | None = Field(default=None, ge=1, le=31)
+    time_of_day: time | None = None
+    format: ExportFormat | None = None
+    subject: str | None = Field(default=None, min_length=1, max_length=150)
+    recipients: list[str] | None = Field(default=None, max_length=MAX_RECIPIENTS)
+    enabled: bool | None = None
+
+
+class AnalyticsScheduleResponse(BaseModel):
+    analytics_schedule_id: int
+    analytics_view: int
+    cadence: Cadence
+    weekdays: list[int]
+    month_day: int | None
+    time_of_day: time
+    format: ExportFormat
+    subject: str
+    recipients: list[str]
+    enabled: bool
+    next_run_time: LocalDateTime
+
+
+class AnalyticsSendResponse(BaseModel):
+    analytics_send_id: int
+    occurrence: LocalDateTime
+    started_at: LocalDateTime
+    finished_at: LocalDateTime | None
+    outcome: SendOutcome = Field(description='A row left running over 10 minutes reads as failed.')
+    code: str | None = Field(description='The spec 036 code of a failure or skip.')
+    sent_to: list[str]
+    dropped: list[str] = Field(description='Recipients who no longer qualified at send time.')
+    size: int | None = Field(description='Attachment bytes.')
+    row_count: int | None
