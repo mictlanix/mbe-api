@@ -58,7 +58,7 @@ Per-line amounts, as in `totals.line_amounts`:
 - **subtotal** = gross ÷ (1 + tax_rate) if the price includes tax, else gross;
 - **tax** = gross − subtotal if the price includes tax, else gross × tax_rate;
 - **discount** = qty × price × discount_rate, on the same VAT basis;
-- **cost without VAT** = qty × cost ÷ (1 + tax_rate) if the price includes tax, else qty × cost (R4).
+- **cost without VAT** = qty × cost: the snapshot is recorded without VAT (R4, corrected 2026-11-05). **Below cost** compares the unit price after discount and without VAT with the cost.
 
 Refund lines use `discount` (an amount), not `discount_rate`; their gross follows the refund line rule in `customer_refund_service`.
 

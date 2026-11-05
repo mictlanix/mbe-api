@@ -90,7 +90,7 @@ description: "Task list for spec 037, business analytics"
 - [X] T013 [P] [US1] Write `tests/unit/test_analytics_facts.py`:
   - for fixture orders (prices with and without VAT, line discounts, a 0% VAT line, three lines whose half-cents round the same way), the sale-line fact's cents per order equal `app.services.totals.document_totals` for that order (subtotal, tax, total), and their sum over orders equals the sum of the totals;
   - the residual lands on the largest line, lowest id on ties;
-  - cost without VAT is `qty × cost ÷ (1 + rate)` for tax-included lines (R4), and lines with `cost = 0` are flagged uncosted;
+  - cost without VAT is `qty × cost` (R4, corrected 2026-11-05: it was `qty × cost ÷ (1 + rate)`), and lines with `cost = 0` are flagged uncosted;
   - the refund-line fact takes cost from the linked sale line, scaled by the refunded quantity;
   - every fact query compiled with `sqlalchemy.dialects.mysql` contains the window functions and no SQLite-only construct.
 - [X] T014 [P] [US1] Write `tests/integration/test_analytics_query.py` (US1 part), on SQLite with fixture documents:

@@ -97,9 +97,15 @@ def _with_residual(amount, document, line_id, order_by):
     return cents(amount) + case((rank == 1, residual), else_=0)
 
 
-def _cost(quantity, cost, tax_rate, tax_included):
-    """Cost without VAT: the cost snapshot includes VAT like the price (research R4)."""
-    return case((tax_included, quantity * cost / (1 + tax_rate)), else_=quantity * cost)
+def _cost(quantity, cost):
+    """Cost without VAT: the cost snapshot is recorded without VAT (spec 031, research R4)."""
+    return quantity * cost
+
+
+def _net_unit_price(price, discount_rate, tax_rate, tax_included):
+    """The unit price after discount and without VAT, on the same basis as the cost."""
+    net = price * (1 - discount_rate)
+    return case((tax_included, net / (1 + tax_rate)), else_=net)
 
 
 def sale_lines(start: date, end: date, facility: int | None) -> Subquery:
@@ -131,12 +137,22 @@ def sale_lines(start: date, end: date, facility: int | None) -> Subquery:
             cents(discount_subtotal).label('disc_sub_c'),
             cents(discount_tax).label('disc_tax_c'),
             case(
-                (costed, cents(_cost(line.quantity, line.cost, line.tax_rate, line.tax_included))),
+                (costed, cents(_cost(line.quantity, line.cost))),
                 else_=0,
             ).label('cost_c'),
             case((costed, 1), else_=0).label('costed'),
             case(
-                (and_(costed, line.price * (1 - line.discount_rate) < line.cost), 1), else_=0
+                (
+                    and_(
+                        costed,
+                        _net_unit_price(
+                            line.price, line.discount_rate, line.tax_rate, line.tax_included
+                        )
+                        < line.cost,
+                    ),
+                    1,
+                ),
+                else_=0,
             ).label('below'),
         )
         .join(order, order.sales_order_id == line.sales_order)
@@ -184,7 +200,7 @@ def refund_lines(start: date, end: date, facility: int | None) -> Subquery:
                 tax, line.customer_refund, line.customer_refund_detail_id, subtotal
             ).label('tax_c'),
             case(
-                (costed, cents(_cost(line.quantity, sold.cost, sold.tax_rate, sold.tax_included))),
+                (costed, cents(_cost(line.quantity, sold.cost))),
                 else_=0,
             ).label('cost_c'),
             case((costed, 1), else_=0).label('costed'),

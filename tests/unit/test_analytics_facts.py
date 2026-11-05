@@ -65,6 +65,10 @@ ORDERS = {
     + [_line(6, 3, '1', '0.125', included=False, rate='0')]
     + [_line(7, 3, '1', '0.125', included=False, rate='0')],
     4: [_line(8, 4, '7', '33.335'), _line(9, 4, '2', '1.005', cost='0.80')],
+    6: [
+        _line(11, 6, '1', '0.90', cost='0.80'),
+        _line(12, 6, '1', '0.90', cost='0.80', included=False),
+    ],
 }
 
 
@@ -142,13 +146,23 @@ async def test_the_residual_lands_on_the_largest_line(engine: AsyncEngine) -> No
     assert lines[9]['sub_c'] == alone * 100
 
 
-async def test_cost_is_without_vat_and_only_on_costed_lines(engine: AsyncEngine) -> None:
+async def test_cost_is_as_recorded_and_only_on_costed_lines(engine: AsyncEngine) -> None:
+    """Cost is recorded without VAT (spec 031), so it is never divided by 1 + the VAT rate."""
     lines = {line['id']: line for line in await _lines(engine)}
 
-    # 2 × 0.80 ÷ 1.16 = 1.3793… → 138 cents; the price 1.005 is above cost, so not below.
-    assert lines[9]['cost_c'] == 138
+    # 2 × 0.80 = 1.60; the price 1.005 is 0.8664 without VAT, above the cost, so not below.
+    assert lines[9]['cost_c'] == 160
     assert lines[9]['costed'] == 1 and lines[9]['below'] == 0
     assert lines[8]['costed'] == 0 and lines[8]['cost_c'] == 0
+
+
+async def test_below_cost_compares_the_price_without_vat(engine: AsyncEngine) -> None:
+    lines = {line['id']: line for line in await _lines(engine)}
+
+    # 0.90 with VAT is 0.7759 without it: below a cost of 0.80, though 0.90 itself is above.
+    assert lines[11]['below'] == 1
+    # 0.90 without VAT is above the cost.
+    assert lines[12]['below'] == 0
 
 
 async def test_a_cancelled_order_is_not_a_sale(engine: AsyncEngine) -> None:
@@ -196,8 +210,8 @@ async def test_the_refund_takes_its_cost_from_the_sale_line(engine: AsyncEngine)
         rows = facts.refund_lines(date(2026, 5, 1), date(2026, 5, 31), None)
         line = (await connection.execute(select(rows))).mappings().one()
 
-    # One of the two units returned: 0.80 ÷ 1.16 = 0.6896… → 69 cents.
-    assert line['cost_c'] == 69
+    # One of the two units returned, at the sale line's cost: 0.80.
+    assert line['cost_c'] == 80
     assert line['costed'] == 1
     assert (line['facility'], line['salesperson']) == (2, 2)
 
