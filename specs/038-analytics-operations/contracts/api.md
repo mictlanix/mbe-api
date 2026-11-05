@@ -75,7 +75,7 @@ AnalyticsQueryRequest:
   sort: str | None
   top: int | None
   stock_options: StockOptions | None
-  price_change_pct: Decimal | None
+  price_change_pct: int | None   # whole percent, 0-1000; purchases flag a change above it (default 10)
 
 StockOptions:
   velocity_days: int     # 30-365, default 90

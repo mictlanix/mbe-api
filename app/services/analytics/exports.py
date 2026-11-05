@@ -25,7 +25,7 @@ from typing import Any
 
 import anyio
 import xlsxwriter
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app import rendering
@@ -34,7 +34,7 @@ from app.core.config import settings
 from app.core.deps import CurrentUser
 from app.core.error_codes import ErrorCode
 from app.core.errors import DomainError, not_found
-from app.models.analytics import AnalyticsExport
+from app.models.analytics import AnalyticsExport, AnalyticsView
 from app.models.core import Employee
 from app.schemas.analytics import (
     AnalyticsDashboardRequest,
@@ -646,7 +646,9 @@ async def purge(db: AsyncSession, now: datetime) -> int:
 
 
 async def delete_for_user(db: AsyncSession, user_id: str) -> None:
-    """Delete a user's exports, rows and files, before the user is deleted. The caller commits."""
+    """Delete a user's exports, rows and files, and their saved views (spec 038), before the user
+    is deleted. A view's shares, schedules and sends cascade with it. The caller commits."""
+    await db.execute(delete(AnalyticsView).where(AnalyticsView.user == user_id))
     rows = (
         (await db.execute(select(AnalyticsExport).where(AnalyticsExport.user == user_id)))
         .scalars()

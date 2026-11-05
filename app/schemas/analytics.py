@@ -1,4 +1,4 @@
-"""Analytics requests and responses (spec 037, contracts/api.md).
+"""Analytics requests and responses (specs 037 and 038, contracts/api.md).
 
 The keys are StrEnums, so an unknown measure, dimension, grain or format fails request validation
 with FastAPI's 422 and the allowed values are published in OpenAPI (FR-011).
@@ -8,9 +8,12 @@ from datetime import date
 from decimal import Decimal
 from enum import StrEnum
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 from pydantic_core import PydanticCustomError
 
+from app.core.config import settings
+from app.core.error_codes import ErrorCode
+from app.core.errors import DomainError
 from app.schemas import LocalDateTime
 
 
@@ -34,6 +37,75 @@ class MeasureKey(StrEnum):
     REFUNDS_PAID_OUT = 'refunds_paid_out'
     STORE_CREDIT_ISSUED = 'store_credit_issued'
     PAYMENTS = 'payments'
+    # Inventory (spec 038)
+    ON_HAND = 'on_hand'
+    RESERVED = 'reserved'
+    AVAILABLE = 'available'
+    IN_TRANSIT = 'in_transit'
+    STOCK_VALUE = 'stock_value'
+    STOCK_COST_COVERAGE = 'stock_cost_coverage'
+    UNCOSTED_QUANTITY = 'uncosted_quantity'
+    UNITS_IN = 'units_in'
+    UNITS_OUT = 'units_out'
+    MOVEMENT_DOCUMENTS = 'movement_documents'
+    SALES_VELOCITY = 'sales_velocity'
+    DAYS_OF_COVER = 'days_of_cover'
+    STOCK_OUT_PAIRS = 'stock_out_pairs'
+    BELOW_REORDER_PAIRS = 'below_reorder_pairs'
+    SUGGESTED_QUANTITY = 'suggested_quantity'
+    DEAD_STOCK_QUANTITY = 'dead_stock_quantity'
+    DEAD_STOCK_VALUE = 'dead_stock_value'
+    SLOW_STOCK_QUANTITY = 'slow_stock_quantity'
+    SLOW_STOCK_VALUE = 'slow_stock_value'
+    TURNOVER = 'turnover'
+    DAYS_OF_INVENTORY = 'days_of_inventory'
+    # Receivables and payables
+    RECEIVABLE = 'receivable'
+    RECEIVABLE_CURRENT = 'receivable_current'
+    RECEIVABLE_OVERDUE = 'receivable_overdue'
+    OPEN_ORDERS = 'open_orders'
+    CREDIT_SALES = 'credit_sales'
+    COLLECTED_ON_CREDIT = 'collected_on_credit'
+    DUE_IN_PERIOD = 'due_in_period'
+    DUE_COLLECTED = 'due_collected'
+    DSO = 'dso'
+    CEI = 'cei'
+    CREDIT_LIMIT = 'credit_limit'
+    CREDIT_UTILIZATION = 'credit_utilization'
+    PAYABLE = 'payable'
+    PAYABLE_CURRENT = 'payable_current'
+    PAYABLE_OVERDUE = 'payable_overdue'
+    OPEN_PURCHASE_ORDERS = 'open_purchase_orders'
+    # Commissions
+    COMMISSION = 'commission'
+    COMMISSION_BASE = 'commission_base'
+    COMMISSION_LINES = 'commission_lines'
+    # Fiscal
+    INVOICED = 'invoiced'
+    INVOICES = 'invoices'
+    STANDALONE_INVOICED = 'standalone_invoiced'
+    PAYMENT_RECEIPTS = 'payment_receipts'
+    OUTPUT_VAT = 'output_vat'
+    INVOICED_SALES = 'invoiced_sales'
+    UNINVOICED_SALES = 'uninvoiced_sales'
+    INVOICE_COVERAGE = 'invoice_coverage'
+    INVOICING_LAG = 'invoicing_lag'
+    # Purchases
+    PURCHASES = 'purchases'
+    PURCHASE_QUANTITY = 'purchase_quantity'
+    RECEIVED_QUANTITY = 'received_quantity'
+    PURCHASE_ORDERS = 'purchase_orders'
+    AVERAGE_PURCHASE_PRICE = 'average_purchase_price'
+    AVERAGE_SALE_PRICE = 'average_sale_price'
+    PURCHASE_SALE_SPREAD = 'purchase_sale_spread'
+    PURCHASE_SALE_SPREAD_PCT = 'purchase_sale_spread_pct'
+
+
+class MeasureKind(StrEnum):
+    """A flow sums over a period; a balance is a state at a moment (spec 038, research R1)."""
+
+    FLOW = 'flow'
+    BALANCE = 'balance'
 
 
 class DimensionKey(StrEnum):
@@ -52,6 +124,18 @@ class DimensionKey(StrEnum):
     LABEL = 'label'
     PAYMENT_TERMS = 'payment_terms'
     PAYMENT_METHOD = 'payment_method'
+    # Spec 038
+    WAREHOUSE = 'warehouse'
+    MOVEMENT_TYPE = 'movement_type'
+    SUPPLIER = 'supplier'
+    AGING_BUCKET = 'aging_bucket'
+    DUE_BUCKET = 'due_bucket'
+    SALES_AGENT = 'sales_agent'
+    COMMISSION_PARTICIPATION = 'commission_participation'
+    COMMISSION_STATUS = 'commission_status'
+    ISSUER = 'issuer'
+    DOCUMENT_STATUS = 'document_status'
+    DOCUMENT_TYPE = 'document_type'
 
 
 class Grain(StrEnum):
@@ -78,6 +162,14 @@ class DetailKind(StrEnum):
     REFUNDS = 'refunds'
     CREDIT_NOTES = 'credit_notes'
     PAYMENTS = 'payments'
+    # Spec 038
+    STOCK = 'stock'
+    MOVEMENTS = 'movements'
+    RECEIVABLES = 'receivables'
+    INVOICES = 'invoices'
+    UNINVOICED_LINES = 'uninvoiced_lines'
+    PURCHASES = 'purchases'
+    COMMISSION_LINES = 'commission_lines'
 
 
 class DetailFlag(StrEnum):
@@ -87,12 +179,21 @@ class DetailFlag(StrEnum):
     COLLECTED = 'collected'
     PAID_OUT = 'paid_out'
     STORE_CREDIT = 'store_credit'
+    # Spec 038
+    STOCK_OUT = 'stock_out'
+    BELOW_REORDER = 'below_reorder'
+    DEAD = 'dead'
+    SLOW = 'slow'
+    UNCOSTED = 'uncosted'
+    PRICE_CHANGE = 'price_change'
 
 
 class ExportSource(StrEnum):
     QUERY = 'query'
     DASHBOARD = 'dashboard'
     DETAIL = 'detail'
+    KARDEX = 'kardex'
+    CUSTOMER = 'customer'
 
 
 class ExportFormat(StrEnum):
@@ -108,17 +209,63 @@ class ExportStatus(StrEnum):
     FAILED = 'failed'
 
 
+class RelativePeriod(StrEnum):
+    """A saved view's period, resolved against the day it runs (spec 038, research R14)."""
+
+    TODAY = 'today'
+    YESTERDAY = 'yesterday'
+    THIS_WEEK = 'this_week'
+    THIS_MONTH = 'this_month'
+    THIS_QUARTER = 'this_quarter'
+    THIS_YEAR = 'this_year'
+    LAST_WEEK = 'last_week'
+    LAST_MONTH = 'last_month'
+    LAST_QUARTER = 'last_quarter'
+    LAST_YEAR = 'last_year'
+    LAST_N_DAYS = 'last_n_days'
+    FIXED = 'fixed'
+
+
+class ViewKind(StrEnum):
+    QUERY = 'query'
+    DASHBOARD = 'dashboard'
+    DETAIL = 'detail'
+    CUSTOMER = 'customer'
+
+
+class Cadence(StrEnum):
+    DAILY = 'daily'
+    WEEKLY = 'weekly'
+    MONTHLY = 'monthly'
+
+
+class SendOutcome(StrEnum):
+    RUNNING = 'running'
+    SENT = 'sent'
+    FAILED = 'failed'
+    SKIPPED = 'skipped'
+
+
 # ── Catalog ───────────────────────────────────────────────────────────────────
 
 
 class AnalyticsMeasure(BaseModel):
     key: MeasureKey
     label: str
-    unit: str = Field(description='money | quantity | count | ratio')
+    unit: str = Field(description='money | quantity | count | ratio | days')
+    family: str = Field(
+        description='sales | payments | inventory | receivables | payables | commissions | '
+        'fiscal | purchases'
+    )
+    kind: str = Field(
+        description="flow: summed over the period | balance: the value at the period's end, at "
+        "each date bucket's end, never added across dates"
+    )
     sensitive: bool = Field(description='Needs the cost privilege (37, 38 or 39).')
     vat: bool = Field(description='Whether `vat=included` changes it.')
     additive: bool = Field(description='False for ratios, recomputed from their parts.')
     dimensions: list[DimensionKey] = Field(description='The dimensions it can be grouped by.')
+    definition: str = Field(description='The written definition, with its caveats.')
 
 
 class AnalyticsDimension(BaseModel):
@@ -135,6 +282,52 @@ class AnalyticsCatalogResponse(BaseModel):
 
 # ── Query ─────────────────────────────────────────────────────────────────────
 
+#: The values of the dimensions keyed by a fixed word rather than an id (spec 038).
+TEXT_VALUES: dict[DimensionKey, tuple[str, ...]] = {
+    DimensionKey.AGING_BUCKET: ('current', '1-30', '31-60', '61-90', '90+'),
+    DimensionKey.DUE_BUCKET: ('overdue', '1-7', '8-30', '31-60', '60+'),
+    DimensionKey.COMMISSION_STATUS: ('provisional', 'closed'),
+    DimensionKey.DOCUMENT_STATUS: ('stamped', 'cancelled', 'pending'),
+    DimensionKey.DOCUMENT_TYPE: ('invoice', 'payment_receipt'),
+}
+
+#: Each stock option's allowed values: a range, or for `dead_days` a set (research R5).
+STOCK_OPTION_RANGES: dict[str, tuple[int, int]] = {
+    'velocity_days': (30, 365),
+    'dead_days': (90, 365),
+    'slow_cover_days': (30, 730),
+    'lead_days': (0, 120),
+    'cover_days': (1, 365),
+}
+DEAD_DAYS = (90, 180, 365)
+
+
+class StockOptions(BaseModel):
+    """The windows and targets of velocity, cover, dead and slow stock and restock (R5)."""
+
+    model_config = ConfigDict(frozen=True)
+
+    velocity_days: int = Field(default=90, description='30-365')
+    dead_days: int = Field(default=180, description='90, 180 or 365')
+    slow_cover_days: int = Field(default=180, description='30-730')
+    lead_days: int = Field(default_factory=lambda: settings.restock_lead_days, description='0-120')
+    cover_days: int = Field(
+        default_factory=lambda: settings.restock_cover_days, description='1-365'
+    )
+
+    @model_validator(mode='after')
+    def _in_range(self) -> 'StockOptions':
+        for option, (low, high) in STOCK_OPTION_RANGES.items():
+            value = getattr(self, option)
+            allowed = value in DEAD_DAYS if option == 'dead_days' else low <= value <= high
+            if not allowed:
+                raise DomainError(
+                    ErrorCode.ANALYTICS_STOCK_OPTIONS_INVALID,
+                    f'{option} must be between {low} and {high}',
+                    {'option': option, 'value': value, 'min': low, 'max': high},
+                )
+        return self
+
 
 class AnalyticsFilter(BaseModel):
     dimension: DimensionKey
@@ -142,7 +335,10 @@ class AnalyticsFilter(BaseModel):
         min_length=1,
         description=(
             'Ids for entity dimensions; the value for brand, model, customer_type (credit, cash), '
-            'payment_terms (immediate, credit), weekday (1 = Monday) and hour; the ISO date of '
+            'payment_terms (immediate, credit), weekday (1 = Monday), hour, issuer (RFC), '
+            'aging_bucket (current, 1-30, 31-60, 61-90, 90+), due_bucket (overdue, 1-7, 8-30, '
+            '31-60, 60+), commission_status (provisional, closed), document_status (stamped, '
+            'cancelled, pending) and document_type (invoice, payment_receipt); the ISO date of '
             'the period start for date. An empty string selects "none".'
         ),
     )
@@ -160,7 +356,7 @@ class AnalyticsFilter(BaseModel):
                         raise PydanticCustomError(
                             'analytics_filter_value', 'date values are ISO dates'
                         ) from None
-                case DimensionKey.BRAND | DimensionKey.MODEL:
+                case DimensionKey.BRAND | DimensionKey.MODEL | DimensionKey.ISSUER:
                     pass
                 case DimensionKey.CUSTOMER_TYPE:
                     if value not in ('credit', 'cash'):
@@ -171,6 +367,16 @@ class AnalyticsFilter(BaseModel):
                     if value not in ('immediate', 'credit'):
                         raise PydanticCustomError(
                             'analytics_filter_value', 'payment_terms is immediate or credit'
+                        )
+                case dimension if dimension in TEXT_VALUES:
+                    if value not in TEXT_VALUES[dimension]:
+                        raise PydanticCustomError(
+                            'analytics_filter_value',
+                            '{dimension} is one of {values}',
+                            {
+                                'dimension': dimension.value,
+                                'values': ', '.join(TEXT_VALUES[dimension]),
+                            },
                         )
                 case _:
                     if not value.lstrip('-').isdigit():
@@ -200,6 +406,15 @@ class AnalyticsQueryRequest(BaseModel):
         default=None, description='A requested measure or dimension key; "-" prefix = descending.'
     )
     top: int | None = Field(default=None, ge=1, le=100)
+    stock_options: StockOptions | None = Field(
+        default=None, description='Inventory measures only; omitted gives the defaults.'
+    )
+    price_change_pct: int | None = Field(
+        default=None,
+        ge=0,
+        le=1000,
+        description='Whole percent: a purchase price change above it is flagged (default 10).',
+    )
 
 
 class AnalyticsKey(BaseModel):
@@ -233,13 +448,19 @@ class AnalyticsQueryResponse(BaseModel):
 # ── Detail ────────────────────────────────────────────────────────────────────
 
 #: The kind each flag applies to (contracts/api.md "Flags").
-FLAG_KINDS: dict[DetailFlag, DetailKind] = {
-    DetailFlag.OVERDUE: DetailKind.ORDERS,
-    DetailFlag.BELOW_COST: DetailKind.LINES,
-    DetailFlag.WITHOUT_COST: DetailKind.LINES,
-    DetailFlag.COLLECTED: DetailKind.PAYMENTS,
-    DetailFlag.PAID_OUT: DetailKind.PAYMENTS,
-    DetailFlag.STORE_CREDIT: DetailKind.PAYMENTS,
+FLAG_KINDS: dict[DetailFlag, tuple[DetailKind, ...]] = {
+    DetailFlag.OVERDUE: (DetailKind.ORDERS, DetailKind.RECEIVABLES),
+    DetailFlag.BELOW_COST: (DetailKind.LINES,),
+    DetailFlag.WITHOUT_COST: (DetailKind.LINES,),
+    DetailFlag.COLLECTED: (DetailKind.PAYMENTS,),
+    DetailFlag.PAID_OUT: (DetailKind.PAYMENTS,),
+    DetailFlag.STORE_CREDIT: (DetailKind.PAYMENTS,),
+    DetailFlag.STOCK_OUT: (DetailKind.STOCK,),
+    DetailFlag.BELOW_REORDER: (DetailKind.STOCK,),
+    DetailFlag.DEAD: (DetailKind.STOCK,),
+    DetailFlag.SLOW: (DetailKind.STOCK,),
+    DetailFlag.UNCOSTED: (DetailKind.STOCK,),
+    DetailFlag.PRICE_CHANGE: (DetailKind.PURCHASES,),
 }
 
 
@@ -251,8 +472,9 @@ class AnalyticsDetailRequest(BaseModel):
     filters: list[AnalyticsFilter] = []
     flag: DetailFlag | None = Field(
         default=None,
-        description='overdue (orders) | below_cost, without_cost (lines, cost privilege) | '
-        'collected, paid_out, store_credit (payments)',
+        description='overdue (orders, receivables) | below_cost, without_cost (lines, cost '
+        'privilege) | collected, paid_out, store_credit (payments) | stock_out, below_reorder, '
+        'dead, slow, uncosted (stock) | price_change (purchases)',
     )
     vat: VatTreatment = VatTreatment.EXCLUDED
     sort: str | None = Field(
@@ -263,13 +485,13 @@ class AnalyticsDetailRequest(BaseModel):
 
     @model_validator(mode='after')
     def _flag_fits_the_kind(self) -> 'AnalyticsDetailRequest':
-        if self.flag is not None and FLAG_KINDS[self.flag] is not self.kind:
+        if self.flag is not None and self.kind not in FLAG_KINDS[self.flag]:
             raise PydanticCustomError(
                 'analytics_flag_kind',
                 '{flag} applies to {expected}, not {kind}',
                 {
                     'flag': self.flag.value,
-                    'expected': FLAG_KINDS[self.flag].value,
+                    'expected': ', '.join(kind.value for kind in FLAG_KINDS[self.flag]),
                     'kind': self.kind.value,
                 },
             )

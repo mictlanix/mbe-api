@@ -21,6 +21,7 @@ from app.services.references import (
     assert_unique,
     find_blocking_references,
 )
+from app.services.user_service import USER_CASCADES
 
 RENAMED = {table for table, name in RESOURCE_NAMES.items() if table != name}
 
@@ -200,15 +201,14 @@ async def test_unsaved_instance_has_no_blockers() -> None:
 
 @pytest.mark.asyncio
 async def test_user_has_nothing_left_to_check_once_its_cascades_are_exempt() -> None:
-    """`user_settings`, `access_privilege` and `analytics_export` (spec 037) are the only tables
+    """`user_settings`, `access_privilege`, `analytics_export` (spec 037), and `analytics_view`,
+    `analytics_view_share` and `analytics_schedule_recipient` (spec 038) are the only tables
     referencing `user`, so exempting the cascade leaves no blocker to look for and the delete
     always proceeds."""
     db = _db_counting([])
     user = User(user_id='tester')
 
-    blockers = await find_blocking_references(
-        db, user, exempt=frozenset({'user_settings', 'access_privilege', 'analytics_export'})
-    )
+    blockers = await find_blocking_references(db, user, exempt=USER_CASCADES)
 
     assert blockers == []
     db.execute.assert_not_awaited()

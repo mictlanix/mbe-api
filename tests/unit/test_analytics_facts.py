@@ -216,8 +216,9 @@ async def test_the_refund_takes_its_cost_from_the_sale_line(engine: AsyncEngine)
     assert (line['facility'], line['salesperson']) == (2, 2)
 
 
-@pytest.mark.parametrize('fact', list(Fact))
+@pytest.mark.parametrize('fact', [Fact.SALE_LINE, Fact.REFUND_LINE, Fact.CREDIT_NOTE, Fact.PAYMENT])
 def test_every_fact_compiles_for_mariadb(fact: Fact) -> None:
+    """Spec 037's document facts; each spec 038 fact has its own compile check."""
     statement = facts.query(
         fact, _slice(dimensions=(DimensionKey.DATE, DimensionKey.CUSTOMER_TYPE), facility=1)
     )

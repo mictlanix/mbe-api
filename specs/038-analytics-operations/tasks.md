@@ -38,7 +38,7 @@ T077 confirms that none remain.
 
 **Purpose**: Settings and the migration files.
 
-- [ ] T001 [P] Add these settings to `Settings` in `app/core/config.py`, next to `exports_dir` (R3, R4, R5, R15):
+- [X] T001 [P] Add these settings to `Settings` in `app/core/config.py`, next to `exports_dir` (R3, R4, R5, R15):
   - `stock_history_start: date = date(2025, 2, 7)`;
   - `placeholder_cost: Decimal = Decimal('99999')`;
   - `restock_lead_days: int = 7`;
@@ -47,7 +47,7 @@ T077 confirms that none remain.
   - `report_attachment_max_bytes: int = 10 * 1024 * 1024`.
 
   Document `SCHEDULED_REPORTS_ENABLED` in `.env.example` if that file lists settings.
-- [ ] T002 [P] Write `migrations/032_operations_analytics.sql` (data-model.md "New tables", R19), in the style of `migrations/031_business_analytics.sql`:
+- [X] T002 [P] Write `migrations/032_operations_analytics.sql` (data-model.md "New tables", R19), in the style of `migrations/031_business_analytics.sql`:
   - the index `lot_serial_tracking_date_idx` on `lot_serial_tracking(date)`;
   - the tables `receivable_snapshot` (PK `(month_end, sales_order)`, indexes `(month_end, customer)` and `(month_end, facility)`) and `receivable_snapshot_month`;
   - `analytics_view`, with a unique `(user, name)`;
@@ -68,14 +68,14 @@ T077 confirms that none remain.
 
 ### Tests
 
-- [ ] T003 [P] Extend `tests/unit/test_analytics_engine.py` with the balance kind (R1), using a fake balance fact that returns fixed values per moment:
+- [X] T003 [P] Extend `tests/unit/test_analytics_engine.py` with the balance kind (R1), using a fake balance fact that returns fixed values per moment:
   - with a month dimension, each bucket holds the value at that bucket's end, not a sum;
   - the totals row is the value at the period's end;
   - shares are taken within the end moment;
   - a comparison reads the value at the comparison period's end;
   - a query mixing a flow and a balance measure merges both on the dimension tuple;
   - every existing engine test still passes unchanged.
-- [ ] T004 [P] Extend `tests/unit/test_analytics_catalog.py`:
+- [X] T004 [P] Extend `tests/unit/test_analytics_catalog.py`:
   - every new `MeasureKey` and `DimensionKey` of data-model.md has an entry with label, unit, family, `kind` (flow or balance) and facts;
   - the sensitive set now also holds `stock_value`, `stock_cost_coverage`, `dead_stock_value`, `slow_stock_value`, `turnover`, `days_of_inventory`, `purchase_sale_spread` and `purchase_sale_spread_pct`;
   - the families and their privileges are exactly contracts/api.md's (R17);
@@ -83,10 +83,10 @@ T077 confirms that none remain.
 
 ### Implementation
 
-- [ ] T005 Add the models of data-model.md to `app/models/analytics.py`: `ReceivableSnapshot`, `ReceivableSnapshotMonth`, `AnalyticsView`, `AnalyticsViewShare`, `AnalyticsSchedule`, `AnalyticsScheduleRecipient` and `AnalyticsSend`. Columns and types must match migration 032 exactly. Register them wherever `app/models/__init__.py` registers spec 037's `AnalyticsExport`. `tests/unit/test_model_schema.py` passes, or is extended where it lists tables.
-- [ ] T006 [P] Add the six codes of contracts/api.md "Error codes" to `ErrorCode` in `app/core/error_codes.py`, with their statuses and params. Add the same rows to the `## analytics` section of `specs/036-localizable-error-codes/contracts/error-codes.md`. Raise the pinned count from 251 to 257 in `tests/unit/test_contract_docs.py` (`len(_documented_codes())`) and in `tests/api/test_openapi_problem.py` (`len(schemas['ErrorCode']['enum'])`).
-- [ ] T007 [P] Add `'analytics_view': 'analytics_view'` and `'analytics_schedule': 'analytics_schedule'` to `RESOURCE_NAMES` in `app/core/errors.py`.
-- [ ] T008 In `app/schemas/analytics.py`:
+- [X] T005 Add the models of data-model.md to `app/models/analytics.py`: `ReceivableSnapshot`, `ReceivableSnapshotMonth`, `AnalyticsView`, `AnalyticsViewShare`, `AnalyticsSchedule`, `AnalyticsScheduleRecipient` and `AnalyticsSend`. Columns and types must match migration 032 exactly. Register them wherever `app/models/__init__.py` registers spec 037's `AnalyticsExport`. `tests/unit/test_model_schema.py` passes, or is extended where it lists tables.
+- [X] T006 [P] Add the six codes of contracts/api.md "Error codes" to `ErrorCode` in `app/core/error_codes.py`, with their statuses and params. Add the same rows to the `## analytics` section of `specs/036-localizable-error-codes/contracts/error-codes.md`. Raise the pinned count from 251 to 257 in `tests/unit/test_contract_docs.py` (`len(_documented_codes())`) and in `tests/api/test_openapi_problem.py` (`len(schemas['ErrorCode']['enum'])`).
+- [X] T007 [P] Add `'analytics_view': 'analytics_view'` and `'analytics_schedule': 'analytics_schedule'` to `RESOURCE_NAMES` in `app/core/errors.py`.
+- [X] T008 In `app/schemas/analytics.py`:
   - extend `MeasureKey`, `DimensionKey`, `DetailKind` and `DetailFlag` with the keys of data-model.md "Catalog additions" and "Request shapes";
   - extend `ExportSource` with `kardex` and `customer`;
   - add `MeasureKind` (`flow`, `balance`), `RelativePeriod`, `ViewKind` (`query`, `dashboard`, `detail`, `customer`), `Cadence`, `SendOutcome` and `StockOptions` (with the ranges of R5 as validators; out of range raises `analytics.stock_options_invalid`);
@@ -94,19 +94,19 @@ T077 confirms that none remain.
   - add `family`, `kind` and `definition` to `AnalyticsMeasure` (contracts/api.md "Catalog"; spec 037's block already shows them, and T069 checks it).
 
   All enums are `StrEnum`.
-- [ ] T009 In `app/services/analytics/catalog.py`:
+- [X] T009 In `app/services/analytics/catalog.py`:
   - add the `kind` field to `Measure` (existing measures are `flow`);
   - add the families `inventory`, `receivables`, `payables`, `commissions`, `fiscal` and `purchases` to `FAMILY_PRIVILEGES` with R17's SystemObjects;
   - add every new measure and dimension of data-model.md with its family, unit, kind, sensitivity, facts and definition text (state "at current cost" on value, turnover and days of inventory, R4; state on every receivable balance measure that 2025 month-ends understate the receivable by up to $2.79M because of legacy orders closed by the paid flag, and are exact from 2026-01, FR-121).
 
   Add a `scope_column` per fact for facility scope (R17). The new facts are only names at this point, and each story adds its SQL. T004 passes.
-- [ ] T010 In `app/services/analytics/engine.py`, add the balance kind (R1):
+- [X] T010 In `app/services/analytics/engine.py`, add the balance kind (R1):
   - `wanted` asks a balance fact for the moments it needs: the period's end, each bucket's end with a date dimension, and the comparison period's end;
   - `assemble` places each moment's values in its bucket instead of summing, and takes totals and shares from the end moment;
   - `fact_key` includes the moments, so the dashboard still deduplicates.
 
   Flow facts behave exactly as before. T003 passes.
-- [ ] T011 In `app/services/analytics/engine.py`, extend `check_privileges` and `families` to the new families. Add `history_guard(measures, start, end)`, which raises `analytics.before_history` with `history`, `requested` and `earliest` (R3, R8), and `month_end_guard(measures, start, end)`, which raises `analytics.period_not_month_end` (R9). Each story calls the guard for its measures.
+- [X] T011 In `app/services/analytics/engine.py`, extend `check_privileges` and `families` to the new families. Add `history_guard(measures, start, end)`, which raises `analytics.before_history` with `history`, `requested` and `earliest` (R3, R8), and `month_end_guard(measures, start, end)`, which raises `analytics.period_not_month_end` (R9). Each story calls the guard for its measures.
 
 **Checkpoint**: migration files and models exist, the codes are in the catalog, and the engine runs balance measures over fake facts.
 

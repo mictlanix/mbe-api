@@ -22,7 +22,7 @@ One row per open credit order per month-end (R8).
 | `total` | decimal(18,2) | Order total (spec 033) |
 | `balance` | decimal(18,2) | Spec 033's balance as of the month-end (R7), in the order's currency |
 | `credit_limit` | decimal(18,2), null | The customer's limit when written |
-| `limit_historical` | bit | 1 when written at that month-end; 0 for backfilled months |
+| `limit_historical` | tinyint(1) | 1 when written at that month-end; 0 for backfilled months |
 | `written_at` | datetime | |
 
 Indexes: `(month_end, customer)` and `(month_end, facility)`. A month-end with any row counts as written. A month with no open orders gets one marker row in `receivable_snapshot_month (month_end PK, written_at, orders)`, so the job doesn't redo it.
@@ -56,7 +56,7 @@ PK `(analytics_view, user)`. Both columns are FKs; rows are deleted with the vie
 | `time_of_day` | time | Business time |
 | `format` | tinyint | spec 037's `ExportFormat` (xlsx, pdf, csv) |
 | `subject` | varchar(150) | |
-| `enabled` | bit | |
+| `enabled` | tinyint(1) | |
 | `next_run_time` | datetime | The next occurrence, in business time. The claim compares it (R15) |
 | `creation_time`, `modification_time` | datetime | |
 
@@ -177,9 +177,9 @@ Units follow spec 037: money, quantity, count, ratio, days. "Cost" marks a sensi
 
 | Key | Applies to | Values |
 |---|---|---|
-| `warehouse` | stock, movement, purchase_line | warehouse id |
+| `warehouse` | stock, stock_today, movement, purchase_line | warehouse id |
 | `movement_type` | movement | `TransactionType` |
-| `supplier` | stock, movement (the product's); purchase_line (the PO's) | supplier id |
+| `supplier` | stock, stock_today, movement (the product's); purchase_line, payable (the PO's) | supplier id |
 | `aging_bucket` | receivable, payable | current, 1-30, 31-60, 61-90, 90+ |
 | `due_bucket` | receivable, payable | overdue, 1-7, 8-30, 31-60, 60+ |
 | `sales_agent` | receivable, credit_flow | employee id (the customer's agent) |
@@ -193,7 +193,7 @@ Spec 037's dimensions apply where the fact has them: date, facility, product, br
 
 ## Request shapes
 
-- **`AnalyticsQueryRequest`** (spec 037) gains `stock_options: StockOptions | None` and `price_change_pct` (R5, R13). Measures, dimensions and flags extend through the enums.
+- **`AnalyticsQueryRequest`** (spec 037) gains `stock_options: StockOptions | None` and `price_change_pct: int | None`, a whole percent (R5, R13). An integer keeps the request one OpenAPI component: a `Decimal` field would split it into input and output schemas, since the response echoes the request. Measures, dimensions and flags extend through the enums.
 - **`AnalyticsMeasure`** (spec 037's catalog entry) gains `family`, `kind` and `definition`.
 - **`DetailKind`** gains:
   - `stock`, with flags `stock_out`, `below_reorder`, `dead`, `slow` and `uncosted`;

@@ -8,18 +8,24 @@ Every code the API serves, with its HTTP status, its `params` and the situation 
 
 ## analytics
 
-Spec 037. Measure and dimension keys are the catalog's (`GET /analytics/catalog`).
+Specs 037 and 038. Measure and dimension keys are the catalog's (`GET /analytics/catalog`).
 
 | Code | Status | Params | Situation |
 |---|---|---|---|
+| `analytics.attachment_too_large` | 422 | size: int, max_size: int | A scheduled report's attachment exceeds 10 MB. Recorded on the send, never returned by a route. |
+| `analytics.before_history` | 422 | history: str, requested: date, earliest: date | Stock before 2025-02-07 (history `stock`), or a receivable month-end before 2025-01-31 (history `receivables`). |
 | `analytics.dimension_not_applicable` | 422 | measure: str, dimension: str | A measure can't be grouped or filtered by a dimension (a payment measure by product). |
 | `analytics.export_expired` | 410 | expiry_time: datetime | The export's file was deleted after 24 hours. |
 | `analytics.export_not_ready` | 409 | status: enum:ExportStatus | The export is still running or failed. |
 | `analytics.export_source_invalid` | 422 | — | An export request must name exactly one source, and a dashboard exports only to PDF. |
 | `analytics.pdf_too_large` | 422 | rows: int, max_rows: int | A PDF would hold more than 2,000 table rows; export to XLSX or CSV instead. |
 | `analytics.period_invalid` | 422 | start: date, end: date, max_days: int | The end is before the start, or the period is longer than five years. |
+| `analytics.period_not_month_end` | 422 | measure: str, start: date, end: date | DSO or CEI over a period that doesn't start on a 1st and end on a month-end or today. |
+| `analytics.recipient_ineligible` | 422 | user: str, family: str | A schedule's recipient is inactive or lacks a family the view reads (or the cost privilege). |
 | `analytics.sort_invalid` | 422 | sort: str | The sort key is neither a requested measure nor a requested dimension. |
+| `analytics.stock_options_invalid` | 422 | option: str, value: int, min: int, max: int | A stock option is out of its range. |
 | `analytics.too_many_dimensions` | 422 | max: int, given: int | More than three dimensions were requested. |
+| `analytics.view_invalid` | 422 | key: str, reason: str | A saved view's definition no longer validates against the catalog. |
 
 ## auth
 

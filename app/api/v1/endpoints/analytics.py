@@ -36,16 +36,16 @@ from app.schemas.analytics import (
     ExportFormat,
 )
 from app.services.analytics import cache, catalog, dashboard, detail, engine, exports
-from app.services.analytics.catalog import DIMENSIONS, FAMILY_PRIVILEGES, Family
+from app.services.analytics.catalog import DIMENSIONS, FAMILY_PRIVILEGES
 
 router = APIRouter()
 
-#: Any sales or payments report privilege opens the analytics routes; each measure then checks its
-#: own family.
+#: Any privilege of a measure family (sales, payments, and spec 038's) opens the analytics routes;
+#: each measure then checks its own family.
 _ANY_FAMILY = require_any_privilege(
     *(
         (system_object, AccessRight.READ)
-        for family in (Family.SALES, Family.PAYMENTS)
+        for family in catalog.MEASURE_FAMILIES
         for system_object in FAMILY_PRIVILEGES[family]
     )
 )
@@ -58,10 +58,7 @@ async def read_catalog(
 ) -> AnalyticsCatalogResponse:
     """The measures and dimensions this caller may use (FR-001). Sensitive measures are listed only
     for holders of the cost privilege (FR-005)."""
-    held = await engine.families(db, current)
-    measures = catalog.visible_measures(
-        cost=Family.COST in held, sales=Family.SALES in held, payments=Family.PAYMENTS in held
-    )
+    measures = catalog.visible_measures(await engine.families(db, current))
     return AnalyticsCatalogResponse(
         as_of=local_now(),
         measures=[
@@ -69,10 +66,13 @@ async def read_catalog(
                 key=m.key,
                 label=m.label,
                 unit=m.unit,
+                family=m.family.value,
+                kind=m.kind.value,
                 sensitive=m.sensitive,
                 vat=m.vat,
                 additive=m.additive,
                 dimensions=[d for d in DimensionKey if catalog.applicable(m.key, d)],
+                definition=m.definition,
             )
             for m in measures
         ],

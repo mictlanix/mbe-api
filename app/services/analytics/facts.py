@@ -60,6 +60,10 @@ class Slice:
 
     `filters` hold parsed values: ints for entity ids, weekday and hour; dates for `date` (period
     starts at `grain`); lowercase trimmed text for brand and model; the class strings otherwise.
+
+    `moments` is set only for a balance fact (spec 038, research R1): the days at whose end it
+    gives its values. Its slice then has neither a date dimension nor a date filter; the engine
+    places each moment's values in their date bucket.
     """
 
     dimensions: tuple[DimensionKey, ...] = ()
@@ -68,6 +72,7 @@ class Slice:
     start: date = date.min
     end: date = date.max
     facility: int | None = None
+    moments: tuple[date, ...] = ()
 
 
 # ── Line pricing (mirrors totals.line_amounts) ────────────────────────────────
