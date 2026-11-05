@@ -271,7 +271,7 @@ A director wants last week's sales dashboard as a PDF every Monday at 8:00, and 
 
 - **FR-130**: Commissions MUST be read from spec 025's computation, never recomputed by a second rule:
   - stored period lines for closed months;
-  - spec 025's live computation for months not yet closed, marked provisional.
+  - spec 025's live computation for months not yet closed, marked provisional. An open month in a query that also includes earlier open months shows only what closing them in order would add: spec 025 computes each open month as if the months before it were closed, so a query spanning several open months would otherwise count the earlier ones again.
   The rule is spec 025's, restated so a salesperson can check it:
   - each sale line's price after discount, with VAT, × quantity × the label's rate × the agent's share for their participation (customer's agent and order's salesperson: lifetime client; otherwise channelling for the order's salesperson and field attention for the customer's agent);
   - earned in the month the order became fully paid (or, for agents on the partial scheme, as payments are applied);

@@ -714,7 +714,7 @@ def _commission_figures(entry: commissions.Entry) -> dict[str, str | None]:
         'base': _rate(x.total, '0.01'),
         'share': None if x.share is None else _rate(x.share, '0.000001'),
         'full_commission': _rate(x.full_commission, '0.01'),
-        'amount': _rate(x.commission, '0.01'),
+        'amount': _rate(entry.commission, '0.01'),
     }
 
 
@@ -736,7 +736,7 @@ async def _commission_lines(
     name, descending = parse_sort(request.sort)
     value = {
         'date': lambda e: e.line.paid_date,
-        'amount': lambda e: e.line.commission,
+        'amount': lambda e: e.commission,
         'document': lambda e: e.line.sales_order,
     }[name]
     found.sort(
@@ -765,13 +765,13 @@ async def _commission_lines(
             customer_name=e.line.customer_name, salesperson=e.line.salesperson,
             product=e.line.product, product_code=codes.get(e.line.product),
             product_name=e.line.product_name, quantity=engine.quantity(e.line.quantity),
-            amount=engine.money(commissions.cents(e.line.commission)), payment_method=None,
+            amount=engine.money(commissions.cents(e.commission)), payment_method=None,
             figures=AnalyticsDetailFigures(values=_commission_figures(e)),
         )
         for e in shown
     ]  # fmt: skip
     sums = {
-        'amount': engine.money(sum(commissions.cents(e.line.commission) for e in found)),
+        'amount': engine.money(sum(commissions.cents(e.commission) for e in found)),
         'base': engine.money(sum(commissions.cents(e.line.total) for e in found)),
     }
     return AnalyticsDetailResponse(as_of=as_of, items=items, total=len(found), sums=sums)

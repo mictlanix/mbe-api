@@ -90,7 +90,7 @@ Rules beyond spec 037's:
 - **Receivable history:** a receivable balance at a past date reads the stored month-end. A date that is neither a month-end nor today rounds down to the month-end before it, and the response's `definition` shows the moment used. A month-end before 2025-01-31 gives `analytics.before_history` (history `receivables`).
 - **DSO and CEI:** they need `start` on a 1st and `end` on a month-end or today; otherwise `analytics.period_not_month_end`.
 - **Today-only measures:** `reserved`, `available` and the payable measures are null at any moment but now.
-- **Commissions:** a line belongs to its month, so a period starting or ending mid-month reads the whole months it touches, and a `day` or `week` grain is raised to `month` (the response's `definition` shows it). Rows carry `commission_status`. For a commission agent without 112 the response's `definition` shows the forced `salesperson` filter, which replaces any the caller named. Being a commission agent opens the analytics routes, as a family privilege does.
+- **Commissions:** a line belongs to its month, so a period starting or ending mid-month reads the whole months it touches, and a `day` or `week` grain is raised to `month` (the response's `definition` shows it). Rows carry `commission_status`. An open month in a query that also includes earlier open months shows only what closing them in order would add (research R11); the `commission_lines` detail lists the same remainders. For a commission agent without 112 the response's `definition` shows the forced `salesperson` filter, which replaces any the caller named. Being a commission agent opens the analytics routes, as a family privilege does.
 
 ## Dashboard
 

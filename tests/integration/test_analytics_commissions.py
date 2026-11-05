@@ -23,7 +23,14 @@ from app.models.commission import Commission
 from app.models.user import AccessPrivilege, User, UserSettings
 from app.services import commission_service
 from app.services.analytics import cache
-from tests.integration.commission_seed import AGENT_A, AGENT_B, order, refund, setup_commissions
+from tests.integration.commission_seed import (
+    AGENT_A,
+    AGENT_B,
+    order,
+    pay,
+    refund,
+    setup_commissions,
+)
 from tests.integration.seed import seed_facility
 from tests.problem import assert_problem
 
@@ -121,6 +128,8 @@ async def test_a_closed_month_reads_its_stored_lines(
 async def test_an_open_month_equals_the_live_computation(
     client: AsyncClient, db: AsyncSession, book: dict[str, int]
 ) -> None:
+    """April is the first open month of this query, so it is spec 025's live month as it is. A
+    later open month of a query shows only the in-order remainder (the tests below)."""
     body = await _query(
         client, 'commission', 'commission_base',
         dimensions=['commission_status', 'salesperson', 'commission_participation'],
@@ -139,6 +148,61 @@ async def test_an_open_month_equals_the_live_computation(
         ('provisional', str(AGENT_B), '2'): D('25.00'),
     }
     assert D(body['totals']['values']['commission_base']) == sum(x.total for x in computed)
+
+
+# ── Several open months: counted as if closed in order ───────────────────────
+
+
+async def _by_month_and_detail(client: AsyncClient, period: dict) -> tuple[dict, dict]:
+    response = await client.post(
+        f'{URL}/query', json={'measures': ['commission'], 'dimensions': ['date'], **period}
+    )
+    assert response.status_code == 200, response.text
+    detail = await client.post(
+        f'{URL}/detail', json={'kind': 'commission_lines', **period, 'limit': 100}
+    )
+    assert detail.status_code == 200, detail.text
+    return response.json(), detail.json()
+
+
+async def test_a_later_open_month_does_not_count_an_earlier_one_again(
+    client: AsyncClient, db: AsyncSession
+) -> None:
+    """February is closed, so March and April are both open. Spec 025's live April picks up
+    March's sale too, as if March were closed with nothing; in one query April adds only what
+    closing March first would leave, here nothing."""
+    await setup_commissions(db)
+    with patch.object(commission_service, 'local_now', return_value=datetime(2026, 3, 2)):
+        await commission_service.close(db, 2026, 2, current=ADMIN)
+    await order(db, paid=True, zeroed=datetime(2026, 3, 9), when=datetime(2026, 3, 2))
+    live_april = await commission_service.compute(db, 2026, 4)
+
+    body, detail = await _by_month_and_detail(client, {'start': '2026-03-01', 'end': '2026-04-30'})
+
+    assert sum(x.commission for x in live_april) == D('100.00')
+    assert _rows(body) == {('2026-03-01',): D('100.00')}
+    assert D(body['totals']['values']['commission']) == D('100.00')
+    assert D(detail['sums']['amount']) == D('100.00') and detail['total'] == 1
+
+
+async def test_partial_payments_over_open_months_add_up_to_the_commission(
+    client: AsyncClient, db: AsyncSession
+) -> None:
+    """Partial-payment scheme, nothing closed: 40% paid in March, the rest in April. Each live
+    month gives the commission on everything paid so far; in one query April adds the 60%."""
+    await setup_commissions(db, scheme=2)
+    order_id, _ = await order(db, when=datetime(2026, 3, 2))
+    await pay(db, order_id, '4000', datetime(2026, 3, 10))
+    await pay(db, order_id, '6000', datetime(2026, 4, 10))
+    live = {m: await commission_service.compute(db, 2026, m) for m in (3, 4)}
+
+    body, detail = await _by_month_and_detail(client, {'start': '2026-03-01', 'end': '2026-04-30'})
+
+    assert [sum(x.commission for x in live[m]) for m in (3, 4)] == [D('40.00'), D('100.00')]
+    assert _rows(body) == {('2026-03-01',): D('40.00'), ('2026-04-01',): D('60.00')}
+    assert D(detail['sums']['amount']) == D(body['totals']['values']['commission']) == D('100.00')
+    assert [i['amount'] for i in detail['items']] == ['60.00', '40.00']
+    assert [i['figures']['values']['amount'] for i in detail['items']] == ['60.00', '40.00']
 
 
 async def test_by_date_commissions_use_month_grain(
