@@ -31,7 +31,7 @@ The pseudo-schemas below are checked against `/openapi.json` by `tests/unit/test
 **Families** (research R17), checked as `require_any_privilege(..., READ)`:
 - **Inventory**: 67, 32, 99. Value, turnover, days of inventory and the purchase-sale spread also need the cost privilege (37, 38, 39).
 - **Receivables**: 18, 46. **Payables**: 19.
-- **Commissions**: 112 for every agent. Without it, a commission agent gets only their own lines (a forced `sales_agent` filter); anyone else gets `auth.forbidden`.
+- **Commissions**: 112 for every agent. Without it, a commission agent gets only their own lines (a forced `salesperson` filter: the commission line's earning agent); anyone else gets `auth.forbidden`.
 - **Fiscal**: 23, 48. **Purchases**: 20, 75.
 
 Facility scope is spec 037's (FR-061), applied per family as R17 states.

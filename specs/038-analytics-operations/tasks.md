@@ -273,7 +273,7 @@ T077 confirms that none remain.
   - an agent without 112 sees only their own lines, even when filtering another agent;
   - a non-agent without 112 gets `auth.forbidden`;
   - with a date dimension, commissions use month grain;
-  - facility scope uses the agent employee's facility.
+  - facility scope uses the facility of the agent's user record (R17).
 
 ### Implementation
 
@@ -370,7 +370,7 @@ T077 confirms that none remain.
   - the `purchases` detail has the previous price and change % through the window;
   - price-0 lines are excluded from the history;
   - `price_change` flags |change %| above `price_change_pct` (default 10);
-  - average purchase price and the spread appear only with 37–39;
+  - the spread and spread % appear only with 37–39; average purchase price shows for any purchases reader (FR-145);
   - 403 without 20 or 75;
   - facility scope uses the PO's facility.
 

@@ -205,10 +205,10 @@ Measured for 2025: 57% coverage by amount; $130.6M of $287M invoiced is standalo
 
 **Price history**: the `purchases` detail kind lists lines with the previous purchase price of the same product, via `LAG` over (product, date, line id). It shows the change and the change %, and flags it when |change %| > `price_change_pct` (default 10, per request). Lines with price 0 are excluded from the history.
 
-**Purchase against sale** (cost privilege):
-- **Average purchase price** = purchase amount ÷ purchase quantity.
+**Purchase against sale**:
+- **Average purchase price** = purchase amount ÷ purchase quantity. Visible to any purchases reader (FR-145), who already sees every line's price.
 - **Average sale price** = spec 037's gross sales without VAT ÷ units sold.
-- **Spread** is their difference and %, by product and period.
+- **Spread** is their difference and %, by product and period, cost privilege only (FR-146).
 
 ## R14. Saved views
 
@@ -273,9 +273,9 @@ It stops (failed, `auth.forbidden`) if the owner's status is not active: the err
 Facility scope:
 - inventory: the warehouse's facility;
 - receivables: the order's facility;
-- payables and purchases: the PO's facility;
+- payables and purchases: the facility of the PO's header warehouse (`purchase_order` has no facility column);
 - fiscal: the issuing facility;
-- commissions: the agent employee's facility.
+- commissions: the facility of the agent's user record (`user.employee` = the line's `salesperson`). An agent with no user is visible only to callers with no facility scope.
 
 ## R18. Performance
 
