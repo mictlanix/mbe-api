@@ -20,6 +20,7 @@ from app.core.errors import DomainError
 from app.db.session import get_db
 from app.enums import AccessRight
 from app.schemas.analytics import (
+    KARDEX_MAX_LIMIT,
     AnalyticsCatalogResponse,
     AnalyticsDashboardRequest,
     AnalyticsDashboardResponse,
@@ -28,6 +29,8 @@ from app.schemas.analytics import (
     AnalyticsDimension,
     AnalyticsExportRequest,
     AnalyticsExportResponse,
+    AnalyticsKardexRequest,
+    AnalyticsKardexResponse,
     AnalyticsMeasure,
     AnalyticsQueryRequest,
     AnalyticsQueryResponse,
@@ -35,8 +38,8 @@ from app.schemas.analytics import (
     DimensionKey,
     ExportFormat,
 )
-from app.services.analytics import cache, catalog, dashboard, detail, engine, exports
-from app.services.analytics.catalog import DIMENSIONS, FAMILY_PRIVILEGES
+from app.services.analytics import cache, catalog, dashboard, detail, engine, exports, kardex
+from app.services.analytics.catalog import DIMENSIONS, FAMILY_PRIVILEGES, Family
 
 router = APIRouter()
 
@@ -151,6 +154,34 @@ async def read_detail(
     return JSONResponse(detail.serialize_items(result, cost))
 
 
+#: The inventory family's privileges: the kardex is inventory only (spec 038, R17).
+_INVENTORY = require_any_privilege(
+    *((system_object, AccessRight.READ) for system_object in FAMILY_PRIVILEGES[Family.INVENTORY])
+)
+
+
+@router.get('/kardex', response_model=AnalyticsKardexResponse)
+async def read_kardex(
+    product: int,
+    warehouse: int,
+    start: date,
+    end: date,
+    skip: int = Query(default=0, ge=0),
+    limit: int = Query(default=100, ge=1, le=KARDEX_MAX_LIMIT),
+    current: CurrentUser = Depends(_INVENTORY),
+    db: AsyncSession = Depends(get_db),
+) -> JSONResponse:
+    """One product's ledger in one warehouse with its running balance, over any range from the
+    stock history start (2025-02-07), paged (FR-104). Each page continues the balance from the
+    entries before it. The warehouse's facility must be in the caller's scope. `unit_cost` and
+    each row's `value` (balance × today's cost) are present only with the cost privilege."""
+    request = AnalyticsKardexRequest(
+        product=product, warehouse=warehouse, start=start, end=end, skip=skip, limit=limit
+    )
+    _, cost = await kardex.check(db, request, current)
+    return JSONResponse(kardex.serialize(await kardex.read(db, request, cost=cost), cost))
+
+
 @router.post(
     '/exports',
     response_class=Response,
@@ -167,10 +198,10 @@ async def create_export(
     current: CurrentUser = Depends(_ANY_FAMILY),
     db: AsyncSession = Depends(get_db),
 ) -> Response:
-    """Export a query, the dashboard or a detail as XLSX, PDF or CSV (FR-050–FR-055), from the same
-    definition the screen ran. Up to 10,000 rows the file comes back at once; above, an XLSX or CSV
-    runs in the background and is downloaded by its owner for 24 hours. Bulk detail downloads
-    (FR-055) need Download CSV files (113)."""
+    """Export a query, the dashboard, a detail or a kardex as XLSX, PDF or CSV (FR-050–FR-055),
+    from the same definition the screen ran. Up to 10,000 rows the file comes back at once; above,
+    an XLSX or CSV runs in the background and is downloaded by its owner for 24 hours. Bulk detail
+    downloads (FR-055) need Download CSV files (113)."""
     checked = await exports.check(db, request, current)
     rows, answer = await exports.build_table(db, checked, count_only=True)
     mode = exports.export_mode(checked.format, rows)

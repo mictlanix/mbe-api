@@ -498,19 +498,31 @@ class AnalyticsDetailRequest(BaseModel):
         return self
 
 
+class AnalyticsDetailFigures(BaseModel):
+    """A kind's own columns (spec 038), as decimal strings or ISO dates; null where not known."""
+
+    values: dict[str, str | None] = Field(
+        description='stock: on_hand, reserved, available, in_transit, velocity, cover, '
+        'reorder_point, suggested, last_movement, value (cost privilege only) | movements: '
+        'movement_type, source, reference'
+    )
+
+
 class AnalyticsDetailItem(BaseModel):
     kind: DetailKind
     id: int = Field(
         description='sales_order_id | sales_order_detail_id | customer_refund_id | '
-        'fiscal_document_id | customer_payment_id'
+        'fiscal_document_id | customer_payment_id | product (stock) | lot_serial_tracking_id '
+        '(movements)'
     )
-    document_id: int = Field(
+    document_id: int | None = Field(
+        default=None,
         description='The document to open: the order for a line, the refund, the fiscal '
-        'document, the payment.'
+        "document, the payment, a movement's document; null for stock pairs.",
     )
     folio: str | None
-    date: LocalDateTime
-    facility: int
+    date: LocalDateTime | None = Field(default=None, description='Null for stock pairs.')
+    facility: int | None = None
     customer: int | None
     customer_name: str | None
     salesperson: int | None
@@ -518,18 +530,25 @@ class AnalyticsDetailItem(BaseModel):
     product_code: str | None
     product_name: str | None
     quantity: Decimal | None
-    amount: Decimal = Field(
+    amount: Decimal | None = Field(
+        default=None,
         description="Positive: a line's or order's sales amount, a refund's, a credit note's, or "
         "a payment's amount in its class; the balance with flag=overdue; with the request's VAT "
-        'treatment.'
+        'treatment. Null where a kind has no amount (stock, movements).',
     )
     cost: Decimal | None = Field(
-        default=None, description='Cost privilege only, absent otherwise; null on uncosted lines.'
+        default=None,
+        description="Cost privilege only, absent otherwise; null on uncosted lines. A stock pair's "
+        'unit cost.',
     )
     margin: Decimal | None = Field(
         default=None, description='Cost privilege only, absent otherwise.'
     )
     payment_method: int | None
+    warehouse: int | None = Field(default=None, description='Stock and movements.')
+    figures: AnalyticsDetailFigures | None = Field(
+        default=None, description="Spec 038 kinds: the kind's own columns."
+    )
 
 
 class AnalyticsDetailResponse(BaseModel):
@@ -560,7 +579,7 @@ class AnalyticsPoint(BaseModel):
 class AnalyticsKpi(BaseModel):
     key: str = Field(
         description='net_sales | margin_pct | orders | average_ticket | collected_today | '
-        'collected | refunds | cost_coverage'
+        'collected | refunds | cost_coverage | stock_value'
     )
     value: Decimal | None
     comparison: Decimal | None
@@ -573,7 +592,7 @@ class AnalyticsKpi(BaseModel):
 class AnalyticsSeries(BaseModel):
     key: str = Field(
         description='sales_over_time | sales_by_facility | sales_by_label | sales_by_brand | '
-        'top_products | top_customers | payment_mix | heatmap'
+        'top_products | top_customers | payment_mix | heatmap | stock_value_by_facility'
     )
     chart: str = Field(description='line | bar | donut | heatmap')
     query: AnalyticsQueryResponse
@@ -581,7 +600,8 @@ class AnalyticsSeries(BaseModel):
 
 class AnalyticsAlert(BaseModel):
     key: str = Field(
-        description='overdue_credit_orders | lines_below_cost | lines_without_cost | refund_rate'
+        description='overdue_credit_orders | lines_below_cost | lines_without_cost | refund_rate '
+        '| stock_outs | below_reorder | dead_stock | uncosted_stock'
     )
     facility: int | None = Field(
         default=None, description='refund_rate only: one alert per facility where it fires.'
@@ -601,6 +621,55 @@ class AnalyticsDashboardResponse(BaseModel):
     alerts: list[AnalyticsAlert]
 
 
+# ── Kardex (spec 038, research R6) ────────────────────────────────────────────
+
+#: The most entries one kardex page holds.
+KARDEX_MAX_LIMIT = 500
+
+
+class AnalyticsKardexRequest(BaseModel):
+    """One product's ledger in one warehouse, any range from the stock history start, paged."""
+
+    product: int
+    warehouse: int
+    start: date
+    end: date
+    skip: int = Field(default=0, ge=0)
+    limit: int = Field(default=100, ge=1, le=KARDEX_MAX_LIMIT)
+
+
+class AnalyticsKardexRow(BaseModel):
+    date: LocalDateTime
+    movement_type: int
+    source: str
+    reference: int
+    document_id: int | None = Field(description='Null when the entry does not resolve.')
+    quantity: Decimal = Field(description='Signed: positive in, negative out.')
+    balance: Decimal
+    value: Decimal | None = Field(
+        default=None,
+        description='Balance × unit_cost. Cost privilege only, absent otherwise; null when the '
+        'product is uncosted.',
+    )
+
+
+class AnalyticsKardexResponse(BaseModel):
+    as_of: LocalDateTime
+    product: int
+    warehouse: int
+    start: date
+    end: date
+    opening: Decimal = Field(description='The balance before start.')
+    unit_cost: Decimal | None = Field(
+        default=None,
+        description="Today's list-0 cost, without VAT. Cost privilege only, absent otherwise; "
+        'null when uncosted (0, or at least the placeholder).',
+    )
+    rows: list[AnalyticsKardexRow]
+    total: int
+    closing: Decimal = Field(description='The balance at the end of end.')
+
+
 # ── Exports ───────────────────────────────────────────────────────────────────
 
 
@@ -611,6 +680,9 @@ class AnalyticsExportRequest(BaseModel):
     query: AnalyticsQueryRequest | None = None
     dashboard: AnalyticsDashboardRequest | None = None
     detail: AnalyticsDetailRequest | None = None
+    kardex: AnalyticsKardexRequest | None = Field(
+        default=None, description='Spec 038: every entry of the range; skip and limit are ignored.'
+    )
 
 
 class AnalyticsExportResponse(BaseModel):

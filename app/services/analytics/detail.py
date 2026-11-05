@@ -7,7 +7,9 @@ document. `sums` cover every page; which one equals which measure is the contrac
 """
 
 from collections.abc import Sequence
+from datetime import datetime
 from decimal import Decimal
+from types import SimpleNamespace
 from typing import Any
 
 from sqlalchemy import Select, case, func, literal, null, select, true
@@ -24,6 +26,7 @@ from app.models.fiscal import FiscalDocument
 from app.models.product import Product
 from app.models.sales import CustomerPayment, CustomerRefund, SalesOrder
 from app.schemas.analytics import (
+    AnalyticsDetailFigures,
     AnalyticsDetailItem,
     AnalyticsDetailRequest,
     AnalyticsDetailResponse,
@@ -31,10 +34,11 @@ from app.schemas.analytics import (
     DetailKind,
     Grain,
     MeasureKey,
+    StockOptions,
     VatTreatment,
 )
-from app.services import sales_order_service
-from app.services.analytics import engine, facts
+from app.services import kardex_service, sales_order_service
+from app.services.analytics import balances, engine, facts
 from app.services.analytics.catalog import DIMENSIONS, Availability, Fact, Family
 
 KIND_FACT = {
@@ -43,6 +47,8 @@ KIND_FACT = {
     DetailKind.REFUNDS: Fact.REFUND_LINE,
     DetailKind.CREDIT_NOTES: Fact.CREDIT_NOTE,
     DetailKind.PAYMENTS: Fact.PAYMENT,
+    DetailKind.STOCK: Fact.STOCK,
+    DetailKind.MOVEMENTS: Fact.MOVEMENT,
 }
 #: The measure a kind's refusals name (`analytics.dimension_not_applicable`).
 KIND_MEASURE = {
@@ -51,17 +57,36 @@ KIND_MEASURE = {
     DetailKind.REFUNDS: MeasureKey.REFUNDS,
     DetailKind.CREDIT_NOTES: MeasureKey.CREDIT_NOTES,
     DetailKind.PAYMENTS: MeasureKey.COLLECTED,
+    DetailKind.STOCK: MeasureKey.ON_HAND,
+    DetailKind.MOVEMENTS: MeasureKey.UNITS_IN,
 }
-#: Read on the document kind, besides the family (FR-060).
+#: The family a kind belongs to; the rest are sales.
+KIND_FAMILY = {
+    DetailKind.PAYMENTS: Family.PAYMENTS,
+    DetailKind.STOCK: Family.INVENTORY,
+    DetailKind.MOVEMENTS: Family.INVENTORY,
+}
+#: Read on the document kind, besides the family (FR-060); stock pairs need none.
 KIND_PRIVILEGE = {
     DetailKind.ORDERS: SystemObject.SALES_ORDERS,
     DetailKind.LINES: SystemObject.SALES_ORDERS,
     DetailKind.REFUNDS: SystemObject.CUSTOMER_REFUNDS,
     DetailKind.CREDIT_NOTES: SystemObject.FISCAL_DOCUMENTS,
     DetailKind.PAYMENTS: SystemObject.CUSTOMER_PAYMENTS,
+    DetailKind.MOVEMENTS: SystemObject.KARDEX,
 }
 COST_FLAGS = {DetailFlag.BELOW_COST, DetailFlag.WITHOUT_COST}
 SENSITIVE_KEYS = {'cost', 'margin'}
+#: A stock pair's value is cost-derived too: left out of its figures and of `sums` (spec 038).
+SENSITIVE_VALUES = {'value'}
+#: What each stock flag selects (research R5).
+STOCK_FLAGS = {
+    DetailFlag.STOCK_OUT: lambda pair: pair.stock_out,
+    DetailFlag.BELOW_REORDER: lambda pair: pair.below_reorder,
+    DetailFlag.DEAD: lambda pair: pair.dead,
+    DetailFlag.SLOW: lambda pair: pair.slow,
+    DetailFlag.UNCOSTED: lambda pair: pair.uncosted,
+}
 SORTS = {'date', 'amount', 'document'}
 
 
@@ -82,11 +107,15 @@ async def check(
 ) -> tuple[int | None, bool]:
     """Privileges, scope and applicability. Returns the facility scope and cost visibility."""
     engine.validate_period(request.start, request.end)
+    if request.kind is DetailKind.STOCK:
+        engine.history_guard([MeasureKey.ON_HAND], stock_moment(request), request.end)
+    elif request.kind is DetailKind.MOVEMENTS:
+        engine.history_guard([MeasureKey.UNITS_IN], request.start, request.end)
     held = await engine.families(db, current)
-    family = Family.PAYMENTS if request.kind is DetailKind.PAYMENTS else Family.SALES
+    family = KIND_FAMILY.get(request.kind, Family.SALES)
     if family not in held:
         raise engine.family_forbidden(family)
-    if not current.administrator:
+    if not current.administrator and request.kind in KIND_PRIVILEGE:
         grant = (KIND_PRIVILEGE[request.kind], AccessRight.READ)
         if not await has_any_privilege(db, current.user_id, [grant]):
             raise forbidden([grant])
@@ -205,6 +234,10 @@ async def execute(
     as_of = local_now()
     if request.flag is DetailFlag.OVERDUE:
         return await _overdue(db, request, facility, as_of, everything=everything)
+    if request.kind is DetailKind.STOCK:
+        return await _stock(db, request, facility, as_of, everything=everything)
+    if request.kind is DetailKind.MOVEMENTS:
+        return await _movements(db, request, facility, as_of, everything=everything)
     base = _base(request, facility).subquery('detail')
     total = (await db.execute(select(func.count()).select_from(base))).scalar_one()
     aggregate = (
@@ -353,10 +386,185 @@ async def _customer_names(db: AsyncSession, ids: Sequence[int]) -> dict[int, str
 
 def serialize_items(response: AnalyticsDetailResponse, cost_visible: bool) -> dict[str, Any]:
     """The response as JSON-ready data. Without the cost privilege, `cost` and `margin` are left
-    out of every item and of `sums`: absent, not null (FR-042, SC-005). Holders keep a null cost on
-    an uncosted line, which is why this never uses `exclude_none`."""
+    out of every item and of `sums`, and so is a stock pair's value: absent, not null (FR-042,
+    SC-005). Holders keep a null cost on an uncosted line, which is why this never uses
+    `exclude_none`."""
     if cost_visible:
         return response.model_dump(mode='json')
     data = response.model_dump(mode='json', exclude={'items': {'__all__': SENSITIVE_KEYS}})
-    data['sums'] = {k: v for k, v in data['sums'].items() if k not in SENSITIVE_KEYS}
+    for item in data['items']:
+        if item.get('figures'):
+            for key in SENSITIVE_VALUES:
+                item['figures']['values'].pop(key, None)
+    hidden = SENSITIVE_KEYS | SENSITIVE_VALUES
+    data['sums'] = {k: v for k, v in data['sums'].items() if k not in hidden}
     return data
+
+
+# ── Stock and movements (spec 038) ────────────────────────────────────────────
+
+
+def stock_moment(request: AnalyticsDetailRequest) -> Any:
+    """Stock pairs are listed as of the end of the period, or now when it reaches today."""
+    return min(request.end, local_now().date())
+
+
+def _text(value: Decimal | None, step: Decimal = engine.QUANTITY) -> str | None:
+    return None if value is None else str(value.quantize(step, rounding='ROUND_HALF_UP'))
+
+
+def _stock_figures(pair: balances.Pair) -> dict[str, str | None]:
+    cover = pair.cover
+    return {
+        'on_hand': _text(pair.on_hand),
+        'reserved': _text(pair.reserved),
+        'available': _text(pair.available) if pair.reserved is not None else None,
+        'in_transit': _text(pair.in_transit),
+        'velocity': _text(pair.velocity),
+        'cover': _text(cover, engine.DAYS),
+        'reorder_point': _text(pair.reorder_point),
+        'suggested': _text(pair.suggested),
+        'last_movement': None if pair.last is None else pair.last.isoformat(),
+        'value': str(engine.money(pair.value_c)) if pair.cost is not None else None,
+    }
+
+
+async def _stock(
+    db: AsyncSession,
+    request: AnalyticsDetailRequest,
+    facility: int | None,
+    as_of: datetime,
+    *,
+    everything: bool,
+) -> AnalyticsDetailResponse:
+    """The product × warehouse pairs at the moment, with R5's figures at the default options, and
+    a flag's pairs only. The pairs are what the stock fact sums, so the sums equal the query."""
+    moment = stock_moment(request)
+    options = StockOptions()
+    found = await balances.ledger(
+        db,
+        [moment],
+        facility=facility,
+        filters=engine.parse_filters(request.filters),
+        options=options,
+    )
+    keep = STOCK_FLAGS.get(request.flag) if request.flag is not None else None
+    pairs = [
+        pair
+        for pair in found.pairs[moment]
+        if (keep(pair) if keep is not None else any(balances.columns(pair, options).values()))
+    ]
+    info = found.products
+
+    def code(pair: balances.Pair) -> str:
+        return info.get(pair.product, balances.ProductInfo()).code or ''
+
+    # Sorted by code and warehouse, then stably by the requested column, null last: `date` is the
+    # last movement, `amount` the on hand, `document` the product code.
+    name, descending = parse_sort(request.sort)
+    pairs.sort(key=lambda pair: (code(pair), pair.warehouse))
+    value = {'date': lambda p: p.last, 'amount': lambda p: p.on_hand, 'document': code}[name]
+    present = sorted((p for p in pairs if value(p) is not None), key=value, reverse=descending)
+    pairs = present + [p for p in pairs if value(p) is None]
+    shown = pairs if everything else pairs[request.skip : request.skip + request.limit]
+    items = [
+        AnalyticsDetailItem(
+            kind=DetailKind.STOCK, id=pair.product, folio=None, facility=pair.facility,
+            customer=None, customer_name=None, salesperson=None, product=pair.product,
+            product_code=info.get(pair.product, balances.ProductInfo()).code,
+            product_name=info.get(pair.product, balances.ProductInfo()).name,
+            quantity=engine.quantity(pair.on_hand), cost=pair.cost, payment_method=None,
+            warehouse=pair.warehouse, figures=AnalyticsDetailFigures(values=_stock_figures(pair)),
+        )
+        for pair in shown
+    ]  # fmt: skip
+    sums = {
+        'quantity': engine.quantity(sum((p.on_hand for p in pairs), Decimal(0))),
+        'suggested': engine.quantity(sum((p.suggested for p in pairs), Decimal(0))),
+        'value': engine.money(sum(p.value_c for p in pairs)),
+    }
+    return AnalyticsDetailResponse(as_of=as_of, items=items, total=len(pairs), sums=sums)
+
+
+async def _movements(
+    db: AsyncSession,
+    request: AnalyticsDetailRequest,
+    facility: int | None,
+    as_of: datetime,
+    *,
+    everything: bool,
+) -> AnalyticsDetailResponse:
+    """The ledger entries of the period, each resolved to its document as the kardex does."""
+    rows, joins, conditions = _filtered(Fact.MOVEMENT, request, facility)
+    c = rows.c
+    base = (
+        joins.apply(
+            select(
+                c.id, c.at, c.facility, c.warehouse, c.product, c.qty.label('quantity'),
+                c.movement_type, c.reference, c.units_in, c.units_out,
+            ).select_from(rows)
+        )
+        .where(true(), *conditions)
+        .subquery('detail')
+    )  # fmt: skip
+    total = (await db.execute(select(func.count()).select_from(base))).scalar_one()
+    aggregate = (
+        await db.execute(
+            select(
+                func.coalesce(func.sum(base.c.quantity), 0),
+                func.coalesce(func.sum(base.c.units_in), 0),
+                func.coalesce(func.sum(base.c.units_out), 0),
+            )
+        )
+    ).one()
+    sums = {
+        'quantity': engine.quantity(aggregate[0]),
+        'units_in': engine.quantity(aggregate[1]),
+        'units_out': engine.quantity(aggregate[2]),
+    }
+    name, descending = parse_sort(request.sort)
+    order = {'date': base.c.at, 'amount': base.c.quantity, 'document': base.c.reference}[name]
+    page = (
+        select(base, Product.code.label('product_code'), Product.name.label('product_name'))
+        .outerjoin(Product, Product.product_id == base.c.product)
+        .order_by(
+            order.desc() if descending else order.asc(),
+            base.c.id.desc() if descending else base.c.id,
+        )
+    )
+    if not everything:
+        page = page.offset(request.skip).limit(request.limit)
+    found = (await db.execute(page)).all()
+    entries = [
+        SimpleNamespace(
+            lot_serial_tracking_id=row.id, source=row.movement_type, reference=row.reference,
+            product=row.product,
+        )
+        for row in found
+    ]  # fmt: skip
+    documents = await kardex_service._documents(
+        db, kardex_service.references_by_type(entries), {row.product for row in found}
+    )
+    resolved = kardex_service.resolve(entries, documents)
+    items = []
+    for row in found:
+        document = resolved.get(row.id)
+        items.append(
+            AnalyticsDetailItem(
+                kind=DetailKind.MOVEMENTS, id=row.id,
+                document_id=None if document is None else document.id,
+                folio=None if document is None or document.serial is None else str(document.serial),
+                date=row.at, facility=row.facility, customer=None, customer_name=None,
+                salesperson=None, product=row.product, product_code=row.product_code,
+                product_name=row.product_name, quantity=engine.quantity(row.quantity),
+                payment_method=None, warehouse=row.warehouse,
+                figures=AnalyticsDetailFigures(
+                    values={
+                        'movement_type': str(row.movement_type),
+                        'source': kardex_service.source_name(row.movement_type),
+                        'reference': str(row.reference),
+                    }
+                ),
+            )
+        )  # fmt: skip
+    return AnalyticsDetailResponse(as_of=as_of, items=items, total=total, sums=sums)

@@ -20,6 +20,7 @@ from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.core.clock import local_now
+from app.core.config import settings
 from app.core.deps import CurrentUser
 from app.schemas.analytics import (
     AnalyticsAlert,
@@ -38,11 +39,12 @@ from app.schemas.analytics import (
     DimensionKey,
     Grain,
     MeasureKey,
+    StockOptions,
     VatTreatment,
 )
 from app.services import sales_order_service
 from app.services.analytics import engine, facts
-from app.services.analytics.catalog import Fact, Family
+from app.services.analytics.catalog import MEASURE_FAMILIES, Fact, Family
 
 #: Sparklines: day grain up to 62 days, week up to a year, then month (contracts/api.md "Tiles").
 DAY_LIMIT = 62
@@ -188,7 +190,7 @@ async def build(
     engine.validate_period(request.start, request.end)
     if held is None:
         held = await engine.families(db, current)
-    if not held & {Family.SALES, Family.PAYMENTS}:
+    if not held & set(MEASURE_FAMILIES):
         raise engine.family_forbidden(Family.SALES)
     facility = await engine.resolve_scope(db, current, request.facility)
     comparison = request.comparison or Comparison.PREVIOUS_PERIOD
@@ -196,6 +198,8 @@ async def build(
     before_start, before_end = engine.comparison_period(request.start, request.end, comparison)
     grain = sparkline_grain(request.start, request.end)
     sales, cost, payments = (Family.SALES in held, Family.COST in held, Family.PAYMENTS in held)
+    # Stock is read only within its history (spec 038, R3), as the query refuses before it.
+    inventory = Family.INVENTORY in held and request.start >= settings.stock_history_start
     today = local_now().date()
 
     planned: list[tuple[str, str, AnalyticsQueryRequest]] = []
@@ -232,11 +236,22 @@ async def build(
             comparison=Comparison.PREVIOUS_PERIOD,
         )  # fmt: skip
         plan('payment_mix', 'donut', collected, DimensionKey.PAYMENT_METHOD)
+    if inventory and cost:
+        value = [MeasureKey.STOCK_VALUE]
+        plan('stock_value', '', value, DimensionKey.DATE, grain=grain)
+        # With the alerts' options, so its totals are the alerts' stock query (R18).
+        plan(
+            'stock_value_by_facility', 'bar', value, DimensionKey.FACILITY, comparison=None,
+            stock_options=StockOptions(),
+        )  # fmt: skip
 
     prepared = [_prepared(definition, facility, held) for _, _, definition in planned]
     wanted = [pair for one in prepared for pair in engine.wanted(one)]
     if sales:
         wanted += _alert_facts(request, facility)
+    stock_alerts = _prepared(_stock_alert_definition(request, facility), facility, held)
+    if inventory:
+        wanted += engine.wanted(stock_alerts)
     distinct = {engine.fact_key(fact, slice_): (fact, slice_) for fact, slice_ in wanted}
     jobs = [_fact_job(fact, slice_) for fact, slice_ in distinct.values()]
     if sales:
@@ -280,6 +295,13 @@ async def build(
                 'refunds', MeasureKey.REFUNDS, answered['sales_over_time'], request, facility, grain
             )
         )
+    if inventory and cost:
+        kpis.append(
+            _kpi(
+                'stock_value', MeasureKey.STOCK_VALUE, answered['stock_value'], request, facility,
+                grain,
+            )
+        )  # fmt: skip
 
     series = [
         AnalyticsSeries(key=name, chart=chart, query=answered[name])
@@ -287,6 +309,8 @@ async def build(
         if chart
     ]
     alerts = _alerts(request, facility, found, overdue, sales=sales, cost=cost)
+    if inventory:
+        alerts += _stock_alerts(request, facility, found, stock_alerts, cost=cost)
     return AnalyticsDashboardResponse(
         as_of=local_now(),
         definition=request,
@@ -378,6 +402,58 @@ def _alerts(
                 )
 
     alerts += _refund_rate_alerts(request, facility, found, by_facility, history)
+    return alerts
+
+
+def _stock_alert_definition(
+    request: AnalyticsDashboardRequest, facility: int | None
+) -> AnalyticsQueryRequest:
+    """The stock as of the period's end with the default options: one stock query counts every
+    inventory alert, the same pairs the `stock` detail lists with each flag (spec 038)."""
+    return _definition(
+        request, facility, measures=[MeasureKey.STOCK_OUT_PAIRS], comparison=None,
+        stock_options=StockOptions(),
+    )  # fmt: skip
+
+
+#: Each inventory alert: its key, the stock fact's count and amount columns, its flag, and whether
+#: it needs the cost privilege. Dead stock means no movement in 180 days, the default.
+STOCK_ALERTS = (
+    ('stock_outs', 'stock_outs', None, DetailFlag.STOCK_OUT, False),
+    ('below_reorder', 'below', None, DetailFlag.BELOW_REORDER, False),
+    ('dead_stock', 'dead_pairs', 'dead_value_c', DetailFlag.DEAD, True),
+    ('uncosted_stock', 'uncosted_pairs', None, DetailFlag.UNCOSTED, False),
+)
+
+
+def _stock_alerts(
+    request: AnalyticsDashboardRequest,
+    facility: int | None,
+    found: engine.Found,
+    prepared: engine.Prepared,
+    *,
+    cost: bool,
+) -> list[AnalyticsAlert]:
+    rows = [
+        row
+        for fact, slice_ in engine.wanted(prepared)[:1]
+        for row in found[engine.fact_key(fact, slice_)]
+    ]
+    alerts: list[AnalyticsAlert] = []
+    for key, count, amount, flag, sensitive in STOCK_ALERTS:
+        total = sum(int(row.get(count, 0) or 0) for row in rows)
+        if not total or (sensitive and not cost):
+            continue
+        alerts.append(
+            AnalyticsAlert(
+                key=key,
+                count=total,
+                amount=engine.money(sum(int(row.get(amount, 0)) for row in rows))
+                if amount
+                else None,
+                detail=_detail(request, facility, kind=DetailKind.STOCK, flag=flag),
+            )
+        )
     return alerts
 
 

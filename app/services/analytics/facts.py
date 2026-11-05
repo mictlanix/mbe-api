@@ -32,9 +32,10 @@ from sqlalchemy.sql.expression import ColumnElement, Subquery
 
 from app.core.config import settings
 from app.enums import FiscalDocumentType, PaymentTerms, PaymentType
-from app.models.core import CashSession
+from app.models.core import CashSession, Warehouse
 from app.models.customer import Customer
 from app.models.fiscal import FiscalDocument, FiscalDocumentDetail
+from app.models.inventory import LotSerialTracking
 from app.models.product import Product, product_label
 from app.models.sales import (
     CustomerPayment,
@@ -44,7 +45,7 @@ from app.models.sales import (
     SalesOrderDetail,
     SalesOrderPayment,
 )
-from app.schemas.analytics import DimensionKey, Grain
+from app.schemas.analytics import DimensionKey, Grain, StockOptions
 from app.services.analytics.catalog import DIMENSIONS, Availability, Fact
 from app.services.analytics.sql import cents, hour_of, period_bounds, period_start, weekday
 
@@ -64,6 +65,9 @@ class Slice:
     `moments` is set only for a balance fact (spec 038, research R1): the days at whose end it
     gives its values. Its slice then has neither a date dimension nor a date filter; the engine
     places each moment's values in their date bucket.
+
+    `stock_options` is set only for the stock fact, when a measure reads velocity, cover, dead or
+    slow stock (research R5); without it the fact skips them.
     """
 
     dimensions: tuple[DimensionKey, ...] = ()
@@ -73,6 +77,7 @@ class Slice:
     end: date = date.max
     facility: int | None = None
     moments: tuple[date, ...] = ()
+    stock_options: StockOptions | None = None
 
 
 # ── Line pricing (mirrors totals.line_amounts) ────────────────────────────────
@@ -319,12 +324,50 @@ def payment_rows(start: date, end: date, facility: int | None) -> Subquery:
     return query.subquery('payments')
 
 
+#: A movement's document as one number, so `COUNT(DISTINCT …)` works on both dialects: the
+#: ledger type in the high digits, the reference below (references stay under 10^10).
+DOCUMENT_BASE = 10_000_000_000
+
+
+def movement_rows(start: date, end: date, facility: int | None) -> Subquery:
+    """Every ledger entry of the period (spec 038, research R2), placed by its warehouse.
+
+    The facility is the warehouse's, so stock in a transit warehouse counts for the facility it is
+    travelling to (spec 030, `split_transit`). The supplier is the product's.
+    """
+    entry = LotSerialTracking
+    since, until = period_bounds(start, end)
+    query = (
+        select(
+            entry.lot_serial_tracking_id.label('id'),
+            entry.date.label('at'),
+            entry.product.label('product'),
+            entry.warehouse.label('warehouse'),
+            Warehouse.facility.label('facility'),
+            entry.source.label('movement_type'),
+            entry.reference.label('reference'),
+            Product.supplier.label('supplier'),
+            entry.quantity.label('qty'),
+            case((entry.quantity > 0, entry.quantity), else_=0).label('units_in'),
+            case((entry.quantity < 0, -entry.quantity), else_=0).label('units_out'),
+            (entry.source * DOCUMENT_BASE + entry.reference).label('doc'),
+        )
+        .join(Warehouse, Warehouse.warehouse_id == entry.warehouse)
+        .join(Product, Product.product_id == entry.product)
+        .where(entry.date >= since, entry.date < until)
+    )
+    if facility is not None:
+        query = query.where(Warehouse.facility == facility)
+    return query.subquery('movements')
+
+
 #: The row source of each fact, by period and facility scope.
 SOURCES = {
     Fact.SALE_LINE: sale_lines,
     Fact.REFUND_LINE: refund_lines,
     Fact.CREDIT_NOTE: credit_note_lines,
     Fact.PAYMENT: payment_rows,
+    Fact.MOVEMENT: movement_rows,
 }
 
 #: What each fact sums, by output name.
@@ -333,6 +376,7 @@ _SUMS = {
     Fact.REFUND_LINE: ('sub_c', 'tax_c', 'cost_c', 'qty'),
     Fact.CREDIT_NOTE: ('sub_c', 'tax_c'),
     Fact.PAYMENT: ('collected_c', 'paid_out_c', 'store_c'),
+    Fact.MOVEMENT: ('units_in', 'units_out'),
 }
 
 
@@ -463,6 +507,11 @@ def query(fact: Fact, slice_: Slice) -> Select:
         columns.append(func.count(func.distinct(c.doc)).label('documents'))
     if fact is Fact.PAYMENT:
         columns.append(_sum(case((c['class'] == COLLECTED, 1), else_=0)).label('payments'))
+    if fact is Fact.MOVEMENT:
+        columns += [
+            func.count().label('entries'),
+            func.count(func.distinct(c.doc)).label('documents'),
+        ]
 
     statement = joins.apply(select(*columns).select_from(rows)).where(true(), *conditions)
     if grouped:

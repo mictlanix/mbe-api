@@ -43,6 +43,8 @@ from app.schemas.analytics import (
     AnalyticsDetailResponse,
     AnalyticsExportRequest,
     AnalyticsExportResponse,
+    AnalyticsKardexRequest,
+    AnalyticsKardexResponse,
     AnalyticsQueryRequest,
     AnalyticsQueryResponse,
     DetailKind,
@@ -53,8 +55,8 @@ from app.schemas.analytics import (
     MeasureKey,
 )
 from app.services import print_contexts
-from app.services.analytics import dashboard, detail, engine
-from app.services.analytics.catalog import DIMENSIONS, MEASURES, Family
+from app.services.analytics import dashboard, detail, engine, kardex
+from app.services.analytics.catalog import DIMENSIONS, MEASURE_FAMILIES, MEASURES, Family
 
 log = logging.getLogger(__name__)
 
@@ -65,7 +67,12 @@ LANDSCAPE_COLUMNS = 8
 EXPIRY = timedelta(hours=24)
 STALE = timedelta(minutes=10)
 
-SOURCE_CODES = {ExportSource.QUERY: 0, ExportSource.DASHBOARD: 1, ExportSource.DETAIL: 2}
+SOURCE_CODES = {
+    ExportSource.QUERY: 0,
+    ExportSource.DASHBOARD: 1,
+    ExportSource.DETAIL: 2,
+    ExportSource.KARDEX: 3,
+}
 FORMAT_CODES = {ExportFormat.XLSX: 0, ExportFormat.PDF: 1, ExportFormat.CSV: 2}
 STATUS_CODES = {
     ExportStatus.PENDING: 0,
@@ -296,6 +303,41 @@ def detail_table(
     return Table('Detalle', columns, rows, totals, cover)
 
 
+def kardex_table(
+    result: AnalyticsKardexResponse, cost: bool, cover: list[tuple[str, str]]
+) -> Table:
+    """Every entry of the range with its running balance; the value column with cost only."""
+    columns = [
+        Column('date', 'Fecha', 'datetime'),
+        Column('movement_type', 'Tipo', 'int'),
+        Column('source', 'Movimiento', 'text'),
+        Column('reference', 'Referencia', 'int'),
+        Column('document_id', 'Documento', 'int'),
+        Column('quantity', 'Cantidad', 'quantity'),
+        Column('balance', 'Saldo', 'quantity'),
+    ]
+    if cost:
+        columns.append(Column('value', 'Valor', 'money'))
+    rows = [[getattr(row, c.key) for c in columns] for row in result.rows]
+    totals = [
+        'TOTAL' if c.key == 'date' else
+        result.closing - result.opening if c.key == 'quantity' else
+        result.closing if c.key == 'balance' else None
+        for c in columns
+    ]  # fmt: skip
+    columns[0] = Column('date', 'Fecha', 'text')
+    lines = [
+        ('Producto', str(result.product)),
+        ('Almacén', str(result.warehouse)),
+        ('Saldo inicial', format(result.opening, 'f')),
+        *cover,
+    ]
+    if cost:
+        unit = '' if result.unit_cost is None else format(result.unit_cost, 'f')
+        lines.append(('Costo unitario', unit or 'Sin costo'))
+    return Table('Kardex', columns, rows, totals, lines)
+
+
 # ── Running an export ─────────────────────────────────────────────────────────
 
 
@@ -306,6 +348,7 @@ def source_of(request: AnalyticsExportRequest) -> ExportSource:
             (ExportSource.QUERY, request.query),
             (ExportSource.DASHBOARD, request.dashboard),
             (ExportSource.DETAIL, request.detail),
+            (ExportSource.KARDEX, request.kardex),
         )
         if value is not None
     ]
@@ -325,7 +368,12 @@ class Checked:
 
     source: ExportSource
     format: ExportFormat
-    request: AnalyticsQueryRequest | AnalyticsDashboardRequest | AnalyticsDetailRequest
+    request: (
+        AnalyticsQueryRequest
+        | AnalyticsDashboardRequest
+        | AnalyticsDetailRequest
+        | AnalyticsKardexRequest
+    )
     facility: int | None
     families: set[Family]
     user: str
@@ -351,11 +399,14 @@ async def check(db: AsyncSession, request: AnalyticsExportRequest, current: Curr
             inner: Any = prepared.definition
             facility = prepared.facility
         case ExportSource.DASHBOARD:
-            if not held & {Family.SALES, Family.PAYMENTS}:
+            if not held & set(MEASURE_FAMILIES):
                 raise engine.family_forbidden(Family.SALES)
             engine.validate_period(request.dashboard.start, request.dashboard.end)
             facility = await engine.resolve_scope(db, current, request.dashboard.facility)
             inner = request.dashboard.model_copy(update={'facility': facility})
+        case ExportSource.KARDEX:
+            facility, _ = await kardex.check(db, request.kardex, current)
+            inner = request.kardex
         case _:
             if is_bulk_detail(request.detail) and Family.BULK not in held:
                 raise engine.family_forbidden(Family.BULK)
@@ -391,6 +442,11 @@ async def build_table(
             if count_only:
                 return result.total, None
             return result.total, detail_table(result, cost, cover)
+        case ExportSource.KARDEX:
+            found = await kardex.read(db, checked.request, cost=cost, everything=not count_only)
+            if count_only:
+                return found.total, None
+            return found.total, kardex_table(found, cost, cover)
         case _:
             # Built with the families checked at the request, so it shows what the caller saw. The
             # facility was resolved then too, which is what makes the scope check below a no-op.
@@ -439,6 +495,7 @@ SERIES_TITLES = {
     'top_customers': 'Clientes principales',
     'payment_mix': 'Cobranza por forma de pago',
     'heatmap': 'Pedidos por día y hora',
+    'stock_value_by_facility': 'Valor de inventario por sucursal',
 }
 WEEKDAYS = [(1, 'Lun'), (2, 'Mar'), (3, 'Mié'), (4, 'Jue'), (5, 'Vie'), (6, 'Sáb'), (7, 'Dom')]
 

@@ -111,6 +111,8 @@ Rules beyond spec 037's:
 
 The `overdue_credit_orders` alert of spec 037 is unchanged.
 
+Inventory tiles appear for an inventory reader when the period starts within the stock history (2025-02-07 on). The `stock_value` KPI's sparkline is the value at each bucket's end. The inventory alerts count the pairs as of the period's end at the default `StockOptions` (dead after 180 days), from one stock query shared with `stock_value_by_facility`'s totals (R18); each `count` is its detail's `total`. Only `dead_stock` has an `amount`, the dead pairs' value; the others' is null.
+
 ## Detail
 
 `DetailKind` gains these kinds:
@@ -153,11 +155,33 @@ AnalyticsDetailFigures:
 
 `figures.values` carries the kind's own columns as decimal strings or ISO dates: on hand, cover, bucket, status, rates and the like. The contract lists them per kind, as in the table above, so the shared item shape stays one schema. Sums over every page are in `sums`, as in spec 037.
 
+**`stock`** lists the pairs as of the end of the period (now when it reaches today), at the default `StockOptions`, which is what the dashboard's alerts count:
+- `id` and `product` are the product, `warehouse` the warehouse, `facility` the warehouse's; `quantity` is on hand; `cost` the unit cost (cost privilege, null when uncosted); `document_id`, `date` and `amount` are null.
+- `figures.values`: `on_hand`, `reserved` and `available` (null at a past moment), `in_transit`, `velocity`, `cover`, `reorder_point`, `suggested`, `last_movement`, and `value` (cost privilege only, absent otherwise).
+- Without a flag, every pair with stock, sales or reservations. Each flag selects R5's pairs.
+- `sums`: `quantity` (on hand: `on_hand`, `dead_stock_quantity`, `slow_stock_quantity` or `uncosted_quantity` with the matching flag), `suggested` (`suggested_quantity`), and `value` (cost privilege only: `stock_value`, `dead_stock_value`, …). `total` is the pair count (`stock_out_pairs`, `below_reorder_pairs`).
+- `sort`: `date` is the last movement, `amount` the on hand, `document` the product code.
+
+**`movements`** lists the ledger entries of the period:
+- `id` is the entry, `document_id` and `folio` its document when it resolves (as spec 030's kardex), `quantity` signed, `amount` null.
+- `figures.values`: `movement_type`, `source` (the type's name) and `reference`.
+- `sums`: `quantity` (net), `units_in` and `units_out`, equal to the measures. `sort`: `amount` is the quantity, `document` the reference.
+
 ## Kardex
 
 `GET /analytics/kardex?product=&warehouse=&start=&end=&skip=0&limit=100` (limit at most 500).
 
+The same parameters, as `AnalyticsKardexRequest`, are the `kardex` source of `POST /analytics/exports` (spec 037's `AnalyticsExportRequest` gains the field). An export takes every entry of the range; its `skip` and `limit` are ignored.
+
 ```
+AnalyticsKardexRequest:
+  product: int
+  warehouse: int
+  start: date
+  end: date
+  skip: int
+  limit: int             # 1-500, default 100
+
 AnalyticsKardexResponse:
   as_of: datetime
   product: int
@@ -183,7 +207,9 @@ AnalyticsKardexRow:
 
 - **Balances:** `opening` is the balance before `start`; each page's first row continues from the rows skipped.
 - **Cost:** `unit_cost` and `value` are present only with the cost privilege.
-- **Range:** `start` before 2025-02-07 gives `analytics.before_history`. There is no range cap.
+- **Range:** `start` before 2025-02-07 gives `analytics.before_history`. There is no range cap. An `end` before `start` gives spec 030's `kardex.range_reversed`.
+- **Scope:** a warehouse of another facility is refused with `facility.other_facility` unless the caller sees every facility.
+- **Uncosted:** with the cost privilege, `unit_cost` and `value` are null when the product's cost is 0 or at least the placeholder (R4).
 
 ## Customer 360
 

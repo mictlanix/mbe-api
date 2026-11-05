@@ -13,6 +13,10 @@ from sqlalchemy.dialects import mysql
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
 from app.db.base import Base
+from app.enums import TransactionType
+from app.models.core import Warehouse
+from app.models.inventory import LotSerialTracking
+from app.models.product import Product
 from app.models.sales import (
     CustomerRefund,
     CustomerRefundDetail,
@@ -229,3 +233,103 @@ def test_every_fact_compiles_for_mariadb(fact: Fact) -> None:
     if fact is not Fact.PAYMENT:
         assert 'ROW_NUMBER() OVER (PARTITION BY' in sql
         assert 'SUM(' in sql and ') OVER (PARTITION BY' in sql
+
+
+# ── Spec 038, T013: the movement fact (research R2) ───────────────────────────
+
+LEDGER_TABLES = [t.__table__ for t in (LotSerialTracking, Warehouse, Product)]
+MOVE = TransactionType
+
+
+def _entry(entry_id: int, source: MOVE, reference: int, warehouse: int, qty: str) -> dict:
+    return dict(
+        lot_serial_tracking_id=entry_id, source=int(source), reference=reference,
+        date=datetime(2026, 5, 10 + entry_id % 3, 9), warehouse=warehouse, product=1,
+        quantity=Decimal(qty),
+    )  # fmt: skip
+
+
+#: Two facilities' warehouses; a sale of two lines, a receipt, and a transfer from 1 to 2.
+ENTRIES = [
+    _entry(1, MOVE.SALES_ORDER, 50, 1, '-2'),
+    _entry(2, MOVE.SALES_ORDER, 50, 1, '-1'),
+    _entry(3, MOVE.INVENTORY_RECEIPT, 7, 1, '10'),
+    _entry(4, MOVE.INVENTORY_TRANSFER, 9, 1, '-4'),
+    _entry(5, MOVE.INVENTORY_TRANSFER, 9, 2, '4'),
+]
+
+
+@pytest.fixture
+async def ledger() -> AsyncEngine:
+    engine = create_async_engine('sqlite+aiosqlite://')
+    async with engine.begin() as connection:
+        await connection.run_sync(lambda c: Base.metadata.create_all(c, tables=LEDGER_TABLES))
+        await connection.execute(
+            insert(Warehouse.__table__),
+            [
+                {'warehouse_id': 1, 'facility': 1, 'code': 'W1', 'name': 'W1'},
+                {'warehouse_id': 2, 'facility': 2, 'code': 'W2', 'name': 'W2'},
+            ],
+        )
+        await connection.execute(
+            insert(Product.__table__).values(
+                product_id=1, code='P', name='P', unit_of_measurement='H87', stockable=True,
+                perishable=False, seriable=False, purchasable=True, salable=True,
+                invoiceable=True, tax_rate=Decimal('0.16'), tax_included=True, price_type=0,
+                currency=0, min_order_qty=1, status=0, stock_verification=True, supplier=3,
+            )
+        )  # fmt: skip
+        await connection.execute(insert(LotSerialTracking.__table__), ENTRIES)
+    yield engine
+    await engine.dispose()
+
+
+async def _movements(ledger: AsyncEngine, *dimensions: DimensionKey, **kw: object) -> list:
+    async with ledger.connect() as connection:
+        statement = facts.query(Fact.MOVEMENT, _slice(dimensions=dimensions, **kw))
+        return (await connection.execute(statement)).mappings().all()
+
+
+async def test_movements_count_units_in_and_out_by_type(ledger: AsyncEngine) -> None:
+    rows = {r['k0']: r for r in await _movements(ledger, DimensionKey.MOVEMENT_TYPE)}
+
+    sale = rows[int(MOVE.SALES_ORDER)]
+    assert (sale['units_in'], sale['units_out'], sale['entries']) == (0, 3, 2)
+    assert sale['documents'] == 1  # two lines of one order
+    receipt = rows[int(MOVE.INVENTORY_RECEIPT)]
+    assert (receipt['units_in'], receipt['units_out'], receipt['documents']) == (10, 0, 1)
+
+
+async def test_a_transfer_nets_to_zero_company_wide(ledger: AsyncEngine) -> None:
+    [total] = await _movements(
+        ledger, filters={DimensionKey.MOVEMENT_TYPE: (int(MOVE.INVENTORY_TRANSFER),)}
+    )
+    by_facility = {r['k0']: r for r in await _movements(ledger, DimensionKey.FACILITY)}
+
+    assert total['units_in'] - total['units_out'] == 0
+    assert total['documents'] == 1
+    # Each side is the warehouse's facility's: out of 1, into 2.
+    assert by_facility[2]['units_in'] == 4
+    assert by_facility[1]['units_out'] == 7
+
+
+async def test_movements_respect_the_facility_scope_and_the_supplier(ledger: AsyncEngine) -> None:
+    scoped = await _movements(ledger, DimensionKey.SUPPLIER, facility=2)
+
+    assert [(r['k0'], r['units_in'], r['entries']) for r in scoped] == [(3, 4, 1)]
+
+
+def test_the_movement_fact_compiles_for_mariadb() -> None:
+    statement = facts.query(
+        Fact.MOVEMENT,
+        _slice(
+            dimensions=(DimensionKey.DATE, DimensionKey.MOVEMENT_TYPE, DimensionKey.BRAND),
+            facility=1,
+        ),
+    )
+    sql = str(statement.compile(dialect=mysql.dialect())).upper()
+
+    assert 'STRFTIME' not in sql
+    assert 'GROUP BY K0, K1, K2' in sql
+    assert 'COUNT(DISTINCT(MOVEMENTS.DOC))' in sql
+    assert 'WAREHOUSE.FACILITY =' in sql

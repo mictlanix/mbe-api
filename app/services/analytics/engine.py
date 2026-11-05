@@ -39,6 +39,7 @@ from app.schemas.analytics import (
     Grain,
     MeasureKey,
     MeasureKind,
+    StockOptions,
     VatTreatment,
 )
 from app.services.analytics import facts
@@ -47,6 +48,7 @@ from app.services.analytics.catalog import (
     FAMILY_PRIVILEGES,
     LINE_DIMENSIONS,
     MEASURES,
+    STOCK_OPTION_MEASURES,
     Fact,
     Family,
     applicable,
@@ -59,6 +61,8 @@ MAX_DAYS = 5 * 365 + 1
 CENT = Decimal('0.01')
 RATIO = Decimal('0.0001')
 QUANTITY = Decimal('0.0001')
+#: Days are shown with one decimal (spec 038, contracts/api.md).
+DAYS = Decimal('0.1')
 NONE_LABEL = '(none)'
 
 Key = tuple[Any, ...]
@@ -218,6 +222,19 @@ def month_end_guard(measures: Iterable[MeasureKey], start: date, end: date) -> N
                 f'{measure.value} needs a period from a 1st to a month-end or today',
                 {'measure': measure.value, 'start': start.isoformat(), 'end': end.isoformat()},
             )
+
+
+def stock_guard(definition: AnalyticsQueryRequest) -> None:
+    """`history_guard` for a query's inventory measures (R3): the first day they read is the
+    period's start, the day before it for turnover's opening, and the same for a comparison."""
+    measures = [m for m in definition.measures if MEASURES[m].family is Family.INVENTORY]
+    if not measures:
+        return
+    starts = [definition.start]
+    if definition.comparison is not None:
+        starts.append(comparison_period(definition.start, definition.end, definition.comparison)[0])
+    first = min(starts) - timedelta(days=1 if any(MEASURES[m].opening for m in measures) else 0)
+    history_guard(measures, first, definition.end)
 
 
 def parse_value(dimension: DimensionKey, value: str) -> Any:
@@ -471,6 +488,7 @@ def fact_key(fact: Fact, slice_: facts.Slice) -> Hashable:
         slice_.end,
         slice_.facility,
         slice_.moments,
+        slice_.stock_options,
     )
 
 
@@ -495,11 +513,18 @@ def ratio(numerator: Decimal | None, denominator: Decimal | None) -> Decimal | N
     return (numerator / denominator).quantize(RATIO, rounding=ROUND_HALF_UP)
 
 
-def derive(sums: Mapping[str, Any], vat: VatTreatment) -> dict[MeasureKey, Decimal | None]:
-    """Every measure from a group's sums (FR-004). Money stays in cents until the end."""
+def derive(
+    sums: Mapping[str, Any], vat: VatTreatment, days: int | None = None
+) -> dict[MeasureKey, Decimal | None]:
+    """Every measure from a group's sums (FR-004). Money stays in cents until the end. `days` is
+    the length of the group's period (or date bucket), for days of inventory."""
 
     def get(name: str) -> int:
         return int(sums.get(name, 0) or 0)
+
+    def present(name: str) -> Decimal | None:
+        """A measure a fact gives only at some moments (today's reservations): null where absent."""
+        return quantity(sums[name] or 0) if name in sums else None
 
     with_vat = vat is VatTreatment.INCLUDED
     sale_gross = get('sale_line.sub_c') + get('sale_line.tax_c')
@@ -538,10 +563,58 @@ def derive(sums: Mapping[str, Any], vat: VatTreatment) -> dict[MeasureKey, Decim
         MeasureKey.REFUNDS_PAID_OUT: money(get('payment.paid_out_c')),
         MeasureKey.STORE_CREDIT_ISSUED: money(get('payment.store_c')),
         MeasureKey.PAYMENTS: Decimal(get('payment.payments')),
-        # Spec 038
+        # Spec 038: inventory (research R2–R5)
         MeasureKey.ON_HAND: quantity(sums.get('stock.on_hand', 0) or 0),
+        MeasureKey.RESERVED: present('stock_today.reserved'),
+        MeasureKey.AVAILABLE: present('stock_today.available'),
+        MeasureKey.IN_TRANSIT: quantity(sums.get('stock.in_transit', 0) or 0),
+        MeasureKey.STOCK_VALUE: money(get('stock.value_c')),
+        MeasureKey.STOCK_COST_COVERAGE: ratio(
+            Decimal(get('stock.costed')), Decimal(get('stock.stocked'))
+        ),
+        MeasureKey.UNCOSTED_QUANTITY: quantity(sums.get('stock.uncosted_qty', 0) or 0),
+        MeasureKey.UNITS_IN: quantity(sums.get('movement.units_in', 0) or 0),
+        MeasureKey.UNITS_OUT: quantity(sums.get('movement.units_out', 0) or 0),
+        MeasureKey.MOVEMENT_DOCUMENTS: Decimal(get('movement.documents')),
     }
+    values |= _stock_measures(sums, cost, days)
     return values
+
+
+def _stock_measures(
+    sums: Mapping[str, Any], cost_c: int, days: int | None
+) -> dict[MeasureKey, Decimal | None]:
+    """The R5 measures (velocity, cover, restock, dead and slow stock) and turnover (R4)."""
+
+    def get(name: str) -> int:
+        return int(sums.get(name, 0) or 0)
+
+    velocity = Decimal(str(sums.get('stock.velocity', 0) or 0))
+    cover = Decimal(str(sums.get('stock.cover_qty', 0) or 0))
+    # Turnover's average value is in cents ×2: (start + end) without halving, so it stays exact.
+    doubled = get('stock.start_value_c') + get('stock.value_c')
+    turnover = Decimal(2 * cost_c) / doubled if doubled > 0 and cost_c > 0 else None
+    return {
+        MeasureKey.SALES_VELOCITY: quantity(velocity),
+        MeasureKey.DAYS_OF_COVER: (
+            (cover / velocity).quantize(DAYS, rounding=ROUND_HALF_UP) if velocity > 0 else None
+        ),
+        MeasureKey.STOCK_OUT_PAIRS: Decimal(get('stock.stock_outs')),
+        MeasureKey.BELOW_REORDER_PAIRS: Decimal(get('stock.below')),
+        MeasureKey.SUGGESTED_QUANTITY: quantity(sums.get('stock.suggested', 0) or 0),
+        MeasureKey.DEAD_STOCK_QUANTITY: quantity(sums.get('stock.dead_qty', 0) or 0),
+        MeasureKey.DEAD_STOCK_VALUE: money(get('stock.dead_value_c')),
+        MeasureKey.SLOW_STOCK_QUANTITY: quantity(sums.get('stock.slow_qty', 0) or 0),
+        MeasureKey.SLOW_STOCK_VALUE: money(get('stock.slow_value_c')),
+        MeasureKey.TURNOVER: (
+            turnover.quantize(RATIO, rounding=ROUND_HALF_UP) if turnover is not None else None
+        ),
+        MeasureKey.DAYS_OF_INVENTORY: (
+            (Decimal(days) / turnover).quantize(DAYS, rounding=ROUND_HALF_UP)
+            if turnover is not None and days
+            else None
+        ),
+    }
 
 
 def subtract(total: Mapping[str, Any], parts: Iterable[Mapping[str, Any]]) -> Sums:
@@ -751,6 +824,7 @@ async def prepare(
     db: AsyncSession, definition: AnalyticsQueryRequest, current: CurrentUser
 ) -> Prepared:
     validate(definition)
+    stock_guard(definition)
     held = await check_privileges(db, current, definition.measures)
     facility = await resolve_scope(db, current, definition.facility)
     filters = parse_filters(definition.filters)
@@ -795,10 +869,29 @@ def wanted(prepared: Prepared) -> list[tuple[Fact, facts.Slice]]:
     in place of the slice's dates."""
     needed = sorted(facts_for(prepared.definition.measures))
     return [
-        (fact, balance_slice(slice_, _plan(prepared, slice_)) if fact in BALANCE_FACTS else slice_)
+        (fact, fact_slice(prepared, fact, slice_))
         for slice_ in _slices(prepared)
         for fact in needed
     ]
+
+
+def stock_options(definition: AnalyticsQueryRequest) -> StockOptions | None:
+    """The options the stock fact computes R5's measures with: the request's, or the defaults when
+    one of those measures is asked; None skips them (spec 038)."""
+    if definition.stock_options is not None:
+        return definition.stock_options
+    return StockOptions() if set(definition.measures) & STOCK_OPTION_MEASURES else None
+
+
+def fact_slice(prepared: Prepared, fact: Fact, slice_: facts.Slice) -> facts.Slice:
+    """What `fact` is asked for one of `_slices(prepared)`: a balance fact gets moments in place
+    of the slice's dates, and the stock fact its options."""
+    if fact not in BALANCE_FACTS:
+        return slice_
+    asked = balance_slice(slice_, _plan(prepared, slice_))
+    if fact is Fact.STOCK:
+        asked = replace(asked, stock_options=stock_options(prepared.definition))
+    return asked
 
 
 def _plan(prepared: Prepared, slice_: facts.Slice) -> list[Placement]:
@@ -836,13 +929,24 @@ async def assemble(db: AsyncSession, prepared: Prepared, found: Found) -> Analyt
         if fact not in BALANCE_FACTS:
             return found[fact_key(fact, slice_)]
         plan = _plan(prepared, slice_)
-        rows = found[fact_key(fact, balance_slice(slice_, plan))]
+        rows = found[fact_key(fact, fact_slice(prepared, fact, slice_))]
         if DimensionKey.DATE in slice_.dimensions:
             return place(rows, plan, slice_.dimensions.index(DimensionKey.DATE))
         return place(rows, plan, 0) if by_bucket else place(rows, _collapsed(plan), None)
 
     def merged_of(slice_: facts.Slice, size: int) -> Merged:
         return merge({fact: rows_of(fact, slice_) for fact in needed}, size)
+
+    def values_of(sums: Sums, slice_: facts.Slice, bucket: Any = None) -> dict:
+        """The requested measures of a group of `slice_`, in date bucket `bucket` (None: the
+        whole period), which days of inventory needs the length of."""
+        last = min(slice_.end, prepared.today)
+        first, end = slice_.start, last
+        if bucket is not None:
+            first = max(bucket, slice_.start)
+            end = min(next_bucket(bucket, definition.grain) - timedelta(days=1), last)
+        days = max((end - first).days + 1, 0)
+        return select_measures(derive(sums, definition.vat, days), definition.measures)
 
     base, total_slice, *before = _slices(prepared)
     merged = merged_of(base, width)
@@ -853,8 +957,7 @@ async def assemble(db: AsyncSession, prepared: Prepared, found: Found) -> Analyt
     if at is not None and any(MEASURES[m].kind is MeasureKind.BALANCE for m in definition.measures):
         by_bucket = merge({f: rows_of(f, total_slice, by_bucket=True) for f in balances}, 1)
         at_moments = {
-            key[0]: select_measures(derive(sums, definition.vat), definition.measures)
-            for key, sums in by_bucket.sums.items()
+            key[0]: values_of(sums, total_slice, key[0]) for key, sums in by_bucket.sums.items()
         }
 
     def at_ends(sums: Sums, bucket: Any, plan: Sequence[Placement]) -> Sums:
@@ -883,11 +986,10 @@ async def assemble(db: AsyncSession, prepared: Prepared, found: Found) -> Analyt
             there = buckets(before_start, before_end, definition.grain)
             position = dict(zip(here, there, strict=False))
 
-    measures = definition.measures
-    totals_values = select_measures(derive(total_sums, definition.vat), measures)
+    totals_values = values_of(total_sums, total_slice)
     # Without dimensions the totals are the answer; a lone row would only repeat them.
     items = [
-        (key, select_measures(derive(sums, definition.vat), measures))
+        (key, values_of(sums, base, key[at] if at is not None else None))
         for key, sums in merged.sums.items()
         if width
     ]
@@ -900,8 +1002,10 @@ async def assemble(db: AsyncSession, prepared: Prepared, found: Found) -> Analyt
     def comparison_of(key: Key) -> dict[str, Decimal | None] | None:
         if previous is None:
             return None
-        before = previous.sums.get(_previous_key(key, dimensions, position), {})
-        return select_measures(derive(before, definition.vat), measures)
+        there = _previous_key(key, dimensions, position)
+        return values_of(
+            previous.sums.get(there, {}), before[0], there[at] if at is not None else None
+        )
 
     def row(key: Key, values: dict[str, Decimal | None], before: dict | None) -> AnalyticsRow:
         change, change_pct = change_figures(values, before) if before is not None else (None, None)
@@ -943,27 +1047,24 @@ async def assemble(db: AsyncSession, prepared: Prepared, found: Found) -> Analyt
         before_plan = _plan(prepared, before[0]) if balances and before else []
         before_keys = [_previous_key(key, dimensions, position) for key, _ in shown]
         before_rest = (
-            select_measures(
-                derive(
-                    subtract(
-                        previous_totals,
-                        (
-                            at_ends(
-                                previous.sums.get(key, {}),
-                                key[at] if at is not None else None,
-                                before_plan,
-                            )
-                            for key in before_keys
-                        ),
+            values_of(
+                subtract(
+                    previous_totals,
+                    (
+                        at_ends(
+                            previous.sums.get(key, {}),
+                            key[at] if at is not None else None,
+                            before_plan,
+                        )
+                        for key in before_keys
                     ),
-                    definition.vat,
                 ),
-                measures,
+                before[1],
             )
             if previous is not None
             else None
         )
-        others_values = select_measures(derive(rest, definition.vat), measures)
+        others_values = values_of(rest, base)
         change, change_pct = (
             change_figures(others_values, before_rest) if before_rest is not None else (None, None)
         )
@@ -976,11 +1077,7 @@ async def assemble(db: AsyncSession, prepared: Prepared, found: Found) -> Analyt
             change_pct=change_pct,
             drill=list(definition.filters),
         )
-    totals_before = (
-        select_measures(derive(previous_totals, definition.vat), measures)
-        if previous is not None
-        else None
-    )
+    totals_before = values_of(previous_totals, before[1]) if previous is not None else None
     change, change_pct = (
         change_figures(totals_values, totals_before) if totals_before is not None else (None, None)
     )
@@ -1029,3 +1126,9 @@ def drill(
     for dimension, value in zip(dimensions, key, strict=True):
         narrowed[dimension] = [key_value(value) or '']
     return [AnalyticsFilter(dimension=d, values=v) for d, v in narrowed.items()]
+
+
+# The Python facts register here, below everything they use of this module (spec 038).
+from app.services.analytics import balances  # noqa: E402
+
+RUNNERS.update({Fact.STOCK: balances.stock, Fact.STOCK_TODAY: balances.stock_today})

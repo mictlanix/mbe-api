@@ -120,15 +120,15 @@ T077 confirms that none remain.
 
 ### Tests
 
-- [ ] T012 [P] [US1] Write `tests/unit/test_analytics_balances.py` (stock part), on SQLite with fixture ledger entries:
+- [X] T012 [P] [US1] Write `tests/unit/test_analytics_balances.py` (stock part), on SQLite with fixture ledger entries:
   - on hand as of a date equals `stock_ledger.on_hand` over the same entries, per pair;
   - with a month dimension, each bucket equals the as-of sum at its end (opening plus cumulative movements, R2);
   - transit stock goes to the destination facility (`split_transit`), never twice;
   - reserved and available equal `reserved_by_warehouse` today and are null at a past date;
   - value uses today's list-0 cost without VAT; cost 0 and cost 99,999 pairs are uncosted, with no value, lower `stock_cost_coverage`, and add their on hand to `uncosted_quantity` (visible without the cost privilege);
   - negative on hand counts as a stock-out and adds no value.
-- [ ] T013 [P] [US1] Extend `tests/unit/test_analytics_facts.py` with the `movement` fact: units in and out by `movement_type`, distinct documents, transfers netting to zero company-wide, and the MariaDB compile check (no SQLite-only construct).
-- [ ] T014 [P] [US1] Write `tests/integration/test_analytics_inventory.py`, with fixture pairs on each side of every threshold of R5:
+- [X] T013 [P] [US1] Extend `tests/unit/test_analytics_facts.py` with the `movement` fact: units in and out by `movement_type`, distinct documents, transfers netting to zero company-wide, and the MariaDB compile check (no SQLite-only construct).
+- [X] T014 [P] [US1] Write `tests/integration/test_analytics_inventory.py`, with fixture pairs on each side of every threshold of R5:
   - velocity over 30, 90 and 365 days, with refunds netted;
   - days of cover is null when velocity is 0;
   - stock-out, below reorder and suggested quantity (rounded up for whole-unit products, not for a fraction-selling one);
@@ -137,13 +137,13 @@ T077 confirms that none remain.
   - a period starting before 2025-02-07 gives `analytics.before_history` with history `stock`;
   - `velocity_days: 20` gives `analytics.stock_options_invalid`;
   - the `stock` and `movements` detail kinds with each flag, whose sums equal the query.
-- [ ] T015 [P] [US1] Write `tests/unit/test_analytics_kardex.py`:
+- [X] T015 [P] [US1] Write `tests/unit/test_analytics_kardex.py`:
   - paging over a range longer than 366 days continues the running balance exactly (page 2's first balance = page 1's last);
   - `opening` is the balance before `start`, and `closing` the balance at `end`;
   - `unit_cost` and `value` appear only with the cost privilege;
   - `start` before 2025-02-07 gives `analytics.before_history`;
   - `limit` above 500 gives a 422.
-- [ ] T016 [P] [US1] Write `tests/api/test_analytics_operations.py` (US1 part):
+- [X] T016 [P] [US1] Write `tests/api/test_analytics_operations.py` (US1 part):
   - 401 without a token on `GET /analytics/kardex`;
   - 403 `auth.forbidden` for inventory measures without 67, 32 or 99;
   - `stock_value` without 37–39 is refused with `required` [37, 38, 39];
@@ -152,18 +152,18 @@ T077 confirms that none remain.
 
 ### Implementation
 
-- [ ] T017 [US1] Write `app/services/analytics/balances.py`, stock part (R2, R4):
+- [X] T017 [US1] Write `app/services/analytics/balances.py`, stock part (R2, R4):
   - `stock(db, dimensions, filters, moments, scope)`: one grouped opening query (Σ `lot_serial_tracking.quantity` dated before the first moment + 1 day) and one movements query bucketed by moment, with the cumulative sum taken in Python;
   - `stock_today(db, ...)`: reserved and available from `stock_ledger.reserved_by_warehouse`, plus transit through `stock_query_service.split_transit`;
   - value from `product_price` list 0 (`COST_PRICE_LIST_ID`), with `settings.placeholder_cost` and ≤ 0 as uncosted.
 
   The facility comes from the warehouse. The supplier dimension is the product's. T012 passes.
-- [ ] T018 [US1] Add the `movement` fact to `app/services/analytics/facts.py`: units in, units out, entries and distinct `(source, reference)` documents by `movement_type`, warehouse, product and date bucket, over `lot_serial_tracking` in the period. T013 passes.
-- [ ] T019 [US1] Add the velocity, cover, stock-out, reorder, dead, slow and turnover measures to `app/services/analytics/balances.py`. They are pair-level, computed in Python from `stock`, `stock_today` and the sale and refund movements in the `velocity_days` before the moment (R5), with the defaults from settings and `StockOptions`. Turnover uses spec 037's cost of sales. Call `engine.history_guard` for stock measures. T014 passes for queries.
-- [ ] T020 [US1] Add the `stock` and `movements` kinds to `app/services/analytics/detail.py`, with the flags `stock_out`, `below_reorder`, `dead`, `slow` and `uncosted`, and `figures.values` per contracts/api.md. In `app/schemas/analytics.py`, add `warehouse` and `figures` (`AnalyticsDetailFigures`) to `AnalyticsDetailItem` and make `document_id`, `date`, `facility` and `amount` optional. Leave out cost and value without the cost privilege. `movements` also needs read on 32. T014 passes.
-- [ ] T021 [US1] Write `app/services/analytics/kardex.py` (R6): reuse `kardex_service.kardex_rows`, `_documents` and `source_name`. Compute the opening at `start` and add the skipped entries for each page's first balance. `limit` is at most 500, with no range cap. Value is the running balance × the current cost. Add `AnalyticsKardexResponse` and `AnalyticsKardexRow` to `app/schemas/analytics.py`.
-- [ ] T022 [US1] Add `GET /analytics/kardex` to `app/api/v1/endpoints/analytics.py` (inventory family; facility scope by the warehouse). Add the `kardex` source to `app/services/analytics/exports.py` (`check` and `build_table`). T015 passes, and `test_contract_docs` passes for the kardex blocks.
-- [ ] T023 [US1] Add the inventory KPI `stock_value`, the series `stock_value_by_facility` and the alerts `stock_outs`, `below_reorder`, `dead_stock` (180 days) and `uncosted_stock` to `app/services/analytics/dashboard.py`. Join them to the shared fact list (`_fact_job`), so one stock query serves every tile (R18). T016 passes.
+- [X] T018 [US1] Add the `movement` fact to `app/services/analytics/facts.py`: units in, units out, entries and distinct `(source, reference)` documents by `movement_type`, warehouse, product and date bucket, over `lot_serial_tracking` in the period. T013 passes.
+- [X] T019 [US1] Add the velocity, cover, stock-out, reorder, dead, slow and turnover measures to `app/services/analytics/balances.py`. They are pair-level, computed in Python from `stock`, `stock_today` and the sale and refund movements in the `velocity_days` before the moment (R5), with the defaults from settings and `StockOptions`. Turnover uses spec 037's cost of sales. Call `engine.history_guard` for stock measures. T014 passes for queries.
+- [X] T020 [US1] Add the `stock` and `movements` kinds to `app/services/analytics/detail.py`, with the flags `stock_out`, `below_reorder`, `dead`, `slow` and `uncosted`, and `figures.values` per contracts/api.md. In `app/schemas/analytics.py`, add `warehouse` and `figures` (`AnalyticsDetailFigures`) to `AnalyticsDetailItem` and make `document_id`, `date`, `facility` and `amount` optional. Leave out cost and value without the cost privilege. `movements` also needs read on 32. T014 passes.
+- [X] T021 [US1] Write `app/services/analytics/kardex.py` (R6): reuse `kardex_service.kardex_rows`, `_documents` and `source_name`. Compute the opening at `start` and add the skipped entries for each page's first balance. `limit` is at most 500, with no range cap. Value is the running balance × the current cost. Add `AnalyticsKardexResponse` and `AnalyticsKardexRow` to `app/schemas/analytics.py`.
+- [X] T022 [US1] Add `GET /analytics/kardex` to `app/api/v1/endpoints/analytics.py` (inventory family; facility scope by the warehouse). Add the `kardex` source to `app/services/analytics/exports.py` (`check` and `build_table`). T015 passes, and `test_contract_docs` passes for the kardex blocks.
+- [X] T023 [US1] Add the inventory KPI `stock_value`, the series `stock_value_by_facility` and the alerts `stock_outs`, `below_reorder`, `dead_stock` (180 days) and `uncosted_stock` to `app/services/analytics/dashboard.py`. Join them to the shared fact list (`_fact_job`), so one stock query serves every tile (R18). T016 passes.
 
 **Checkpoint**: stock and movements answer through query, detail, kardex, dashboard and export, reconciled on fixtures. This is the MVP.
 
@@ -457,7 +457,7 @@ T077 confirms that none remain.
 - [ ] T072 Map every legacy row of the spec's table (23–38) to a test or a quickstart §6 request, and add any missing integration case to the story's test file.
 - [ ] T073 Run `uv run ruff check app/ migrations/ tests/` and the full `uv run pytest -q`. Fix any failure.
 - [ ] T074 Read the diff (constitution III). Every changed file must be in plan.md's Source Code tree or named by a task: `app/services/analytics/*`, `sales_order_service.py` (only the `as_of` keyword), `config.py`, `error_codes.py`, `errors.py`, `app/models/analytics.py` and `app/models/__init__.py`, `app/schemas/analytics.py`, `app/api/v1/endpoints/analytics.py` and `analytics_views.py`, `app/api/v1/router.py`, the two jobs, migration 032 and its rollback, the tests, `.env.example`, `CHANGELOG.md`, spec 036's error-code doc, spec 037's contract, and this spec's documents. Revert anything else.
-- [ ] T075 [P] Check that SQLite and MariaDB both compile every new fact (the compile tests of T013, T026, T042 and T054), and that no fact has a SQLite-only construct.
+- [ ] T075 [P] Check that SQLite and MariaDB both compile every new fact (the compile tests of T013, T026, T042 and T054), plus the ledger queries of `balances.py` (opening sum and CASE-bucketed movements), which US1 tested only on SQLite. No fact may have a SQLite-only construct.
 - [ ] T076 [P] Write the operations notes in `specs/038-analytics-operations/quickstart.md` §5, if the implementation changed them: the cron line, `SCHEDULED_REPORTS_ENABLED` on one instance, and the job's output.
 - [ ] T077 Confirm that neither known red test still fails.
 

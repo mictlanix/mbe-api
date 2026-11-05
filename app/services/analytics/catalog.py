@@ -265,8 +265,7 @@ MEASURES: dict[MeasureKey, Measure] = {
             definition='Reserved by confirmed orders. Today only: null at a past moment.',
         ),
         _measure(
-            MeasureKey.AVAILABLE, 'Available', 'quantity', _STOCK, _TODAY,
-            family=_INVENTORY, kind=_BAL,
+            MeasureKey.AVAILABLE, 'Available', 'quantity', _TODAY, family=_INVENTORY, kind=_BAL,
             definition='On hand − reserved. Today only: null at a past moment.',
         ),
         _measure(
@@ -307,22 +306,22 @@ MEASURES: dict[MeasureKey, Measure] = {
             definition='Units out by sale, net of refunds, over the velocity window ÷ its days.',
         ),
         _measure(
-            MeasureKey.DAYS_OF_COVER, 'Days of cover', 'days', _STOCK, _TODAY,
+            MeasureKey.DAYS_OF_COVER, 'Days of cover', 'days', _STOCK,
             family=_INVENTORY, kind=_BAL, additive=False,
             definition='Available (on hand at a past moment) ÷ sales velocity; null without sales.',
         ),
         _measure(
-            MeasureKey.STOCK_OUT_PAIRS, 'Stock-outs', 'count', _STOCK, _TODAY,
+            MeasureKey.STOCK_OUT_PAIRS, 'Stock-outs', 'count', _STOCK,
             family=_INVENTORY, kind=_BAL,
             definition='Pairs that sold in the velocity window with available ≤ 0.',
         ),
         _measure(
-            MeasureKey.BELOW_REORDER_PAIRS, 'Below reorder point', 'count', _STOCK, _TODAY,
+            MeasureKey.BELOW_REORDER_PAIRS, 'Below reorder point', 'count', _STOCK,
             family=_INVENTORY, kind=_BAL,
             definition='Pairs that sold with available below velocity × (lead + cover days).',
         ),
         _measure(
-            MeasureKey.SUGGESTED_QUANTITY, 'Suggested quantity', 'quantity', _STOCK, _TODAY,
+            MeasureKey.SUGGESTED_QUANTITY, 'Suggested quantity', 'quantity', _STOCK,
             family=_INVENTORY, kind=_BAL,
             definition='Reorder point − available on pairs below it, rounded up to whole units '
             'unless the product sells fractions.',
@@ -338,12 +337,12 @@ MEASURES: dict[MeasureKey, Measure] = {
             definition='Value of dead stock. ' + AT_CURRENT_COST,
         ),
         _measure(
-            MeasureKey.SLOW_STOCK_QUANTITY, 'Slow stock', 'quantity', _STOCK, _TODAY,
+            MeasureKey.SLOW_STOCK_QUANTITY, 'Slow stock', 'quantity', _STOCK,
             family=_INVENTORY, kind=_BAL,
             definition='On hand of pairs, not dead, with more days of cover than the slow limit.',
         ),
         _measure(
-            MeasureKey.SLOW_STOCK_VALUE, 'Slow stock value', 'money', _STOCK, _TODAY,
+            MeasureKey.SLOW_STOCK_VALUE, 'Slow stock value', 'money', _STOCK,
             family=_INVENTORY, kind=_BAL, sensitive=True,
             definition='Value of slow stock. ' + AT_CURRENT_COST,
         ),
@@ -531,6 +530,17 @@ MEASURES: dict[MeasureKey, Measure] = {
     )
 }  # fmt: skip
 
+
+#: The stock measures read pair by pair with `StockOptions` (research R5): the stock fact computes
+#: them only when one is asked, or when the request names its options.
+STOCK_OPTION_MEASURES = frozenset(
+    {
+        MeasureKey.SALES_VELOCITY, MeasureKey.DAYS_OF_COVER, MeasureKey.STOCK_OUT_PAIRS,
+        MeasureKey.BELOW_REORDER_PAIRS, MeasureKey.SUGGESTED_QUANTITY,
+        MeasureKey.DEAD_STOCK_QUANTITY, MeasureKey.DEAD_STOCK_VALUE,
+        MeasureKey.SLOW_STOCK_QUANTITY, MeasureKey.SLOW_STOCK_VALUE,
+    }
+)  # fmt: skip
 
 #: The facts spec 038 adds. A dimension applies to those it names; it refuses the rest.
 NEW_FACTS = (

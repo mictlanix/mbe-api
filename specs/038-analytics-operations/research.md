@@ -79,9 +79,9 @@ The measures, all at the period's end (as of the end of day D):
 - **Stock-out**: velocity > 0 and available ≤ 0.
 - **Reorder point**: velocity × (`lead_days` + `cover_days`).
 - **Below reorder**: velocity > 0 and available < reorder point.
-- **Suggested quantity**: reorder point − available, rounded up to a whole unit unless the product sells fractions. Fractions show on 423 pairs today.
+- **Suggested quantity**: reorder point − available, rounded up to a whole unit unless the product sells fractions. Fractions show on 423 pairs today. A product sells fractions when one of its sale entries (types 1, 10, 13) in the velocity window has a non-whole quantity; no product field says so.
 - **Dead**: on hand > 0 and no ledger entry of any type in the `dead_days` before D.
-- **Slow**: on hand > 0, not dead, and days of cover > `slow_cover_days`.
+- **Slow**: on hand > 0, not dead, and days of cover > `slow_cover_days`. A pair without sales has no cover, so it is never slow (it becomes dead once `dead_days` pass without an entry).
 
 These are pair-level flags. Their measures are counts of pairs, quantities and values (cost-privileged), and they drill down to the `stock` detail kind with the same flag.
 
