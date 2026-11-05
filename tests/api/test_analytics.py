@@ -438,3 +438,110 @@ async def test_the_dashboard_definition_is_the_export_source_shape(http: AsyncCl
         AnalyticsDashboardRequest.model_validate(body['definition']).start.isoformat()
         == (MAY['start'])
     )
+
+
+# ── US4 (T037): the detail's privileges and refusals ──────────────────────────
+
+
+def detail_body(kind: str, **body: Any) -> dict:
+    return {'kind': kind, **MAY, **body}
+
+
+async def test_the_detail_needs_a_token(http: AsyncClient) -> None:
+    app.dependency_overrides.pop(get_current_user)
+
+    response = await http.post(f'{BASE}/detail', json=detail_body('orders'))
+
+    assert_problem(response, 401, 'auth.not_authenticated')
+
+
+@pytest.mark.parametrize(
+    ('kind', 'family', 'document'),
+    [
+        ('orders', SALES, SystemObject.SALES_ORDERS),
+        ('lines', SALES, SystemObject.SALES_ORDERS),
+        ('refunds', SALES, SystemObject.CUSTOMER_REFUNDS),
+        ('credit_notes', SALES, SystemObject.FISCAL_DOCUMENTS),
+        ('payments', PAYMENTS, SystemObject.CUSTOMER_PAYMENTS),
+    ],
+)
+async def test_the_detail_needs_the_family_and_read_on_the_kind(
+    http: AsyncClient,
+    db: AsyncSession,  # noqa: F811
+    kind: str,
+    family: SystemObject,
+    document: SystemObject,
+) -> None:
+    await grant(db, family)
+    refused = await http.post(f'{BASE}/detail', json=detail_body(kind))
+    await grant(db, document)
+    allowed = await http.post(f'{BASE}/detail', json=detail_body(kind))
+
+    body = assert_problem(refused, 403, 'auth.forbidden')
+    assert body['params']['required'] == [
+        {'system_object': int(document), 'right': int(AccessRight.READ)}
+    ]
+    assert allowed.status_code == 200, allowed.text
+
+
+async def test_cost_keys_are_absent_without_the_privilege_and_null_with_it(
+    http: AsyncClient,
+    db: AsyncSession,  # noqa: F811
+    priced: None,
+) -> None:
+    await grant(db, SALES, SystemObject.SALES_ORDERS)
+    without = (await http.post(f'{BASE}/detail', json=detail_body('lines'))).json()
+    await grant(db, SystemObject.GROSS_PROFITS_BY_PRODUCT)
+    with_cost = (await http.post(f'{BASE}/detail', json=detail_body('lines'))).json()
+
+    assert sensitive_keys(without) == set()
+    assert all('cost' in item and 'margin' in item for item in with_cost['items'])
+    assert None in {item['cost'] for item in with_cost['items']}  # the uncosted line
+    assert {'cost', 'margin'} <= set(with_cost['sums'])
+
+
+@pytest.mark.parametrize('flag', ['below_cost', 'without_cost'])
+async def test_cost_flags_need_the_cost_privilege(
+    http: AsyncClient,
+    db: AsyncSession,  # noqa: F811
+    flag: str,
+) -> None:
+    await grant(db, SALES, SystemObject.SALES_ORDERS)
+
+    response = await http.post(f'{BASE}/detail', json=detail_body('lines', flag=flag))
+
+    body = assert_problem(response, 403, 'auth.forbidden')
+    assert sorted(g['system_object'] for g in body['params']['required']) == list(COST)
+
+
+@pytest.mark.parametrize(
+    ('kind', 'flag'), [('lines', 'overdue'), ('payments', 'below_cost'), ('orders', 'collected')]
+)
+async def test_a_flag_on_another_kind_fails_validation(
+    http: AsyncClient, kind: str, flag: str
+) -> None:
+    _as(ADMIN)
+
+    response = await http.post(f'{BASE}/detail', json=detail_body(kind, flag=flag))
+
+    assert response.status_code == 422
+    assert response.json()['detail'][0]['type'] == 'analytics_flag_kind'
+
+
+async def test_the_detail_refuses_another_facility_without_101(
+    http: AsyncClient,
+    db: AsyncSession,  # noqa: F811
+) -> None:
+    await grant(db, SALES, SystemObject.SALES_ORDERS)
+
+    response = await http.post(f'{BASE}/detail', json=detail_body('orders', facility=2))
+
+    assert_problem(response, 403, 'facility.other_facility')
+
+
+async def test_a_page_holds_at_most_one_hundred(http: AsyncClient) -> None:
+    _as(ADMIN)
+
+    response = await http.post(f'{BASE}/detail', json=detail_body('orders', limit=101))
+
+    assert response.status_code == 422

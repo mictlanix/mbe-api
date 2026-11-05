@@ -254,7 +254,7 @@ description: "Task list for spec 037, business analytics"
 
 ### Tests
 
-- [ ] T036 [P] [US4] Write `tests/integration/test_analytics_detail.py`:
+- [X] T036 [P] [US4] Write `tests/integration/test_analytics_detail.py`:
   - for each kind (orders, lines, refunds, credit_notes, payments), `sums` equals the matching query value for the same filters, across pages;
   - lines carry the residual, so line amounts sum to the order totals;
   - sorting by date, amount and document, both directions; paging with `skip` and `limit`;
@@ -262,7 +262,7 @@ description: "Task list for spec 037, business analytics"
   - `flag=overdue` on orders lists exactly `open_credit_orders`'s past-due set in scope, with `amount` = balance, ignoring the period; `flag=below_cost` and `flag=without_cost` on lines list exactly the lines the sale-line fact counts;
   - for every row of contracts/api.md's "Which detail figure equals which measure" table, the stated figure equals the query's value for the same filters; net sales equal `lines` − `refunds` − `credit_notes` on `sums.amount`, and units, cost of sales and gross margin equal `lines` − `refunds` on their sums (SC-007);
   - every dashboard alert's `detail` returns exactly `count` items, and `sums.amount` equals the alert's `amount` (US3 scenario 3).
-- [ ] T037 [P] [US4] Extend `tests/api/test_analytics.py`:
+- [X] T037 [P] [US4] Extend `tests/api/test_analytics.py`:
   - 401 without a token on `POST /analytics/detail`;
   - detail needs the family plus read on the kind (7 sales orders for orders and lines, 8 customer payments, 22 refunds, 23 fiscal documents for credit notes);
   - without 37–39, items and `sums` have no `cost` or `margin` key, while with 37–39 an uncosted line has `cost: null` (the key is present);
@@ -270,22 +270,22 @@ description: "Task list for spec 037, business analytics"
   - a flag on a kind it doesn't apply to (`overdue` on lines, `below_cost` on payments, `collected` on orders) gives 422;
   - another facility without 101 is refused;
   - `limit` above 100 gives 422.
-- [ ] T038 [P] [US4] Write `tests/unit/test_analytics_detail.py`, without a database (constitution, Testing):
+- [X] T038 [P] [US4] Write `tests/unit/test_analytics_detail.py`, without a database (constitution, Testing):
   - sort parsing for `date`, `amount`, `document` and their `-` forms, and the default `-date`;
   - `serialize_items(items, cost_visible)` drops the `cost` and `margin` keys when not visible and keeps a null when visible;
   - the `below_cost` and `without_cost` predicates compiled for MariaDB match the fact's own counting expressions.
 
 ### Implementation
 
-- [ ] T039 [US4] Add `AnalyticsDetailRequest` (with `flag: DetailFlag | None` and a model validator that accepts `overdue` only on `orders`, `below_cost`/`without_cost` only on `lines`, and `collected`/`paid_out`/`store_credit` only on `payments`), `AnalyticsDetailResponse` and `AnalyticsDetailItem` to `app/schemas/analytics.py`, as contracts/api.md.
-- [ ] T040 [US4] Write `app/services/analytics/detail.py`:
+- [X] T039 [US4] Add `AnalyticsDetailRequest` (with `flag: DetailFlag | None` and a model validator that accepts `overdue` only on `orders`, `below_cost`/`without_cost` only on `lines`, and `collected`/`paid_out`/`store_credit` only on `payments`), `AnalyticsDetailResponse` and `AnalyticsDetailItem` to `app/schemas/analytics.py`, as contracts/api.md.
+- [X] T040 [US4] Write `app/services/analytics/detail.py`:
   - per kind, the fact's row-level `SELECT` (the same line cents and residual expressions as `facts.py`, imported, not copied), with the same filters, scope and VAT treatment;
   - a count query, and sums over all pages (`amount`, `quantity`, `discount`, and `cost`/`margin` for holders) from one aggregate of the same select; every item `amount` is positive, and payments carry their R6 class, and `flag=collected`, `paid_out` or `store_credit` keeps one class with the payment fact's own predicates (imported from `facts.py`);
   - the page itself joined to customer, employee and product names;
   - `flag=below_cost` and `without_cost` add the sale-line fact's own predicates (import them from `facts.py`) and need the cost privilege;
   - `flag=overdue` takes the ids and balances from `open_credit_orders(db, facility=..., due_before=local_now())`, ignores the period, and pages and sums them in Python (the balance rule can't be expressed in SQL, R9);
   - `serialize_items(items, cost_visible)`: callers without the cost privilege get items and `sums` dumped with `exclude={'cost', 'margin'}`, so the keys are absent. Holders keep `cost: null` on uncosted lines. Never use `exclude_none`, which would also drop meaningful nulls.
-- [ ] T041 [US4] Add `POST /analytics/detail` to `app/api/v1/endpoints/analytics.py`, returning the serialized dict from `serialize_items`, not the model, so the excluded keys stay out. T036, T037 and T038 pass.
+- [X] T041 [US4] Add `POST /analytics/detail` to `app/api/v1/endpoints/analytics.py`, returning the serialized dict from `serialize_items`, not the model, so the excluded keys stay out. T036, T037 and T038 pass.
 
 **Checkpoint**: every number has its documents.
 

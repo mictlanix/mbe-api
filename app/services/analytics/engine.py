@@ -304,7 +304,7 @@ def money(cents: Any) -> Decimal:
     return (Decimal(int(cents)) / 100).quantize(CENT)
 
 
-def _quantity(value: Any) -> Decimal:
+def quantity(value: Any) -> Decimal:
     return Decimal(str(value)).quantize(QUANTITY, rounding=ROUND_HALF_UP)
 
 
@@ -330,8 +330,8 @@ def derive(sums: Mapping[str, Any], vat: VatTreatment) -> dict[MeasureKey, Decim
     costed = get('sale_line.costed_sub_c') - get('refund_line.costed_sub_c')
     cost = get('sale_line.cost_c') - get('refund_line.cost_c')
     orders = get('sale_line.orders')
-    sold = _quantity(sums.get('sale_line.qty', 0) or 0)
-    refunded = _quantity(sums.get('refund_line.qty', 0) or 0)
+    sold = quantity(sums.get('sale_line.qty', 0) or 0)
+    refunded = quantity(sums.get('refund_line.qty', 0) or 0)
 
     values: dict[MeasureKey, Decimal | None] = {
         MeasureKey.GROSS_SALES: money(gross),

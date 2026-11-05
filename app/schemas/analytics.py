@@ -276,6 +276,50 @@ class AnalyticsDetailRequest(BaseModel):
         return self
 
 
+class AnalyticsDetailItem(BaseModel):
+    kind: DetailKind
+    id: int = Field(
+        description='sales_order_id | sales_order_detail_id | customer_refund_id | '
+        'fiscal_document_id | customer_payment_id'
+    )
+    document_id: int = Field(
+        description='The document to open: the order for a line, the refund, the fiscal '
+        'document, the payment.'
+    )
+    folio: str | None
+    date: LocalDateTime
+    facility: int
+    customer: int | None
+    customer_name: str | None
+    salesperson: int | None
+    product: int | None
+    product_code: str | None
+    product_name: str | None
+    quantity: Decimal | None
+    amount: Decimal = Field(
+        description="Positive: a line's or order's sales amount, a refund's, a credit note's, or "
+        "a payment's amount in its class; the balance with flag=overdue; with the request's VAT "
+        'treatment.'
+    )
+    cost: Decimal | None = Field(
+        default=None, description='Cost privilege only, absent otherwise; null on uncosted lines.'
+    )
+    margin: Decimal | None = Field(
+        default=None, description='Cost privilege only, absent otherwise.'
+    )
+    payment_method: int | None
+
+
+class AnalyticsDetailResponse(BaseModel):
+    as_of: LocalDateTime
+    items: list[AnalyticsDetailItem]
+    total: int
+    sums: dict[str, Decimal] = Field(
+        description='amount, quantity, discount, and cost and margin for holders of the cost '
+        'privilege, over every page: they equal the aggregate.'
+    )
+
+
 # ── Dashboard ─────────────────────────────────────────────────────────────────
 
 

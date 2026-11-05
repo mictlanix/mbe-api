@@ -188,7 +188,7 @@ AnalyticsDetailResponse:
   sums: dict               # amount, quantity, discount, cost and margin (the last two when visible) over every page: they equal the aggregate
 
 AnalyticsDetailItem:
-  kind: str
+  kind: DetailKind
   id: int                  # sales_order_id | sales_order_detail_id | customer_refund_id | fiscal_document_id | customer_payment_id
   document_id: int         # the document to open: the order for a line, the refund, the fiscal document, the payment
   folio: str | None

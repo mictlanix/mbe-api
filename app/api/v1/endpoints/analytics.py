@@ -9,6 +9,7 @@ SearchCreditsFromAllStores (101), as in specs 033–035.
 from datetime import date
 
 from fastapi import APIRouter, Depends, Header, Query, Response
+from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.clock import local_now
@@ -19,6 +20,8 @@ from app.schemas.analytics import (
     AnalyticsCatalogResponse,
     AnalyticsDashboardRequest,
     AnalyticsDashboardResponse,
+    AnalyticsDetailRequest,
+    AnalyticsDetailResponse,
     AnalyticsDimension,
     AnalyticsMeasure,
     AnalyticsQueryRequest,
@@ -26,7 +29,7 @@ from app.schemas.analytics import (
     Comparison,
     DimensionKey,
 )
-from app.services.analytics import cache, catalog, dashboard, engine
+from app.services.analytics import cache, catalog, dashboard, detail, engine
 from app.services.analytics.catalog import DIMENSIONS, FAMILY_PRIVILEGES, Family
 
 router = APIRouter()
@@ -126,6 +129,20 @@ async def read_dashboard(
         body = (await dashboard.build(db, request, current)).model_dump_json().encode()
         cache.responses.put(name, body)
     return cached_response(body, if_none_match)
+
+
+@router.post('/detail', response_model=AnalyticsDetailResponse)
+async def read_detail(
+    request: AnalyticsDetailRequest,
+    current: CurrentUser = Depends(_ANY_FAMILY),
+    db: AsyncSession = Depends(get_db),
+) -> JSONResponse:
+    """The documents behind an aggregate, paged and sorted, with sums over every page that equal
+    it (FR-040–FR-042). Needs the family and read on the document kind. Without the cost privilege,
+    `cost` and `margin` are absent from every item and from `sums`."""
+    facility, cost = await detail.check(db, request, current)
+    result = await detail.execute(db, request, facility, everything=False)
+    return JSONResponse(detail.serialize_items(result, cost))
 
 
 def cached_response(body: bytes, if_none_match: str | None) -> Response:
