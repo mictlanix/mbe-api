@@ -1,0 +1,307 @@
+# Research: Operations analytics (spec 038)
+
+Measurements were taken read-only on mbe_dev on 2026-11-05. Its copy of production ends on 2026-09-29; later rows are test data, which is excluded from every figure below. The spec's "What mbe_dev shows" table summarizes them.
+
+## R1. Two kinds of facts: flows and balances
+
+**Decision**: spec 037's facts are **flows**: sums over a period, such as sales, refunds or payments. This spec adds **balance** facts: a state at a moment, such as stock on hand, a receivable, or what is due. The engine gains a fact kind:
+
+| | Flow (spec 037) | Balance (this spec) |
+|---|---|---|
+| Value of a period | Sum over the period | Value at the end of the period |
+| With a date dimension | Sum per bucket | Value at each bucket's end |
+| Across other dimensions | Additive | Additive |
+| Across dates | Additive | Not additive. The totals row is the value at the period's end, and shares are taken within that moment |
+| Comparison | The comparison period's sum | The value at the comparison period's end |
+
+A query may mix flows and balances, for example stock value next to cost of sales. Each measure states its kind in the catalog, so clients don't add balances across months.
+
+**Rationale**: the spec asks for stock as of any date and aging over time. Both are balances, and summing them across a year is meaningless. The engine already merges facts in Python, so the kind only changes how date buckets combine.
+
+**Alternatives considered**: treating stock as a flow of movements and letting clients add them up is wrong at every bucket but the last. Separate endpoints per balance would rebuild the per-report model spec 037 replaced.
+
+## R2. Stock as of a moment comes from the ledger, in two queries
+
+**Decision**: on hand at the end of day D is `SUM(lot_serial_tracking.quantity)` over entries dated before D + 1. This is the same sum spec 030's `stock_ledger.on_hand` and kardex opening balance use, so the two can't diverge.
+
+With a date dimension, two queries replace one query per bucket end:
+1. the **opening** balance at the period start, grouped by the requested dimensions;
+2. the period's **movements**, grouped by the dimensions and the bucket.
+
+Python then adds the movements cumulatively onto the opening.
+
+Measured: every product × warehouse pair as of a date takes about 1.2 s, and five year-end snapshots in one pass take 1.9 s.
+
+Migration 032 adds an index on `lot_serial_tracking(date)`, which has none today. The as-of sum still reads every earlier row, but movements in a period become a range read.
+
+**Reserved and available**: today only, from `stock_ledger.reserved_by_warehouse`, because reservations have no history. Asking for them at a past date gives null, and the catalog says so.
+
+**In transit**: spec 030's `split_transit` rule. Stock in a transit warehouse belongs to the transfer's destination facility.
+
+**Alternatives considered**: storing daily stock snapshots would hold 18k pairs a day, a new table and a writer on every movement path, for a read that already takes 1.2 s.
+
+## R3. Reliable history starts on 2025-02-07
+
+**Decision**: `settings.stock_history_start = 2025-02-07`. Stock, movements and kardex balances for dates before it are refused with `analytics.before_history`, with params `history`, `requested` and `earliest`.
+
+The reason is the mass reset of 2025-02-06 (8,753 type-8 entries, about +1.0M units). It cleared 10,805 negative pairs, and 15,918 of 43,919 pairs had gone negative at some point before it.
+
+**Alternatives considered**: serving earlier dates with a warning flag. Rejected, because a number that is known to be wrong would still end up exported.
+
+## R4. Value at today's average cost; placeholders are uncosted
+
+**Decision**:
+- **Unit cost:** the product's current cost, `product_price` on list 0 (`COST_PRICE_LIST_ID`), without VAT (spec 031; spec 037 R4 as fixed in #296).
+- **Uncosted pairs:** a pair whose cost is ≤ 0 or ≥ `settings.placeholder_cost` (99,999) is uncosted and contributes no value.
+- **Stock cost coverage:** costed pairs with stock ÷ all pairs with stock.
+
+Measured: placeholders account for 87.5M of the 288.4M total; 630 positive pairs have cost 0.
+
+**Turnover**: cost of sales over the period (spec 037's sale-line and refund-line facts) ÷ the average of stock value at the period's start and end. **Days of inventory** = days in the period ÷ turnover. Both carry the caveat "at current cost" in the catalog's definition text. All of these are cost-privileged.
+
+**Alternatives considered**: historical cost from sale-line cost snapshots. Rejected because it covers only products that sold, which is circular for dead stock.
+
+## R5. Velocity, cover, stock-outs, dead and slow stock, restock
+
+**Decision**: a query carries `stock_options`. Defaults and allowed ranges:
+
+| Option | Default | Range |
+|---|---|---|
+| `velocity_days` | 90 | 30–365 |
+| `dead_days` | 180 | 90, 180 or 365 |
+| `slow_cover_days` | 180 | 30–730 |
+| `lead_days` | `settings.restock_lead_days`, 7 | 0–120 |
+| `cover_days` | `settings.restock_cover_days`, 30 | 1–365 |
+
+The measures, all at the period's end (as of the end of day D):
+- **Units out by sale**: −Σ ledger quantity of sale types (1, 10, 13) − Σ of refund type 2, over the `velocity_days` before D. **Velocity** is that total ÷ `velocity_days`.
+- **Days of cover**: available (or on hand, at a past date) ÷ velocity; null when velocity is 0.
+- **Stock-out**: velocity > 0 and available ≤ 0.
+- **Reorder point**: velocity × (`lead_days` + `cover_days`).
+- **Below reorder**: velocity > 0 and available < reorder point.
+- **Suggested quantity**: reorder point − available, rounded up to a whole unit unless the product sells fractions. Fractions show on 423 pairs today.
+- **Dead**: on hand > 0 and no ledger entry of any type in the `dead_days` before D.
+- **Slow**: on hand > 0, not dead, and days of cover > `slow_cover_days`.
+
+These are pair-level flags. Their measures are counts of pairs, quantities and values (cost-privileged), and they drill down to the `stock` detail kind with the same flag.
+
+**Rationale**: the spec's clarification calls for derived reorder points only. Lead time has no maintained source: `lead_time_purchase` is a legacy snapshot of unknown age.
+
+## R6. Kardex with value, any range, paged
+
+**Decision**: analytics gets its own kardex route.
+- **Reused from spec 030:** `kardex_service.kardex_rows` (running balance), `_documents` (references) and `source_name`.
+- **Range:** spec 030's 366-day cap (`range_bounds`) is replaced by paging, at most 500 entries a page.
+- **Each page** starts with the balance before its first entry, computed as the opening plus the entries skipped.
+- **Value:** each row adds the running balance × current cost (cost privilege), and the response states which cost it used.
+
+Spec 030's route keeps its cap untouched (surgical).
+
+## R7. Receivables as of a moment: one rule with an `as_of`
+
+**Decision**: `sales_order_service.order_balances`, `_credit_candidates` and `open_credit_orders` gain a keyword `as_of: datetime | None = None`. With `None` every query is exactly today's (spec 033). With a moment T:
+
+- **Applications** count when they are live and their `date ≤ T`. The application's own date is used, not the payment's: they differ by more than a day on 783 of 2025's applications. The 9 rows dated 0001 count as at their payment's date.
+- **Refunds** count when they are completed, not cancelled, and dated ≤ T (`refunded_by_order` gains the same keyword). Refunds without a date use `modification_time`.
+- **Credit notes** count when issued ≤ T and either not cancelled or cancelled after T (`cancellation_date > T`).
+- **Candidates** are credit-terms orders that are completed, not cancelled, confirmed (`confirmation_time`) ≤ T, and either not flagged paid or `balance_zeroed_time > T`.
+
+Legacy orders flagged paid without a zero time count as closed, as spec 033 counts them today. That understates 2025 month-ends by up to $2.79M (277 orders). From 2026-01 the flag and the computed balance agree exactly. Orders cancelled after confirmation and reversed applications have no date, so they leave every month-end.
+
+**Rationale**: the spec forbids a second formula. With `as_of=None` the existing tests are unchanged, and a new test asserts that `as_of=now` equals `None` on fixtures.
+
+## R8. Month-end receivable snapshots
+
+**Decision**: table `receivable_snapshot` holds one row per open credit order per month-end (data-model). The command `uv run python -m app.jobs.snapshot_receivables` is idempotent:
+- with no arguments it snapshots every ended month that has no snapshot yet;
+- `--from 2025-01` backfills;
+- `--month YYYY-MM --rebuild` replaces one month.
+
+Each month is written in one transaction (delete, then insert).
+
+- **Credit limit:** the customer's limit at write time. A backfilled month marks it `limit_historical = 0`.
+- **Earlier months:** month-ends before 2025-01-31 are refused with `analytics.before_history`.
+- **Size:** about 600–900 open orders per month-end, so about 20k rows for the backfill.
+- **Speed:** each month-end takes one `open_credit_orders(as_of=...)` call. Today that is 0.3–1.0 s with the candidate set of about 600 orders; past month-ends add the orders flagged paid later, so the backfill time is measured during implementation.
+
+**Rationale**: a past balance takes spec 033's full rule over thousands of candidate orders, which is too slow per request for 22 month-ends. Stored month-ends are what make the trend fast and stable.
+
+**Writes on mbe_dev**: running the backfill on mbe_dev writes rows, so it needs the user's confirmation, like a migration.
+
+## R9. Receivable measures
+
+**Decision**: all amounts are in base currency (balance × exchange rate), as `accounts_service.summarize` computes them.
+
+- **Receivable, current, overdue and the aging buckets:** spec 033's `days_past_due` and `bucket` at the moment, so its five buckets.
+- **Credit sales:** spec 037's gross sales, with VAT, of orders with credit terms. Receivables include VAT, so DSO compares like with like.
+- **DSO** = receivable at the period's end ÷ credit sales in the period × days in the period.
+- **CEI** = (receivable at the start + credit sales − receivable at the end) ÷ (receivable at the start + credit sales − current receivable at the end).
+- **DSO and CEI periods:** they need the receivable at both ends. The period must start on the 1st of a month and end on a month-end or today, with the start month-end within history. Otherwise the request is refused with `analytics.period_not_month_end`.
+- **Collected on credit:** live applications dated in the period to credit-terms orders, by application date.
+- **Due in the period:** the balance at the period's start of orders whose due date falls in the period. **Due collected** is the applications to those orders dated in the period.
+- **Credit limit and utilization:** utilization is the receivable ÷ the limit per customer, null without a limit. Across customers it is computed only over those with a limit, from their parts.
+- **Forecast:** today's open balances by due bucket (overdue, 1–7, 8–30, 31–60, over 60 days).
+- **Open orders:** a count.
+
+Two dimensions name a person:
+- **Salesperson** is the order's.
+- **Sales agent** is the customer's, as spec 033's screen groups.
+
+## R10. Payables: today only, from spec 033's supplier balances
+
+**Decision**: payable, current, overdue, the buckets, the forecast and the open purchase orders come from `supplier_payment_service` balances (PO total − live applications) and `accounts_service.po_due_date`. Only POs counted by `po_counts` against `supplier_balance_cutoff` are included. There is no history and no DPO, because payables have no data until the cutoff is set at go-live. Snapshots can be added later in the same shape. While the cutoff is null, payable figures are zero and the dashboard omits their tiles.
+
+**Alternatives considered**: snapshotting payables too. Rejected because there is nothing to snapshot.
+
+## R11. Commissions are read from spec 025
+
+**Decision**: a commission fact built in Python.
+- **Source:** for each month in the period, `commission_service.read_period(db, year, month, salesperson=…)`. A closed or paid period returns its stored lines; an open one is computed live and flagged `provisional`.
+- **Lines** are grouped in Python by agent (the line's `salesperson`, a commission agent), label, participation, customer and month.
+- **Measures:** commission (Σ amount), base (Σ the line's price × quantity), and lines (count).
+- **Detail:** the `commission_lines` detail kind lists the lines themselves, with every field a salesperson needs to recompute one.
+
+**Own commissions**: a caller without 112 who is a commission agent (`commission_agent.employee = current.employee_id`) gets their own lines only: the engine forces a filter on agent = self. Anyone else without 112 is refused (`auth.forbidden`).
+
+**Performance**: a live `compute` of one month runs spec 025's candidate query. It is timed during implementation; closed months read stored rows. A 12-month query mostly reads stored months once periods are closed. None are closed on mbe_dev today, so all would be live there.
+
+**The mbe#53 fields** (`customer_payment.commission`) are card surcharges and are not read.
+
+## R12. Invoices, coverage, status and VAT
+
+**Decision**: two new facts.
+
+**invoice_line**: the lines of fiscal documents of type 0 (invoice), 200 (payment receipt) and 100 (credit note, already spec 037's credit-note fact, reused). They are priced with spec 037's line rule and dated by `issued`. Dimensions:
+- issuer (taxpayer);
+- facility (issuing);
+- customer;
+- type;
+- status:
+  - **stamped**: not cancelled and `stamped` set;
+  - **cancelled**: cancelled and `stamped` set, carrying `cancellation_date`;
+  - **pending**: not cancelled and not stamped, but issued.
+
+Drafts cancelled without ever being stamped are excluded. **Output VAT** = invoice VAT − credit note VAT, stamped and live.
+
+**invoice_coverage**: the sale lines of spec 037 (by sale date), each joined to the quantity invoiced on it: Σ `fiscal_document_detail.quantity` over live stamped invoices, by `order_detail`, capped at the line quantity.
+- **Invoiced cents** = the line's sale cents × invoiced ÷ quantity, rounded.
+- **Not invoiced** = sale cents − invoiced cents, so the two add up to sold exactly.
+- **Lag** = days from the sale to the first invoice issued on the line, as an average weighted by invoiced cents.
+- **Standalone invoiced**: invoice lines without an `order_detail`, a separate measure on the invoice fact.
+
+Measured for 2025: 57% coverage by amount; $130.6M of $287M invoiced is standalone.
+
+**Rationale**: the line-level link exists and no line is over-invoiced. Capping protects against future data.
+
+## R13. Purchases and price history
+
+**Decision**: a purchase_line fact over the lines of completed, not-cancelled purchase orders.
+- **Date:** the order's `modification_time`, which spec 033 uses as its confirmation moment.
+- **Amount:** quantity × price × (1 − discount), before tax. The "tax included" flag is ignored, per spec 031 FR-034.
+- **Supplier:** the order's.
+- **Other dimensions:** product, brand, label, warehouse and facility.
+- **Received:** quantity from confirmed receipt lines linked to the PO line.
+- **Legacy orders count**, from 2012 on.
+
+**Price history**: the `purchases` detail kind lists lines with the previous purchase price of the same product, via `LAG` over (product, date, line id). It shows the change and the change %, and flags it when |change %| > `price_change_pct` (default 10, per request). Lines with price 0 are excluded from the history.
+
+**Purchase against sale** (cost privilege):
+- **Average purchase price** = purchase amount ÷ purchase quantity.
+- **Average sale price** = spec 037's gross sales without VAT ÷ units sold.
+- **Spread** is their difference and %, by product and period.
+
+## R14. Saved views
+
+**Decision**: tables `analytics_view` and `analytics_view_share` (data-model).
+- **Stored definition:** the JSON of a query, dashboard, detail or customer 360 request, with `start`/`end` replaced by a `period`: a `RelativePeriod` key plus `days` for "last N days", or fixed dates.
+- **Validation:** every save and every open validates the definition against the catalog. A view that no longer validates is refused with `analytics.view_invalid`, with params `key` and `reason`.
+- **Run:** `POST /analytics/views/{id}/run` resolves the period with `local_today()` and dispatches to the same engine call as the matching route, as the opener.
+- **Changes and visibility:** only the owner may change, delete or schedule a view. Shared users see it in their list.
+- **User deletion** removes their views and schedules, extending spec 037's `delete_for_user`.
+
+**Relative periods** (`app/services/analytics/periods.py`): `today`, `yesterday`, `this_week`, `this_month`, `this_quarter` and `this_year` (to date), `last_week`, `last_month`, `last_quarter`, `last_year`, `last_n_days` and `fixed`. Weeks are ISO weeks, in business time. A comparison stays a comparison kind.
+
+## R15. Scheduled reports: a CLI job, claimed in the database
+
+**Decision**: tables `analytics_schedule`, `analytics_schedule_recipient` and `analytics_send`, and a job `app/jobs/send_scheduled_reports.py`.
+
+Each run works like this:
+1. Exit unless `settings.scheduled_reports_enabled`. This is false by default and turned on for one instance, because dev and test share mbe_dev.
+2. Select the schedules with `enabled = 1 AND next_run_time <= now`.
+3. For each, claim it with `UPDATE … SET next_run_time = <next occurrence after now> WHERE id = ? AND next_run_time = <read value>`, and continue only when one row changed. A missed run therefore sends only once, for its latest occurrence.
+4. Insert an `analytics_send` row (running), then:
+   - rebuild the owner (R16);
+   - resolve the period;
+   - build the export with spec 037's `exports.check`, `build_table` and `file_bytes` or `render_pdf`;
+   - skip if it exceeds `settings.report_attachment_max_bytes` (10 MB);
+   - send through `mail.get_mailer()` to the eligible recipients.
+5. Finish the row as sent, failed (with its code) or skipped.
+
+The cron entry (every 5 minutes, as the instance's user) is documented in the quickstart. Installing it on a server is a deployment step that needs confirmation.
+
+**Rationale**: no scheduler exists and the existing jobs are CLI modules (`app/jobs/*`), so this follows their pattern. The database claim makes the send exactly-once across processes and instances, which SC-008 tests with two concurrent runs on MariaDB semantics, emulated on SQLite by sequential claims of the same read value.
+
+**Alternatives considered**: an in-process loop in the app's lifespan. It dies with each restart and runs once per worker and instance. APScheduler would be a new dependency for a five-minute poll.
+
+**Mail**: mail isn't configured on dev or test, so `get_mailer()` returns None there and runs are recorded as skipped with `email.not_configured` (spec 024).
+
+## R16. Privileges at send time
+
+**Decision**: a scheduled run rebuilds `CurrentUser` from the owner's user row:
+- `administrator`, `employee_id` and `session_version`;
+- the facility from `UserSettings.facility_id`.
+
+It stops (failed, `auth.forbidden`) if the owner's status is not active: the error catalog has no inactive-user code, and a deactivated user can't sign in either. It then calls spec 037's `exports.check` with that user, which applies families, the cost privilege, facility scope and filters exactly as for a request. Background exports in spec 037 reuse the families captured at request time; scheduled sends re-check at each send, as the spec requires.
+
+**Recipients** must be active users who hold every family the view reads, plus the cost privilege when it has a sensitive measure. This is checked with `engine.families` per recipient, at save time (`analytics.recipient_ineligible`, with params `user` and `family`) and again at each send, where an ineligible recipient is dropped and recorded. At most 10 recipients.
+
+## R17. Privileges per family
+
+**Decision**: no new SystemObject. Each family reuses the existing screens' privileges:
+
+| Family | Readers (any one of) |
+|---|---|
+| Inventory | Warehouse stock report (67), Kardex (32), Store movements summary (99) |
+| Inventory cost (value, turnover, days of inventory, spread) | Plus the cost privilege (37, 38, 39), as spec 037 |
+| Receivables, customer 360 balance | Accounts receivable (18), Customer debt report (46) |
+| Payables | Accounts payable (19) |
+| Commissions, all agents | Commissions by salesperson (112); without it, an agent sees their own |
+| Fiscal | Fiscal documents (23), Fiscal documents report (48) |
+| Purchases and prices | Purchase orders (20), Products by supplier report (75) |
+| Detail of a kind | The family plus read on the document kind, as spec 037 (sales orders 7, fiscal documents 23, purchase orders 20, kardex 32 for movements) |
+
+Facility scope:
+- inventory: the warehouse's facility;
+- receivables: the order's facility;
+- payables and purchases: the PO's facility;
+- fiscal: the issuing facility;
+- commissions: the agent employee's facility.
+
+## R18. Performance
+
+**Decision**: the targets are spec 037's, as relaxed (SC-009). Each new fact is one grouped SQL statement, except commissions, which are built in Python from spec 025's lines. The dashboard's new tiles join the shared fact list of spec 037's dashboard, which runs each distinct fact once and concurrently (037 R9).
+
+The two heaviest reads are both timed in the quickstart, and if either misses its target that is reported before anything is redesigned:
+- **Stock as of today for all pairs**, about 1.2 s. The dashboard's stock tiles share one such query.
+- **Commission months computed live.**
+
+## R19. Migration 032
+
+**Decision**: `migrations/032_operations_analytics.sql`, with a rollback. It adds:
+- the index `lot_serial_tracking_date_idx` on `lot_serial_tracking(date)`;
+- the tables `receivable_snapshot`, `receivable_snapshot_month` (one marker per written month-end, so a month with no open orders isn't rewritten), `analytics_view`, `analytics_view_share`, `analytics_schedule`, `analytics_schedule_recipient` and `analytics_send`.
+
+There are no column changes to existing tables. Applying it on mbe_dev needs the user's confirmation, as 031 did.
+
+## R20. Error codes
+
+**Decision**: six new codes in spec 036's catalog, each with a section in this spec's contract:
+
+| Code | Status | Params |
+|---|---|---|
+| `analytics.before_history` | 422 | history (stock, receivables), requested, earliest |
+| `analytics.period_not_month_end` | 422 | measure, start, end |
+| `analytics.view_invalid` | 422 | key, reason |
+| `analytics.recipient_ineligible` | 422 | user, family |
+| `analytics.attachment_too_large` | 422 | size, max_size. Recorded on a send, never returned by a route |
+| `analytics.stock_options_invalid` | 422 | option, value, min, max |

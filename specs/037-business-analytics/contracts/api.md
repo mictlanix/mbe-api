@@ -46,11 +46,14 @@ AnalyticsCatalogResponse:
 AnalyticsMeasure:
   key: MeasureKey          # e.g. net_sales
   label: str
-  unit: str                # money | quantity | count | ratio
+  unit: str                # money | quantity | count | ratio | days
+  family: str              # spec 038: the measure's family
+  kind: str                # spec 038: flow | balance
   sensitive: bool
   vat: bool                # true when vat=included changes it
   additive: bool           # false for ratios
   dimensions: [DimensionKey, ...]  # the dimensions it can be grouped or filtered by
+  definition: str          # spec 038: the written definition
 
 AnalyticsDimension:
   key: DimensionKey        # e.g. product
@@ -190,10 +193,10 @@ AnalyticsDetailResponse:
 AnalyticsDetailItem:
   kind: DetailKind
   id: int                  # sales_order_id | sales_order_detail_id | customer_refund_id | fiscal_document_id | customer_payment_id
-  document_id: int         # the document to open: the order for a line, the refund, the fiscal document, the payment
+  document_id: int | None  # spec 038: null for stock pairs; the document to open: the order for a line, the refund, the fiscal document, the payment
   folio: str | None
-  date: datetime
-  facility: int
+  date: datetime | None    # spec 038: null for stock pairs
+  facility: int | None    # spec 038: null only where a kind has none
   customer: int | None
   customer_name: str | None
   salesperson: int | None
@@ -201,10 +204,12 @@ AnalyticsDetailItem:
   product_code: str | None
   product_name: str | None
   quantity: Decimal | None
-  amount: Decimal          # positive: a line's or order's sales amount, a refund's, a credit note's, or a payment's amount in its class (collected net of change, paid out, store credit); the balance with `flag=overdue`; with the request's VAT treatment
+  amount: Decimal | None   # spec 038: null where a kind has no amount; positive: a line's or order's sales amount, a refund's, a credit note's, or a payment's amount in its class (collected net of change, paid out, store credit); the balance with `flag=overdue`; with the request's VAT treatment
   cost: Decimal | None     # cost privilege only; null for uncosted lines
   margin: Decimal | None   # cost privilege only
   payment_method: int | None
+  warehouse: int | None    # spec 038
+  figures: AnalyticsDetailFigures | None  # spec 038: the kind's own columns
 ```
 
 **Flags** select the documents of an alert whose condition isn't a dimension, so `total` equals the alert's `count`:
