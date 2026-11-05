@@ -117,7 +117,7 @@ AnalyticsDashboardRequest:
   start: date
   end: date
   facility: int | None
-  comparison: str | None
+  comparison: Comparison | None   # previous_period (default) | same_period_last_year
 
 AnalyticsDashboardResponse:
   as_of: datetime
@@ -170,13 +170,13 @@ AnalyticsAlert:
 
 ```
 AnalyticsDetailRequest:
-  kind: str                # orders | lines | refunds | credit_notes | payments
+  kind: DetailKind         # orders | lines | refunds | credit_notes | payments
   start: date
   end: date
   facility: int | None
   filters: [AnalyticsFilter, ...]
-  flag: str | None         # overdue (orders) | below_cost, without_cost (lines, cost privilege) | collected, paid_out, store_credit (payments)
-  vat: str
+  flag: DetailFlag | None  # overdue (orders) | below_cost, without_cost (lines, cost privilege) | collected, paid_out, store_credit (payments)
+  vat: VatTreatment
   sort: str | None         # date | amount | document; "-" = descending (default -date)
   skip: int
   limit: int               # 1-100, default 20

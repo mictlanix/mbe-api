@@ -6,7 +6,9 @@ margin. Every figure is scoped to the caller's facility unless they are an admin
 SearchCreditsFromAllStores (101), as in specs 033–035.
 """
 
-from fastapi import APIRouter, Depends, Header, Response
+from datetime import date
+
+from fastapi import APIRouter, Depends, Header, Query, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.clock import local_now
@@ -15,13 +17,16 @@ from app.db.session import get_db
 from app.enums import AccessRight
 from app.schemas.analytics import (
     AnalyticsCatalogResponse,
+    AnalyticsDashboardRequest,
+    AnalyticsDashboardResponse,
     AnalyticsDimension,
     AnalyticsMeasure,
     AnalyticsQueryRequest,
     AnalyticsQueryResponse,
+    Comparison,
     DimensionKey,
 )
-from app.services.analytics import cache, catalog, engine
+from app.services.analytics import cache, catalog, dashboard, engine
 from app.services.analytics.catalog import DIMENSIONS, FAMILY_PRIVILEGES, Family
 
 router = APIRouter()
@@ -89,6 +94,36 @@ async def query(
     body = cache.responses.get(name)
     if body is None:
         body = (await engine.execute(db, prepared)).model_dump_json().encode()
+        cache.responses.put(name, body)
+    return cached_response(body, if_none_match)
+
+
+@router.get('/dashboard', response_model=AnalyticsDashboardResponse)
+async def read_dashboard(
+    start: date,
+    end: date,
+    facility: int | None = None,
+    comparison: Comparison = Query(default=Comparison.PREVIOUS_PERIOD),
+    if_none_match: str | None = Header(default=None),
+    current: CurrentUser = Depends(_ANY_FAMILY),
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    """Every tile the caller may see for a period and scope, in one call (FR-031–FR-033). Tiles
+    and alerts of a family the caller lacks are absent, not zero."""
+    request = AnalyticsDashboardRequest(
+        start=start, end=end, facility=facility, comparison=comparison
+    )
+    scope = await engine.resolve_scope(db, current, facility)
+    held = await engine.families(db, current)
+    name = cache.key(
+        'dashboard',
+        request.model_copy(update={'facility': scope}).model_dump_json(),
+        scope,
+        [str(family) for family in held],
+    )
+    body = cache.responses.get(name)
+    if body is None:
+        body = (await dashboard.build(db, request, current)).model_dump_json().encode()
         cache.responses.put(name, body)
     return cached_response(body, if_none_match)
 

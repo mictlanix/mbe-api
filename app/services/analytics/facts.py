@@ -427,7 +427,12 @@ def query(fact: Fact, slice_: Slice) -> Select:
             func.count(func.distinct(c.doc)).label('orders'),
             _sum(1 - c.costed).label('uncosted'),
             _sum(c.below).label('below'),
+            # The alerts' amounts: the sales, without VAT, of the lines they count.
+            _sum(case((c.costed == 0, c.sub_c), else_=0)).label('uncosted_sub_c'),
+            _sum(case((c.below == 1, c.sub_c), else_=0)).label('below_sub_c'),
         ]
+    if fact is Fact.REFUND_LINE:
+        columns.append(func.count(func.distinct(c.doc)).label('documents'))
     if fact is Fact.PAYMENT:
         columns.append(_sum(case((c['class'] == COLLECTED, 1), else_=0)).label('payments'))
 

@@ -300,7 +300,7 @@ async def run_facts(
 # ── Deriving measures ─────────────────────────────────────────────────────────
 
 
-def _money(cents: Any) -> Decimal:
+def money(cents: Any) -> Decimal:
     return (Decimal(int(cents)) / 100).quantize(CENT)
 
 
@@ -334,15 +334,15 @@ def derive(sums: Mapping[str, Any], vat: VatTreatment) -> dict[MeasureKey, Decim
     refunded = _quantity(sums.get('refund_line.qty', 0) or 0)
 
     values: dict[MeasureKey, Decimal | None] = {
-        MeasureKey.GROSS_SALES: _money(gross),
-        MeasureKey.DISCOUNTS: _money(discounts),
-        MeasureKey.REFUNDS: _money(refunds),
-        MeasureKey.CREDIT_NOTES: _money(notes),
-        MeasureKey.NET_SALES: _money(gross - refunds - notes),
-        MeasureKey.COSTED_NET_SALES: _money(costed),
+        MeasureKey.GROSS_SALES: money(gross),
+        MeasureKey.DISCOUNTS: money(discounts),
+        MeasureKey.REFUNDS: money(refunds),
+        MeasureKey.CREDIT_NOTES: money(notes),
+        MeasureKey.NET_SALES: money(gross - refunds - notes),
+        MeasureKey.COSTED_NET_SALES: money(costed),
         MeasureKey.COST_COVERAGE: ratio(Decimal(costed), Decimal(net_without_vat)),
-        MeasureKey.COST_OF_SALES: _money(cost),
-        MeasureKey.GROSS_MARGIN: _money(costed - cost),
+        MeasureKey.COST_OF_SALES: money(cost),
+        MeasureKey.GROSS_MARGIN: money(costed - cost),
         MeasureKey.MARGIN_PCT: ratio(Decimal(costed - cost), Decimal(costed)),
         MeasureKey.UNITS_SOLD: sold,
         MeasureKey.UNITS_REFUNDED: refunded,
@@ -353,9 +353,9 @@ def derive(sums: Mapping[str, Any], vat: VatTreatment) -> dict[MeasureKey, Decim
             if orders
             else None
         ),
-        MeasureKey.COLLECTED: _money(get('payment.collected_c')),
-        MeasureKey.REFUNDS_PAID_OUT: _money(get('payment.paid_out_c')),
-        MeasureKey.STORE_CREDIT_ISSUED: _money(get('payment.store_c')),
+        MeasureKey.COLLECTED: money(get('payment.collected_c')),
+        MeasureKey.REFUNDS_PAID_OUT: money(get('payment.paid_out_c')),
+        MeasureKey.STORE_CREDIT_ISSUED: money(get('payment.store_c')),
         MeasureKey.PAYMENTS: Decimal(get('payment.payments')),
     }
     return values
@@ -611,9 +611,11 @@ async def execute(db: AsyncSession, prepared: Prepared) -> AnalyticsQueryRespons
 
     measures = definition.measures
     totals_values = select_measures(derive(total_sums, definition.vat), measures)
+    # Without dimensions the totals are the answer; a lone row would only repeat them.
     items = [
         (key, select_measures(derive(sums, definition.vat), measures))
         for key, sums in merged.sums.items()
+        if width
     ]
     ordered = order_rows(items, definition)
     shown = ordered[: definition.top] if definition.top is not None else ordered

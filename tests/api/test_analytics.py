@@ -350,3 +350,91 @@ async def test_collected_by_label_is_refused(
     response = await http.post(f'{BASE}/query', json=query('collected', dimensions=['label']))
 
     assert_problem(response, 422, 'analytics.dimension_not_applicable')
+
+
+# ── US3 (T031): the dashboard trims what a caller can't see ───────────────────
+
+MAY = {'start': '2026-05-01', 'end': '2026-05-31'}
+
+
+async def _dashboard(http: AsyncClient) -> dict:
+    response = await http.get(f'{BASE}/dashboard', params=MAY)
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
+@pytest.fixture
+async def priced(db: AsyncSession) -> None:  # noqa: F811
+    """A line below cost and one without, so the cost alerts have something to count."""
+    await sale(db, datetime(2026, 5, 4, 10, 0), [L('1', '116', cost='200'), L('1', '58')])
+
+
+async def test_the_dashboard_needs_a_token(http: AsyncClient) -> None:
+    app.dependency_overrides.pop(get_current_user)
+
+    assert_problem(await http.get(f'{BASE}/dashboard', params=MAY), 401, 'auth.not_authenticated')
+
+
+async def test_a_sales_only_caller_gets_no_payment_tiles(
+    http: AsyncClient,
+    db: AsyncSession,  # noqa: F811
+) -> None:
+    await grant(db, SALES)
+
+    body = await _dashboard(http)
+
+    assert not {'collected', 'collected_today'} & {k['key'] for k in body['kpis']}
+    assert 'payment_mix' not in {s['key'] for s in body['series']}
+
+
+async def test_a_payments_only_caller_gets_no_sales_tiles(
+    http: AsyncClient,
+    db: AsyncSession,  # noqa: F811
+) -> None:
+    await grant(db, PAYMENTS)
+
+    body = await _dashboard(http)
+
+    assert [k['key'] for k in body['kpis']] == ['collected', 'collected_today']
+    assert [s['key'] for s in body['series']] == ['payment_mix']
+    assert body['alerts'] == []
+
+
+async def test_without_the_cost_privilege_margin_tiles_are_absent(
+    http: AsyncClient,
+    db: AsyncSession,  # noqa: F811
+    priced: None,
+) -> None:
+    await grant(db, SALES, PAYMENTS)
+
+    body = await _dashboard(http)
+
+    assert not {'margin_pct', 'cost_coverage'} & {k['key'] for k in body['kpis']}
+    assert not {'lines_below_cost', 'lines_without_cost'} & {a['key'] for a in body['alerts']}
+    assert sensitive_keys(body) == set()
+
+
+async def test_with_the_cost_privilege_they_are_present(
+    http: AsyncClient,
+    db: AsyncSession,  # noqa: F811
+    priced: None,
+) -> None:
+    await grant(db, SALES, SystemObject.GROSS_PROFITS_BY_SALES_PERSON)
+
+    body = await _dashboard(http)
+
+    assert {'margin_pct', 'cost_coverage'} <= {k['key'] for k in body['kpis']}
+    assert {'lines_below_cost', 'lines_without_cost'} <= {a['key'] for a in body['alerts']}
+
+
+async def test_the_dashboard_definition_is_the_export_source_shape(http: AsyncClient) -> None:
+    """An export of the dashboard takes the same request the dashboard answered (FR-050)."""
+    from app.schemas.analytics import AnalyticsDashboardRequest
+
+    _as(ADMIN)
+    body = await _dashboard(http)
+
+    assert (
+        AnalyticsDashboardRequest.model_validate(body['definition']).start.isoformat()
+        == (MAY['start'])
+    )

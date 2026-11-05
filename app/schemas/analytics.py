@@ -228,3 +228,108 @@ class AnalyticsQueryResponse(BaseModel):
         description='True when one document can count in several rows (grouped by label, or '
         'orders by a line dimension), so rows can add up to more than the totals.'
     )
+
+
+# ── Detail ────────────────────────────────────────────────────────────────────
+
+#: The kind each flag applies to (contracts/api.md "Flags").
+FLAG_KINDS: dict[DetailFlag, DetailKind] = {
+    DetailFlag.OVERDUE: DetailKind.ORDERS,
+    DetailFlag.BELOW_COST: DetailKind.LINES,
+    DetailFlag.WITHOUT_COST: DetailKind.LINES,
+    DetailFlag.COLLECTED: DetailKind.PAYMENTS,
+    DetailFlag.PAID_OUT: DetailKind.PAYMENTS,
+    DetailFlag.STORE_CREDIT: DetailKind.PAYMENTS,
+}
+
+
+class AnalyticsDetailRequest(BaseModel):
+    kind: DetailKind
+    start: date
+    end: date
+    facility: int | None = None
+    filters: list[AnalyticsFilter] = []
+    flag: DetailFlag | None = Field(
+        default=None,
+        description='overdue (orders) | below_cost, without_cost (lines, cost privilege) | '
+        'collected, paid_out, store_credit (payments)',
+    )
+    vat: VatTreatment = VatTreatment.EXCLUDED
+    sort: str | None = Field(
+        default=None, description='date | amount | document; "-" = descending (default -date)'
+    )
+    skip: int = Field(default=0, ge=0)
+    limit: int = Field(default=20, ge=1, le=100)
+
+    @model_validator(mode='after')
+    def _flag_fits_the_kind(self) -> 'AnalyticsDetailRequest':
+        if self.flag is not None and FLAG_KINDS[self.flag] is not self.kind:
+            raise PydanticCustomError(
+                'analytics_flag_kind',
+                '{flag} applies to {expected}, not {kind}',
+                {
+                    'flag': self.flag.value,
+                    'expected': FLAG_KINDS[self.flag].value,
+                    'kind': self.kind.value,
+                },
+            )
+        return self
+
+
+# ── Dashboard ─────────────────────────────────────────────────────────────────
+
+
+class AnalyticsDashboardRequest(BaseModel):
+    start: date
+    end: date
+    facility: int | None = None
+    comparison: Comparison | None = Comparison.PREVIOUS_PERIOD
+
+
+class AnalyticsPoint(BaseModel):
+    date: date
+    value: Decimal | None
+
+
+class AnalyticsKpi(BaseModel):
+    key: str = Field(
+        description='net_sales | margin_pct | orders | average_ticket | collected_today | '
+        'collected | refunds | cost_coverage'
+    )
+    value: Decimal | None
+    comparison: Decimal | None
+    change: Decimal | None
+    change_pct: Decimal | None
+    sparkline: list[AnalyticsPoint]
+    drill: AnalyticsQueryRequest
+
+
+class AnalyticsSeries(BaseModel):
+    key: str = Field(
+        description='sales_over_time | sales_by_facility | sales_by_label | sales_by_brand | '
+        'top_products | top_customers | payment_mix | heatmap'
+    )
+    chart: str = Field(description='line | bar | donut | heatmap')
+    query: AnalyticsQueryResponse
+
+
+class AnalyticsAlert(BaseModel):
+    key: str = Field(
+        description='overdue_credit_orders | lines_below_cost | lines_without_cost | refund_rate'
+    )
+    facility: int | None = Field(
+        default=None, description='refund_rate only: one alert per facility where it fires.'
+    )
+    count: int
+    amount: Decimal | None
+    detail: AnalyticsDetailRequest
+
+
+class AnalyticsDashboardResponse(BaseModel):
+    as_of: LocalDateTime
+    definition: AnalyticsDashboardRequest
+    comparison_start: date
+    comparison_end: date
+    kpis: list[AnalyticsKpi]
+    series: list[AnalyticsSeries]
+    alerts: list[AnalyticsAlert]

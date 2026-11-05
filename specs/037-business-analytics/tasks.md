@@ -204,22 +204,22 @@ description: "Task list for spec 037, business analytics"
 
 ### Tests
 
-- [ ] T028 [P] [US3] Write `tests/integration/test_analytics_dashboard.py`:
+- [X] T028 [P] [US3] Write `tests/integration/test_analytics_dashboard.py`:
   - each KPI value equals `engine.run` for that measure, period and scope;
   - the sparkline grain is day up to 62 days, week up to a year, then month;
   - `sales_over_time` carries the comparison series;
   - top products and customers are top 10 + others;
   - the heatmap is orders by weekday × hour;
   - `collected_today` uses today's date even when the period is longer.
-- [ ] T029 [P] [US3] Write the alert tests in `tests/integration/test_analytics_dashboard.py`:
+- [X] T029 [P] [US3] Write the alert tests in `tests/integration/test_analytics_dashboard.py`:
   - overdue credit orders equals `open_credit_orders`'s overdue set in scope;
   - lines below cost and lines without cost count the fixture lines and appear only with the cost privilege;
   - the refund-rate alert is one alert per facility that fires, with `facility` set and `count` and `amount` the facility's refunds in the period; it fires only when the period's rate is above 2× the facility's trailing 12-month median **and** above 15% **and** refunds ≥ $20,000, with a fixture month on each side of each threshold.
-- [ ] T030 [P] [US3] Write `tests/unit/test_analytics_dashboard.py`, on in-memory figures (no database), for the dashboard's own rules (constitution, Testing):
+- [X] T030 [P] [US3] Write `tests/unit/test_analytics_dashboard.py`, on in-memory figures (no database), for the dashboard's own rules (constitution, Testing):
   - `sparkline_grain(start, end)`: day at 62 days, week at 63 days and at 366, month at 367;
   - `refund_rate_alert(period_rate, refunds, monthly_rates)`: the median of the 12 calendar months before the period's start; fires only when the rate is above 2× that median **and** above 15% **and** refunds are at least $20,000; one case just under each threshold; fewer than 12 prior months use the months available; no prior month means no alert;
   - KPI change and `change_pct` against a zero comparison (null).
-- [ ] T031 [P] [US3] Extend `tests/api/test_analytics.py`:
+- [X] T031 [P] [US3] Extend `tests/api/test_analytics.py`:
   - 401 without a token on `GET /analytics/dashboard`;
   - a sales-only caller gets no payment tiles;
   - a payments-only caller gets no sales tiles;
@@ -228,19 +228,19 @@ description: "Task list for spec 037, business analytics"
 
 ### Implementation
 
-- [ ] T032 [US3] Add `AnalyticsDashboardRequest`, `AnalyticsDashboardResponse`, `AnalyticsKpi`, `AnalyticsPoint`, `AnalyticsSeries` and `AnalyticsAlert` to `app/schemas/analytics.py`, as contracts/api.md.
-- [ ] T033 [US3] Write `app/services/analytics/dashboard.py`:
+- [X] T032 [US3] Add `AnalyticsDashboardRequest`, `AnalyticsDashboardResponse`, `AnalyticsKpi`, `AnalyticsPoint`, `AnalyticsSeries` and `AnalyticsAlert` to `app/schemas/analytics.py`, as contracts/api.md.
+- [X] T033 [US3] Write `app/services/analytics/dashboard.py`:
   - run R9's eight fact queries concurrently with `asyncio.gather`, skipping the ones the caller can't see. Each runs on its own session from `async_sessionmaker(db.bind, expire_on_commit=False)`, built from the request's session, **not** `AsyncSessionLocal`: tests swap the database only by overriding `get_db` (`tests/integration/conftest.py`), so a session from the global factory would miss the SQLite test database. On SQLite, where one connection can't serve concurrent queries, fall back to running them in sequence on `db`;
   - run the comparison period's day × facility queries the same way;
   - derive every KPI, sparkline and series from those results through the engine's merge and derive functions, so the numbers equal `engine.run` (FR-031). Put the pure rules (`sparkline_grain`, `refund_rate_alert`) in module-level functions that T030 tests directly;
   - each KPI's `drill` is the `AnalyticsQueryRequest` that reproduces it, with `vat` set explicitly: `excluded` for every tile, `included` for average ticket (contracts/api.md "Tiles").
-- [ ] T034 [US3] Add the alerts to `app/services/analytics/dashboard.py` (R14):
+- [X] T034 [US3] Add the alerts to `app/services/analytics/dashboard.py` (R14):
   - overdue credit orders through `open_credit_orders(db, facility=..., due_before=local_now())` in `app/services/sales_order_service.py` (spec 033), with count and the sum of balances. It is as of today, whatever the dashboard period;
   - lines below cost and lines without cost from the sale-line fact's counts (cost privilege only), each with `amount` = the sum of those lines' sales amounts without VAT, which is `sums.amount` of its drill-down;
   - refund rate per facility: the period's refunds ÷ gross sales, against the median of the monthly rates of the 12 calendar months before the period's start, from one grouped query by month × facility (FR-032). The $20,000 floor applies to the period's refunds whatever its length.
 
   Each alert's `detail` is the `AnalyticsDetailRequest` that lists exactly its documents, with `vat=excluded` set explicitly: `kind=orders, flag=overdue` for overdue orders; `kind=lines, flag=below_cost` and `kind=lines, flag=without_cost` for the cost alerts; `kind=refunds` filtered by the facility for the refund rate, which yields one alert per facility that fires, with `facility` set and `count` and `amount` the facility's refunds in the period (contracts/api.md "Tiles").
-- [ ] T035 [US3] Add `GET /analytics/dashboard` to `app/api/v1/endpoints/analytics.py` (sales or payments family; `comparison` defaults to `previous_period`), cached and ETagged like the query. T028–T031 pass.
+- [X] T035 [US3] Add `GET /analytics/dashboard` to `app/api/v1/endpoints/analytics.py` (sales or payments family; `comparison` defaults to `previous_period`), cached and ETagged like the query. T028–T031 pass.
 
 **Checkpoint**: the dashboard is one call, and its numbers equal the query's.
 
