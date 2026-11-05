@@ -552,6 +552,14 @@
     {
       "what": "T064 refund-rate backtest",
       "result": "15% floor fired on 11/169 facility-months (1 in 15), missing 1 in 20; tuned the floor to 20% (2x median and $20,000 kept): 7/169 (1 in 24). Recorded in research R14."
+    },
+    {
+      "what": "SC-006 freshness on dev",
+      "result": "2026-11-05 00:44: confirmed draft 344059 (facility 51, $72, created 2026-10-22) through POST /sales-orders/{id}/confirm; confirmation_time = 2026-11-05T00:44:17 (now, not the creation date). POST /analytics/query for today at facility 51 went from 0 orders to 1 order, $72.00, 62 s after the confirmation, bounded by the 60 s response cache; SC-006 allows five minutes."
+    },
+    {
+      "what": "T063 after sharing fact queries",
+      "result": "Dashboard 58 fact queries per 2025 call (was 94). p95 October 2025 1.53 s (was 2.26), 2025 4.59 s (was 8.93). Still misses 500 ms; recorded in research R9."
     }
   ],
   "concerns": [

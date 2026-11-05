@@ -159,6 +159,17 @@ Dimensions map to columns per fact. A dimension a fact can't provide (product fo
 
 **Why:** the dashboard isn't R9's eight queries. Each tile is its own `engine.execute`, which runs the facts once for its rows, once more for the totals, and again for the comparison. A 2025 dashboard issues 94 fact queries: 31 over sale lines (32.4 s of database time), 27 over refunds, 24 over credit notes and 12 over payments, about 8.7 s of wall time even when concurrent. One sale-line fact for 2025 now takes about 1 s rather than R1's 0.22–0.25 s, because of the per-document residual (`ROW_NUMBER`/`SUM OVER`) on every line. Summary tables at R1's daily grain would hold 96% of the line rows, so they wouldn't remove that cost by themselves. Per T063, this is reported before any of them is built.
 
+**After sharing the fact queries (same day, the user chose to try this first):** the engine now lists the fact queries a definition reads (`engine.wanted`) and builds the answer from their rows (`engine.assemble`). The dashboard runs each distinct query once, concurrently with the overdue alert, and assembles every tile and alert from the shared rows, so each tile still reads exactly the SQL `POST /analytics/query` runs for it. A 2025 dashboard now issues 58 fact queries rather than 94, 18 of them over sale lines.
+
+| Request (10 warm runs, cache cleared) | p50 | p95 |
+|---|---|---|
+| Dashboard, October 2025 | 1.41 s | 1.53 s |
+| Dashboard, 2025 | 4.42 s | 4.59 s |
+
+Both still miss 500 ms. A profile of one year dashboard: about 2.4 s waiting on MariaDB for the 18 concurrent sale-line scans, and the rest in Python, mostly reading 24,000 rows through aiomysql and merging them (the product and customer tiles fetch every product and customer before cutting to the top 10).
+
+**Tried and not kept:** rounding per document with a `GROUP BY` on the order instead of the window, for groupings without a line dimension. Alone it takes 0.64 s rather than 0.99 s for 2025, but 12 concurrent copies take 2.43 s against the window's 1.74 s, so it doesn't help the dashboard.
+
 ## R10. Indexes (migration 031)
 
 **Decision**: Add:
