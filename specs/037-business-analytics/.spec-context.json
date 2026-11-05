@@ -533,9 +533,49 @@
       "kind": "complete",
       "by": "extension",
       "at": "2026-11-05T03:28:17.661Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T061",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-11-05T07:35:12.531Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T062",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-11-05T07:35:12.532Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T063",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-11-05T07:35:12.532Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T064",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-11-05T07:35:12.532Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T065",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-11-05T07:35:12.532Z"
     }
   ],
-  "currentTask": "T061",
+  "currentTask": "T066",
   "verified": [
     {
       "what": "T061 migration 031 on mbe_dev",
@@ -564,6 +604,135 @@
     {
       "what": "T063 against the relaxed SC-003",
       "result": "Met: dashboard month p95 1.53 s (< 2 s), year 4.59 s (< 5 s, thin margin), 12-month product x month query 4.46 s (< 5 s), 100k-line exports CSV 8.2 s and XLSX 15.6 s (< 30 s)."
+    },
+    {
+      "what": "T065 legacy question 1 on dev (SC-002)",
+      "command": "detail payments, filter payment_method=1 (cash)",
+      "result": "1906 payments, sums 8720332.70"
+    },
+    {
+      "what": "T065 legacy question 2 on dev (SC-002)",
+      "command": "query units, net_sales, cost, margin by product, filter brand='casa maestra', top 5",
+      "result": "5 rows; BKML381912R30NA BLOCK MACIZO: units 52945.0000, net_sales 409571.18, cost_of_sales 221541.02, gross_margin 39249.14"
+    },
+    {
+      "what": "T065 legacy question 3 on dev (SC-002)",
+      "command": "query net_sales, cost, margin, margin_pct, cost_coverage by customer, top 5",
+      "result": "ING. CARLOS OLVERA: net_sales 6040207.49, cost_of_sales 317028.27, gross_margin 51463.11, margin_pct 0.1397, cost_coverage 0.0610"
+    },
+    {
+      "what": "T065 legacy question 4 on dev (SC-002)",
+      "command": "query orders, net_sales, cost, margin, margin_pct by salesperson, top 5",
+      "result": "KAREN CECILIA RODRÍGUEZ LÓPE: orders 554, net_sales 361913.76, cost_of_sales 569712.68, gross_margin -234344.05, margin_pct -0.6988"
+    },
+    {
+      "what": "T065 legacy question 5 on dev (SC-002)",
+      "command": "query units, net_sales, cost, margin, margin_pct by product, sort -gross_margin, top 5",
+      "result": "BUCPGR3025FORS BULTO CEMENTO: units 14667.0000, net_sales 1310789.50, cost_of_sales 320358.74, gross_margin 54922.14, margin_pct 0.1463"
+    },
+    {
+      "what": "T065 legacy question 6 on dev (SC-002)",
+      "command": "query units, net_sales by product, filter customer=6579, top 10",
+      "result": "10 rows + others; TAMC24126R60RO TABIQUE MACIZ: units 12000.0000, net_sales 48275.87"
+    },
+    {
+      "what": "T065 legacy question 7 on dev (SC-002)",
+      "command": "query units, net_sales by product, filter salesperson=3, top 10",
+      "result": "10 rows; MR045284014TDC1 CONCRETO PAV: units 2135.0000, net_sales 4748534.46"
+    },
+    {
+      "what": "T065 legacy question 9 on dev (SC-002)",
+      "command": "query orders, units, net_sales by customer",
+      "result": "357 customers, totals {'orders': '2986', 'units': '173414.1120', 'net_sales': '30524977.45'}"
+    },
+    {
+      "what": "T065 legacy question 10 on dev (SC-002)",
+      "command": "query orders, net_sales, gross_margin by salesperson",
+      "result": "19 salespeople; ALFONSO RAMOS GODINEZ: orders 5, net_sales 77221.53, gross_margin 1724.14"
+    },
+    {
+      "what": "T065 legacy question 11 on dev (SC-002)",
+      "command": "detail orders, filter customer=6579",
+      "result": "76 orders, sums 7970155.93"
+    },
+    {
+      "what": "T065 legacy question 12 on dev (SC-002)",
+      "command": "detail orders, filter salesperson=3",
+      "result": "175 orders, sums 15514284.50"
+    },
+    {
+      "what": "T065 legacy question 13 on dev (SC-002)",
+      "command": "query gross_sales, refunds, net_sales, gross_margin by salesperson",
+      "result": "19 rows; ALFONSO RAMOS GODINEZ: gross_sales 77221.53, refunds 0.00, net_sales 77221.53, gross_margin 1724.14"
+    },
+    {
+      "what": "T065 legacy question 14 on dev (SC-002)",
+      "command": "query by product filter customer=6579; and by customer filter product=20285",
+      "result": "12 products; 3 customers"
+    },
+    {
+      "what": "T065 legacy question 15 on dev (SC-002)",
+      "command": "query units, net_sales by brand, top 5",
+      "result": "CASA MAESTRA: units 89422.0000, net_sales 18382697.32"
+    },
+    {
+      "what": "T065 legacy question 16 on dev (SC-002)",
+      "command": "query units, net_sales by product, filter model='mre-piso0-001'",
+      "result": "1 rows; ROMAEL2540HI ROLLO DE MALLA : units 108.0000, net_sales 209224.12"
+    },
+    {
+      "what": "T065 legacy question 17 on dev (SC-002)",
+      "command": "query units, net_sales by salesperson, product",
+      "result": "3371 rows; overlapping=False"
+    },
+    {
+      "what": "T065 legacy question 18 on dev (SC-002)",
+      "command": "query units, net_sales by salesperson, label",
+      "result": "242 rows; overlapping=True"
+    },
+    {
+      "what": "T065 legacy question 19 on dev (SC-002)",
+      "command": "query units, net_sales by salesperson, brand",
+      "result": "946 rows; overlapping=False"
+    },
+    {
+      "what": "T065 legacy question 20 on dev (SC-002)",
+      "command": "query units, net_sales by salesperson, model",
+      "result": "2647 rows; overlapping=False"
+    },
+    {
+      "what": "T065 legacy question 21 on dev (SC-002)",
+      "command": "query orders, gross_sales, refunds, net_sales, collected by date (day); dashboard for the month",
+      "result": "25 days, totals {'orders': '2986', 'gross_sales': '37203002.97', 'refunds': '6604103.11', 'net_sales': '30524977.45', 'collected': '27682916.09'}; dashboard 8 KPIs, 8 series"
+    },
+    {
+      "what": "T065 legacy question 22 on dev (SC-002)",
+      "command": "detail lines",
+      "result": "5936 lines, sums 37203002.97"
+    },
+    {
+      "what": "T065 legacy question 31 on dev (SC-002)",
+      "command": "query units_sold, units_refunded, units, gross_sales, refunds, net_sales by salesperson, product",
+      "result": "3371 rows; totals units 173414.1120"
+    },
+    {
+      "what": "T065 legacy question 35 on dev (SC-002)",
+      "command": "query the KPI measures, filter customer=6579, comparison previous_period; and by product top 10",
+      "result": "net 6040207.49 vs 6396978.87; 10 products"
+    },
+    {
+      "what": "T065 legacy question 36 on dev (SC-002)",
+      "command": "query collected, refunds_paid_out, store_credit_issued by facility, payment_method",
+      "result": "28 rows, totals {'collected': '27682916.09', 'refunds_paid_out': '0.00', 'store_credit_issued': '1324904.93'}"
+    },
+    {
+      "what": "T065 legacy question 38 on dev (SC-002)",
+      "command": "export CSV of detail lines 2025-11-03..04 (bulk: needs 113; admin)",
+      "result": "200 text/csv; charset=utf-8, 88425 bytes, 623 lines"
+    },
+    {
+      "what": "T065 row 4 negative margin explained",
+      "result": "Salesperson 16 shows -70% margin in November 2025 because of placeholder costs in the cost snapshot, e.g. order 310362 sells TERR02 at $3 with cost $99,999 (2 units, $199,998 of cost). Data, not the engine; the lines_below_cost alert lists them."
     }
   ],
   "concerns": [

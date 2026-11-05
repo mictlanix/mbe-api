@@ -303,7 +303,7 @@ How each sales, payments and product question of the current system is answered.
 | 32 | Store movements summary (99) | Inventory movements by facility | Next spec |
 | 33 | Customer debt (46) | Balances and aging | Next spec (receivables); D's overdue alert covers the action item |
 | 34 | Credit and collection | Collection performance | Next spec |
-| 35 | Customer 360 | One customer's purchases, payments and product mix | D filtered by customer, plus Q by product filtered by customer. **Payments history** comes with receivables (next spec). |
+| 35 | Customer 360 | One customer's purchases, payments and product mix | Q with a customer filter: the dashboard's KPI measures with a comparison, plus by product. The dashboard itself takes no customer filter. **Payments history** comes with receivables (next spec). |
 | 36 | Received payments summary (109) | Totals by method and facility | Q: collected, refunds paid out by facility, payment method |
 | 37 | Commissions by salesperson (112) | Commissions | Already answered by spec 025's commission periods; out of scope |
 | 38 | Download CSV files (113) | Sales, purchases and payments as CSV | Exports (FR-055) for sales and payments; purchases in the next spec |
