@@ -49,7 +49,7 @@ SCOPE_COLUMNS: dict[Fact, str] = {
     Fact.MOVEMENT: 'warehouse.facility',
     Fact.RECEIVABLE: 'sales_order.facility',
     Fact.CREDIT_FLOW: 'sales_order.facility',
-    Fact.PAYABLE: 'purchase_order.facility',
+    Fact.PAYABLE: 'purchase_order_detail.warehouse.facility',
     Fact.COMMISSION: 'commission_agent.employee.facility',
     Fact.INVOICE_LINE: 'fiscal_document.facility',
     Fact.INVOICE_COVERAGE: 'sales_order.facility',

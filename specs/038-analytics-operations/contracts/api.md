@@ -107,7 +107,7 @@ Rules beyond spec 037's:
   - `below_reorder` (`stock`, `below_reorder`);
   - `dead_stock` (`stock`, `dead`, cost: amount is the value);
   - `uncosted_stock` (`stock`, `uncosted`);
-  - `payables_overdue` (once the cutoff is set).
+  - `payables_overdue` (once the cutoff is set): the open POs past due now and their payable. Its `detail` is null, since there is no payables detail kind.
 
 The `overdue_credit_orders` alert of spec 037 is unchanged.
 

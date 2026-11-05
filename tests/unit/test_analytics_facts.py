@@ -333,3 +333,24 @@ def test_the_movement_fact_compiles_for_mariadb() -> None:
     assert 'GROUP BY K0, K1, K2' in sql
     assert 'COUNT(DISTINCT(MOVEMENTS.DOC))' in sql
     assert 'WAREHOUSE.FACILITY =' in sql
+
+
+# ── Spec 038, T026: the credit flow fact (research R9) ────────────────────────
+
+
+def test_the_credit_flow_fact_compiles_for_mariadb() -> None:
+    """Credit sales, applications and the start balance due, in one grouped statement."""
+    statement = facts.query(
+        Fact.CREDIT_FLOW,
+        _slice(
+            dimensions=(DimensionKey.DATE, DimensionKey.SALES_AGENT, DimensionKey.PAYMENT_TERMS),
+            facility=1,
+        ),
+    )
+    sql = str(statement.compile(dialect=mysql.dialect())).upper()
+
+    assert 'STRFTIME' not in sql
+    assert 'UNION ALL' in sql
+    assert 'GROUP BY K0, K1, K2' in sql
+    assert 'RECEIVABLE_SNAPSHOT.MONTH_END =' in sql
+    assert 'SALES_ORDER.FACILITY =' in sql

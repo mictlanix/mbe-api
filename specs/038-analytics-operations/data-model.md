@@ -95,7 +95,7 @@ Each fact is one grouped SQL statement (spec 037 R3), except commissions (R11).
 | `stock_today` | balance | today's reserved and available (`reserved_by_warehouse`) | now | warehouse's facility |
 | `receivable` | balance | `receivable_snapshot` for month-ends; `open_credit_orders()` for now | month-end or now | order's facility |
 | `credit_flow` | flow | applications to credit orders by application date; due-in-period from the start balance (R9) | application date, due date | order's facility |
-| `payable` | balance | spec 033's supplier balances, now | now | PO's facility |
+| `payable` | balance | spec 033's supplier balances, now | now | PO lines' warehouse's facility (R17) |
 | `commission` | flow | spec 025 `read_period` lines, per month (Python) | the line's month | agent's facility |
 | `invoice_line` | flow | `fiscal_document_detail` of types 0 and 200, priced like spec 037 | `issued` | issuing facility |
 | `invoice_coverage` | flow | spec 037's `sale_lines` joined to invoiced quantity per sale line (R12) | sale date | order's facility |

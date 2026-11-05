@@ -42,8 +42,8 @@ from app.schemas.analytics import (
     StockOptions,
     VatTreatment,
 )
-from app.services import sales_order_service
-from app.services.analytics import engine, facts
+from app.services import sales_order_service, supplier_payment_service
+from app.services.analytics import balances, engine, facts
 from app.services.analytics.catalog import MEASURE_FAMILIES, Fact, Family
 
 #: Sparklines: day grain up to 62 days, week up to a year, then month (contracts/api.md "Tiles").
@@ -83,6 +83,13 @@ def refund_rate_alert(
         and period_rate > RATE_FLOOR
         and refunds >= REFUND_FLOOR
     )
+
+
+def trend_start(today: date) -> date:
+    """The receivable trend's first month: 12 month-ends before today's month, and today, from the
+    first stored month-end on (spec 038, R8)."""
+    total = today.year * 12 + today.month - 1 - BASELINE_MONTHS
+    return max(date(total // 12, total % 12 + 1, 1), engine.RECEIVABLE_HISTORY_START.replace(day=1))
 
 
 def baseline_months(start: date) -> tuple[date, date]:
@@ -201,6 +208,12 @@ async def build(
     # Stock is read only within its history (spec 038, R3), as the query refuses before it.
     inventory = Family.INVENTORY in held and request.start >= settings.stock_history_start
     today = local_now().date()
+    # Receivables from the first stored month-end, the comparison's included (R8); payables once
+    # go-live sets the balance cutoff (R10).
+    receivables = Family.RECEIVABLES in held and (
+        balances.read_day(min(before_end, today), today) >= engine.RECEIVABLE_HISTORY_START
+    )
+    payables = Family.PAYABLES in held and await supplier_payment_service.get_cutoff(db) is not None
 
     planned: list[tuple[str, str, AnalyticsQueryRequest]] = []
 
@@ -244,6 +257,24 @@ async def build(
             'stock_value_by_facility', 'bar', value, DimensionKey.FACILITY, comparison=None,
             stock_options=StockOptions(),
         )  # fmt: skip
+    if receivables:
+        overdue = [MeasureKey.RECEIVABLE_OVERDUE]
+        plan('receivable_overdue', '', overdue, DimensionKey.DATE, grain=grain)
+        if engine.whole_months(request.start, request.end):
+            plan('dso', '', [MeasureKey.DSO])
+        plan(
+            'receivable_overdue_trend', 'line', overdue, DimensionKey.DATE, grain=Grain.MONTH,
+            start=trend_start(today), end=today, comparison=None,
+        )  # fmt: skip
+        plan(
+            'top_debtors', 'bar', [MeasureKey.RECEIVABLE], DimensionKey.CUSTOMER, top=TOP,
+            comparison=None,
+        )  # fmt: skip
+        plan(
+            'collected_vs_due', 'bar',
+            [MeasureKey.DUE_IN_PERIOD, MeasureKey.DUE_COLLECTED, MeasureKey.COLLECTED_ON_CREDIT],
+            comparison=None,
+        )  # fmt: skip
 
     prepared = [_prepared(definition, facility, held) for _, _, definition in planned]
     wanted = [pair for one in prepared for pair in engine.wanted(one)]
@@ -252,6 +283,9 @@ async def build(
     stock_alerts = _prepared(_stock_alert_definition(request, facility), facility, held)
     if inventory:
         wanted += engine.wanted(stock_alerts)
+    payable_alert = _prepared(_payable_alert_definition(request, facility, today), facility, held)
+    if payables:
+        wanted += engine.wanted(payable_alert)
     distinct = {engine.fact_key(fact, slice_): (fact, slice_) for fact, slice_ in wanted}
     jobs = [_fact_job(fact, slice_) for fact, slice_ in distinct.values()]
     if sales:
@@ -302,6 +336,15 @@ async def build(
                 grain,
             )
         )  # fmt: skip
+    if receivables:
+        kpis.append(
+            _kpi(
+                'receivable_overdue', MeasureKey.RECEIVABLE_OVERDUE,
+                answered['receivable_overdue'], request, facility, grain,
+            )
+        )  # fmt: skip
+        if 'dso' in answered:
+            kpis.append(_kpi('dso', MeasureKey.DSO, answered['dso'], request, facility, grain))
 
     series = [
         AnalyticsSeries(key=name, chart=chart, query=answered[name])
@@ -311,6 +354,8 @@ async def build(
     alerts = _alerts(request, facility, found, overdue, sales=sales, cost=cost)
     if inventory:
         alerts += _stock_alerts(request, facility, found, stock_alerts, cost=cost)
+    if payables:
+        alerts += _payable_alerts(found, payable_alert)
     return AnalyticsDashboardResponse(
         as_of=local_now(),
         definition=request,
@@ -455,6 +500,30 @@ def _stock_alerts(
             )
         )
     return alerts
+
+
+def _payable_alert_definition(
+    request: AnalyticsDashboardRequest, facility: int | None, today: date
+) -> AnalyticsQueryRequest:
+    """Payables exist only now (R10), whatever the period."""
+    return _definition(
+        request, facility, measures=[MeasureKey.PAYABLE_OVERDUE], start=today, end=today,
+        comparison=None,
+    )  # fmt: skip
+
+
+def _payable_alerts(found: engine.Found, prepared: engine.Prepared) -> list[AnalyticsAlert]:
+    """The open purchase orders past due now. There is no payables detail kind, so no detail."""
+    rows = [
+        row
+        for fact, slice_ in engine.wanted(prepared)[:1]
+        for row in found[engine.fact_key(fact, slice_)]
+    ]
+    count = sum(int(row.get('overdue_orders', 0) or 0) for row in rows)
+    if not count:
+        return []
+    amount = engine.money(sum(int(row.get('overdue_c', 0) or 0) for row in rows))
+    return [AnalyticsAlert(key='payables_overdue', count=count, amount=amount, detail=None)]
 
 
 def _refund_rate_alerts(

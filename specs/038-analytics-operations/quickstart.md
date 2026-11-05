@@ -98,4 +98,5 @@ For each row of the spec's legacy table marked Q, D, Detail or V, run the stated
 After merge, open an mbe-ui issue that links this contract and lists:
 - the new keys, kinds, tiles and detail kinds;
 - the views and schedules routes;
-- the six new `analytics.*` codes for the Spanish catalog (mictlanix/mbe-ui#232).
+- the six new `analytics.*` codes for the Spanish catalog (mictlanix/mbe-ui#232);
+- `AnalyticsAlert.detail` is now nullable (null for `payables_overdue`, which has no detail kind).

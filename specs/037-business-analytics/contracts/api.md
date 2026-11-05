@@ -156,7 +156,7 @@ AnalyticsAlert:
   facility: int | None     # refund_rate only: one alert per facility where it fires
   count: int
   amount: Decimal | None
-  detail: AnalyticsDetailRequest
+  detail: AnalyticsDetailRequest | None  # null only for spec 038's payables_overdue
 ```
 
 **Tiles:**

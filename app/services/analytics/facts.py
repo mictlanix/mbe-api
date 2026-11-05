@@ -12,7 +12,7 @@ is placed. `detail.py` reads the same subqueries, so a drill-down's amounts are 
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import date, timedelta
 from typing import Any
 
 from sqlalchemy import (
@@ -27,11 +27,13 @@ from sqlalchemy import (
     or_,
     select,
     true,
+    union_all,
 )
 from sqlalchemy.sql.expression import ColumnElement, Subquery
 
 from app.core.config import settings
 from app.enums import FiscalDocumentType, PaymentTerms, PaymentType
+from app.models.analytics import ReceivableSnapshot
 from app.models.core import CashSession, Warehouse
 from app.models.customer import Customer
 from app.models.fiscal import FiscalDocument, FiscalDocumentDetail
@@ -48,6 +50,7 @@ from app.models.sales import (
 from app.schemas.analytics import DimensionKey, Grain, StockOptions
 from app.services.analytics.catalog import DIMENSIONS, Availability, Fact
 from app.services.analytics.sql import cents, hour_of, period_bounds, period_start, weekday
+from app.services.sales_order_service import application_date
 
 #: Customer type and payment terms values, as keys and filter values.
 CREDIT, CASH, IMMEDIATE = 'credit', 'cash', 'immediate'
@@ -361,6 +364,85 @@ def movement_rows(start: date, end: date, facility: int | None) -> Subquery:
     return query.subquery('movements')
 
 
+def month_end_on_or_before(day: date) -> date:
+    """`day` when it ends a month, else the end of the month before: the stored receivable
+    month-end a moment reads (spec 038, research R8)."""
+    return day if (day + timedelta(days=1)).day == 1 else day.replace(day=1) - timedelta(days=1)
+
+
+def credit_flow_rows(start: date, end: date, facility: int | None) -> Subquery:
+    """The collection flows of credit orders in the period (spec 038, research R9), by the order's
+    facility, one row source of three parts:
+
+    - credit sales: spec 037's sale lines of credit-terms orders, gross with VAT;
+    - collected on credit: live applications to credit-terms orders by application date (R7), in
+      base currency; those to an order the start balance holds as due in the period are also due
+      collected;
+    - due in the period: the stored balance at the period's start (the month-end on or before the
+      day before it) of the orders due in the period, in base currency, by due date.
+    """
+    since, until = period_bounds(start, end)
+    credit = int(PaymentTerms.NET_D)
+    zero = literal(0)
+    opening = month_end_on_or_before(start - timedelta(days=1))
+    snapshot = ReceivableSnapshot
+    due_here = and_(snapshot.due_date >= since, snapshot.due_date < until)
+
+    lines = sale_lines(start, end, facility)
+    sales = select(
+        lines.c.doc.label('doc'), lines.c.at.label('at'), lines.c.facility.label('facility'),
+        lines.c.customer.label('customer'), lines.c.salesperson.label('salesperson'),
+        lines.c.payment_terms.label('payment_terms'),
+        (lines.c.sub_c + lines.c.tax_c).label('credit_sales_c'), zero.label('collected_c'),
+        zero.label('due_c'), zero.label('due_collected_c'),
+    ).where(lines.c.payment_terms == credit)  # fmt: skip
+
+    order, applied_at = SalesOrder, application_date()
+    collected = cents(SalesOrderPayment.amount * order.exchange_rate)
+    applications = (
+        select(
+            order.sales_order_id.label('doc'), applied_at.label('at'),
+            order.facility.label('facility'), order.customer.label('customer'),
+            order.salesperson.label('salesperson'), order.payment_terms.label('payment_terms'),
+            zero.label('credit_sales_c'), collected.label('collected_c'), zero.label('due_c'),
+            case((snapshot.sales_order.is_not(None), collected), else_=0).label('due_collected_c'),
+        )
+        .join(order, order.sales_order_id == SalesOrderPayment.sales_order)
+        .join(
+            CustomerPayment,
+            CustomerPayment.customer_payment_id == SalesOrderPayment.customer_payment,
+        )
+        .outerjoin(
+            snapshot,
+            and_(
+                snapshot.sales_order == order.sales_order_id,
+                snapshot.month_end == opening,
+                due_here,
+            ),
+        )
+        .where(
+            SalesOrderPayment.cancelled.is_(False),
+            order.payment_terms == credit,
+            applied_at >= since,
+            applied_at < until,
+        )
+    )  # fmt: skip
+
+    due = select(
+        snapshot.sales_order.label('doc'), snapshot.due_date.label('at'),
+        snapshot.facility.label('facility'), snapshot.customer.label('customer'),
+        snapshot.salesperson.label('salesperson'), literal(credit).label('payment_terms'),
+        zero.label('credit_sales_c'), zero.label('collected_c'),
+        cents(snapshot.balance * snapshot.exchange_rate).label('due_c'),
+        zero.label('due_collected_c'),
+    ).where(snapshot.month_end == opening, due_here)  # fmt: skip
+
+    if facility is not None:
+        applications = applications.where(order.facility == facility)
+        due = due.where(snapshot.facility == facility)
+    return union_all(sales, applications, due).subquery('credit_flow')
+
+
 #: The row source of each fact, by period and facility scope.
 SOURCES = {
     Fact.SALE_LINE: sale_lines,
@@ -368,6 +450,7 @@ SOURCES = {
     Fact.CREDIT_NOTE: credit_note_lines,
     Fact.PAYMENT: payment_rows,
     Fact.MOVEMENT: movement_rows,
+    Fact.CREDIT_FLOW: credit_flow_rows,
 }
 
 #: What each fact sums, by output name.
@@ -377,6 +460,7 @@ _SUMS = {
     Fact.CREDIT_NOTE: ('sub_c', 'tax_c'),
     Fact.PAYMENT: ('collected_c', 'paid_out_c', 'store_c'),
     Fact.MOVEMENT: ('units_in', 'units_out'),
+    Fact.CREDIT_FLOW: ('credit_sales_c', 'collected_c', 'due_c', 'due_collected_c'),
 }
 
 
@@ -443,6 +527,10 @@ def dimension_expression(
             return product_label.c.label
         case DimensionKey.POINT_OF_SALE:
             return rows.point_sale
+        case DimensionKey.SALES_AGENT:
+            # The customer's agent, as spec 033's screen groups (research R9).
+            joins.customer = True
+            return Customer.salesperson
         case _:
             return rows[dimension.value]
 

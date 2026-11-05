@@ -601,14 +601,17 @@ class AnalyticsSeries(BaseModel):
 class AnalyticsAlert(BaseModel):
     key: str = Field(
         description='overdue_credit_orders | lines_below_cost | lines_without_cost | refund_rate '
-        '| stock_outs | below_reorder | dead_stock | uncosted_stock'
+        '| stock_outs | below_reorder | dead_stock | uncosted_stock | payables_overdue'
     )
     facility: int | None = Field(
         default=None, description='refund_rate only: one alert per facility where it fires.'
     )
     count: int
     amount: Decimal | None
-    detail: AnalyticsDetailRequest
+    detail: AnalyticsDetailRequest | None = Field(
+        description='The detail listing what the alert counts; null for payables_overdue, which '
+        'has no detail kind (spec 038).'
+    )
 
 
 class AnalyticsDashboardResponse(BaseModel):

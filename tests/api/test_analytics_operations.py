@@ -9,16 +9,23 @@ from datetime import datetime
 
 import pytest
 from httpx import ASGITransport, AsyncClient
+from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from app.core.clock import local_now
 from app.core.deps import CurrentUser, get_current_user
 from app.db.session import get_db
 from app.enums import AccessRight, SystemObject
 from app.main import app
+from app.models.inventory import InventoryReceipt
+from app.models.purchases import SupplierBalanceCutoff
 from app.models.user import AccessPrivilege
 from app.services.analytics import cache
+from tests.integration import inventory_seed
 from tests.integration.conftest import db, engine, seeded, sessions  # noqa: F401  (fixtures)
 from tests.integration.inventory_seed import Inventory, cost, product, setup_inventory
+from tests.integration.receivable_seed import credit_order
+from tests.integration.seed import seed_facility
 from tests.integration.stock_seed import T, entry
 from tests.problem import assert_problem
 
@@ -215,3 +222,104 @@ async def test_value_tiles_need_the_cost_privilege(
     assert detail.status_code == 200, detail.text
     assert detail.json()['total'] == dead['count']
     assert detail.json()['sums']['value'] == dead['amount']
+
+
+# ── Spec 038, T027: receivables and payables (US2) ────────────────────────────
+
+RECEIVABLES = (SystemObject.ACCOUNTS_RECEIVABLE, SystemObject.CUSTOMER_DEBT_REPORT)
+RECEIVABLE_TILES = {'receivable_overdue', 'dso'}
+RECEIVABLE_SERIES = {'receivable_overdue_trend', 'top_debtors', 'collected_vs_due'}
+
+
+async def test_receivables_need_18_or_46_and_payables_19(
+    http: AsyncClient,
+    db: AsyncSession,  # noqa: F811
+) -> None:
+    await grant(db, SALES)
+
+    receivable = await http.post(f'{BASE}/query', json=query('receivable'))
+    payable = await http.post(f'{BASE}/query', json=query('payable'))
+    detail = await http.post(f'{BASE}/detail', json={'kind': 'receivables', **MAY})
+
+    body = assert_problem(receivable, 403, 'auth.forbidden')
+    assert sorted(g['system_object'] for g in body['params']['required']) == sorted(RECEIVABLES)
+    body = assert_problem(payable, 403, 'auth.forbidden')
+    assert [g['system_object'] for g in body['params']['required']] == [
+        SystemObject.ACCOUNTS_PAYABLE
+    ]
+    assert_problem(detail, 403, 'auth.forbidden')
+
+    await grant(db, SystemObject.CUSTOMER_DEBT_REPORT)
+    answered = await http.post(f'{BASE}/query', json=query('receivable'))
+    assert answered.status_code == 200, answered.text
+
+
+async def test_receivable_scope_is_the_orders_facility(
+    http: AsyncClient,
+    db: AsyncSession,  # noqa: F811
+) -> None:
+    """A clerk of facility 1 sees the customer's facility 1 order only, and can't name another."""
+    other = await seed_facility(db)
+    await credit_order(db, confirmed=datetime(2026, 5, 2), due=datetime(2026, 6, 2), price='300')
+    await credit_order(
+        db, confirmed=datetime(2026, 5, 3), due=datetime(2026, 6, 3), price='700', facility=other
+    )
+    await grant(db, SystemObject.ACCOUNTS_RECEIVABLE)
+    today = {'start': local_now().date().isoformat(), 'end': local_now().date().isoformat()}
+
+    answered = await http.post(
+        f'{BASE}/query', json={'measures': ['receivable'], 'dimensions': ['customer'], **today}
+    )
+    elsewhere = await http.post(
+        f'{BASE}/query', json={'measures': ['receivable'], 'facility': other, **today}
+    )
+
+    assert answered.status_code == 200, answered.text
+    assert answered.json()['totals']['values']['receivable'] == '300.00'
+    assert_problem(elsewhere, 403, 'facility.other_facility')
+
+
+async def test_the_dashboard_shows_receivables_only_to_a_receivables_reader(
+    http: AsyncClient,
+    db: AsyncSession,  # noqa: F811
+) -> None:
+    await grant(db, SALES)
+    kpis, series, _ = _tiles(await _dashboard(http))
+    assert not kpis & RECEIVABLE_TILES and not series & RECEIVABLE_SERIES
+
+    await grant(db, SystemObject.ACCOUNTS_RECEIVABLE)
+    cache.responses.clear()
+    kpis, series, _ = _tiles(await _dashboard(http))
+    assert RECEIVABLE_TILES <= kpis and RECEIVABLE_SERIES <= series
+
+
+async def test_the_payables_alert_waits_for_the_cutoff(
+    http: AsyncClient,
+    db: AsyncSession,  # noqa: F811
+) -> None:
+    vendor = await inventory_seed.supplier(db)
+    item = await product(db, code='AP1')
+    order, _ = await inventory_seed.purchase_order(
+        db, lines=[(item, '1', 1)], supplier=vendor, price='100'
+    )
+    received = datetime(2026, 10, 2, 9)
+    db.add(
+        InventoryReceipt(
+            facility=1, warehouse=1, purchase_order=order, creator=1, updater=1,
+            creation_time=received, modification_time=received, completed=True,
+            cancelled=False, serial=12,
+        )  # fmt: skip
+    )
+    db.add(SupplierBalanceCutoff(supplier_balance_cutoff_id=1, cutoff=None))
+    await db.commit()
+    await grant(db, SALES, SystemObject.ACCOUNTS_PAYABLE)
+
+    _, _, alerts = _tiles(await _dashboard(http))
+    assert 'payables_overdue' not in alerts
+
+    await db.execute(update(SupplierBalanceCutoff).values(cutoff=inventory_seed.WHEN))
+    await db.commit()
+    cache.responses.clear()
+    body = await _dashboard(http)
+    alert = next(a for a in body['alerts'] if a['key'] == 'payables_overdue')
+    assert (alert['count'], alert['amount'], alert['detail']) == (1, '116.00', None)

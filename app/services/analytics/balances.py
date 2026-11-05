@@ -1,4 +1,5 @@
-"""Balance facts (spec 038, research R1–R5): stock as of the end of any day since the history start.
+"""Balance facts (spec 038, research R1–R5, R7–R10): stock as of the end of any day since the
+history start, and receivables and payables (at the end of this file).
 
 On hand at the end of day D is Σ `lot_serial_tracking.quantity` dated before D + 1, the sum spec
 030's `stock_ledger.on_hand` and kardex opening take, so the two can't diverge (R2). Every moment
@@ -28,11 +29,14 @@ from app.core.clock import local_now
 from app.core.config import settings
 from app.core.constants import COST_PRICE_LIST_ID
 from app.enums import TransactionType
+from app.models.analytics import ReceivableSnapshot
 from app.models.core import Warehouse
+from app.models.customer import Customer
 from app.models.inventory import LotSerialTracking
 from app.models.product import Product, ProductPrice, product_label
+from app.models.purchases import PurchaseOrderDetail
 from app.schemas.analytics import DimensionKey, StockOptions
-from app.services import stock_ledger, stock_query_service
+from app.services import accounts_service, sales_order_service, stock_ledger, stock_query_service
 from app.services.analytics import facts
 
 ZERO = Decimal(0)
@@ -547,3 +551,220 @@ async def stock_today(db: AsyncSession, slice_: facts.Slice) -> list[dict[str, A
 
     groups = group(found.pairs[today], slice_.dimensions, found.products, figures)
     return _rows(today, groups, len(slice_.dimensions), {'reserved': ZERO, 'available': ZERO})
+
+
+# ── Receivables and payables (research R7–R10) ────────────────────────────────
+
+
+@dataclass(frozen=True)
+class Open:
+    """An open document at a moment: a credit order or a purchase order, as the receivable and
+    payable facts group it. `balance` is in the document's currency."""
+
+    id: int
+    party: int | None
+    facility: int | None
+    salesperson: int | None
+    sales_agent: int | None
+    due_date: datetime | None
+    exchange_rate: Decimal
+    balance: Decimal
+    credit_limit: Decimal | None = None
+
+    @property
+    def base(self) -> Decimal:
+        """The balance in base currency, as spec 033's `summarize` sums it."""
+        return self.balance * self.exchange_rate
+
+
+def read_day(moment: date, today: date) -> date:
+    """The day a receivable at the end of `moment` is read at: today live, else the stored
+    month-end on or before it (R8)."""
+    return moment if moment == today else facts.month_end_on_or_before(moment)
+
+
+def due_bucket(due: datetime | None, day: date) -> str | None:
+    """The forecast's buckets (R9): overdue, or the days until the due date."""
+    if due is None:
+        return None
+    days = (due.date() - day).days
+    if days < 0:
+        return 'overdue'
+    if days <= 7:
+        return '1-7'
+    if days <= 30:
+        return '8-30'
+    if days <= 60:
+        return '31-60'
+    return '60+'
+
+
+def document_key(document: Open, dimension: DimensionKey, day: date) -> Any:
+    """The group of `document` by `dimension`, aged at the end of `day`."""
+    match dimension:
+        case DimensionKey.FACILITY:
+            return document.facility
+        case DimensionKey.CUSTOMER | DimensionKey.SUPPLIER:
+            return document.party
+        case DimensionKey.SALESPERSON:
+            return document.salesperson
+        case DimensionKey.SALES_AGENT:
+            return document.sales_agent
+        case DimensionKey.PAYMENT_TERMS:
+            return facts.CREDIT  # open credit orders are all credit-terms orders
+        case DimensionKey.AGING_BUCKET:
+            days = accounts_service.days_past_due(document.due_date, day)
+            return accounts_service.bucket(days)
+        case DimensionKey.DUE_BUCKET:
+            return due_bucket(document.due_date, day)
+    return None
+
+
+def selected(
+    documents: Iterable[Open], filters: Mapping[DimensionKey, Sequence[Any]], day: date
+) -> list[Open]:
+    return [
+        document
+        for document in documents
+        if all(document_key(document, d, day) in values for d, values in filters.items())
+    ]
+
+
+async def receivables_at(
+    db: AsyncSession, days: Iterable[date], facility: int | None
+) -> dict[date, list[Open]]:
+    """The open credit orders at the end of each of `days` (each a `read_day`): today's from spec
+    033's rule, a month-end's from its stored snapshot (none when it isn't written)."""
+    today = local_now().date()
+    days = set(days)
+    found: dict[date, list[Open]] = {day: [] for day in days}
+    stored = sorted(days - {today})
+    if stored:
+        query = select(ReceivableSnapshot).where(ReceivableSnapshot.month_end.in_(stored))
+        if facility is not None:
+            query = query.where(ReceivableSnapshot.facility == facility)
+        for row in (await db.execute(query)).scalars():
+            found[row.month_end].append(
+                Open(
+                    row.sales_order, row.customer, row.facility, row.salesperson, row.sales_agent,
+                    row.due_date, row.exchange_rate, row.balance, row.credit_limit,
+                )
+            )  # fmt: skip
+    if today in days:
+        orders = await sales_order_service.open_credit_orders(db, facility=facility)
+        customers = {order.customer for order, _ in orders}
+        people: dict[int, tuple[int | None, Decimal | None]] = {}
+        if customers:
+            rows = await db.execute(
+                select(Customer.customer_id, Customer.salesperson, Customer.credit_limit).where(
+                    Customer.customer_id.in_(customers)
+                )
+            )
+            people = {c: (agent, limit) for c, agent, limit in rows.all()}
+        for order, balance in orders:
+            agent, limit = people.get(order.customer, (None, None))
+            found[today].append(
+                Open(
+                    order.sales_order_id, order.customer, order.facility, order.salesperson,
+                    agent, order.due_date, order.exchange_rate, balance.balance, limit,
+                )
+            )  # fmt: skip
+    return found
+
+
+def receivable_columns(documents: Sequence[Open], day: date) -> dict[str, Any]:
+    """The receivable fact's columns for a group, in cents of base currency summed before rounding,
+    as `summarize` does. A customer's limit counts once per group; utilization's parts cover only
+    the customers with one (R9)."""
+    balance = current = overdue = limited = ZERO
+    limits: dict[int | None, Decimal] = {}
+    for document in documents:
+        base = document.base
+        balance += base
+        if accounts_service.days_past_due(document.due_date, day) > 0:
+            overdue += base
+        else:
+            current += base
+        if document.credit_limit is not None and document.credit_limit > 0:
+            limits[document.party] = document.credit_limit
+            limited += base
+    return {
+        'balance_c': cents(balance),
+        'current_c': cents(current),
+        'overdue_c': cents(overdue),
+        'orders': len(documents),
+        'limit_c': cents(sum(limits.values(), ZERO)),
+        'limited_c': cents(limited),
+    }
+
+
+def payable_columns(documents: Sequence[Open], day: date) -> dict[str, Any]:
+    late = [d for d in documents if accounts_service.days_past_due(d.due_date, day) > 0]
+    balance = sum((d.base for d in documents), ZERO)
+    overdue = sum((d.base for d in late), ZERO)
+    return {
+        'payable_c': cents(balance),
+        'current_c': cents(balance - overdue),
+        'overdue_c': cents(overdue),
+        'orders': len(documents),
+        'overdue_orders': len(late),
+    }
+
+
+def document_rows(
+    moment: date,
+    documents: Sequence[Open],
+    slice_: facts.Slice,
+    day: date,
+    figures: Any,
+) -> list[dict[str, Any]]:
+    """One row per group of `slice_.dimensions` at `moment`, of `figures(documents, day)`."""
+    groups: dict[tuple, list[Open]] = {}
+    for document in selected(documents, slice_.filters, day):
+        key = tuple(document_key(document, d, day) for d in slice_.dimensions)
+        groups.setdefault(key, []).append(document)
+    width = len(slice_.dimensions)
+    summed = {key: ([None] * width, figures(group, day)) for key, group in groups.items()}
+    return _rows(moment, summed, width, figures([], day))
+
+
+async def receivable(db: AsyncSession, slice_: facts.Slice) -> list[dict[str, Any]]:
+    """The receivable fact (R7–R9): open credit orders at each moment, today live and earlier at
+    the stored month-end on or before the moment. One row per moment and group."""
+    today = local_now().date()
+    days = {moment: read_day(moment, today) for moment in slice_.moments}
+    found = await receivables_at(db, days.values(), slice_.facility)
+    rows: list[dict[str, Any]] = []
+    for moment, day in days.items():
+        rows += document_rows(moment, found[day], slice_, day, receivable_columns)
+    return rows
+
+
+async def payables_now(db: AsyncSession, facility: int | None) -> list[Open]:
+    """Spec 033's open purchase orders (R10), none while the balance cutoff is unset. A PO's
+    facility is its lines' warehouses' (research R17): the lines carry the request's warehouse."""
+    documents = await accounts_service.SUPPLIERS.documents(db, facility=None)
+    places: dict[int, int] = {}
+    if documents:
+        rows = await db.execute(
+            select(PurchaseOrderDetail.purchase_order, func.min(Warehouse.facility))
+            .join(Warehouse, Warehouse.warehouse_id == PurchaseOrderDetail.warehouse)
+            .where(PurchaseOrderDetail.purchase_order.in_([d.id for d in documents]))
+            .group_by(PurchaseOrderDetail.purchase_order)
+        )
+        places = dict(rows.all())
+    found = [
+        Open(d.id, d.party, places.get(d.id), None, None, d.due_date, d.exchange_rate, d.balance)
+        for d in documents
+    ]
+    return [d for d in found if facility is None or d.facility == facility]
+
+
+async def payable(db: AsyncSession, slice_: facts.Slice) -> list[dict[str, Any]]:
+    """The payable fact (R10): today only, so a past moment has no row and its measures are null.
+    Zero while the cutoff is unset."""
+    today = local_now().date()
+    if today not in slice_.moments:
+        return []
+    documents = await payables_now(db, slice_.facility)
+    return document_rows(today, documents, slice_, today, payable_columns)

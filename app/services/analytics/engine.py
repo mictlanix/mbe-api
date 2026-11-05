@@ -210,13 +210,15 @@ def history_guard(measures: Iterable[MeasureKey], start: date, end: date) -> Non
             )
 
 
+def whole_months(start: date, end: date) -> bool:
+    """A period from a 1st to a month-end or today, as DSO and CEI need (spec 038, R9)."""
+    return start.day == 1 and (end == local_now().date() or (end + timedelta(days=1)).day == 1)
+
+
 def month_end_guard(measures: Iterable[MeasureKey], start: date, end: date) -> None:
     """DSO and CEI need a period from a 1st to a month-end or today (spec 038, R9)."""
-    whole_months = start.day == 1 and (
-        end == local_now().date() or (end + timedelta(days=1)).day == 1
-    )
     for measure in measures:
-        if measure in MONTH_END_MEASURES and not whole_months:
+        if measure in MONTH_END_MEASURES and not whole_months(start, end):
             raise DomainError(
                 ErrorCode.ANALYTICS_PERIOD_NOT_MONTH_END,
                 f'{measure.value} needs a period from a 1st to a month-end or today',
@@ -237,6 +239,21 @@ def stock_guard(definition: AnalyticsQueryRequest) -> None:
     history_guard(measures, first, definition.end)
 
 
+def receivable_guard(prepared: 'Prepared') -> None:
+    """`history_guard` for a query's receivable measures (R8): the first month-end they read, at
+    any of the definition's balance moments, the comparison's included."""
+    measures = [m for m in prepared.definition.measures if Fact.RECEIVABLE in MEASURES[m].facts]
+    if not measures:
+        return
+    read = [
+        facts.month_end_on_or_before(moment) if moment != prepared.today else moment
+        for slice_ in _slices(prepared)
+        for moment in fact_slice(prepared, Fact.RECEIVABLE, slice_).moments
+    ]
+    if read:
+        history_guard(measures, min(read), prepared.definition.end)
+
+
 def parse_value(dimension: DimensionKey, value: str) -> Any:
     """A filter value as the facts compare it; an empty string is "none". The schema has already
     checked that it fits the dimension."""
@@ -247,7 +264,12 @@ def parse_value(dimension: DimensionKey, value: str) -> Any:
             return date.fromisoformat(value)
         case DimensionKey.BRAND | DimensionKey.MODEL:
             return value.strip().lower()
-        case DimensionKey.CUSTOMER_TYPE | DimensionKey.PAYMENT_TERMS:
+        case (
+            DimensionKey.CUSTOMER_TYPE
+            | DimensionKey.PAYMENT_TERMS
+            | DimensionKey.AGING_BUCKET
+            | DimensionKey.DUE_BUCKET
+        ):
             return value
     return int(value)
 
@@ -578,7 +600,49 @@ def derive(
         MeasureKey.MOVEMENT_DOCUMENTS: Decimal(get('movement.documents')),
     }
     values |= _stock_measures(sums, cost, days)
+    values |= _receivable_measures(sums, days)
     return values
+
+
+def _receivable_measures(
+    sums: Mapping[str, Any], days: int | None
+) -> dict[MeasureKey, Decimal | None]:
+    """Receivables, collection and payables (spec 038, research R9, R10). DSO and CEI are computed
+    from their parts. Payables exist only now: null at any other moment."""
+
+    def get(name: str) -> int:
+        return int(sums.get(name, 0) or 0)
+
+    def now_only(name: str, figure: Callable[[int], Decimal]) -> Decimal | None:
+        return figure(get(name)) if name in sums else None
+
+    end, current = get('receivable.balance_c'), get('receivable.current_c')
+    sales = get('credit_flow.credit_sales_c')
+    start = get('receivable.start_balance_c')
+    return {
+        MeasureKey.RECEIVABLE: money(end),
+        MeasureKey.RECEIVABLE_CURRENT: money(current),
+        MeasureKey.RECEIVABLE_OVERDUE: money(get('receivable.overdue_c')),
+        MeasureKey.OPEN_ORDERS: Decimal(get('receivable.orders')),
+        MeasureKey.CREDIT_SALES: money(sales),
+        MeasureKey.COLLECTED_ON_CREDIT: money(get('credit_flow.collected_c')),
+        MeasureKey.DUE_IN_PERIOD: money(get('credit_flow.due_c')),
+        MeasureKey.DUE_COLLECTED: money(get('credit_flow.due_collected_c')),
+        MeasureKey.DSO: (
+            (Decimal(end) / sales * days).quantize(DAYS, rounding=ROUND_HALF_UP)
+            if sales > 0 and days
+            else None
+        ),
+        MeasureKey.CEI: ratio(Decimal(start + sales - end), Decimal(start + sales - current)),
+        MeasureKey.CREDIT_LIMIT: money(get('receivable.limit_c')),
+        MeasureKey.CREDIT_UTILIZATION: ratio(
+            Decimal(get('receivable.limited_c')), Decimal(get('receivable.limit_c'))
+        ),
+        MeasureKey.PAYABLE: now_only('payable.payable_c', money),
+        MeasureKey.PAYABLE_CURRENT: now_only('payable.current_c', money),
+        MeasureKey.PAYABLE_OVERDUE: now_only('payable.overdue_c', money),
+        MeasureKey.OPEN_PURCHASE_ORDERS: now_only('payable.orders', Decimal),
+    }
 
 
 def _stock_measures(
@@ -689,7 +753,7 @@ async def resolve_labels(
                 rows = select(PointSale.point_sale_id, PointSale.name).where(
                     PointSale.point_sale_id.in_(ids)
                 )
-            case DimensionKey.SALESPERSON:
+            case DimensionKey.SALESPERSON | DimensionKey.SALES_AGENT:
                 rows = select(
                     Employee.employee_id, Employee.first_name + ' ' + Employee.last_name
                 ).where(Employee.employee_id.in_(ids))
@@ -825,6 +889,8 @@ async def prepare(
 ) -> Prepared:
     validate(definition)
     stock_guard(definition)
+    receivable_guard(Prepared(definition, parse_filters(definition.filters), None, set()))
+    month_end_guard(definition.measures, definition.start, definition.end)
     held = await check_privileges(db, current, definition.measures)
     facility = await resolve_scope(db, current, definition.facility)
     filters = parse_filters(definition.filters)
@@ -1131,4 +1197,11 @@ def drill(
 # The Python facts register here, below everything they use of this module (spec 038).
 from app.services.analytics import balances  # noqa: E402
 
-RUNNERS.update({Fact.STOCK: balances.stock, Fact.STOCK_TODAY: balances.stock_today})
+RUNNERS.update(
+    {
+        Fact.STOCK: balances.stock,
+        Fact.STOCK_TODAY: balances.stock_today,
+        Fact.RECEIVABLE: balances.receivable,
+        Fact.PAYABLE: balances.payable,
+    }
+)

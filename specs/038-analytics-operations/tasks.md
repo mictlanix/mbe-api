@@ -177,7 +177,7 @@ T077 confirms that none remain.
 
 ### Tests
 
-- [ ] T024 [P] [US2] Write `tests/unit/test_sales_order_as_of.py`, on fixtures:
+- [X] T024 [P] [US2] Write `tests/unit/test_sales_order_as_of.py`, on fixtures:
   - `open_credit_orders(as_of=None)` equals `as_of=local_now()`, and both equal spec 033's figures;
   - at a past moment T: an application dated after T doesn't count, and a 0001-dated one counts at its payment's date;
   - a refund after T doesn't count, and one without a date uses `modification_time`;
@@ -185,13 +185,13 @@ T077 confirms that none remain.
   - an order confirmed after T isn't a candidate;
   - an order with `balance_zeroed_time` after T is still open at T;
   - an order flagged paid without a zero time is closed at every T.
-- [ ] T025 [P] [US2] Write `tests/integration/test_snapshot_receivables.py`:
+- [X] T025 [P] [US2] Write `tests/integration/test_snapshot_receivables.py`:
   - the job writes one row per open credit order per month-end, plus a marker for a month with none;
   - a second run writes nothing;
   - `--rebuild` of an unchanged month gives identical rows in one transaction;
   - `--from 2024-12` is refused with `analytics.before_history` (history `receivables`);
   - backfilled rows have `limit_historical = 0`.
-- [ ] T026 [P] [US2] Write `tests/integration/test_analytics_receivables.py`:
+- [X] T026 [P] [US2] Write `tests/integration/test_analytics_receivables.py`:
   - receivable by customer and bucket today equals `accounts_service.summary` to the cent;
   - grouped by `payment_terms` (the order's terms), the rows add up to the total (FR-123);
   - the catalog definition of `receivable` states the 2025 caveat (FR-121);
@@ -205,20 +205,20 @@ T077 confirms that none remain.
   - the forecast's buckets add up to the total receivable;
   - the payables measures are zero while `supplier_balance_cutoff` is null, and follow `po_counts` once it is set;
   - the `receivables` detail kind with flag `overdue` sums to the query.
-- [ ] T027 [P] [US2] Extend `tests/api/test_analytics_operations.py` (US2 part): 403 without 18 or 46 for receivables and without 19 for payables; facility scope uses the order's facility; the receivables tiles appear only for a receivables reader; and the payables tile is absent while the cutoff is null.
+- [X] T027 [P] [US2] Extend `tests/api/test_analytics_operations.py` (US2 part): 403 without 18 or 46 for receivables and without 19 for payables; facility scope uses the order's facility; the receivables tiles appear only for a receivables reader; and the payables tile is absent while the cutoff is null.
 
 ### Implementation
 
-- [ ] T028 [US2] In `app/services/sales_order_service.py`, add the keyword `as_of: datetime | None = None` to `order_balances`, `refunded_by_order`, `_credit_candidates` and `open_credit_orders` (R7). With `None` every query is unchanged. Change nothing else. T024 passes, and every spec 033 test passes unchanged.
-- [ ] T029 [US2] Write `app/jobs/snapshot_receivables.py` in the style of `app/jobs/purge_exports.py`, with no arguments, `--from YYYY-MM`, and `--month YYYY-MM --rebuild` (R8). Each month-end is one `open_credit_orders(as_of=<month-end 23:59:59>)` call, written in one transaction. It stores the customer's agent and current credit limit. T025 passes.
-- [ ] T030 [US2] Add to `app/services/analytics/balances.py`:
+- [X] T028 [US2] In `app/services/sales_order_service.py`, add the keyword `as_of: datetime | None = None` to `order_balances`, `refunded_by_order`, `_credit_candidates` and `open_credit_orders` (R7). With `None` every query is unchanged. Change nothing else. T024 passes, and every spec 033 test passes unchanged.
+- [X] T029 [US2] Write `app/jobs/snapshot_receivables.py` in the style of `app/jobs/purge_exports.py`, with no arguments, `--from YYYY-MM`, and `--month YYYY-MM --rebuild` (R8). Each month-end is one `open_credit_orders(as_of=<month-end 23:59:59>)` call, written in one transaction. It stores the customer's agent and current credit limit. T025 passes.
+- [X] T030 [US2] Add to `app/services/analytics/balances.py`:
   - `receivable(db, ...)`, which reads `receivable_snapshot` for month-ends and `open_credit_orders()` for now, in base currency, with `accounts_service.days_past_due` and `bucket`;
   - `payable(db, ...)`, today only, from spec 033's supplier balances and `po_due_date` (R10).
 
   Add the aging and due bucket and sales agent dimensions.
-- [ ] T031 [US2] Add the `credit_flow` fact to `app/services/analytics/facts.py`: credit sales (spec 037's gross sales of credit-terms orders), collected on credit by application date, due in period from the start balance, and due collected (R9). Compute DSO and CEI from their parts in `engine.assemble`, calling `engine.month_end_guard`. T026 passes for queries.
-- [ ] T032 [US2] Add the `receivables` detail kind (read on 7, flag `overdue`) to `app/services/analytics/detail.py`. T026 passes.
-- [ ] T033 [US2] Add to `app/services/analytics/dashboard.py`:
+- [X] T031 [US2] Add the `credit_flow` fact to `app/services/analytics/facts.py`: credit sales (spec 037's gross sales of credit-terms orders), collected on credit by application date, due in period from the start balance, and due collected (R9). Compute DSO and CEI from their parts in `engine.assemble`, calling `engine.month_end_guard`. T026 passes for queries.
+- [X] T032 [US2] Add the `receivables` detail kind (read on 7, flag `overdue`) to `app/services/analytics/detail.py`. T026 passes.
+- [X] T033 [US2] Add to `app/services/analytics/dashboard.py`:
   - the KPIs `receivable_overdue` and `dso`;
   - the series `receivable_overdue_trend` (12 month-ends and now), `top_debtors` (top 10 with others) and `collected_vs_due`;
   - the alert `payables_overdue`, only once the cutoff is set.
@@ -453,7 +453,7 @@ T077 confirms that none remain.
 - [ ] T070 [P] Add the spec to `CHANGELOG.md` under `[Unreleased]`:
   - **Added**: the analytics families, kardex, customer 360, views and schedules routes, migration 032, the six `analytics.*` codes, the two jobs and the settings;
   - **Docs**: spec 038.
-- [ ] T071 Confirm `tests/unit/test_contract_docs.py` passes with every block of `specs/038-analytics-operations/contracts/api.md`. Fix the doc or the schema where they differ, never by weakening the test.
+- [ ] T071 Confirm `tests/unit/test_contract_docs.py` passes with every block of `specs/038-analytics-operations/contracts/api.md`. Also implement and test the contract's "Receivable history" rule that the response's `definition` shows the month-end used when a receivable date is rounded down (US2 left it open). Fix the doc or the schema where they differ, never by weakening the test.
 - [ ] T072 Map every legacy row of the spec's table (23–38) to a test or a quickstart §6 request, and add any missing integration case to the story's test file.
 - [ ] T073 Run `uv run ruff check app/ migrations/ tests/` and the full `uv run pytest -q`. Fix any failure.
 - [ ] T074 Read the diff (constitution III). Every changed file must be in plan.md's Source Code tree or named by a task: `app/services/analytics/*`, `sales_order_service.py` (only the `as_of` keyword), `config.py`, `error_codes.py`, `errors.py`, `app/models/analytics.py` and `app/models/__init__.py`, `app/schemas/analytics.py`, `app/api/v1/endpoints/analytics.py` and `analytics_views.py`, `app/api/v1/router.py`, the two jobs, migration 032 and its rollback, the tests, `.env.example`, `CHANGELOG.md`, spec 036's error-code doc, spec 037's contract, and this spec's documents. Revert anything else.

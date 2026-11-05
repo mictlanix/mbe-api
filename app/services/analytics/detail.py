@@ -37,7 +37,7 @@ from app.schemas.analytics import (
     StockOptions,
     VatTreatment,
 )
-from app.services import kardex_service, sales_order_service
+from app.services import accounts_service, kardex_service, sales_order_service, totals
 from app.services.analytics import balances, engine, facts
 from app.services.analytics.catalog import DIMENSIONS, Availability, Fact, Family
 
@@ -49,6 +49,7 @@ KIND_FACT = {
     DetailKind.PAYMENTS: Fact.PAYMENT,
     DetailKind.STOCK: Fact.STOCK,
     DetailKind.MOVEMENTS: Fact.MOVEMENT,
+    DetailKind.RECEIVABLES: Fact.RECEIVABLE,
 }
 #: The measure a kind's refusals name (`analytics.dimension_not_applicable`).
 KIND_MEASURE = {
@@ -59,12 +60,14 @@ KIND_MEASURE = {
     DetailKind.PAYMENTS: MeasureKey.COLLECTED,
     DetailKind.STOCK: MeasureKey.ON_HAND,
     DetailKind.MOVEMENTS: MeasureKey.UNITS_IN,
+    DetailKind.RECEIVABLES: MeasureKey.RECEIVABLE,
 }
 #: The family a kind belongs to; the rest are sales.
 KIND_FAMILY = {
     DetailKind.PAYMENTS: Family.PAYMENTS,
     DetailKind.STOCK: Family.INVENTORY,
     DetailKind.MOVEMENTS: Family.INVENTORY,
+    DetailKind.RECEIVABLES: Family.RECEIVABLES,
 }
 #: Read on the document kind, besides the family (FR-060); stock pairs need none.
 KIND_PRIVILEGE = {
@@ -74,6 +77,7 @@ KIND_PRIVILEGE = {
     DetailKind.CREDIT_NOTES: SystemObject.FISCAL_DOCUMENTS,
     DetailKind.PAYMENTS: SystemObject.CUSTOMER_PAYMENTS,
     DetailKind.MOVEMENTS: SystemObject.KARDEX,
+    DetailKind.RECEIVABLES: SystemObject.SALES_ORDERS,
 }
 COST_FLAGS = {DetailFlag.BELOW_COST, DetailFlag.WITHOUT_COST}
 SENSITIVE_KEYS = {'cost', 'margin'}
@@ -111,6 +115,8 @@ async def check(
         engine.history_guard([MeasureKey.ON_HAND], stock_moment(request), request.end)
     elif request.kind is DetailKind.MOVEMENTS:
         engine.history_guard([MeasureKey.UNITS_IN], request.start, request.end)
+    elif request.kind is DetailKind.RECEIVABLES:
+        engine.history_guard([MeasureKey.RECEIVABLE], receivable_day(request), request.end)
     held = await engine.families(db, current)
     family = KIND_FAMILY.get(request.kind, Family.SALES)
     if family not in held:
@@ -232,6 +238,8 @@ async def execute(
 ) -> AnalyticsDetailResponse:
     """A page of items (or every item, for an export) with the sums over all of them."""
     as_of = local_now()
+    if request.kind is DetailKind.RECEIVABLES:
+        return await _receivables(db, request, facility, as_of, everything=everything)
     if request.flag is DetailFlag.OVERDUE:
         return await _overdue(db, request, facility, as_of, everything=everything)
     if request.kind is DetailKind.STOCK:
@@ -568,3 +576,77 @@ async def _movements(
             )
         )  # fmt: skip
     return AnalyticsDetailResponse(as_of=as_of, items=items, total=total, sums=sums)
+
+
+# ── Receivables (spec 038) ────────────────────────────────────────────────────
+
+
+def receivable_day(request: AnalyticsDetailRequest) -> Any:
+    """The open orders are listed as of the period's end: now when it reaches today, else the
+    stored month-end on or before it, as the receivable fact reads them (R8)."""
+    return balances.read_day(stock_moment(request), local_now().date())
+
+
+async def _receivables(
+    db: AsyncSession,
+    request: AnalyticsDetailRequest,
+    facility: int | None,
+    as_of: datetime,
+    *,
+    everything: bool,
+) -> AnalyticsDetailResponse:
+    """The open credit orders the receivable fact sums at the moment, with flag `overdue` those
+    past due. `amount` is the balance in base currency; the sum rounds once, as the fact does."""
+    day = receivable_day(request)
+    found = (await balances.receivables_at(db, [day], facility))[day]
+    documents = balances.selected(found, engine.parse_filters(request.filters), day)
+    if request.flag is DetailFlag.OVERDUE:
+        documents = [d for d in documents if accounts_service.days_past_due(d.due_date, day) > 0]
+    orders = {}
+    if documents:
+        rows = await db.execute(
+            select(SalesOrder.sales_order_id, SalesOrder.serial, SalesOrder.confirmation_time,
+                   SalesOrder.date)
+            .where(SalesOrder.sales_order_id.in_([d.id for d in documents]))
+        )  # fmt: skip
+        orders = {oid: (serial, confirmed or dated) for oid, serial, confirmed, dated in rows.all()}
+    name, descending = parse_sort(request.sort)
+    value = {
+        'date': lambda d: orders.get(d.id, (None, None))[1],
+        'amount': lambda d: d.base,
+        'document': lambda d: d.id,
+    }[name]
+    documents.sort(key=lambda d: d.id, reverse=descending)
+    present = sorted((d for d in documents if value(d) is not None), key=value, reverse=descending)
+    documents = present + [d for d in documents if value(d) is None]
+    shown = documents if everything else documents[request.skip : request.skip + request.limit]
+    names = await _customer_names(db, [d.party for d in shown])
+    items = []
+    for document in shown:
+        serial, dated = orders.get(document.id, (None, None))
+        days = accounts_service.days_past_due(document.due_date, day)
+        items.append(
+            AnalyticsDetailItem(
+                kind=DetailKind.RECEIVABLES, id=document.id, document_id=document.id,
+                folio=None if serial is None else str(serial), date=dated,
+                facility=document.facility, customer=document.party,
+                customer_name=names.get(document.party), salesperson=document.salesperson,
+                product=None, product_code=None, product_name=None, quantity=None,
+                amount=document.base.quantize(totals.CENTS, rounding='ROUND_HALF_UP'),
+                payment_method=None,
+                figures=AnalyticsDetailFigures(
+                    values={
+                        'balance': str(document.balance),
+                        'exchange_rate': str(document.exchange_rate),
+                        'due_date': None if document.due_date is None
+                        else document.due_date.isoformat(),
+                        'days_past_due': str(days),
+                        'bucket': accounts_service.bucket(days),
+                        'due_bucket': balances.due_bucket(document.due_date, day),
+                    }
+                ),
+            )
+        )  # fmt: skip
+    total = sum((d.base for d in documents), Decimal(0))
+    sums = {'amount': engine.money(balances.cents(total))}
+    return AnalyticsDetailResponse(as_of=as_of, items=items, total=len(documents), sums=sums)

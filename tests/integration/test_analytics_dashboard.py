@@ -94,6 +94,7 @@ async def test_each_kpi_equals_the_query_for_its_measure(client: AsyncClient, ma
     assert keys == [
         'net_sales', 'margin_pct', 'cost_coverage', 'orders', 'average_ticket', 'collected',
         'collected_today', 'refunds', 'stock_value',  # spec 038: the administrator reads stock
+        'receivable_overdue', 'dso',  # and receivables
     ]  # fmt: skip
 
 
@@ -126,6 +127,7 @@ async def test_the_series(client: AsyncClient, may: None) -> None:
         'sales_over_time', 'sales_by_facility', 'sales_by_label', 'sales_by_brand',
         'top_products', 'top_customers', 'payment_mix', 'heatmap',
         'stock_value_by_facility',  # spec 038
+        'receivable_overdue_trend', 'top_debtors', 'collected_vs_due',
     }  # fmt: skip
     over_time = series['sales_over_time']['query']
     assert over_time['totals']['comparison']['net_sales'] == '100.00'  # April 8

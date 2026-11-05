@@ -273,7 +273,7 @@ It stops (failed, `auth.forbidden`) if the owner's status is not active: the err
 Facility scope:
 - inventory: the warehouse's facility;
 - receivables: the order's facility;
-- payables and purchases: the facility of the PO's header warehouse (`purchase_order` has no facility column);
+- payables and purchases: the facility of the PO lines' warehouse. `purchase_order` has neither a facility nor a warehouse column (the header warehouse is the purchase request's); a PO line carries its request line's warehouse, or the request header's when the line had none. A PO whose lines span facilities takes the lowest facility id; one with no line warehouse is visible only to callers with no facility scope;
 - fiscal: the issuing facility;
 - commissions: the facility of the agent's user record (`user.employee` = the line's `salesperson`). An agent with no user is visible only to callers with no facility scope.
 
