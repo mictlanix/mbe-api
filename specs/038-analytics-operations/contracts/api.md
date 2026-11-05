@@ -206,6 +206,7 @@ AnalyticsDetailFigures:
 - The previous price is the unit price of the product's purchase before it, by (date, line id), from any supplier, facility or date before the period (`LAG` over the product's history), whatever the request's filters and scope. Lines at price 0 after discount are listed, since they are purchases, but are left out of the history: they have no previous price and are never one.
 - Flag `price_change`: the lines whose |change| is more than `price_change_pct` percent (default 10) of the previous price.
 - `sums`: `amount` (`purchases`), `quantity` (`purchase_quantity`) and `received` (`received_quantity`). `sort`: `amount` is the amount, `document` the purchase order.
+- **Export:** a `purchases` export over more than one day with no filter and no flag is a bulk download under spec 037's rule (FR-055, legacy row 38): it needs Download CSV files (113), as `lines` and `payments` do.
 
 **`commission_lines`** lists spec 025's lines of the months the period touches, as `read_period` gives them (stored once a month is closed, live while it is open):
 - `id` is the sale line, `document_id` and `folio` its order, `date` the paid date (a refund's date for a refund line), `facility` the agent's user's, `salesperson` the earning agent, `quantity` the line's (or the refund's), `amount` the commission.

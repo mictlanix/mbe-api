@@ -22,6 +22,8 @@ D = Decimal
 VITALICIO, CANALIZACION, CAMPO = 1, 2, 3
 LABEL = 1
 AGENT_A, AGENT_B = 17, 33
+#: No database: `read_period` is replaced, and on "SQLite" the months are read one by one.
+DB = SimpleNamespace(bind=SimpleNamespace(dialect=SimpleNamespace(name='sqlite')))
 SETTINGS = rules.Settings(
     agents={AGENT_A: CommissionScheme.FULLY_PAID, AGENT_B: CommissionScheme.FULLY_PAID},
     rates={
@@ -135,7 +137,7 @@ async def test_grouped_rows_equal_the_sum_of_their_lines() -> None:
         DimensionKey.CUSTOMER, DimensionKey.DATE,
     )  # fmt: skip
 
-    rows = await commissions.fact(None, _slice(*dimensions))
+    rows = await commissions.fact(DB, _slice(*dimensions))
 
     expected: dict[tuple, dict[str, int]] = {}
     for month, _, x in ALL:
@@ -155,7 +157,7 @@ async def test_grouped_rows_equal_the_sum_of_their_lines() -> None:
 
 
 async def test_the_base_is_price_times_quantity() -> None:
-    rows = await commissions.fact(None, _slice(DimensionKey.SALESPERSON))
+    rows = await commissions.fact(DB, _slice(DimensionKey.SALESPERSON))
 
     by_agent = {row['k0']: row for row in rows}
     # Agent 17: line 10 (10000 × 1), its half of line 20 (5000 × 2), and the refund (-10000 × 0.5)
@@ -165,7 +167,7 @@ async def test_the_base_is_price_times_quantity() -> None:
 
 async def test_a_refund_is_negative_in_its_own_month() -> None:
     rows = await commissions.fact(
-        None, _slice(DimensionKey.DATE, filters={DimensionKey.SALESPERSON: (AGENT_A,)})
+        DB, _slice(DimensionKey.DATE, filters={DimensionKey.SALESPERSON: (AGENT_A,)})
     )
 
     by_month = {row['k0']: row for row in rows}
@@ -176,7 +178,7 @@ async def test_a_refund_is_negative_in_its_own_month() -> None:
 
 async def test_status_labels_and_names_come_from_the_lines() -> None:
     rows = await commissions.fact(
-        None,
+        DB,
         _slice(
             DimensionKey.COMMISSION_STATUS, DimensionKey.LABEL,
             DimensionKey.COMMISSION_PARTICIPATION,
@@ -194,16 +196,16 @@ async def test_status_labels_and_names_come_from_the_lines() -> None:
 
 async def test_filters_and_facility_scope_select_lines() -> None:
     closed = await commissions.fact(
-        None, _slice(filters={DimensionKey.COMMISSION_STATUS: ('closed',)})
+        DB, _slice(filters={DimensionKey.COMMISSION_STATUS: ('closed',)})
     )
-    scoped = await commissions.fact(None, _slice(DimensionKey.SALESPERSON, facility=2))
+    scoped = await commissions.fact(DB, _slice(DimensionKey.SALESPERSON, facility=2))
 
     assert [row['commission_c'] for row in closed] == [20000]
     assert [(row['k0'], row['commission_c']) for row in scoped] == [(AGENT_B, 5000)]
 
 
 async def test_each_month_of_the_period_is_read_once(read_period: AsyncMock) -> None:
-    await commissions.fact(None, _slice(start=date(2026, 3, 15), end=date(2026, 5, 2)))
+    await commissions.fact(DB, _slice(start=date(2026, 3, 15), end=date(2026, 5, 2)))
 
     assert [call.args[1:] for call in read_period.await_args_list] == [
         (2026, 3), (2026, 4), (2026, 5),

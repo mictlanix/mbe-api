@@ -353,3 +353,31 @@ async def test_bulk_detail_exports_need_113(
     problem = assert_problem(refused, 403, 'auth.forbidden')
     assert problem['params']['required'] == [{'system_object': 113, 'right': int(AccessRight.READ)}]
     assert narrow.status_code == allowed.status_code == administrator.status_code == 200
+
+
+async def test_a_bulk_purchases_export_needs_113(
+    http: AsyncClient,
+    db: AsyncSession,  # noqa: F811
+) -> None:
+    """Spec 038, legacy row 38: the purchases CSV is under spec 037's bulk rule."""
+    clerk = CurrentUser(
+        user_id='tester', session_version=1, administrator=False, facility_id=1, employee_id=1
+    )
+    app.dependency_overrides[get_current_user] = lambda: clerk
+    db.add(
+        AccessPrivilege(
+            user_id='tester', system_object=int(SystemObject.PURCHASES_ORDERS),
+            privileges=AccessRight.READ,
+        )
+    )  # fmt: skip
+    await db.commit()
+    bulk = {'kind': 'purchases', **MAY}
+
+    refused = await _export(http, 'csv', detail=bulk)
+    db.add(AccessPrivilege(user_id='tester', system_object=113, privileges=AccessRight.READ))
+    await db.commit()
+    allowed = await _export(http, 'csv', detail=bulk)
+
+    problem = assert_problem(refused, 403, 'auth.forbidden')
+    assert problem['params']['required'] == [{'system_object': 113, 'right': int(AccessRight.READ)}]
+    assert allowed.status_code == 200, allowed.text

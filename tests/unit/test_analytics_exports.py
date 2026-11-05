@@ -100,7 +100,7 @@ def _detail(kind: DetailKind, **kw: object) -> AnalyticsDetailRequest:
     return AnalyticsDetailRequest(kind=kind, start=date(2026, 5, 1), end=date(2026, 5, 31), **kw)
 
 
-def test_bulk_detail_is_lines_or_payments_over_days_without_filters() -> None:
+def test_bulk_detail_is_lines_payments_or_purchases_over_days_without_filters() -> None:
     narrowed = [AnalyticsFilter(dimension=DimensionKey.CUSTOMER, values=['2'])]
     one_day = AnalyticsDetailRequest(
         kind=DetailKind.LINES, start=date(2026, 5, 4), end=date(2026, 5, 4)
@@ -108,6 +108,9 @@ def test_bulk_detail_is_lines_or_payments_over_days_without_filters() -> None:
 
     assert exports.is_bulk_detail(_detail(DetailKind.LINES))
     assert exports.is_bulk_detail(_detail(DetailKind.PAYMENTS))
+    # Spec 038, legacy row 38: the purchases CSV is under the same rule.
+    assert exports.is_bulk_detail(_detail(DetailKind.PURCHASES))
+    assert not exports.is_bulk_detail(_detail(DetailKind.PURCHASES, flag=DetailFlag.PRICE_CHANGE))
     assert not exports.is_bulk_detail(_detail(DetailKind.ORDERS))
     assert not exports.is_bulk_detail(_detail(DetailKind.LINES, filters=narrowed))
     assert not exports.is_bulk_detail(_detail(DetailKind.PAYMENTS, flag=DetailFlag.COLLECTED))

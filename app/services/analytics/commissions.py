@@ -10,11 +10,18 @@ closing the earlier ones in order would add: per sale line, agent, participation
 refund line, its amount less what the query's earlier open months already gave, and a line nothing
 remains of is left out. Otherwise the amounts are spec 025's as they are.
 
+Reading an open month runs spec 025's candidate query, seconds on production data. The months are
+read concurrently, each on its own session, and a query shares them across its slices (rows,
+totals, comparison) through `shared_reads`, so each month is read once per request. The deduction
+above runs afterwards, in month order.
+
 A line's agent is its `salesperson`, the agent who earns it. Its facility is that agent's user's
 (research R17): the lowest one when the agent has several users, none when they have no user.
 """
 
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Iterable, Iterator, Mapping, Sequence
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
@@ -29,6 +36,39 @@ from app.services import commission_service
 from app.services.analytics import facts
 
 PROVISIONAL, CLOSED = 'provisional', 'closed'
+
+#: The months already read in this request, while `shared_reads` is active.
+_READ: ContextVar[dict[date, Any] | None] = ContextVar('commission_months', default=None)
+
+
+@contextmanager
+def shared_reads() -> Iterator[None]:
+    """Within the block, each month is read once and reused by every slice."""
+    token = _READ.set({})
+    try:
+        yield
+    finally:
+        _READ.reset(token)
+
+
+async def read_months(db: AsyncSession, wanted: Iterable[date]) -> dict[date, Any]:
+    """`read_period` of each month, concurrently, reusing the months `shared_reads` holds."""
+    # Imported here: the dashboard imports the engine, which imports this module.
+    from app.services.analytics.dashboard import concurrently
+
+    held = _READ.get()
+    known = held if held is not None else {}
+    wanted = sorted(set(wanted))
+    missing = [month for month in wanted if month not in known]
+
+    def job(month: date) -> Any:
+        async def read(session: AsyncSession) -> Any:
+            return await commission_service.read_period(session, month.year, month.month)
+
+        return read
+
+    known.update(zip(missing, await concurrently(db, [job(m) for m in missing]), strict=True))
+    return {month: known[month] for month in wanted}
 
 
 @dataclass(frozen=True)
@@ -67,8 +107,7 @@ async def entries(db: AsyncSession, start: date, end: date, facility: int | None
     places = await agent_facilities(db)
     given: dict[tuple, Decimal] = {}  # by `_line_key`, what earlier open months gave
     found: list[Entry] = []
-    for month in months(start, end):
-        view = await commission_service.read_period(db, month.year, month.month)
+    for month, view in (await read_months(db, months(start, end))).items():
         status = CLOSED if view.final else PROVISIONAL
         for line in view.lines:
             amount = Decimal(str(line.commission))

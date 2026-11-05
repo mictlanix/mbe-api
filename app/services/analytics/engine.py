@@ -1107,10 +1107,14 @@ def _plan(prepared: Prepared, slice_: facts.Slice) -> list[Placement]:
 
 async def execute(db: AsyncSession, prepared: Prepared) -> AnalyticsQueryResponse:
     """Run a prepared definition: rows, others, totals and comparisons (FR-010–FR-013)."""
-    found = {
-        fact_key(fact, slice_): await run_fact(db, fact, slice_)
-        for fact, slice_ in wanted(prepared)
-    }
+    asked = wanted(prepared)
+    with commissions.shared_reads():
+        commission_slices = [slice_ for fact, slice_ in asked if fact is Fact.COMMISSION]
+        if commission_slices:  # every month of every slice at once (spec 038, R18)
+            await commissions.read_months(
+                db, {m for s in commission_slices for m in commissions.months(s.start, s.end)}
+            )
+        found = {fact_key(fact, slice_): await run_fact(db, fact, slice_) for fact, slice_ in asked}
     return await assemble(db, prepared, found)
 
 

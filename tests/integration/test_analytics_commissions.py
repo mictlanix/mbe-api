@@ -359,3 +359,30 @@ async def test_facility_scope_is_the_agents_user_facility(
     }
     assert _rows(first) == {(str(AGENT_A),): D('75.00')}
     assert _rows(second) == {(str(AGENT_B),): D('25.00')}
+
+
+# ── Cost ──────────────────────────────────────────────────────────────────────
+
+
+async def test_each_month_is_read_once_per_request(
+    client: AsyncClient, book: dict[str, int]
+) -> None:
+    """A 12-month query with a comparison reads 24 distinct months: rows, totals and the
+    comparison's slices share each month's lines, and the figures are those of every month."""
+    real = commission_service.read_period
+    calls: list[tuple[int, int]] = []
+
+    async def counted(db: AsyncSession, year: int, month: int, **kw: object) -> object:
+        calls.append((year, month))
+        return await real(db, year, month, **kw)
+
+    with patch.object(commission_service, 'read_period', counted):
+        body = await _query(
+            client, 'commission', dimensions=['salesperson'], start='2025-05-01',
+            end='2026-04-30', comparison='previous_period',
+        )  # fmt: skip
+
+    assert len(calls) == len(set(calls)) == 24
+    assert _rows(body) == {(str(AGENT_A),): D('75.00'), (str(AGENT_B),): D('25.00')}
+    assert D(body['totals']['values']['commission']) == D('100.00')
+    assert D(body['totals']['comparison']['commission']) == D('0.00')

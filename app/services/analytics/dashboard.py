@@ -102,7 +102,7 @@ def baseline_months(start: date) -> tuple[date, date]:
 # ── Running the tiles ─────────────────────────────────────────────────────────
 
 
-async def _concurrently(db: AsyncSession, jobs: Sequence[Callable[[AsyncSession], Awaitable[Any]]]):
+async def concurrently(db: AsyncSession, jobs: Sequence[Callable[[AsyncSession], Awaitable[Any]]]):
     """Run independent jobs at once, each on its own session; one after another on SQLite."""
     if db.bind.dialect.name == 'sqlite':
         return [await job(db) for job in jobs]
@@ -295,7 +295,7 @@ async def build(
     jobs = [_fact_job(fact, slice_) for fact, slice_ in distinct.values()]
     if sales:
         jobs.append(lambda session: _overdue_job(session, facility))
-    results = await _concurrently(db, jobs)
+    results = await concurrently(db, jobs)
     found = dict(zip(distinct, results[: len(distinct)], strict=True))
     overdue = results[-1] if sales else []
     answered = {

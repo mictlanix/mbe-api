@@ -128,10 +128,10 @@ def export_mode(format_: ExportFormat, rows: int) -> str:
 
 
 def is_bulk_detail(request: AnalyticsDetailRequest) -> bool:
-    """A legacy-style bulk download (FR-055): lines or payments over more than one day, with no
-    other filter. It needs Download CSV files (113)."""
+    """A legacy-style bulk download (FR-055): lines, payments or (spec 038, legacy row 38) purchases
+    over more than one day, with no other filter. It needs Download CSV files (113)."""
     return (
-        request.kind in (DetailKind.LINES, DetailKind.PAYMENTS)
+        request.kind in (DetailKind.LINES, DetailKind.PAYMENTS, DetailKind.PURCHASES)
         and request.end > request.start
         and not request.filters
         and request.flag is None
