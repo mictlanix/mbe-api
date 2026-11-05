@@ -673,6 +673,53 @@ class AnalyticsKardexResponse(BaseModel):
     closing: Decimal = Field(description='The balance at the end of end.')
 
 
+# ── Customer 360 (spec 038, FR-125) ──────────────────────────────────────────
+
+
+class AnalyticsCustomerRequest(BaseModel):
+    """One customer and period; the export and saved-view form of the route's parameters."""
+
+    customer: int
+    start: date
+    end: date
+    facility: int | None = Field(
+        default=None,
+        description="Omitted: the caller's own, or every facility for callers who "
+        'may see them all.',
+    )
+
+
+class AnalyticsCustomerResponse(BaseModel):
+    as_of: LocalDateTime
+    customer: int
+    customer_name: str
+    start: date
+    end: date
+    sales: AnalyticsQueryResponse | None = Field(
+        description='Net sales, refunds, collected (payments family) and margin (cost) for the '
+        'period, with the previous period. Null without the sales family.'
+    )
+    receivable: AnalyticsQueryResponse | None = Field(
+        description='Receivable, current and overdue now, by aging bucket. Null without the '
+        'receivables family.'
+    )
+    top_products: AnalyticsQueryResponse | None = Field(
+        description='The ten products with the most net sales in the period. Null without the '
+        'sales family.'
+    )
+    last_purchase: LocalDateTime | None = Field(
+        description='The last confirmed order in the 12 months up to end. Sales family.'
+    )
+    orders_per_month: Decimal | None = Field(
+        description='Orders in the 12 months up to end ÷ 12, two decimals. Sales family.'
+    )
+    credit_limit: Decimal | None = Field(description="Spec 033's. Receivables family.")
+    credit_utilization: Decimal | None = Field(
+        description="Spec 033's: owed across every facility ÷ the limit; null without a limit. "
+        'Receivables family.'
+    )
+
+
 # ── Exports ───────────────────────────────────────────────────────────────────
 
 
@@ -686,6 +733,7 @@ class AnalyticsExportRequest(BaseModel):
     kardex: AnalyticsKardexRequest | None = Field(
         default=None, description='Spec 038: every entry of the range; skip and limit are ignored.'
     )
+    customer: AnalyticsCustomerRequest | None = Field(default=None, description='Spec 038.')
 
 
 class AnalyticsExportResponse(BaseModel):

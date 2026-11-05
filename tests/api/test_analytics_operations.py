@@ -4,6 +4,8 @@ As in `test_analytics.py`, these run the real engine on the integration database
 privilege is seen in a real response rather than a mocked one.
 """
 
+import csv
+import io
 from collections.abc import AsyncIterator, Iterator
 from datetime import datetime
 
@@ -323,3 +325,57 @@ async def test_the_payables_alert_waits_for_the_cutoff(
     body = await _dashboard(http)
     alert = next(a for a in body['alerts'] if a['key'] == 'payables_overdue')
     assert (alert['count'], alert['amount'], alert['detail']) == (1, '116.00', None)
+
+# ── Customer 360 (US3) ────────────────────────────────────────────────────────
+
+
+async def test_the_customer_360_needs_a_token(http: AsyncClient) -> None:
+    app.dependency_overrides.pop(get_current_user)
+
+    response = await http.get(f'{BASE}/customers/1', params=MAY)
+
+    assert_problem(response, 401, 'auth.not_authenticated')
+
+
+def _row_label(row: dict | None) -> str:
+    return ' / '.join(key['label'] for key in row['keys']) if row else ''
+
+
+async def test_the_customer_export_gives_the_responses_figures(
+    http: AsyncClient,
+    db: AsyncSession,  # noqa: F811
+) -> None:
+    await credit_order(db, confirmed=datetime(2026, 5, 2), due=datetime(2026, 6, 2), price='300')
+    await grant(db, SALES, SystemObject.RECEIVED_PAYMENTS, SystemObject.ACCOUNTS_RECEIVABLE, *COST)
+
+    answered = await http.get(f'{BASE}/customers/1', params=MAY)
+    exported = await http.post(
+        f'{BASE}/exports', json={'format': 'csv', 'customer': {'customer': 1, **MAY}}
+    )
+
+    assert answered.status_code == 200, answered.text
+    assert exported.status_code == 200, exported.text
+    body = answered.json()
+    reader = csv.DictReader(io.StringIO(exported.content.decode('utf-8-sig')))
+    assert reader.fieldnames == ['section', 'row', 'measure', 'value', 'comparison']
+    found = {
+        (line['section'], line['row'], line['measure']): (line['value'], line['comparison'])
+        for line in reader
+    }
+    expected: dict[tuple[str, str, str], tuple[str, str]] = {}
+    for name in ('sales', 'receivable', 'top_products'):
+        section = body[name]
+        rows = [(_row_label(r), r) for r in section['rows']]
+        rows += [('(others)', section['others'])] if section['others'] else []
+        rows.append(('TOTAL', section['totals']))
+        for label, row in rows:
+            for measure, value in row['values'].items():
+                before = (row['comparison'] or {}).get(measure)
+                expected[(name, label, measure)] = (value or '', before or '')
+    for figure in ('last_purchase', 'orders_per_month', 'credit_limit', 'credit_utilization'):
+        value = body[figure]
+        if figure == 'last_purchase' and value:
+            value = datetime.fromisoformat(value).isoformat(sep=' ', timespec='minutes')
+        expected[('customer', '', figure)] = (value or '', '')
+    assert found == expected
+    assert found[('sales', 'TOTAL', 'net_sales')] == ('300.00', '0.00')

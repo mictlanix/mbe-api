@@ -37,6 +37,8 @@ from app.core.errors import DomainError, not_found
 from app.models.analytics import AnalyticsExport, AnalyticsView
 from app.models.core import Employee
 from app.schemas.analytics import (
+    AnalyticsCustomerRequest,
+    AnalyticsCustomerResponse,
     AnalyticsDashboardRequest,
     AnalyticsDashboardResponse,
     AnalyticsDetailRequest,
@@ -55,7 +57,7 @@ from app.schemas.analytics import (
     MeasureKey,
 )
 from app.services import print_contexts
-from app.services.analytics import dashboard, detail, engine, kardex
+from app.services.analytics import customer, dashboard, detail, engine, kardex
 from app.services.analytics.catalog import DIMENSIONS, MEASURE_FAMILIES, MEASURES, Family
 
 log = logging.getLogger(__name__)
@@ -72,6 +74,7 @@ SOURCE_CODES = {
     ExportSource.DASHBOARD: 1,
     ExportSource.DETAIL: 2,
     ExportSource.KARDEX: 3,
+    ExportSource.CUSTOMER: 4,
 }
 FORMAT_CODES = {ExportFormat.XLSX: 0, ExportFormat.PDF: 1, ExportFormat.CSV: 2}
 STATUS_CODES = {
@@ -219,7 +222,9 @@ def _write_row(
     for index, (value, column) in enumerate(zip(row, columns, strict=True)):
         if value is None:
             sheet.write_blank(number, index, None, text_format)
-        elif column.unit in ('money', 'quantity', 'count', 'ratio', 'int'):
+        elif column.unit in ('money', 'quantity', 'count', 'ratio', 'int') and not isinstance(
+            value, str
+        ):
             sheet.write_number(number, index, float(value), formats.get(column.unit))
         elif column.unit in ('date', 'datetime') and isinstance(value, (date, datetime)):
             moment = (
@@ -338,6 +343,44 @@ def kardex_table(
     return Table('Kardex', columns, rows, totals, lines)
 
 
+def customer_table(result: AnalyticsCustomerResponse, cover: list[tuple[str, str]]) -> Table:
+    """One line per section row and measure, with its comparison, then the customer's figures. The
+    row is the keys' labels, "(others)" or TOTAL; a section the caller lacks has no lines."""
+    columns = [
+        Column('section', 'Sección', 'text'),
+        Column('row', 'Fila', 'text'),
+        Column('measure', 'Medida', 'text'),
+        Column('value', 'Valor', 'quantity'),
+        Column('comparison', 'Comparación', 'quantity'),
+    ]
+    rows: list[list[Any]] = []
+    for name in ('sales', 'receivable', 'top_products'):
+        section: AnalyticsQueryResponse | None = getattr(result, name)
+        if section is None:
+            continue
+        labelled = [(' / '.join(k.label for k in row.keys), row) for row in section.rows]
+        if section.others is not None:
+            labelled.append(('(others)', section.others))
+        labelled.append(('TOTAL', section.totals))
+        for label, row in labelled:
+            for measure, value in row.values.items():
+                rows.append([name, label, measure, value, (row.comparison or {}).get(measure)])
+    figures: list[tuple[str, Any]] = []
+    if result.sales is not None:
+        figures += [
+            ('last_purchase', formatted(result.last_purchase, 'datetime') or None),
+            ('orders_per_month', result.orders_per_month),
+        ]
+    if result.receivable is not None:
+        figures += [
+            ('credit_limit', result.credit_limit),
+            ('credit_utilization', result.credit_utilization),
+        ]
+    rows += [['customer', '', key, value, None] for key, value in figures]
+    lines = [('Cliente', f'{result.customer} {result.customer_name}'), *cover]
+    return Table(f'Cliente {result.customer_name}', columns, rows, None, lines)
+
+
 # ── Running an export ─────────────────────────────────────────────────────────
 
 
@@ -349,6 +392,7 @@ def source_of(request: AnalyticsExportRequest) -> ExportSource:
             (ExportSource.DASHBOARD, request.dashboard),
             (ExportSource.DETAIL, request.detail),
             (ExportSource.KARDEX, request.kardex),
+            (ExportSource.CUSTOMER, request.customer),
         )
         if value is not None
     ]
@@ -373,6 +417,7 @@ class Checked:
         | AnalyticsDashboardRequest
         | AnalyticsDetailRequest
         | AnalyticsKardexRequest
+        | AnalyticsCustomerRequest
     )
     facility: int | None
     families: set[Family]
@@ -407,6 +452,9 @@ async def check(db: AsyncSession, request: AnalyticsExportRequest, current: Curr
         case ExportSource.KARDEX:
             facility, _ = await kardex.check(db, request.kardex, current)
             inner = request.kardex
+        case ExportSource.CUSTOMER:
+            _, facility = await customer.check(db, request.customer, current, held)
+            inner = request.customer.model_copy(update={'facility': facility})
         case _:
             if is_bulk_detail(request.detail) and Family.BULK not in held:
                 raise engine.family_forbidden(Family.BULK)
@@ -447,15 +495,27 @@ async def build_table(
             if count_only:
                 return found.total, None
             return found.total, kardex_table(found, cost, cover)
+        case ExportSource.CUSTOMER:
+            answer = await customer.build(
+                db, checked.request, _checked_user(checked), checked.families
+            )
+            table = customer_table(answer, cover)
+            return len(table.rows), table
         case _:
-            # Built with the families checked at the request, so it shows what the caller saw. The
-            # facility was resolved then too, which is what makes the scope check below a no-op.
-            current = CurrentUser(
-                user_id=checked.user, session_version=0, administrator=True,
-                facility_id=checked.facility or 0, employee_id=0,
-            )  # fmt: skip
-            built = await dashboard.build(db, checked.request, current, checked.families)
+            built = await dashboard.build(
+                db, checked.request, _checked_user(checked), checked.families
+            )
             return sum(len(s.query.rows) for s in built.series), built
+
+
+def _checked_user(checked: Checked) -> CurrentUser:
+    """The caller of a dashboard or customer 360 export, built with the families checked at the
+    request so it shows what the caller saw. The facility was resolved then too, which is what
+    makes the build's scope check a no-op."""
+    return CurrentUser(
+        user_id=checked.user, session_version=0, administrator=True,
+        facility_id=checked.facility or 0, employee_id=0,
+    )  # fmt: skip
 
 
 def _cover(checked: Checked) -> list[tuple[str, str]]:

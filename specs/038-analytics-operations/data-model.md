@@ -204,7 +204,7 @@ Spec 037's dimensions apply where the fact has them: date, facility, product, br
   - `purchases`, with flag `price_change`;
   - `commission_lines`.
 - **`KardexRequest`** (query parameters): product, warehouse, start, end, skip, limit ≤ 500.
-- **`Customer360Request`**: customer, start, end.
+- **`AnalyticsCustomerRequest`**: customer, start, end, facility (the route's parameters; the `customer` export source).
 - **`AnalyticsViewCreate`**: name, kind, definition, period, shared_with.
 - **`AnalyticsScheduleCreate`**: view, cadence, weekdays, month_day, time_of_day, format, subject, recipients, enabled.
 

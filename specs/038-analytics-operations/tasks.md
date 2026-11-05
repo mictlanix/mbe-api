@@ -237,7 +237,7 @@ T077 confirms that none remain.
 
 ### Tests
 
-- [ ] T034 [P] [US3] Write `tests/integration/test_analytics_customer.py`:
+- [X] T034 [P] [US3] Write `tests/integration/test_analytics_customer.py`:
   - `sales` (net sales, refunds, payments as `collected`, margin), `receivable` and `top_products` each equal `POST /analytics/query` with that customer's filter;
   - payments need the payments family; without it, `collected` is absent from `sales` and the rest of the section stays;
   - margin appears only with 37–39;
@@ -246,12 +246,12 @@ T077 confirms that none remain.
   - a section is null when the caller lacks its family;
   - an explicit other facility is refused with `facility.other_facility`;
   - 404 for an unknown customer.
-- [ ] T035 [P] [US3] Extend `tests/api/test_analytics_operations.py`: 401 on `GET /analytics/customers/{id}`; and the `customer` export source gives the same figures as the response.
+- [X] T035 [P] [US3] Extend `tests/api/test_analytics_operations.py`: 401 on `GET /analytics/customers/{id}`; and the `customer` export source gives the same figures as the response.
 
 ### Implementation
 
-- [ ] T036 [US3] Write `app/services/analytics/customer.py`: run the three sections through `engine.run` with a forced customer filter, then add last purchase, frequency, limit and utilization. Add `AnalyticsCustomerResponse` to `app/schemas/analytics.py`.
-- [ ] T037 [US3] Add `GET /analytics/customers/{customer_id}` to `app/api/v1/endpoints/analytics.py`, and the `customer` source to `app/services/analytics/exports.py`. T034 and T035 pass, and `test_contract_docs` passes for `AnalyticsCustomerResponse`.
+- [X] T036 [US3] Write `app/services/analytics/customer.py`: run the three sections through `engine.run` with a forced customer filter, then add last purchase, frequency, limit and utilization. Add `AnalyticsCustomerResponse` to `app/schemas/analytics.py`.
+- [X] T037 [US3] Add `GET /analytics/customers/{customer_id}` to `app/api/v1/endpoints/analytics.py`, and the `customer` source to `app/services/analytics/exports.py`. T034 and T035 pass, and `test_contract_docs` passes for `AnalyticsCustomerResponse`.
 
 **Checkpoint**: a customer 360 that reconciles with its queries.
 

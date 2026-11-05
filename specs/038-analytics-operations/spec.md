@@ -112,7 +112,7 @@ Before calling a customer, a salesperson opens one view with what the customer b
 **Acceptance Scenarios**:
 
 1. **Given** a customer and a period, **When** the customer 360 is requested, **Then** it returns sales, refunds, net sales, margin (cost privilege only), payments, balance and aging, last purchase date, purchase frequency and top 10 products, each equal to its query or spec 033 figure.
-2. **Given** a customer outside the caller's facility scope, **Then** the request is refused with spec 034's facility code.
+2. **Given** a caller limited to one facility, **When** they ask for another facility, **Then** the request is refused with spec 034's facility code; without a facility, the figures are scoped to the caller's own.
 
 ---
 

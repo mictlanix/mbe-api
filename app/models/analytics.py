@@ -27,7 +27,8 @@ class AnalyticsExport(Base):
     analytics_export_id: Mapped[int] = mapped_column(Integer, primary_key=True)
     #: The owner; only they can read or download it.
     user: Mapped[str] = mapped_column(String(20), ForeignKey('user.user_id'))
-    source: Mapped[int] = mapped_column(SmallInteger)  # 0 query, 1 dashboard, 2 detail
+    #: 0 query, 1 dashboard, 2 detail, 3 kardex, 4 customer.
+    source: Mapped[int] = mapped_column(SmallInteger)
     format: Mapped[int] = mapped_column(SmallInteger)  # 0 xlsx, 1 pdf, 2 csv
     #: The normalized request as JSON, with the scope and visibility it was checked against.
     definition: Mapped[str] = mapped_column(Text)

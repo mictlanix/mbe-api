@@ -22,6 +22,8 @@ from app.enums import AccessRight
 from app.schemas.analytics import (
     KARDEX_MAX_LIMIT,
     AnalyticsCatalogResponse,
+    AnalyticsCustomerRequest,
+    AnalyticsCustomerResponse,
     AnalyticsDashboardRequest,
     AnalyticsDashboardResponse,
     AnalyticsDetailRequest,
@@ -38,7 +40,16 @@ from app.schemas.analytics import (
     DimensionKey,
     ExportFormat,
 )
-from app.services.analytics import cache, catalog, dashboard, detail, engine, exports, kardex
+from app.services.analytics import (
+    cache,
+    catalog,
+    customer,
+    dashboard,
+    detail,
+    engine,
+    exports,
+    kardex,
+)
 from app.services.analytics.catalog import DIMENSIONS, FAMILY_PRIVILEGES, Family
 
 router = APIRouter()
@@ -182,6 +193,36 @@ async def read_kardex(
     return JSONResponse(kardex.serialize(await kardex.read(db, request, cost=cost), cost))
 
 
+#: Customer 360 opens with the sales or the receivables family; each section needs its own.
+_CUSTOMER_FAMILIES = require_any_privilege(
+    *(
+        (system_object, AccessRight.READ)
+        for family in (Family.SALES, Family.RECEIVABLES)
+        for system_object in FAMILY_PRIVILEGES[family]
+    )
+)
+
+
+@router.get('/customers/{customer_id}', response_model=AnalyticsCustomerResponse)
+async def read_customer(
+    customer_id: int,
+    start: date,
+    end: date,
+    facility: int | None = None,
+    current: CurrentUser = Depends(_CUSTOMER_FAMILIES),
+    db: AsyncSession = Depends(get_db),
+) -> AnalyticsCustomerResponse:
+    """One customer and period (FR-125): sales, receivable and top products, each the query
+    route's answer for the definition it echoes with the customer's filter forced; last purchase
+    and orders per month over the 12 months up to `end`; spec 033's credit limit and utilization.
+    A section of a family the caller lacks is null. Payments (`collected`) need the payments
+    family and margin the cost privilege; without them those measures are absent."""
+    request = AnalyticsCustomerRequest(
+        customer=customer_id, start=start, end=end, facility=facility
+    )
+    return await customer.build(db, request, current)
+
+
 @router.post(
     '/exports',
     response_class=Response,
@@ -198,10 +239,10 @@ async def create_export(
     current: CurrentUser = Depends(_ANY_FAMILY),
     db: AsyncSession = Depends(get_db),
 ) -> Response:
-    """Export a query, the dashboard, a detail or a kardex as XLSX, PDF or CSV (FR-050–FR-055),
-    from the same definition the screen ran. Up to 10,000 rows the file comes back at once; above,
-    an XLSX or CSV runs in the background and is downloaded by its owner for 24 hours. Bulk detail
-    downloads (FR-055) need Download CSV files (113)."""
+    """Export a query, the dashboard, a detail, a kardex or a customer 360 as XLSX, PDF or CSV
+    (FR-050–FR-055), from the same definition the screen ran. Up to 10,000 rows the file comes back
+    at once; above, an XLSX or CSV runs in the background and is downloaded by its owner for 24
+    hours. Bulk detail downloads (FR-055) need Download CSV files (113)."""
     checked = await exports.check(db, request, current)
     rows, answer = await exports.build_table(db, checked, count_only=True)
     mode = exports.export_mode(checked.format, rows)

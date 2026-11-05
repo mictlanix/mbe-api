@@ -251,10 +251,11 @@ AnalyticsExportRequest:
   dashboard: AnalyticsDashboardRequest | None
   detail: AnalyticsDetailRequest | None
   kardex: AnalyticsKardexRequest | None  # spec 038
+  customer: AnalyticsCustomerRequest | None  # spec 038
 
 AnalyticsExportResponse:
   analytics_export_id: int
-  source: ExportSource     # query | dashboard | detail; spec 038: kardex
+  source: ExportSource     # query | dashboard | detail; spec 038: kardex, customer
   format: ExportFormat
   status: ExportStatus     # pending | running | ready | failed
   row_count: int | None

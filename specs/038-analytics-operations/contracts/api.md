@@ -14,7 +14,7 @@ The pseudo-schemas below are checked against `/openapi.json` by `tests/unit/test
 | POST | `/analytics/detail` | family + read on the kind | New kinds and flags |
 | POST | `/analytics/exports` | as the source | Sources now include `kardex` and `customer` |
 | GET | `/analytics/kardex` | inventory | Kardex with value, any range from the history start, paged (FR-104) |
-| GET | `/analytics/customers/{customer_id}` | receivables (balance parts), sales (sales parts) | Customer 360 (FR-125) |
+| GET | `/analytics/customers/{customer_id}` | sales or receivables; each section its family | Customer 360 (FR-125) |
 | GET | `/analytics/views` | authenticated | The caller's views and those shared with them |
 | POST | `/analytics/views` | authenticated; the definition's families | Save a view |
 | GET | `/analytics/views/{analytics_view_id}` | owner or shared | One view |
@@ -213,9 +213,15 @@ AnalyticsKardexRow:
 
 ## Customer 360
 
-`GET /analytics/customers/{customer_id}?start=&end=`
+`GET /analytics/customers/{customer_id}?start=&end=&facility=`
 
 ```
+AnalyticsCustomerRequest:
+  customer: int
+  start: date
+  end: date
+  facility: int | None
+
 AnalyticsCustomerResponse:
   as_of: datetime
   customer: int
@@ -231,9 +237,12 @@ AnalyticsCustomerResponse:
   credit_utilization: Decimal | None
 ```
 
-- **Sections:** each section is the same response the query route gives for its definition. `sales` holds net sales, refunds, payments (spec 037's `collected`) and margin (cost) with comparison; `receivable` holds the balance, overdue and buckets now.
-- **Missing families:** a section is null when the caller lacks its family.
-- **Purchase frequency:** `orders_per_month` is taken over the 12 months before `end`.
+- **Sections:** each section is the same response the query route gives for its definition, which it echoes with the customer's filter forced. `sales` holds `net_sales` and `refunds`, `collected` (spec 037's payments; payments family) and `gross_margin` and `margin_pct` (cost), with the previous period. `receivable` holds `receivable`, `receivable_current` and `receivable_overdue` now (start = end = today), by `aging_bucket`. `top_products` is `net_sales` by product, the top 10 by `-net_sales`.
+- **Missing families:** a section is null when the caller lacks its family. Without the payments family `collected` is absent from `sales`; without cost the margin measures are. The route needs the sales or the receivables family (`auth.forbidden` otherwise).
+- **Purchase frequency:** over the 12 months up to `end` (from the day after the same date a year earlier): `orders_per_month` is the `orders` measure ÷ 12, two decimals, and `last_purchase` the latest confirmation of an order it counts, null when none. Both need the sales family.
+- **Credit:** `credit_limit` and `credit_utilization` are spec 033's summary for the customer (utilization reads what the customer owes across every facility; null without a limit). Receivables family.
+- **Unknown customer:** `resource.not_found`.
+- **Export:** `AnalyticsExportRequest.customer` takes `AnalyticsCustomerRequest`. The file has one line per section row and measure: `section`, `row` (the keys' labels joined by " / ", `(others)` or `TOTAL`), `measure`, `value`, `comparison`; then `customer` lines for `last_purchase`, `orders_per_month`, `credit_limit` and `credit_utilization`, as far as the families allow.
 - **Facility scope:** a customer whose orders are all outside the caller's facility scope still opens, but every figure is scoped. Asking for another facility explicitly is refused as in spec 037.
 
 ## Saved views

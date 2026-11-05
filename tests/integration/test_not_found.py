@@ -15,6 +15,10 @@ MISSING = 999999
 
 #: Routes that answer 404 for something other than the id in their path, with the reason.
 SKIP: dict[str, str] = {}
+#: The required query parameters of routes that have them besides the id.
+QUERY: dict[str, dict[str, str]] = {
+    '/api/v1/analytics/customers/{customer_id}': {'start': '2026-05-01', 'end': '2026-05-31'},
+}
 
 
 def _routes() -> list[str]:
@@ -35,7 +39,7 @@ async def test_a_missing_record_is_coded(client, path: str) -> None:  # noqa: AN
         pytest.skip(SKIP[path])
     url = path.replace(path[path.index('{') : path.index('}') + 1], str(MISSING))
 
-    response = await client.get(url)
+    response = await client.get(url, params=QUERY.get(path))
 
     body = assert_problem(response, 404, 'resource.not_found')
     assert body['params']['id'] == MISSING
