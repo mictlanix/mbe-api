@@ -90,7 +90,7 @@ Rules beyond spec 037's:
 - **Receivable history:** a receivable balance at a past date reads the stored month-end. A date that is neither a month-end nor today rounds down to the month-end before it, and the response's `definition` shows the moment used. A month-end before 2025-01-31 gives `analytics.before_history` (history `receivables`).
 - **DSO and CEI:** they need `start` on a 1st and `end` on a month-end or today; otherwise `analytics.period_not_month_end`.
 - **Today-only measures:** `reserved`, `available` and the payable measures are null at any moment but now.
-- **Commissions:** grouped by `date`, they use month grain. Rows carry `commission_status`.
+- **Commissions:** a line belongs to its month, so a period starting or ending mid-month reads the whole months it touches, and a `day` or `week` grain is raised to `month` (the response's `definition` shows it). Rows carry `commission_status`. For a commission agent without 112 the response's `definition` shows the forced `salesperson` filter, which replaces any the caller named. Being a commission agent opens the analytics routes, as a family privilege does.
 
 ## Dashboard
 
@@ -166,6 +166,12 @@ AnalyticsDetailFigures:
 - `id` is the entry, `document_id` and `folio` its document when it resolves (as spec 030's kardex), `quantity` signed, `amount` null.
 - `figures.values`: `movement_type`, `source` (the type's name) and `reference`.
 - `sums`: `quantity` (net), `units_in` and `units_out`, equal to the measures. `sort`: `amount` is the quantity, `document` the reference.
+
+**`commission_lines`** lists spec 025's lines of the months the period touches, as `read_period` gives them (stored once a month is closed, live while it is open):
+- `id` is the sale line, `document_id` and `folio` its order, `date` the paid date (a refund's date for a refund line), `facility` the agent's user's, `salesperson` the earning agent, `quantity` the line's (or the refund's), `amount` the commission.
+- `figures.values`: `month`, `status` (provisional, closed), `movement` (sale, refund), `scheme`, `sales_order`, `sales_order_detail`, `customer_refund_detail`, `order_date`, `paid_date`, `product`, `label`, `label_name`, `label_rate`, `participation`, `participation_name`, `participation_rate` (the agent's share), `rate`, `price`, `base` (price × quantity, negative for a refund), `share` (paid share, partial-payment scheme), `full_commission` and `amount`.
+- `sums`: `amount` (`commission`) and `base` (`commission_base`); `total` is the line count (`commission_lines`). `sort`: `date` is the paid date, `amount` the commission, `document` the order.
+- An agent without 112 gets their own lines only, whatever `salesperson` filter they send.
 
 ## Kardex
 

@@ -265,8 +265,8 @@ T077 confirms that none remain.
 
 ### Tests
 
-- [ ] T038 [P] [US4] Write `tests/unit/test_analytics_commissions.py`: lines grouped by agent, label, participation, customer and month equal the sum of the lines; `commission_base` is price × quantity; and refund lines are negative in their own month.
-- [ ] T039 [P] [US4] Write `tests/integration/test_analytics_commissions.py`:
+- [X] T038 [P] [US4] Write `tests/unit/test_analytics_commissions.py`: lines grouped by agent, label, participation, customer and month equal the sum of the lines; `commission_base` is price × quantity; and refund lines are negative in their own month.
+- [X] T039 [P] [US4] Write `tests/integration/test_analytics_commissions.py`:
   - a closed month reads the stored lines, `closed`;
   - an open month equals `commission_service.compute`, `provisional`;
   - the `commission_lines` detail sums to the query;
@@ -277,8 +277,8 @@ T077 confirms that none remain.
 
 ### Implementation
 
-- [ ] T040 [US4] Write `app/services/analytics/commissions.py` (R11): for each month in the period, call `commission_service.read_period(db, year, month, ...)` and group the lines in Python. It is registered in the engine as a Python fact, since it has no SQL. In `engine.check_privileges`, force the agent filter for an agent without 112 (`commission_agent.employee = current.employee_id`). T038 passes.
-- [ ] T041 [US4] Add the `commission_lines` detail kind to `app/services/analytics/detail.py`, with every field of contracts/api.md in `figures.values`. T039 passes.
+- [X] T040 [US4] Write `app/services/analytics/commissions.py` (R11): for each month in the period, call `commission_service.read_period(db, year, month, ...)` and group the lines in Python. It is registered in the engine as a Python fact, since it has no SQL. In `engine.check_privileges`, force the agent filter for an agent without 112 (`commission_agent.employee = current.employee_id`). T038 passes.
+- [X] T041 [US4] Add the `commission_lines` detail kind to `app/services/analytics/detail.py`, with every field of contracts/api.md in `figures.values`. T039 passes.
 
 **Checkpoint**: commissions match spec 025 on fixtures, and agents see only their own.
 

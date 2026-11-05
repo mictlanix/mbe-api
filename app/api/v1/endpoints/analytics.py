@@ -14,7 +14,13 @@ from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.clock import local_now
-from app.core.deps import CurrentUser, require_any_privilege
+from app.core.deps import (
+    CurrentUser,
+    forbidden,
+    get_current_user,
+    has_any_privilege,
+    require_any_privilege,
+)
 from app.core.error_codes import ErrorCode
 from app.core.errors import DomainError
 from app.db.session import get_db
@@ -54,20 +60,32 @@ from app.services.analytics.catalog import DIMENSIONS, FAMILY_PRIVILEGES, Family
 
 router = APIRouter()
 
-#: Any privilege of a measure family (sales, payments, and spec 038's) opens the analytics routes;
-#: each measure then checks its own family.
-_ANY_FAMILY = require_any_privilege(
-    *(
-        (system_object, AccessRight.READ)
-        for family in catalog.MEASURE_FAMILIES
-        for system_object in FAMILY_PRIVILEGES[family]
-    )
+_FAMILY_GRANTS = tuple(
+    (system_object, AccessRight.READ)
+    for family in catalog.MEASURE_FAMILIES
+    for system_object in FAMILY_PRIVILEGES[family]
 )
+
+
+async def _any_family(
+    current: CurrentUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> CurrentUser:
+    """Any privilege of a measure family (sales, payments, and spec 038's) opens the analytics
+    routes, and so does being a commission agent, who reads their own commissions (spec 038, R11).
+    Each measure then checks its own family."""
+    if (
+        current.administrator
+        or await has_any_privilege(db, current.user_id, _FAMILY_GRANTS)
+        or await engine.is_agent(db, current.employee_id)
+    ):
+        return current
+    raise forbidden(_FAMILY_GRANTS)
 
 
 @router.get('/catalog', response_model=AnalyticsCatalogResponse)
 async def read_catalog(
-    current: CurrentUser = Depends(_ANY_FAMILY),
+    current: CurrentUser = Depends(_any_family),
     db: AsyncSession = Depends(get_db),
 ) -> AnalyticsCatalogResponse:
     """The measures and dimensions this caller may use (FR-001). Sensitive measures are listed only
@@ -101,7 +119,7 @@ async def read_catalog(
 async def query(
     definition: AnalyticsQueryRequest,
     if_none_match: str | None = Header(default=None),
-    current: CurrentUser = Depends(_ANY_FAMILY),
+    current: CurrentUser = Depends(_any_family),
     db: AsyncSession = Depends(get_db),
 ) -> Response:
     """Rows, totals, others and comparisons for any measures and up to three dimensions
@@ -128,7 +146,7 @@ async def read_dashboard(
     facility: int | None = None,
     comparison: Comparison = Query(default=Comparison.PREVIOUS_PERIOD),
     if_none_match: str | None = Header(default=None),
-    current: CurrentUser = Depends(_ANY_FAMILY),
+    current: CurrentUser = Depends(_any_family),
     db: AsyncSession = Depends(get_db),
 ) -> Response:
     """Every tile the caller may see for a period and scope, in one call (FR-031–FR-033). Tiles
@@ -154,13 +172,13 @@ async def read_dashboard(
 @router.post('/detail', response_model=AnalyticsDetailResponse)
 async def read_detail(
     request: AnalyticsDetailRequest,
-    current: CurrentUser = Depends(_ANY_FAMILY),
+    current: CurrentUser = Depends(_any_family),
     db: AsyncSession = Depends(get_db),
 ) -> JSONResponse:
     """The documents behind an aggregate, paged and sorted, with sums over every page that equal
     it (FR-040–FR-042). Needs the family and read on the document kind. Without the cost privilege,
     `cost` and `margin` are absent from every item and from `sums`."""
-    facility, cost = await detail.check(db, request, current)
+    request, facility, cost = await detail.check(db, request, current)
     result = await detail.execute(db, request, facility, everything=False)
     return JSONResponse(detail.serialize_items(result, cost))
 
@@ -236,7 +254,7 @@ async def read_customer(
 )
 async def create_export(
     request: AnalyticsExportRequest,
-    current: CurrentUser = Depends(_ANY_FAMILY),
+    current: CurrentUser = Depends(_any_family),
     db: AsyncSession = Depends(get_db),
 ) -> Response:
     """Export a query, the dashboard, a detail, a kardex or a customer 360 as XLSX, PDF or CSV
@@ -274,7 +292,7 @@ async def create_export(
 @router.get('/exports/{analytics_export_id}', response_model=AnalyticsExportResponse)
 async def read_export(
     analytics_export_id: int,
-    current: CurrentUser = Depends(_ANY_FAMILY),
+    current: CurrentUser = Depends(_any_family),
     db: AsyncSession = Depends(get_db),
 ) -> AnalyticsExportResponse:
     """A background export's status. Only its owner sees it; after 24 hours it is gone (410)."""
@@ -291,7 +309,7 @@ async def read_export(
 )
 async def download_export(
     analytics_export_id: int,
-    current: CurrentUser = Depends(_ANY_FAMILY),
+    current: CurrentUser = Depends(_any_family),
     db: AsyncSession = Depends(get_db),
 ) -> Response:
     """Download a ready export, until its expiry (FR-054)."""

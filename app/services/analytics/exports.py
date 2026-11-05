@@ -458,8 +458,7 @@ async def check(db: AsyncSession, request: AnalyticsExportRequest, current: Curr
         case _:
             if is_bulk_detail(request.detail) and Family.BULK not in held:
                 raise engine.family_forbidden(Family.BULK)
-            facility, _ = await detail.check(db, request.detail, current)
-            inner = request.detail
+            inner, facility, _ = await detail.check(db, request.detail, current)
     employee = await db.get(Employee, current.employee_id) if current.employee_id else None
     name = f'{employee.first_name} {employee.last_name}' if employee else current.user_id
     return Checked(source, request.format, inner, facility, held, current.user_id, name)

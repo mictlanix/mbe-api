@@ -163,7 +163,7 @@ Two dimensions name a person:
 
 **Own commissions**: a caller without 112 who is a commission agent (`commission_agent.employee = current.employee_id`) gets their own lines only: the engine forces a filter on agent = self. Anyone else without 112 is refused (`auth.forbidden`).
 
-**Performance**: a live `compute` of one month runs spec 025's candidate query. It is timed during implementation; closed months read stored rows. A 12-month query mostly reads stored months once periods are closed. None are closed on mbe_dev today, so all would be live there.
+**Performance**: a live `compute` of one month runs spec 025's candidate query. It is timed during implementation; closed months read stored rows. A 12-month query mostly reads stored months once periods are closed. None are closed on mbe_dev today, so all would be live there. As built, the engine reads every month once per fact slice: a 12-month query makes 24 `read_period` calls (rows and totals), 48 with a comparison, and the `commission_lines` detail 12; an open month runs about 6 statements on fixtures.
 
 **The mbe#53 fields** (`customer_payment.commission`) are card surcharges and are not read.
 

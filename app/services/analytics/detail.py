@@ -20,7 +20,7 @@ from app.core.clock import local_now
 from app.core.deps import CurrentUser, forbidden, has_any_privilege
 from app.core.error_codes import ErrorCode
 from app.core.errors import DomainError
-from app.enums import AccessRight, SystemObject
+from app.enums import AccessRight, CommissionMovement, SystemObject
 from app.models.customer import Customer
 from app.models.fiscal import FiscalDocument
 from app.models.product import Product
@@ -38,7 +38,7 @@ from app.schemas.analytics import (
     VatTreatment,
 )
 from app.services import accounts_service, kardex_service, sales_order_service, totals
-from app.services.analytics import balances, engine, facts
+from app.services.analytics import balances, commissions, engine, facts
 from app.services.analytics.catalog import DIMENSIONS, Availability, Fact, Family
 
 KIND_FACT = {
@@ -50,6 +50,7 @@ KIND_FACT = {
     DetailKind.STOCK: Fact.STOCK,
     DetailKind.MOVEMENTS: Fact.MOVEMENT,
     DetailKind.RECEIVABLES: Fact.RECEIVABLE,
+    DetailKind.COMMISSION_LINES: Fact.COMMISSION,
 }
 #: The measure a kind's refusals name (`analytics.dimension_not_applicable`).
 KIND_MEASURE = {
@@ -61,6 +62,7 @@ KIND_MEASURE = {
     DetailKind.STOCK: MeasureKey.ON_HAND,
     DetailKind.MOVEMENTS: MeasureKey.UNITS_IN,
     DetailKind.RECEIVABLES: MeasureKey.RECEIVABLE,
+    DetailKind.COMMISSION_LINES: MeasureKey.COMMISSION,
 }
 #: The family a kind belongs to; the rest are sales.
 KIND_FAMILY = {
@@ -68,6 +70,7 @@ KIND_FAMILY = {
     DetailKind.STOCK: Family.INVENTORY,
     DetailKind.MOVEMENTS: Family.INVENTORY,
     DetailKind.RECEIVABLES: Family.RECEIVABLES,
+    DetailKind.COMMISSION_LINES: Family.COMMISSIONS,
 }
 #: Read on the document kind, besides the family (FR-060); stock pairs need none.
 KIND_PRIVILEGE = {
@@ -108,8 +111,9 @@ def parse_sort(sort: str | None) -> tuple[str, bool]:
 
 async def check(
     db: AsyncSession, request: AnalyticsDetailRequest, current: CurrentUser
-) -> tuple[int | None, bool]:
-    """Privileges, scope and applicability. Returns the facility scope and cost visibility."""
+) -> tuple[AnalyticsDetailRequest, int | None, bool]:
+    """Privileges, scope and applicability. Returns the request to run (a commission agent without
+    112 gets their own lines only, spec 038 R11), the facility scope and cost visibility."""
     engine.validate_period(request.start, request.end)
     if request.kind is DetailKind.STOCK:
         engine.history_guard([MeasureKey.ON_HAND], stock_moment(request), request.end)
@@ -139,7 +143,13 @@ async def check(
     parse_sort(request.sort)
     facility = await engine.resolve_scope(db, current, request.facility)
     await engine.check_facility_filters(db, current, engine.parse_filters(request.filters))
-    return facility, cost
+    if request.kind is DetailKind.COMMISSION_LINES:
+        agent = await engine.own_commissions(db, current)
+        if agent is not None:
+            request = request.model_copy(
+                update={'filters': engine.only_agent(request.filters, agent)}
+            )
+    return request, facility, cost
 
 
 # ── The row selects ───────────────────────────────────────────────────────────
@@ -246,6 +256,8 @@ async def execute(
         return await _stock(db, request, facility, as_of, everything=everything)
     if request.kind is DetailKind.MOVEMENTS:
         return await _movements(db, request, facility, as_of, everything=everything)
+    if request.kind is DetailKind.COMMISSION_LINES:
+        return await _commission_lines(db, request, facility, as_of, everything=everything)
     base = _base(request, facility).subquery('detail')
     total = (await db.execute(select(func.count()).select_from(base))).scalar_one()
     aggregate = (
@@ -650,3 +662,103 @@ async def _receivables(
     total = sum((d.base for d in documents), Decimal(0))
     sums = {'amount': engine.money(balances.cents(total))}
     return AnalyticsDetailResponse(as_of=as_of, items=items, total=len(documents), sums=sums)
+
+
+# ── Commissions (spec 038) ────────────────────────────────────────────────────
+
+
+def _rate(value: Any, step: str) -> str:
+    return str(Decimal(str(value)).quantize(Decimal(step), rounding='ROUND_HALF_UP'))
+
+
+def _commission_figures(entry: commissions.Entry) -> dict[str, str | None]:
+    """Everything an agent needs to recompute the line: base × label rate × participation share
+    (× the paid share, partial-payment scheme), less what earlier months already paid."""
+    x = entry.line
+
+    def text(value: Any) -> str | None:
+        return None if value is None else str(value)
+
+    return {
+        'month': entry.month.isoformat(),
+        'status': entry.status,
+        'movement': CommissionMovement(x.movement).name.lower(),
+        'scheme': str(x.scheme),
+        'sales_order': str(x.sales_order),
+        'sales_order_detail': str(x.sales_order_detail),
+        'customer_refund_detail': text(x.customer_refund_detail),
+        'order_date': x.order_date.isoformat(),
+        'paid_date': x.paid_date.isoformat(),
+        'product': str(x.product),
+        'label': text(x.label),
+        'label_name': x.label_name,
+        'label_rate': _rate(x.label_rate, '0.000001'),
+        'participation': str(x.participation),
+        'participation_name': x.participation_name,
+        'participation_rate': _rate(x.participation_rate, '0.000001'),
+        'rate': _rate(x.rate, '0.00000001'),
+        'price': _rate(x.price, '0.01'),
+        'base': _rate(x.total, '0.01'),
+        'share': None if x.share is None else _rate(x.share, '0.000001'),
+        'full_commission': _rate(x.full_commission, '0.01'),
+        'amount': _rate(x.commission, '0.01'),
+    }
+
+
+async def _commission_lines(
+    db: AsyncSession,
+    request: AnalyticsDetailRequest,
+    facility: int | None,
+    as_of: datetime,
+    *,
+    everything: bool,
+) -> AnalyticsDetailResponse:
+    """Spec 025's lines of the months the period touches: the lines the commission fact sums, so
+    `sums.amount` is the commission, `sums.base` its base and `total` the line count (R11)."""
+    found = commissions.selected(
+        await commissions.entries(db, request.start, request.end, facility),
+        engine.parse_filters(request.filters),
+        Grain.MONTH,
+    )
+    name, descending = parse_sort(request.sort)
+    value = {
+        'date': lambda e: e.line.paid_date,
+        'amount': lambda e: e.line.commission,
+        'document': lambda e: e.line.sales_order,
+    }[name]
+    found.sort(
+        key=lambda e: (
+            e.month, e.line.sales_order, e.line.sales_order_detail, e.line.salesperson,
+            e.line.participation, e.line.movement, e.line.customer_refund_detail or 0,
+        ),
+        reverse=descending,
+    )  # fmt: skip
+    found.sort(key=value, reverse=descending)
+    shown = found if everything else found[request.skip : request.skip + request.limit]
+    folios = await _folios(db, DetailKind.ORDERS, [e.line.sales_order for e in shown])
+    codes: dict[int, str] = {}
+    if shown:
+        rows = await db.execute(
+            select(Product.product_id, Product.code).where(
+                Product.product_id.in_({e.line.product for e in shown})
+            )
+        )
+        codes = dict(rows.all())
+    items = [
+        AnalyticsDetailItem(
+            kind=DetailKind.COMMISSION_LINES, id=e.line.sales_order_detail,
+            document_id=e.line.sales_order, folio=folios.get(e.line.sales_order),
+            date=e.line.paid_date, facility=e.facility, customer=e.line.customer,
+            customer_name=e.line.customer_name, salesperson=e.line.salesperson,
+            product=e.line.product, product_code=codes.get(e.line.product),
+            product_name=e.line.product_name, quantity=engine.quantity(e.line.quantity),
+            amount=engine.money(commissions.cents(e.line.commission)), payment_method=None,
+            figures=AnalyticsDetailFigures(values=_commission_figures(e)),
+        )
+        for e in shown
+    ]  # fmt: skip
+    sums = {
+        'amount': engine.money(sum(commissions.cents(e.line.commission) for e in found)),
+        'base': engine.money(sum(commissions.cents(e.line.total) for e in found)),
+    }
+    return AnalyticsDetailResponse(as_of=as_of, items=items, total=len(found), sums=sums)

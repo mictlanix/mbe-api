@@ -504,7 +504,10 @@ class AnalyticsDetailFigures(BaseModel):
     values: dict[str, str | None] = Field(
         description='stock: on_hand, reserved, available, in_transit, velocity, cover, '
         'reorder_point, suggested, last_movement, value (cost privilege only) | movements: '
-        'movement_type, source, reference'
+        'movement_type, source, reference | commission_lines: month, status, movement, scheme, '
+        'sales_order, sales_order_detail, customer_refund_detail, order_date, paid_date, product, '
+        'label, label_name, label_rate, participation, participation_name, participation_rate, '
+        'rate, price, base, share, full_commission, amount'
     )
 
 
@@ -513,7 +516,7 @@ class AnalyticsDetailItem(BaseModel):
     id: int = Field(
         description='sales_order_id | sales_order_detail_id | customer_refund_id | '
         'fiscal_document_id | customer_payment_id | product (stock) | lot_serial_tracking_id '
-        '(movements)'
+        '(movements) | sales_order_detail_id (commission_lines)'
     )
     document_id: int | None = Field(
         default=None,

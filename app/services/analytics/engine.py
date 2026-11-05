@@ -25,6 +25,7 @@ from app.core.deps import CurrentUser, can_see_every_facility, forbidden, has_an
 from app.core.error_codes import ErrorCode
 from app.core.errors import DomainError
 from app.enums import AccessRight, PaymentMethod, SystemObject
+from app.models.commission import CommissionAgent
 from app.models.core import Employee, Facility, Label, PointSale
 from app.models.customer import Customer
 from app.models.product import Product
@@ -107,14 +108,39 @@ async def resolve_scope(db: AsyncSession, current: CurrentUser, facility: int | 
 
 
 async def families(db: AsyncSession, current: CurrentUser) -> set[Family]:
-    """The analytics families the caller holds (FR-060)."""
+    """The analytics families the caller holds (FR-060). A commission agent holds commissions
+    without 112, for their own lines only (`own_commissions`, spec 038 R11)."""
     if current.administrator:
         return set(Family)
-    return {
+    held = {
         family
         for family, objects in FAMILY_PRIVILEGES.items()
         if await has_any_privilege(db, current.user_id, [(o, AccessRight.READ) for o in objects])
     }
+    if Family.COMMISSIONS not in held and await is_agent(db, current.employee_id):
+        held.add(Family.COMMISSIONS)
+    return held
+
+
+async def is_agent(db: AsyncSession, employee: int) -> bool:
+    return await db.get(CommissionAgent, employee) is not None
+
+
+async def own_commissions(db: AsyncSession, current: CurrentUser) -> int | None:
+    """The agent whose commissions alone the caller may read: their own, when they are a commission
+    agent without 112 (spec 038, R11). None when they read every agent's, or none at all."""
+    if current.administrator:
+        return None
+    grant = (SystemObject.COMMISSIONS_BY_SALES_PERSON, AccessRight.READ)
+    if await has_any_privilege(db, current.user_id, [grant]):
+        return None
+    return current.employee_id if await is_agent(db, current.employee_id) else None
+
+
+def only_agent(filters: Sequence[AnalyticsFilter], agent: int) -> list[AnalyticsFilter]:
+    """`filters` with the salesperson forced to `agent`, replacing any the caller named."""
+    kept = [f for f in filters if f.dimension is not DimensionKey.SALESPERSON]
+    return [*kept, AnalyticsFilter(dimension=DimensionKey.SALESPERSON, values=[str(agent)])]
 
 
 def family_forbidden(family: Family) -> DomainError:
@@ -269,6 +295,7 @@ def parse_value(dimension: DimensionKey, value: str) -> Any:
             | DimensionKey.PAYMENT_TERMS
             | DimensionKey.AGING_BUCKET
             | DimensionKey.DUE_BUCKET
+            | DimensionKey.COMMISSION_STATUS
         ):
             return value
     return int(value)
@@ -598,6 +625,10 @@ def derive(
         MeasureKey.UNITS_IN: quantity(sums.get('movement.units_in', 0) or 0),
         MeasureKey.UNITS_OUT: quantity(sums.get('movement.units_out', 0) or 0),
         MeasureKey.MOVEMENT_DOCUMENTS: Decimal(get('movement.documents')),
+        # Spec 038: commissions (research R11)
+        MeasureKey.COMMISSION: money(get('commission.commission_c')),
+        MeasureKey.COMMISSION_BASE: money(get('commission.base_c')),
+        MeasureKey.COMMISSION_LINES: Decimal(get('commission.lines')),
     }
     values |= _stock_measures(sums, cost, days)
     values |= _receivable_measures(sums, days)
@@ -892,11 +923,28 @@ async def prepare(
     receivable_guard(Prepared(definition, parse_filters(definition.filters), None, set()))
     month_end_guard(definition.measures, definition.start, definition.end)
     held = await check_privileges(db, current, definition.measures)
+    definition = await commission_definition(db, definition, current)
     facility = await resolve_scope(db, current, definition.facility)
     filters = parse_filters(definition.filters)
     await check_facility_filters(db, current, filters)
     normalized = definition.model_copy(update={'facility': facility})
     return Prepared(normalized, filters, facility, held)
+
+
+async def commission_definition(
+    db: AsyncSession, definition: AnalyticsQueryRequest, current: CurrentUser
+) -> AnalyticsQueryRequest:
+    """With a commission measure (spec 038, R11): a commission line belongs to a month, so a day
+    or week grain is raised to the month; and an agent without 112 gets their own lines only."""
+    if Family.COMMISSIONS not in {MEASURES[m].family for m in definition.measures}:
+        return definition
+    if definition.grain in (Grain.DAY, Grain.WEEK):
+        definition = definition.model_copy(update={'grain': Grain.MONTH})
+    agent = await own_commissions(db, current)
+    if agent is not None:
+        filters = only_agent(definition.filters, agent)
+        definition = definition.model_copy(update={'filters': filters})
+    return definition
 
 
 async def run(
@@ -1195,7 +1243,7 @@ def drill(
 
 
 # The Python facts register here, below everything they use of this module (spec 038).
-from app.services.analytics import balances  # noqa: E402
+from app.services.analytics import balances, commissions  # noqa: E402
 
 RUNNERS.update(
     {
@@ -1203,5 +1251,6 @@ RUNNERS.update(
         Fact.STOCK_TODAY: balances.stock_today,
         Fact.RECEIVABLE: balances.receivable,
         Fact.PAYABLE: balances.payable,
+        Fact.COMMISSION: commissions.fact,
     }
 )
