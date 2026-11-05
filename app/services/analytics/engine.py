@@ -987,11 +987,27 @@ async def prepare(
     month_end_guard(definition.measures, definition.start, definition.end)
     held = await check_privileges(db, current, definition.measures)
     definition = await commission_definition(db, definition, current)
+    definition = receivable_definition(definition, local_now().date())
     facility = await resolve_scope(db, current, definition.facility)
     filters = parse_filters(definition.filters)
     await check_facility_filters(db, current, filters)
     normalized = definition.model_copy(update={'facility': facility})
     return Prepared(normalized, filters, facility, held)
+
+
+def receivable_definition(definition: AnalyticsQueryRequest, today: date) -> AnalyticsQueryRequest:
+    """Contract "Receivable history": a query of receivable balances only, without a date
+    dimension, ending on a past day that ends no month reads the month-end before it, so the
+    definition ends there (and starts no later). The values are the same; the comparison is then
+    the period before the month-end read. A query that also sums a flow keeps its period."""
+    if DimensionKey.DATE in definition.dimensions or definition.end >= today:
+        return definition
+    if any(set(MEASURES[m].facts) != {Fact.RECEIVABLE} for m in definition.measures):
+        return definition
+    read = facts.month_end_on_or_before(definition.end)
+    if read == definition.end:
+        return definition
+    return definition.model_copy(update={'start': min(definition.start, read), 'end': read})
 
 
 async def commission_definition(

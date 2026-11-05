@@ -305,11 +305,16 @@ async def create(
     return row
 
 
+def _timing(row: AnalyticsSchedule) -> tuple:
+    return row.cadence, row.weekdays, row.month_day, row.time_of_day, row.enabled
+
+
 async def update_schedule(
     db: AsyncSession, schedule: int, data: AnalyticsScheduleUpdate, current: CurrentUser
 ) -> AnalyticsSchedule:
     """Change what is given; every save checks the export and the recipients again. A cadence
-    change drops the days that don't apply to the new cadence."""
+    change drops the days that don't apply to the new cadence. The next run moves only when the
+    timing changes, so a due occurrence not yet claimed is still sent after any other change."""
     row, view = await owned(db, schedule, current)
     cadence = data.cadence or CADENCES[row.cadence]
     weekdays = data.weekdays
@@ -331,6 +336,7 @@ async def update_schedule(
     )
     await _check(db, view, format_, recipients, current)
     now = local_now().replace(microsecond=0)
+    timing = _timing(row)
     row.cadence = CADENCES.index(cadence)
     row.weekdays = _mask(weekdays)
     row.month_day = month_day
@@ -341,7 +347,8 @@ async def update_schedule(
         row.subject = data.subject
     if data.enabled is not None:
         row.enabled = data.enabled
-    row.next_run_time = next_occurrence(row, now)
+    if _timing(row) != timing:
+        row.next_run_time = next_occurrence(row, now)
     row.modification_time = now
     if data.recipients is not None:
         await _set_recipients(db, schedule, recipients)

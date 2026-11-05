@@ -290,17 +290,129 @@ def detail_columns(cost: bool) -> list[Column]:
     return columns + [Column('payment_method', 'Forma de pago', 'int')]
 
 
+#: The spec 038 kinds' own columns, `figures.values` in the contract's order (contracts/api.md
+#: "Detail"), so a file holds what the screen shows. A figure named as an item field is left out.
+FIGURE_COLUMNS = {
+    DetailKind.STOCK: [
+        Column('on_hand', 'Existencia', 'quantity'),
+        Column('reserved', 'Reservado', 'quantity'),
+        Column('available', 'Disponible', 'quantity'),
+        Column('in_transit', 'En tránsito', 'quantity'),
+        Column('velocity', 'Venta diaria', 'quantity'),
+        Column('cover', 'Días de cobertura', 'quantity'),
+        Column('reorder_point', 'Punto de reorden', 'quantity'),
+        Column('suggested', 'Sugerido', 'quantity'),
+        Column('last_movement', 'Último movimiento', 'datetime'),
+        Column('value', 'Valor', 'money'),
+    ],
+    DetailKind.MOVEMENTS: [
+        Column('movement_type', 'Tipo', 'int'),
+        Column('source', 'Movimiento', 'text'),
+        Column('reference', 'Referencia', 'int'),
+    ],
+    DetailKind.RECEIVABLES: [
+        Column('balance', 'Saldo', 'money'),
+        Column('exchange_rate', 'Tipo de cambio', 'quantity'),
+        Column('due_date', 'Vencimiento', 'datetime'),
+        Column('days_past_due', 'Días vencido', 'int'),
+        Column('bucket', 'Antigüedad', 'text'),
+        Column('due_bucket', 'Vence en', 'text'),
+    ],
+    DetailKind.INVOICES: [
+        Column('type', 'Tipo', 'text'),
+        Column('status', 'Estado', 'text'),
+        Column('issuer', 'Emisor', 'text'),
+        Column('uuid', 'UUID', 'text'),
+        Column('issued', 'Emitido', 'datetime'),
+        Column('stamped', 'Timbrado', 'datetime'),
+        Column('cancelled', 'Cancelado', 'datetime'),
+        Column('subtotal', 'Subtotal', 'money'),
+        Column('vat', 'IVA', 'money'),
+        Column('total', 'Total', 'money'),
+    ],
+    DetailKind.UNINVOICED_LINES: [
+        Column('sold', 'Vendido', 'quantity'),
+        Column('invoiced', 'Facturado', 'quantity'),
+        Column('invoiced_amount', 'Importe facturado', 'money'),
+        Column('first_invoiced', 'Primera factura', 'datetime'),
+        Column('lag_days', 'Días a facturar', 'int'),
+    ],
+    DetailKind.PURCHASES: [
+        Column('supplier', 'Proveedor', 'int'),
+        Column('supplier_name', 'Nombre del proveedor', 'text'),
+        Column('unit_price', 'Precio unitario', 'money'),
+        Column('previous_price', 'Precio anterior', 'money'),
+        Column('change', 'Cambio', 'money'),
+        Column('change_pct', 'Cambio %', 'ratio'),
+        Column('received', 'Recibido', 'quantity'),
+    ],
+    DetailKind.COMMISSION_LINES: [
+        Column('month', 'Mes', 'datetime'),
+        Column('status', 'Estado', 'text'),
+        Column('movement', 'Movimiento', 'text'),
+        Column('scheme', 'Esquema', 'int'),
+        Column('sales_order', 'Pedido', 'int'),
+        Column('sales_order_detail', 'Partida', 'int'),
+        Column('customer_refund_detail', 'Partida de devolución', 'int'),
+        Column('order_date', 'Fecha del pedido', 'datetime'),
+        Column('paid_date', 'Fecha de pago', 'datetime'),
+        Column('product', 'Producto (id)', 'int'),
+        Column('label', 'Etiqueta', 'int'),
+        Column('label_name', 'Nombre de la etiqueta', 'text'),
+        Column('label_rate', 'Tasa de la etiqueta', 'quantity'),
+        Column('participation', 'Participación', 'int'),
+        Column('participation_name', 'Nombre de la participación', 'text'),
+        Column('participation_rate', 'Parte del agente', 'quantity'),
+        Column('rate', 'Tasa', 'quantity'),
+        Column('price', 'Precio', 'money'),
+        Column('base', 'Base', 'money'),
+        Column('share', 'Parte pagada', 'quantity'),
+        Column('full_commission', 'Comisión completa', 'money'),
+    ],
+}
+#: The kinds whose items carry a warehouse.
+WAREHOUSE_KINDS = {DetailKind.STOCK, DetailKind.MOVEMENTS, DetailKind.PURCHASES}
+#: Spec 037's sums shown in its kinds' TOTAL line.
+SUMMED = ('quantity', 'amount', 'cost', 'margin')
+
+
+def _figure(value: str | None, unit: str) -> Any:
+    """A figure's text as a typed cell: decimals, ints, and dates or datetimes by their shape."""
+    if value is None or unit == 'text':
+        return value
+    if unit == 'int':
+        return int(value)
+    if unit == 'datetime':
+        return datetime.fromisoformat(value) if 'T' in value else date.fromisoformat(value)
+    return Decimal(value)
+
+
 def detail_table(
-    result: AnalyticsDetailResponse, cost: bool, cover: list[tuple[str, str]]
+    result: AnalyticsDetailResponse, cost: bool, cover: list[tuple[str, str]], kind: DetailKind
 ) -> Table:
+    """Spec 037's columns; a spec 038 kind adds its warehouse and its figures (a stock pair's
+    value with the cost privilege only), and totals every column its `sums` names."""
     columns = detail_columns(cost)
-    rows = [[getattr(item, c.key) for c in columns] for item in result.items]
+    figures = [
+        c for c in FIGURE_COLUMNS.get(kind, []) if cost or c.key not in detail.SENSITIVE_VALUES
+    ]
+    if kind in WAREHOUSE_KINDS:
+        columns.append(Column('warehouse', 'Almacén', 'int'))
+    rows = []
+    for item in result.items:
+        values = item.figures.values if item.figures is not None else {}
+        rows.append(
+            [getattr(item, c.key) for c in columns]
+            + [_figure(values.get(c.key), c.unit) for c in figures]
+        )
+    columns += figures
     sums = result.sums
+    summed = SUMMED if kind not in FIGURE_COLUMNS else [c.key for c in columns]
     totals = [
         'TOTAL'
         if c.key == 'document_id'
         else sums.get(c.key)
-        if c.key in ('quantity', 'amount', 'cost', 'margin')
+        if c.key in summed
         else None
         for c in columns
     ]
@@ -488,7 +600,7 @@ async def build_table(
             )
             if count_only:
                 return result.total, None
-            return result.total, detail_table(result, cost, cover)
+            return result.total, detail_table(result, cost, cover, checked.request.kind)
         case ExportSource.KARDEX:
             found = await kardex.read(db, checked.request, cost=cost, everything=not count_only)
             if count_only:

@@ -77,7 +77,6 @@ AnalyticsQueryRequest:
   sort: str | None         # a requested measure or dimension key; "-" prefix = descending
   top: int | None          # 1-100; the rest folds into others
   stock_options: StockOptions | None  # spec 038: inventory windows and targets
-  price_change_pct: int | None        # spec 038: purchase price change threshold, whole percent
 
 AnalyticsFilter:
   dimension: DimensionKey

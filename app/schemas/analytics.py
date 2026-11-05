@@ -410,12 +410,6 @@ class AnalyticsQueryRequest(BaseModel):
     stock_options: StockOptions | None = Field(
         default=None, description='Inventory measures only; omitted gives the defaults.'
     )
-    price_change_pct: int | None = Field(
-        default=None,
-        ge=0,
-        le=1000,
-        description='Whole percent: a purchase price change above it is flagged (default 10).',
-    )
 
 
 class AnalyticsKey(BaseModel):
@@ -512,11 +506,14 @@ class AnalyticsDetailFigures(BaseModel):
     values: dict[str, str | None] = Field(
         description='stock: on_hand, reserved, available, in_transit, velocity, cover, '
         'reorder_point, suggested, last_movement, value (cost privilege only) | movements: '
-        'movement_type, source, reference | commission_lines: month, status, movement, scheme, '
-        'sales_order, sales_order_detail, customer_refund_detail, order_date, paid_date, product, '
-        'label, label_name, label_rate, participation, participation_name, participation_rate, '
-        'rate, price, base, share, full_commission, amount | purchases: supplier, '
-        'supplier_name, unit_price, previous_price, change, change_pct, received'
+        'movement_type, source, reference | receivables: balance, exchange_rate, due_date, '
+        'days_past_due, bucket, due_bucket | invoices: type, status, issuer, uuid, issued, '
+        'stamped, cancelled, subtotal, vat, total | uninvoiced_lines: sold, invoiced, '
+        'invoiced_amount, first_invoiced, lag_days | commission_lines: month, status, movement, '
+        'scheme, sales_order, sales_order_detail, customer_refund_detail, order_date, paid_date, '
+        'product, label, label_name, label_rate, participation, participation_name, '
+        'participation_rate, rate, price, base, share, full_commission, amount | purchases: '
+        'supplier, supplier_name, unit_price, previous_price, change, change_pct, received'
     )
 
 

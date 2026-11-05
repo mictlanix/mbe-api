@@ -28,6 +28,7 @@ from app.models.fiscal import FiscalDocumentDetail
 from app.models.user import AccessPrivilege
 from app.services.analytics import cache
 from tests.integration.analytics_seed import CREDIT_CUSTOMER, L, sale, seed_catalog
+from tests.integration.detail_export import assert_export_matches
 from tests.integration.seed import seed_facility, seed_fiscal_document
 from tests.problem import assert_problem
 
@@ -280,6 +281,24 @@ async def test_the_cancelled_invoice_shows_when_it_was_cancelled(
     assert item['figures']['values']['cancelled'].startswith('2026-09-29')
 
 
+async def test_the_invoices_detail_by_issuer_and_status(
+    client: AsyncClient, book: dict[str, int]
+) -> None:
+    """Legacy question 23: which CFDI an issuer stamped or cancelled in the period."""
+    issuer = {'dimension': 'issuer', 'values': ['EKU9003173C9']}
+    either = {'dimension': 'document_status', 'values': ['stamped', 'cancelled']}
+
+    listed = await _detail(client, 'invoices', filters=[issuer, either])
+    elsewhere = await _detail(
+        client, 'invoices', filters=[{'dimension': 'issuer', 'values': ['XAXX010101000']}]
+    )
+
+    assert listed['total'] == 4
+    assert {i['figures']['values']['status'] for i in listed['items']} == {'stamped', 'cancelled'}
+    assert {i['figures']['values']['issuer'] for i in listed['items']} == {'EKU9003173C9'}
+    assert elsewhere['total'] == 0
+
+
 async def test_the_uninvoiced_lines_sum_to_the_query(
     client: AsyncClient, book: dict[str, int]
 ) -> None:
@@ -291,6 +310,17 @@ async def test_the_uninvoiced_lines_sum_to_the_query(
         book['a']: ('1.0000', '100.00'),
         book['c']: ('4.0000', '100.00'),
     }
+
+
+async def test_the_fiscal_exports_have_the_documents_figures(
+    client: AsyncClient, book: dict[str, int]
+) -> None:
+    invoices = await assert_export_matches(client, {'kind': 'invoices', **MAY})
+    lines = await assert_export_matches(client, {'kind': 'uninvoiced_lines', **MAY})
+
+    first = next(line for line in invoices if line['document_id'] == str(book['first']))
+    assert (first['issuer'], first['subtotal'], first['vat']) == ('EKU9003173C9', '200.00', '32.00')
+    assert {line['sold'] for line in lines[:-1]} == {'2.0000', '4.0000'}
 
 
 # ── Who sees what ─────────────────────────────────────────────────────────────

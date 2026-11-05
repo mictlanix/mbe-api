@@ -31,6 +31,7 @@ from tests.integration.commission_seed import (
     refund,
     setup_commissions,
 )
+from tests.integration.detail_export import assert_export_matches
 from tests.integration.seed import seed_facility
 from tests.problem import assert_problem
 
@@ -205,6 +206,23 @@ async def test_partial_payments_over_open_months_add_up_to_the_commission(
     assert [i['figures']['values']['amount'] for i in detail['items']] == ['60.00', '40.00']
 
 
+async def test_by_agent_label_participation_and_month(
+    client: AsyncClient, book: dict[str, int]
+) -> None:
+    """Legacy question 37: what each agent earned, from which label and participation, by month;
+    the rows add up to the total."""
+    by_source = await _query(
+        client, 'commission', dimensions=['salesperson', 'label', 'commission_participation']
+    )
+    by_month = await _query(client, 'commission', dimensions=['date', 'label'], grain='month')
+
+    total = D(by_source['totals']['values']['commission'])
+    assert sum(_rows(by_source).values()) == total == sum(_rows(by_month).values())
+    assert {keys[1] for keys in _rows(by_source)} == {'1'}  # one label, three participations
+    assert {keys[2] for keys in _rows(by_source)} == {'1', '2', '3'}
+    assert {keys[0] for keys in _rows(by_month)} == {'2026-03-01', '2026-04-01'}
+
+
 async def test_by_date_commissions_use_month_grain(
     client: AsyncClient, book: dict[str, int]
 ) -> None:
@@ -247,6 +265,17 @@ async def test_the_lines_detail_sums_to_the_query(
         }.items()
     )
     assert D(refunded['amount']) == D('-50.00')
+
+
+async def test_the_commission_lines_export_has_the_rates(
+    client: AsyncClient, book: dict[str, int]
+) -> None:
+    lines = await assert_export_matches(client, {'kind': 'commission_lines', **PERIOD})
+
+    refund = next(line for line in lines if line['movement'] == 'refund')
+    assert (refund['label_rate'], refund['base'], refund['amount']) == (
+        '0.010000', '-5000.00', '-50.00',
+    )  # fmt: skip
 
 
 # ── Who sees what ─────────────────────────────────────────────────────────────

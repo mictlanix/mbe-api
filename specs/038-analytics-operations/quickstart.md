@@ -87,11 +87,28 @@ Record the numbers in research R18. If a target is missed, stop and report befor
 - **Without mail:** on dev, mail isn't configured. Schedule a view, set `SCHEDULED_REPORTS_ENABLED=true` for one shell only, and run the job by hand. Expected: an `analytics_send` row with outcome `skipped` and code `email.not_configured`.
 - **With mail:** a real send needs SMTP settings from the user and their OK, since it is real email. Expected: one email per run, with the attachment.
 - **Concurrency:** run the job twice at once against the same due schedule. Expected: exactly one send row for the occurrence.
-- **Cron:** installing the cron entry (`*/5 * * * *` as the instance's user) on any server is a deployment step that needs confirmation.
+- **Cron:** the entry is `*/5 * * * * cd <instance> && uv run python -m app.jobs.send_scheduled_reports`, as the instance's user, on the one instance with `SCHEDULED_REPORTS_ENABLED=true` (dev and test share mbe_dev, so both would send). Installing it on any server is a deployment step that needs confirmation.
+- **Output:** the job prints `N scheduled report(s) attempted`, or `scheduled reports are disabled on this instance` and exits 0 where the setting is off. Every attempt, whatever its outcome, is an `analytics_send` row.
 
 ## 6. Legacy questions (SC-005)
 
 For each row of the spec's legacy table marked Q, D, Detail or V, run the stated request on dev and record the request and a one-line result in the verifications.
+
+The tests that answer each row on fixtures (T072); rows 25, 26 and 29 are retired:
+
+| Row | Test |
+|---|---|
+| 23 | `test_analytics_fiscal.py`: `test_status_and_output_vat_by_issuer`, `test_the_invoices_detail_sums_to_the_query`, `test_the_invoices_detail_by_issuer_and_status` |
+| 24 | `test_analytics_inventory.py::test_stock_by_warehouse_and_product_as_of_a_past_day`; available today in `test_analytics_balances.py::test_reserved_and_available_are_today_only` |
+| 27 | `test_analytics_inventory.py::test_below_reorder_and_the_suggested_quantity` |
+| 28 | `test_analytics_kardex.py`; the kardex export in `test_analytics_operations.py::test_no_new_route_gives_cost_without_the_cost_privilege` |
+| 30 | `test_analytics_purchases.py::test_purchases_by_supplier_product_and_warehouse` |
+| 32 | `test_analytics_facts.py` movement tests (by movement type, date and facility scope) |
+| 33 | `test_analytics_receivables.py::test_today_by_customer_and_bucket_equals_accounts_receivable`; the trend and top debtors in `test_analytics_operations.py::test_the_dashboard_shows_receivables_only_to_a_receivables_reader` |
+| 34 | `test_analytics_receivables.py`: `test_dso_and_cei_match_the_hand_computed_march`, `test_collected_due_and_due_collected_follow_r9` |
+| 35 | `test_analytics_customer.py` |
+| 37 | `test_analytics_commissions.py`: `test_by_agent_label_participation_and_month`, `test_the_lines_detail_sums_to_the_query` |
+| 38 | `test_analytics_purchases.py::test_the_purchases_export_has_the_price_history` |
 
 ## 7. Hand-off to mbe-ui
 

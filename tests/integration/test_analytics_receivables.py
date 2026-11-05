@@ -26,6 +26,7 @@ from app.services import accounts_service
 from app.services.analytics import cache
 from app.services.analytics.catalog import MEASURES
 from tests.integration import inventory_seed
+from tests.integration.detail_export import assert_export_matches
 from tests.integration.receivable_seed import apply, credit_order
 from tests.integration.seed import seed_facility
 from tests.problem import assert_problem
@@ -181,6 +182,17 @@ async def test_the_overdue_detail_sums_to_the_query(
     assert every.json()['sums']['amount'] == query['totals']['values']['receivable']
 
 
+async def test_the_receivables_export_has_the_buckets(
+    client: AsyncClient, book: dict[str, int]
+) -> None:
+    period = {'start': TODAY.isoformat(), 'end': TODAY.isoformat()}
+
+    lines = await assert_export_matches(client, {'kind': 'receivables', **period})
+
+    late = next(line for line in lines if line['document_id'] == str(book['late']))
+    assert (late['days_past_due'], late['bucket']) == ('45', '31-60')
+
+
 # ── Month-ends ────────────────────────────────────────────────────────────────
 
 
@@ -220,6 +232,27 @@ async def test_a_past_date_reads_the_stored_month_end(
         'receivable_current': '1900.00',
     }
     assert mid_month['totals']['values']['receivable'] == '1000.00', "February's end"
+
+
+async def test_the_definition_shows_the_month_end_a_mid_month_date_reads(
+    client: AsyncClient, march: dict[str, int]
+) -> None:
+    """Contract "Receivable history": the balance is February's end, and the definition says so;
+    a query that also sums a flow keeps its period, which the flow is summed over."""
+    mid_month = await _query(client, 'receivable', start='2026-03-01', end='2026-03-15')
+    late_start = await _query(client, 'receivable', start='2026-01-10', end='2026-03-15')
+    mixed = await _query(client, 'receivable', 'net_sales', start='2026-03-01', end='2026-03-15')
+    month_end = await _query(client, 'receivable', **MARCH)
+
+    assert (mid_month['definition']['start'], mid_month['definition']['end']) == (
+        '2026-02-28', '2026-02-28',
+    )  # fmt: skip
+    assert mid_month['totals']['values']['receivable'] == '1000.00'
+    assert (late_start['definition']['start'], late_start['definition']['end']) == (
+        '2026-01-10', '2026-02-28',
+    )  # fmt: skip
+    assert mixed['definition']['end'] == '2026-03-15'
+    assert month_end['definition']['end'] == '2026-03-31'
 
 
 async def test_by_month_each_bucket_holds_its_month_end(

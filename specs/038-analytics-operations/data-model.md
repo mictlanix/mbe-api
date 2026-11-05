@@ -193,7 +193,8 @@ Spec 037's dimensions apply where the fact has them: date, facility, product, br
 
 ## Request shapes
 
-- **`AnalyticsQueryRequest`** (spec 037) gains `stock_options: StockOptions | None` and `price_change_pct: int | None`, a whole percent (R5, R13). An integer keeps the request one OpenAPI component: a `Decimal` field would split it into input and output schemas, since the response echoes the request. Measures, dimensions and flags extend through the enums.
+- **`AnalyticsQueryRequest`** (spec 037) gains `stock_options: StockOptions | None` (R5). Measures, dimensions and flags extend through the enums.
+- **`AnalyticsDetailRequest`** (spec 037) gains `price_change_pct: int | None`, a whole percent 0–1000, the threshold of the `price_change` flag (R13). An integer keeps the request one OpenAPI component: a `Decimal` field would split it into input and output schemas.
 - **`AnalyticsMeasure`** (spec 037's catalog entry) gains `family`, `kind` and `definition`.
 - **`DetailKind`** gains:
   - `stock`, with flags `stock_out`, `below_reorder`, `dead`, `slow` and `uncosted`;
@@ -221,6 +222,6 @@ Spec 037's dimensions apply where the fact has them: date, facility, product, br
 
 ## State transitions
 
-- **Schedule:** enabled ⇄ disabled (owner). Each claim moves `next_run_time` forward.
+- **Schedule:** enabled ⇄ disabled (owner). Each claim moves `next_run_time` forward. A change of the timing (cadence, weekdays, month day, time or enabled) recomputes it from now; any other change keeps it, so a due occurrence not yet claimed is still sent.
 - **Send:** running → sent | failed | skipped. A row left running after 10 minutes reads as failed.
 - **Receivable month:** absent → written. Rebuild replaces it in one transaction.

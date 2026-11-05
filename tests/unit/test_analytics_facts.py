@@ -28,7 +28,7 @@ from app.models.sales import (
 )
 from app.schemas.analytics import DimensionKey, MeasureKey, VatTreatment
 from app.services import purchase_order_service, totals
-from app.services.analytics import facts
+from app.services.analytics import balances, facts
 from app.services.analytics.catalog import Fact
 from app.services.analytics.engine import derive as engine_derive
 
@@ -337,6 +337,39 @@ def test_the_movement_fact_compiles_for_mariadb() -> None:
     assert 'GROUP BY K0, K1, K2' in sql
     assert 'COUNT(DISTINCT(MOVEMENTS.DOC))' in sql
     assert 'WAREHOUSE.FACILITY =' in sql
+
+
+class _Recording:
+    """A session that records each statement and answers with no rows."""
+
+    def __init__(self) -> None:
+        self.statements: list = []
+
+    async def execute(self, statement: object) -> SimpleNamespace:
+        self.statements.append(statement)
+        return SimpleNamespace(all=list)
+
+
+async def test_the_stock_ledger_queries_compile_for_mariadb() -> None:
+    """T075: the opening sum, the CASE-bucketed movements of later moments and the units sold,
+    which US1 ran on SQLite only, compile for MariaDB with nothing SQLite-only."""
+    session = _Recording()
+    filters = {DimensionKey.PRODUCT: (1, 2)}
+    moments = [date(2026, 3, 31), date(2026, 4, 30), date(2026, 5, 31)]
+    await balances._balances(session, moments, 1, filters)  # type: ignore[arg-type]
+    await balances._sold(session, moments[-1], 90, 1, filters)  # type: ignore[arg-type]
+
+    opening, movements, sold = (
+        str(s.compile(dialect=mysql.dialect())).upper() for s in session.statements
+    )
+    for sql in (opening, movements, sold):
+        assert 'STRFTIME' not in sql and 'JULIANDAY' not in sql
+        assert 'WAREHOUSE.FACILITY =' in sql
+        assert 'LOT_SERIAL_TRACKING.PRODUCT IN' in sql
+    assert 'SUM(LOT_SERIAL_TRACKING.QUANTITY)' in opening
+    assert 'CASE WHEN (LOT_SERIAL_TRACKING.DATE <' in movements
+    assert 'GROUP BY LOT_SERIAL_TRACKING.PRODUCT, LOT_SERIAL_TRACKING.WAREHOUSE, CASE' in movements
+    assert 'ROUND(LOT_SERIAL_TRACKING.QUANTITY' in sold
 
 
 # ── Spec 038, T026: the credit flow fact (research R9) ────────────────────────

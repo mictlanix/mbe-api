@@ -139,6 +139,27 @@ async def test_the_owner_creates_lists_reads_changes_disables_and_deletes(
     assert_problem(await client.get(f'{SCHEDULES}/{schedule}'), 404, 'resource.not_found')
 
 
+async def test_a_change_that_leaves_the_timing_keeps_a_due_occurrence(
+    client: AsyncClient, db: AsyncSession
+) -> None:
+    """An occurrence due but not yet claimed is still sent after a subject, format or recipients
+    change; only a timing change (cadence, days, time, enabled) moves the next run."""
+    view = await _view(client)
+    schedule = (await _create(client, _schedule(view)))['analytics_schedule_id']
+    row = await db.get(AnalyticsSchedule, schedule)
+    row.next_run_time = datetime(2026, 6, 1, 8)  # due at 08:00 today, not yet claimed
+    await db.commit()
+
+    renamed = await client.patch(
+        f'{SCHEDULES}/{schedule}', json={'subject': 'Otro', 'format': 'csv', 'enabled': True}
+    )
+    retimed = await client.patch(f'{SCHEDULES}/{schedule}', json={'time_of_day': '09:00:00'})
+
+    assert renamed.status_code == 200, renamed.text
+    assert renamed.json()['next_run_time'] == '2026-06-01T08:00:00'
+    assert retimed.json()['next_run_time'] == '2026-06-02T09:00:00'
+
+
 async def test_administrators_list_every_schedule_and_others_their_own(
     client: AsyncClient, users: None
 ) -> None:

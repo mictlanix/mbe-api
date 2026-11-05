@@ -443,23 +443,30 @@ T077 confirms that none remain.
 
 ## Phase 11: Polish and cross-cutting concerns
 
-- [ ] T067 [P] Extend the SC-006 sweep in `tests/api/test_analytics_operations.py`: for a caller with every family except 37–39, call every new route and kind (query with every visible new measure, dashboard, each new detail kind, kardex, customer 360, view run, and each export format of `kardex` and `customer`). Assert that no JSON key, CSV header or XLSX header is a sensitive key. The sensitive keys are:
+- [X] T067 [P] Extend the SC-006 sweep in `tests/api/test_analytics_operations.py`: for a caller with every family except 37–39, call every new route and kind (query with every visible new measure, dashboard, each new detail kind, kardex, customer 360, view run, and each export format of `kardex` and `customer`). Assert that no JSON key, CSV header or XLSX header is a sensitive key. The sensitive keys are:
   - every measure the catalog marks sensitive (spec 037's and T004's set), read from the catalog, so a new sensitive measure is swept without editing the test;
   - the cost fields `unit_cost`, `cost` and `value` of kardex rows and of the `stock` kind's `figures.values`.
 
   Match whole key names, not substrings, so non-sensitive keys stay allowed: `uncosted_quantity`, the `uncosted_stock` alert, the `uncosted` flag and the `figures.values` container itself. If a key can't be classified this way, rename it in the contract instead of weakening the sweep.
-- [ ] T068 Add a family sweep to `tests/api/test_analytics_operations.py`: for each family, a caller without it gets no tile, row or alert of it on the dashboard (SC-006).
-- [ ] T069 [P] Check that spec 037's `AnalyticsMeasure` and `AnalyticsDetailItem` blocks in `specs/037-business-analytics/contracts/api.md` match the schemas as built: `family`, `kind` and `definition` on the measure; on the item, `document_id`, `date`, `facility` and `amount` optional, plus `warehouse` and `figures`. The blocks were updated during /speckit-analyze; fix the doc or the schema where they differ.
-- [ ] T070 [P] Add the spec to `CHANGELOG.md` under `[Unreleased]`:
+- [X] T068 Add a family sweep to `tests/api/test_analytics_operations.py`: for each family, a caller without it gets no tile, row or alert of it on the dashboard (SC-006).
+- [X] T069 [P] Check that spec 037's `AnalyticsMeasure` and `AnalyticsDetailItem` blocks in `specs/037-business-analytics/contracts/api.md` match the schemas as built: `family`, `kind` and `definition` on the measure; on the item, `document_id`, `date`, `facility` and `amount` optional, plus `warehouse` and `figures`. The blocks were updated during /speckit-analyze; fix the doc or the schema where they differ.
+- [X] T070 [P] Add the spec to `CHANGELOG.md` under `[Unreleased]`:
   - **Added**: the analytics families, kardex, customer 360, views and schedules routes, migration 032, the six `analytics.*` codes, the two jobs and the settings;
   - **Docs**: spec 038.
-- [ ] T071 Confirm `tests/unit/test_contract_docs.py` passes with every block of `specs/038-analytics-operations/contracts/api.md`. Also implement and test the contract's "Receivable history" rule that the response's `definition` shows the month-end used when a receivable date is rounded down (US2 left it open). Fix the doc or the schema where they differ, never by weakening the test.
-- [ ] T072 Map every legacy row of the spec's table (23–38) to a test or a quickstart §6 request, and add any missing integration case to the story's test file.
-- [ ] T073 Run `uv run ruff check app/ migrations/ tests/` and the full `uv run pytest -q`. Fix any failure.
-- [ ] T074 Read the diff (constitution III). Every changed file must be in plan.md's Source Code tree or named by a task: `app/services/analytics/*`, `sales_order_service.py` (only the `as_of` keyword), `config.py`, `error_codes.py`, `errors.py`, `app/models/analytics.py` and `app/models/__init__.py`, `app/schemas/analytics.py`, `app/api/v1/endpoints/analytics.py` and `analytics_views.py`, `app/api/v1/router.py`, the two jobs, migration 032 and its rollback, the tests, `.env.example`, `CHANGELOG.md`, spec 036's error-code doc, spec 037's contract, and this spec's documents. Revert anything else.
-- [ ] T075 [P] Check that SQLite and MariaDB both compile every new fact (the compile tests of T013, T026, T042 and T054), plus the ledger queries of `balances.py` (opening sum and CASE-bucketed movements), which US1 tested only on SQLite. No fact may have a SQLite-only construct.
-- [ ] T076 [P] Write the operations notes in `specs/038-analytics-operations/quickstart.md` §5, if the implementation changed them: the cron line, `SCHEDULED_REPORTS_ENABLED` on one instance, and the job's output.
-- [ ] T077 Confirm that neither known red test still fails.
+- [X] T071 Confirm `tests/unit/test_contract_docs.py` passes with every block of `specs/038-analytics-operations/contracts/api.md`. Also implement and test the contract's "Receivable history" rule that the response's `definition` shows the month-end used when a receivable date is rounded down (US2 left it open). Fix the doc or the schema where they differ, never by weakening the test.
+- [X] T072 Map every legacy row of the spec's table (23–38) to a test or a quickstart §6 request, and add any missing integration case to the story's test file.
+- [X] T073 Run `uv run ruff check app/ migrations/ tests/` and the full `uv run pytest -q`. Fix any failure.
+- [X] T074 Read the diff (constitution III). Every changed file must be in plan.md's Source Code tree or named by a task: `app/services/analytics/*`, `sales_order_service.py` (only the `as_of` keyword), `config.py`, `error_codes.py`, `errors.py`, `app/models/analytics.py` and `app/models/__init__.py`, `app/schemas/analytics.py`, `app/api/v1/endpoints/analytics.py` and `analytics_views.py`, `app/api/v1/router.py`, the two jobs, migration 032 and its rollback, the tests, `.env.example`, `CHANGELOG.md`, spec 036's error-code doc, spec 037's contract, and this spec's documents. Revert anything else.
+  Reviewed after implementation; also justified, so kept:
+  - `app/services/analytics/sql.py` (under `app/services/analytics/*`): shared SQL helpers of the new facts.
+  - `app/services/user_service.py`: `USER_CASCADES` exempts the new user-referencing tables (views, shares, schedule recipients), or deleting a user would be blocked by them (`tests/unit/test_references.py` broke without it).
+  - `docs/data-dictionary.md`: the seven new tables; `tests/unit/test_data_dictionary.py` requires every table documented.
+  - `CLAUDE.md` and `.specify/feature.json`: Spec Kit's pointer to this spec's plan, written by `/speckit.plan`.
+  - Tests that the change broke or extended, all under "the tests": spec 037's `tests/api/test_analytics.py` (dashboard tile lists; `invoice_coverage` is not cost), `tests/integration/test_analytics_dashboard.py`, `tests/unit/test_contract_docs.py` and `tests/api/test_openapi_problem.py` (257 codes), `tests/integration/test_not_found.py` (the customer 360 route's query parameters), `tests/unit/test_references.py` (`USER_CASCADES`), and the new helper `tests/integration/detail_export.py`.
+  Nothing was reverted.
+- [X] T075 [P] Check that SQLite and MariaDB both compile every new fact (the compile tests of T013, T026, T042 and T054), plus the ledger queries of `balances.py` (opening sum and CASE-bucketed movements), which US1 tested only on SQLite. No fact may have a SQLite-only construct.
+- [X] T076 [P] Write the operations notes in `specs/038-analytics-operations/quickstart.md` §5, if the implementation changed them: the cron line, `SCHEDULED_REPORTS_ENABLED` on one instance, and the job's output.
+- [X] T077 Confirm that neither known red test still fails.
 
 ### On mbe_dev (quickstart §2–§6)
 

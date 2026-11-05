@@ -29,6 +29,7 @@ from app.models.user import AccessPrivilege
 from app.services.analytics import cache
 from tests.integration import inventory_seed
 from tests.integration.analytics_seed import L, sale, seed_catalog
+from tests.integration.detail_export import assert_export_matches
 from tests.integration.seed import seed_facility
 from tests.problem import assert_problem
 
@@ -262,6 +263,18 @@ async def test_price_change_flags_changes_above_the_threshold(
     assert default['total'] == 2
     assert {i['id'] for i in wider['items']} == {book['may20']}
     assert widest['items'] == []
+
+
+async def test_the_purchases_export_has_the_price_history(
+    client: AsyncClient, book: dict[str, int]
+) -> None:
+    """Legacy question 38: purchases as CSV, with the supplier and the previous price."""
+    lines = await assert_export_matches(client, {'kind': 'purchases', **MAY})
+
+    [may12] = [line for line in lines if line['warehouse'] == str(book['away'])]
+    assert (may12['supplier_name'], may12['previous_price'], may12['change_pct']) == (
+        'Dos', '105.0000', '0.1429',
+    )  # fmt: skip
 
 
 # ── Who sees what ─────────────────────────────────────────────────────────────

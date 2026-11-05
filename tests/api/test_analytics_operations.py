@@ -8,10 +8,12 @@ import csv
 import io
 from collections.abc import AsyncIterator, Iterator
 from datetime import datetime
+from typing import Any
 
+import openpyxl
 import pytest
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy import update
+from sqlalchemy import delete, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.core.clock import local_now
@@ -22,7 +24,14 @@ from app.main import app
 from app.models.inventory import InventoryReceipt
 from app.models.purchases import SupplierBalanceCutoff
 from app.models.user import AccessPrivilege
-from app.services.analytics import cache
+from app.schemas.analytics import MeasureKey
+from app.services.analytics import cache, detail
+from app.services.analytics.catalog import (
+    FAMILY_PRIVILEGES,
+    MEASURE_FAMILIES,
+    MEASURES,
+    Family,
+)
 from tests.integration import inventory_seed
 from tests.integration.conftest import db, engine, seeded, sessions  # noqa: F401  (fixtures)
 from tests.integration.inventory_seed import Inventory, cost, product, setup_inventory
@@ -379,3 +388,210 @@ async def test_the_customer_export_gives_the_responses_figures(
         expected[('customer', '', figure)] = (value or '', '')
     assert found == expected
     assert found[('sales', 'TOTAL', 'net_sales')] == ('300.00', '0.00')
+
+
+# ── Spec 038, T067: the SC-006 sweep over every new route ─────────────────────
+
+#: Measures the catalog marks sensitive, read from it so a new one is swept without editing this.
+SENSITIVE = {key.value for key, measure in MEASURES.items() if measure.sensitive}
+#: Item fields that are cost anywhere they appear (detail items, kardex).
+COST_FIELDS = {'cost', 'margin', 'unit_cost'}
+#: The XLSX headers of the same: sensitive measure labels and the cost columns.
+SENSITIVE_LABELS = {MEASURES[MeasureKey(k)].label for k in SENSITIVE} | {
+    'Costo', 'Margen', 'Costo unitario',
+}  # fmt: skip
+#: Where `value` is a stock pair's value at current cost (and nowhere else: a dashboard tile's or
+#: the customer 360 export's `value` is what the caller may see).
+VALUED = ('kardex', 'stock')
+NEW_FAMILIES = (
+    Family.INVENTORY, Family.RECEIVABLES, Family.PAYABLES, Family.COMMISSIONS, Family.FISCAL,
+    Family.PURCHASES,
+)  # fmt: skip
+NEW_KINDS = (
+    'stock', 'movements', 'receivables', 'invoices', 'uninvoiced_lines', 'purchases',
+    'commission_lines',
+)  # fmt: skip
+
+
+def _keys(body: Any) -> set[str]:
+    if isinstance(body, dict):
+        return set(body) | {k for v in body.values() for k in _keys(v)}
+    if isinstance(body, list):
+        return {k for v in body for k in _keys(v)}
+    return set()
+
+
+def _sensitive_json(body: Any, valued: bool = False) -> set[str]:
+    """Whole key names only: `uncosted_quantity`, the `uncosted` flag and `figures.values` pass.
+    With `valued`, a kardex row's or a stock pair's `value` too."""
+    found = _keys(body) & (SENSITIVE | COST_FIELDS)
+    if valued:
+        for item in body.get('items', []):
+            found |= {f'figures.{k}' for k in (item.get('figures') or {})['values'] if k == 'value'}
+        for row in body.get('rows', []):
+            found |= {f'rows.{k}' for k in row if k == 'value'}
+    return found
+
+
+async def _sensitive_files(http: AsyncClient, name: str, source: dict) -> set[str]:
+    """The CSV and XLSX headers of an export (and its cover sheet), and that its PDF is made."""
+    found: set[str] = set()
+    cost_value = name in VALUED
+    for format_ in ('csv', 'xlsx', 'pdf'):
+        response = await http.post(f'{BASE}/exports', json={'format': format_, **source})
+        assert response.status_code == 200, (name, format_, response.text)
+        if format_ == 'csv':
+            reader = csv.DictReader(io.StringIO(response.content.decode('utf-8-sig')))
+            header = set(reader.fieldnames or [])
+            found |= header & (SENSITIVE | COST_FIELDS | ({'value'} if cost_value else set()))
+            if name == 'customer':  # one line per measure, named in the `measure` column
+                found |= {line['measure'] for line in reader} & SENSITIVE
+        elif format_ == 'xlsx':
+            book = openpyxl.load_workbook(io.BytesIO(response.content))
+            labels = {str(c.value) for c in book['Datos'][1]}
+            labels |= {str(row[0].value) for row in book['Resumen'].iter_rows()}
+            found |= labels & (SENSITIVE_LABELS | ({'Valor'} if cost_value else set()))
+    return {f'{name}:{key}' for key in found}
+
+
+async def test_no_new_route_gives_cost_without_the_cost_privilege(
+    http: AsyncClient,
+    db: AsyncSession,  # noqa: F811
+    stock: Inventory,
+) -> None:
+    """SC-006: a caller with every family but cost (37–39) gets no cost-derived key anywhere."""
+    await credit_order(db, confirmed=datetime(2026, 5, 2), due=datetime(2026, 6, 2), price='300')
+    await grant(
+        db,
+        *dict.fromkeys(
+            [
+                *(o for f, os in FAMILY_PRIVILEGES.items() if f is not Family.COST for o in os),
+                *detail.KIND_PRIVILEGE.values(),
+            ]
+        ),
+    )
+    found: set[str] = set()
+
+    for family in NEW_FAMILIES:
+        visible = [
+            k.value for k, m in MEASURES.items() if m.family is family and not m.sensitive
+        ]
+        for first in range(0, len(visible), 12):  # at most 12 measures a query
+            measures = visible[first : first + 12]
+            answered = await http.post(
+                f'{BASE}/query', json=query(*measures, comparison='previous_period')
+            )
+            assert answered.status_code == 200, (family, answered.text)
+            found |= _sensitive_json(answered.json())
+    dashboard = await _dashboard(http)
+    found |= _sensitive_json(dashboard)
+    found |= {t['key'] for t in dashboard['kpis'] + dashboard['series']} & SENSITIVE
+    for kind in NEW_KINDS:
+        body = {'kind': kind, **MAY}
+        listed = await http.post(f'{BASE}/detail', json=body | {'limit': 100})
+        assert listed.status_code == 200, (kind, listed.text)
+        found |= {f'{kind}:{key}' for key in _sensitive_json(listed.json(), kind in VALUED)}
+        found |= await _sensitive_files(http, kind, {'detail': body})
+    pair = (await http.post(f'{BASE}/detail', json={'kind': 'stock', **MAY})).json()['items'][0]
+    kardex = {'product': pair['product'], 'warehouse': pair['warehouse'], **MAY}
+    shown = await http.get(f'{BASE}/kardex', params=kardex)
+    assert shown.status_code == 200, shown.text
+    assert shown.json()['rows'], 'the sweep must see a kardex row'
+    found |= {f'kardex:{key}' for key in _sensitive_json(shown.json(), valued=True)}
+    found |= await _sensitive_files(http, 'kardex', {'kardex': kardex})
+    customer = await http.get(f'{BASE}/customers/1', params=MAY)
+    assert customer.status_code == 200, customer.text
+    found |= _sensitive_json(customer.json())
+    found |= await _sensitive_files(http, 'customer', {'customer': {'customer': 1, **MAY}})
+    view = await http.post(
+        f'{BASE}/views',
+        json={
+            'name': 'Inventario',
+            'kind': 'query',
+            'definition': {'measures': ['on_hand', 'receivable', 'invoiced']},
+            'period': {'key': 'fixed', **MAY},
+        },
+    )
+    assert view.status_code == 201, view.text
+    run = await http.post(f'{BASE}/views/{view.json()["analytics_view_id"]}/run')
+    assert run.status_code == 200, run.text
+    found |= _sensitive_json(run.json())
+
+    assert found == set()
+
+
+# ── Spec 038, T068: the family sweep over the dashboard ───────────────────────
+
+#: The families of each alert: what it counts, and cost for the cost-derived ones.
+ALERT_FAMILIES = {
+    'overdue_credit_orders': {Family.SALES},
+    'lines_below_cost': {Family.SALES, Family.COST},
+    'lines_without_cost': {Family.SALES, Family.COST},
+    'refund_rate': {Family.SALES},
+    'stock_outs': {Family.INVENTORY},
+    'below_reorder': {Family.INVENTORY},
+    'dead_stock': {Family.INVENTORY, Family.COST},
+    'uncosted_stock': {Family.INVENTORY},
+    'payables_overdue': {Family.PAYABLES},
+}
+
+
+def _families_of(measures: list[str]) -> set[Family]:
+    found = {MEASURES[MeasureKey(m)].family for m in measures}
+    if any(MEASURES[MeasureKey(m)].sensitive for m in measures):
+        found.add(Family.COST)
+    return found
+
+
+def _dashboard_families(body: dict) -> dict[str, set[Family]]:
+    """Each tile, series and alert with the families it shows."""
+    found = {f'kpi:{k["key"]}': _families_of(k['drill']['measures']) for k in body['kpis']}
+    found |= {
+        f'series:{s["key"]}': _families_of(s['query']['definition']['measures'])
+        for s in body['series']
+    }
+    found |= {f'alert:{a["key"]}': ALERT_FAMILIES[a['key']] for a in body['alerts']}
+    return found
+
+
+async def test_without_a_family_the_dashboard_shows_nothing_of_it(
+    http: AsyncClient,
+    db: AsyncSession,  # noqa: F811
+    stock: Inventory,
+) -> None:
+    """SC-006: for each family, a caller holding every other one sees no tile, series or alert of
+    it. Commissions and purchases have no dashboard tiles."""
+    await credit_order(db, confirmed=datetime(2026, 3, 2), due=datetime(2026, 4, 2), price='300')
+    vendor = await inventory_seed.supplier(db)
+    item = await product(db, code='AP1')
+    order, _ = await inventory_seed.purchase_order(
+        db, lines=[(item, '1', 1)], supplier=vendor, price='100'
+    )
+    received = datetime(2026, 10, 2, 9)
+    db.add(
+        InventoryReceipt(
+            facility=1, warehouse=1, purchase_order=order, creator=1, updater=1,
+            creation_time=received, modification_time=received, completed=True,
+            cancelled=False, serial=12,
+        )  # fmt: skip
+    )
+    db.add(SupplierBalanceCutoff(supplier_balance_cutoff_id=1, cutoff=inventory_seed.WHEN))
+    await db.commit()
+
+    async def shown(*families: Family) -> dict[str, set[Family]]:
+        await db.execute(delete(AccessPrivilege).where(AccessPrivilege.user_id == 'tester'))
+        await db.commit()
+        await grant(db, *(o for f in families for o in FAMILY_PRIVILEGES[f]))
+        cache.responses.clear()
+        return _dashboard_families(await _dashboard(http))
+
+    every = await shown(*Family)
+    assert set().union(*every.values()) == set(Family) - {
+        Family.BULK, Family.COMMISSIONS, Family.PURCHASES,
+    }  # fmt: skip
+    for family in set(Family) - {Family.BULK}:
+        others = [f for f in Family if f is not family]
+        if not set(others) & set(MEASURE_FAMILIES):
+            continue  # nothing opens the dashboard
+        leaked = {name for name, of in (await shown(*others)).items() if family in of}
+        assert leaked == set(), family

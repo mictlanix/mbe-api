@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.services.analytics import cache
 from tests.integration.analytics_seed import L, sale
+from tests.integration.detail_export import assert_export_matches
 from tests.integration.inventory_seed import cost, product
 from tests.integration.stock_seed import T, entry
 from tests.problem import assert_problem
@@ -331,3 +332,48 @@ async def test_the_movements_detail_lists_the_ledger_entries(
     newest = found['items'][0]
     assert newest['quantity'] == '-4.0000' and newest['warehouse'] == W
     assert newest['figures']['values']['source'] == 'sales_order'
+
+
+async def test_stock_by_warehouse_and_product_as_of_a_past_day(
+    client: AsyncClient, db: AsyncSession
+) -> None:
+    """Legacy question 24: what each warehouse holds and is worth, as of a past day; available is
+    only known now, so it is null then."""
+    held = await _product(db, 'WH', ('9', datetime(2026, 6, 2)), ('-4', IN_JUNE, T.SALES_ORDER))
+    await cost(db, held, '2')
+    later = await _product(db, 'LT', ('3', datetime(2026, 7, 2)))
+
+    response = await client.post(
+        '/api/v1/analytics/query',
+        json={
+            'measures': ['on_hand', 'available', 'stock_value'],
+            'dimensions': ['warehouse', 'product'],
+            'filters': [{'dimension': 'product', 'values': [str(held), str(later)]}],
+            **JUNE,
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    rows = {
+        tuple(k['value'] for k in row['keys']): row['values'] for row in response.json()['rows']
+    }
+    assert rows == {
+        (str(W), str(held)): {'on_hand': '5.0000', 'available': None, 'stock_value': '10.00'}
+    }
+
+
+async def test_stock_and_movements_export_what_the_detail_shows(
+    client: AsyncClient, db: AsyncSession
+) -> None:
+    """The warehouse and every figure, as the screen shows them (spec 037's rule)."""
+    m = await _product(db, 'EX', ('9', datetime(2026, 6, 2)), ('-4', IN_JUNE, T.SALES_ORDER))
+    await cost(db, m, '2')
+    filters = [{'dimension': 'product', 'values': [str(m)]}]
+
+    [stock, _] = await assert_export_matches(
+        client, {'kind': 'stock', **JUNE, 'filters': filters}
+    )
+    moved = await assert_export_matches(client, {'kind': 'movements', **JUNE, 'filters': filters})
+
+    assert (stock['warehouse'], stock['on_hand'], stock['value']) == (str(W), '5.0000', '10.00')
+    assert (moved[0]['source'], moved[0]['quantity']) == ('sales_order', '-4.0000')

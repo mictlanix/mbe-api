@@ -11,6 +11,7 @@ from app.schemas.analytics import (
     AnalyticsDetailItem,
     AnalyticsDetailRequest,
     AnalyticsDetailResponse,
+    AnalyticsQueryRequest,
     DetailFlag,
     DetailKind,
 )
@@ -94,3 +95,9 @@ def test_price_history_compiles_for_mariadb() -> None:
     ) in sql
     assert 'ABS(' in sql
     assert 'PLACED_LINES.FACILITY =' in sql
+
+
+def test_the_price_change_threshold_is_a_detail_field_only() -> None:
+    """The `price_change` flag is a detail flag, so a query has no threshold to take."""
+    assert 'price_change_pct' in AnalyticsDetailRequest.model_fields
+    assert 'price_change_pct' not in AnalyticsQueryRequest.model_fields
