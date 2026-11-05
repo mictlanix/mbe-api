@@ -81,19 +81,19 @@ description: "Task list for spec 037, business analytics"
 
 ### Tests
 
-- [ ] T012 [P] [US1] Write `tests/unit/test_analytics_catalog.py`:
+- [X] T012 [P] [US1] Write `tests/unit/test_analytics_catalog.py`:
   - every `MeasureKey` and `DimensionKey` has a catalog entry with label, unit and facts;
   - the sensitive measures are exactly `costed_net_sales`, `cost_coverage`, `cost_of_sales`, `gross_margin`, `margin_pct`;
   - the non-additive ones are exactly `cost_coverage`, `margin_pct`, `average_ticket`;
   - every measure × dimension pair is either supported or refused per data-model.md's dimension table (payment measures refuse `product`, `brand`, `model`, `label`, `point_of_sale`, `payment_terms`; sale measures refuse `cash_session` and `payment_method`);
   - `visible_measures(cost=False)` leaves out every sensitive measure.
-- [ ] T013 [P] [US1] Write `tests/unit/test_analytics_facts.py`:
+- [X] T013 [P] [US1] Write `tests/unit/test_analytics_facts.py`:
   - for fixture orders (prices with and without VAT, line discounts, a 0% VAT line, three lines whose half-cents round the same way), the sale-line fact's cents per order equal `app.services.totals.document_totals` for that order (subtotal, tax, total), and their sum over orders equals the sum of the totals;
   - the residual lands on the largest line, lowest id on ties;
   - cost without VAT is `qty × cost ÷ (1 + rate)` for tax-included lines (R4), and lines with `cost = 0` are flagged uncosted;
   - the refund-line fact takes cost from the linked sale line, scaled by the refunded quantity;
   - every fact query compiled with `sqlalchemy.dialects.mysql` contains the window functions and no SQLite-only construct.
-- [ ] T014 [P] [US1] Write `tests/integration/test_analytics_query.py` (US1 part), on SQLite with fixture documents:
+- [X] T014 [P] [US1] Write `tests/integration/test_analytics_query.py` (US1 part), on SQLite with fixture documents:
   - net sales for a day = gross sales − refunds − credit notes, with and without VAT;
   - an order cancelled after confirmation contributes nothing;
   - a refund nets on its own date and facility, not the sale's;
@@ -102,7 +102,7 @@ description: "Task list for spec 037, business analytics"
   - collected for a cash session equals `cut_figures(...).sales_by_method` for that session, and refunds paid out + store credit issued equal `refunds_by_method`;
   - a store-credit payment applied to another order is never counted in collected;
   - an empty period returns zero totals, no rows and no error.
-- [ ] T015 [P] [US1] Write `tests/api/test_analytics.py` (US1 part):
+- [X] T015 [P] [US1] Write `tests/api/test_analytics.py` (US1 part):
   - 401 without a token on both routes (T031, T037 and T043 add the same case for each route they introduce, so every route of this spec has one, constitution Testing);
   - 403 `auth.forbidden` for a user with neither the sales nor the payments family;
   - the catalog for a user without 37–39 lists no sensitive measure;
@@ -112,20 +112,20 @@ description: "Task list for spec 037, business analytics"
 
 ### Implementation
 
-- [ ] T016 [US1] Write `app/services/analytics/catalog.py`: `Measure` and `Dimension` frozen dataclasses with the fields of data-model.md "Catalog"; the 19 measures and 15 dimensions; each dimension's column per fact (or "none", or refused); `FAMILY_PRIVILEGES` (sales, cost, payments, bulk) from contracts/api.md; helpers `visible_measures(cost: bool, sales: bool, payments: bool)`, `applicable(measure, dimension)`, `facts_for(measures)`. Every dimension, `model` included, can be grouped and filtered. T012 passes.
-- [ ] T017 [US1] Write `app/services/analytics/facts.py`, the four fact queries (data-model.md "Facts", R3–R6). Each is a function `(dimensions, filters, period, scope) -> Select` returning one grouped `SELECT` of integer-cent sums plus counts:
+- [X] T016 [US1] Write `app/services/analytics/catalog.py`: `Measure` and `Dimension` frozen dataclasses with the fields of data-model.md "Catalog"; the 19 measures and 15 dimensions; each dimension's column per fact (or "none", or refused); `FAMILY_PRIVILEGES` (sales, cost, payments, bulk) from contracts/api.md; helpers `visible_measures(cost: bool, sales: bool, payments: bool)`, `applicable(measure, dimension)`, `facts_for(measures)`. Every dimension, `model` included, can be grouped and filtered. T012 passes.
+- [X] T017 [US1] Write `app/services/analytics/facts.py`, the four fact queries (data-model.md "Facts", R3–R6). Each is a function `(dimensions, filters, period, scope) -> Select` returning one grouped `SELECT` of integer-cent sums plus counts:
   - `sale_line`: lines of `sales_order` with `completed = 1 AND cancelled = 0`, dated by `confirmation_time`. Per-line subtotal, tax and discount cents mirror `totals.line_amounts`, rounded with `ROUND(..., 2) * 100`. The order residual is added to the line with `ROW_NUMBER() OVER (PARTITION BY sales_order ORDER BY amount DESC, id) = 1`. Also cost-without-VAT cents, costed-subtotal cents, quantity, `COUNT(DISTINCT sales_order)`, and counts of uncosted and below-cost lines.
   - `refund_line`: `customer_refund_detail ⋈ customer_refund` (confirmed, not cancelled, dated by `customer_refund.date`), with the same residual rule per refund. Cost comes from `sales_order_detail` through `customer_refund_detail.sales_order_detail`; the salesperson is the refund's `sales_person`.
   - `credit_note`: `fiscal_document(_detail)` with `type = 100`, stamped, not cancelled, dated by `issued`.
   - `payment`: `customer_payment` dated by `date`, classified as R6: collected = `amount − SUM(live sales_order_payment.amount_change)` for `payment_type != CREDIT_NOTE AND amount > 0`; refunds paid out = `-amount` for `amount < 0`; store credit = `amount` for `payment_type = CREDIT_NOTE AND amount > 0`. Payments count only collected ones. Read `cut_figures` in `app/services/cash_session_service.py` and mirror its predicates exactly.
 
   Dimensions map to columns through the catalog. Missing values group as `NULL` ("none"). Period filters use `sql.period_bounds`. Facility scope applies to each fact's facility column. T013 passes.
-- [ ] T018 [US1] Write `app/services/analytics/engine.py`, part 1:
+- [X] T018 [US1] Write `app/services/analytics/engine.py`, part 1:
   - `resolve_scope(db, current, facility)`: administrators and holders of 101 (`can_see_every_facility(db, current, 101)`) get the requested facility or all; anyone else gets their own, and another facility is refused with `facility.other_facility` (as specs 033–035 do).
   - `check_privileges(db, current, measures)`: `require_any_privilege` for each measure's family; a sensitive measure without 37–39 raises `auth.forbidden` with `required` [37, 38, 39].
   - `run(db, definition, current) -> QueryResult`: run the facts the measures need, merge them on the dimension tuple in Python (full outer join), convert cents to `Decimal` with two places, compute the derived measures (net sales, costed net sales, cost of sales, gross margin, units, and the ratios from their parts, null on zero denominators), and build the totals from an undimensioned run of the same facts (not by summing rows), so label overlap can't inflate them.
-- [ ] T019 [US1] In `app/schemas/analytics.py`, add `AnalyticsCatalogResponse`, `AnalyticsMeasure`, `AnalyticsDimension`, `AnalyticsQueryRequest`, `AnalyticsFilter`, `AnalyticsQueryResponse`, `AnalyticsRow`, `AnalyticsKey` exactly as contracts/api.md's blocks (money as `Decimal` serialized as strings, ratios with four places).
-- [ ] T020 [US1] Create `app/api/v1/endpoints/analytics.py` with `GET /analytics/catalog` (sales or payments family; filters by `has_any_privilege` for the cost family) and `POST /analytics/query` (calls `engine.run`). Include the router in `app/api/v1/router.py` under the `analytics` prefix and tag. T014 and T015 pass. `test_contract_docs` passes for `AnalyticsCatalogResponse`, `AnalyticsQueryRequest` and `AnalyticsQueryResponse` (and the blocks they reference).
+- [X] T019 [US1] In `app/schemas/analytics.py`, add `AnalyticsCatalogResponse`, `AnalyticsMeasure`, `AnalyticsDimension`, `AnalyticsQueryRequest`, `AnalyticsFilter`, `AnalyticsQueryResponse`, `AnalyticsRow`, `AnalyticsKey` exactly as contracts/api.md's blocks (money as `Decimal` serialized as strings, ratios with four places).
+- [X] T020 [US1] Create `app/api/v1/endpoints/analytics.py` with `GET /analytics/catalog` (sales or payments family; filters by `has_any_privilege` for the cost family) and `POST /analytics/query` (calls `engine.run`). Include the router in `app/api/v1/router.py` under the `analytics` prefix and tag. T014 and T015 pass. `test_contract_docs` passes for `AnalyticsCatalogResponse`, `AnalyticsQueryRequest` and `AnalyticsQueryResponse` (and the blocks they reference).
 
 **Checkpoint**: one definition of every measure answers by day and facility, reconciled on fixtures. This is the MVP.
 
@@ -139,7 +139,7 @@ description: "Task list for spec 037, business analytics"
 
 ### Tests
 
-- [ ] T021 [P] [US2] Write `tests/unit/test_analytics_engine.py`, on in-memory fact results (no database):
+- [X] T021 [P] [US2] Write `tests/unit/test_analytics_engine.py`, on in-memory fact results (no database):
   - the merge of facts with disjoint keys;
   - ratios recomputed at every level, never averaged;
   - shares sum to 1 per additive measure;
@@ -147,7 +147,7 @@ description: "Task list for spec 037, business analytics"
   - comparison, change and `change_pct` (null against 0);
   - date rows align by position against the comparison period;
   - the comparison period for `previous_period` (same length, ending the day before start) and `same_period_last_year` (Feb 29 → Feb 28).
-- [ ] T022 [P] [US2] Extend `tests/integration/test_analytics_query.py`:
+- [X] T022 [P] [US2] Extend `tests/integration/test_analytics_query.py`:
   - rows add up to totals for every additive measure, by product, customer, salesperson, brand, model, point of sale, payment terms and customer type; by salesperson × model (legacy row 20);
   - date at each grain; weekday × hour;
   - filters (in) on each entity dimension; brand groups case-insensitively and trimmed;
@@ -155,7 +155,7 @@ description: "Task list for spec 037, business analytics"
   - "none" rows for a product without brand and an order without salesperson;
   - credit notes fall under "none" when grouped by product;
   - top 3 + others; sort by a measure descending and by a dimension.
-- [ ] T023 [P] [US2] Extend `tests/api/test_analytics.py`, one test per code:
+- [X] T023 [P] [US2] Extend `tests/api/test_analytics.py`, one test per code:
   - `analytics.too_many_dimensions` (4 dimensions);
   - `analytics.dimension_not_applicable` (`collected` by `product`);
   - `analytics.period_invalid` (end before start; over five years);
@@ -163,7 +163,7 @@ description: "Task list for spec 037, business analytics"
   - an unknown measure key gives FastAPI's 422 with type `enum`;
   - `facility.other_facility` for a caller without 101 who names another facility, either as the `facility` parameter or as a `facility` filter value; the own facility for one who omits it;
   - with the cost privilege, `margin_pct` is returned; without it, the response has no key containing `cost` or `margin` anywhere.
-- [ ] T024 [P] [US2] Write `tests/unit/test_analytics_cache.py`:
+- [X] T024 [P] [US2] Write `tests/unit/test_analytics_cache.py`:
   - a hit within 60 s; a miss after (frozen clock);
   - LRU eviction past 256 entries;
   - different scope or cost visibility never share an entry;
@@ -171,14 +171,14 @@ description: "Task list for spec 037, business analytics"
 
 ### Implementation
 
-- [ ] T025 [US2] In `app/services/analytics/facts.py`, map every remaining dimension per data-model.md's table:
+- [X] T025 [US2] In `app/services/analytics/facts.py`, map every remaining dimension per data-model.md's table:
   - `point_of_sale` and `payment_terms` from the order (for refunds, through the refunded order);
   - `customer_type` with the `is_credit_customer` rule (`credit_limit > 0` and not the default customer) as a SQL `CASE`;
   - `brand` and `model` as `TRIM` values (the collation merges case);
   - `label` through `product_label` (sale and refund lines only);
   - `weekday` and `hour` through `sql.weekday` and `sql.hour_of`;
   - `date` through `sql.period_start(grain, ...)`.
-- [ ] T026 [US2] In `app/services/analytics/engine.py`, add:
+- [X] T026 [US2] In `app/services/analytics/engine.py`, add:
   - validation that raises the four `analytics.*` request codes with their params (too many dimensions, a measure not applicable to a dimension or filter, period, sort);
   - filters (`in` on each dimension; `values` parsed per dimension type). A `facility` filter naming a facility outside the caller's scope raises `facility.other_facility`, like the `facility` parameter (FR-061);
   - the comparison run over the comparison period;
@@ -190,7 +190,7 @@ description: "Task list for spec 037, business analytics"
   - `overlapping` when `label` is grouped.
 
   T021–T023 pass.
-- [ ] T027 [US2] Write `app/services/analytics/cache.py`: a TTL (60 s) LRU (256) keyed by a SHA-256 of the normalized definition JSON plus the resolved facility scope and the cost and family visibility; `etag(body_bytes)`. Use it in the query route, which sets `ETag` and `Cache-Control: private, max-age=60` and answers 304 on a matching `If-None-Match`. T024 passes.
+- [X] T027 [US2] Write `app/services/analytics/cache.py`: a TTL (60 s) LRU (256) keyed by a SHA-256 of the normalized definition JSON plus the resolved facility scope and the cost and family visibility; `etag(body_bytes)`. Use it in the query route, which sets `ETag` and `Cache-Control: private, max-age=60` and answers 304 on a matching `If-None-Match`. T024 passes.
 
 **Checkpoint**: any legacy sales question is one query.
 

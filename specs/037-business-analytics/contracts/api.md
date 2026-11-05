@@ -44,38 +44,38 @@ AnalyticsCatalogResponse:
   dimensions: [AnalyticsDimension, ...]
 
 AnalyticsMeasure:
-  key: str                 # MeasureKey value, e.g. net_sales
+  key: MeasureKey          # e.g. net_sales
   label: str
   unit: str                # money | quantity | count | ratio
   sensitive: bool
   vat: bool                # true when vat=included changes it
   additive: bool           # false for ratios
-  dimensions: [str, ...]   # dimension keys it can be grouped or filtered by
+  dimensions: [DimensionKey, ...]  # the dimensions it can be grouped or filtered by
 
 AnalyticsDimension:
-  key: str                 # DimensionKey value, e.g. product
+  key: DimensionKey        # e.g. product
   label: str
-  grains: [str, ...]       # date only: day, week, month, quarter, year
+  grains: [Grain, ...]     # date only: day, week, month, quarter, year
 ```
 
 ## Query
 
 ```
 AnalyticsQueryRequest:
-  measures: [str, ...]     # MeasureKey, 1-12
-  dimensions: [str, ...]   # DimensionKey, 0-3
-  grain: str               # day (default) | week | month | quarter | year; used when date is a dimension
+  measures: [MeasureKey, ...]      # 1-12
+  dimensions: [DimensionKey, ...]  # 0-3
+  grain: Grain             # day (default) | week | month | quarter | year; used when date is a dimension
   start: date
   end: date                # inclusive; end - start < 5 years
   facility: int | None
   filters: [AnalyticsFilter, ...]
-  comparison: str | None   # previous_period | same_period_last_year
-  vat: str                 # excluded (default) | included
+  comparison: Comparison | None    # previous_period | same_period_last_year
+  vat: VatTreatment        # excluded (default) | included
   sort: str | None         # a requested measure or dimension key; "-" prefix = descending
   top: int | None          # 1-100; the rest folds into others
 
 AnalyticsFilter:
-  dimension: str           # DimensionKey
+  dimension: DimensionKey
   values: [str, ...]       # ids for entity dimensions, the value for brand/model/customer_type/payment_terms/weekday/hour, ISO date for date
 
 AnalyticsQueryResponse:
@@ -96,7 +96,7 @@ AnalyticsRow:
   drill: [AnalyticsFilter, ...]       # filters that reproduce this row (period and facility are the request's)
 
 AnalyticsKey:
-  dimension: str
+  dimension: DimensionKey
   value: str | None                   # id or value; null = "none"
   label: str                          # display text: "PT-001 Cemento gris 50 kg", "Monterrey", "2026-10"
 ```
