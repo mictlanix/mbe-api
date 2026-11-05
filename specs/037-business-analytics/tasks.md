@@ -16,7 +16,7 @@ description: "Task list for spec 037, business analytics"
 
 **Gates for every task**: `uv run ruff check app/ migrations/ tests/` and `uv run pytest -q` both pass before the task is checked off. A test task is committed together with the code task that makes it pass (constitution, Testing).
 
-**One known red test**: `tests/unit/test_contract_docs.py::test_a_documented_component_exists` fails for each 037 component in contracts/api.md until a route that uses its schema exists, since only then is it in OpenAPI (9 failures before T020; the last ones clear at T051, the export routes). Those named cases are the only failures allowed at a gate, and T057 confirms none remain.
+**One known red test**: `tests/unit/test_contract_docs.py::test_a_documented_component_exists` fails for each 037 component in contracts/api.md until a route that uses its schema exists, since only then is it in OpenAPI (9 failures before T020; the last ones clear at T051, the export routes). Likewise `tests/unit/test_error_codes.py::test_every_code_is_asserted_by_some_test` fails from T008 until every new `analytics.*` code is asserted by a test (T023 covers four, T043 the other four). Those named cases are the only failures allowed at a gate, and T057 confirms none remain.
 
 ## Format: `[ID] [P?] [Story] Description`
 
@@ -29,8 +29,8 @@ description: "Task list for spec 037, business analytics"
 
 **Purpose**: Dependencies and configuration.
 
-- [ ] T001 Add `XlsxWriter` (current 3.2.x) to `[project].dependencies` and `openpyxl` to the dev dependency group in `pyproject.toml`, then run `uv sync` so `uv.lock` updates.
-- [ ] T002 [P] Add `exports_dir: str = 'exports'` to `Settings` in `app/core/config.py`, next to the other path settings. Add `exports/` to `.gitignore`.
+- [X] T001 Add `XlsxWriter` (current 3.2.x) to `[project].dependencies` and `openpyxl` to the dev dependency group in `pyproject.toml`, then run `uv sync` so `uv.lock` updates.
+- [X] T002 [P] Add `exports_dir: str = 'exports'` to `Settings` in `app/core/config.py`, next to the other path settings. Add `exports/` to `.gitignore`.
 
 ---
 
@@ -42,32 +42,32 @@ description: "Task list for spec 037, business analytics"
 
 ### Tests
 
-- [ ] T003 [P] Write `tests/integration/test_sales_order_confirmation_time.py`:
+- [X] T003 [P] Write `tests/integration/test_sales_order_confirmation_time.py`:
   - confirming a draft through `POST /sales-orders/{id}/confirm` sets `confirmation_time` to the frozen `local_now()`;
   - cancelling it afterwards leaves `confirmation_time` unchanged;
   - a draft has `confirmation_time` null;
   - `GET /sales-orders/{id}` returns `confirmation_time`.
 
   Follow the fixtures of the existing sales order integration tests.
-- [ ] T004 [P] Write `tests/unit/test_analytics_sql.py`:
+- [X] T004 [P] Write `tests/unit/test_analytics_sql.py`:
   - `period_start` for day, week (Monday), month, quarter and year; `weekday` (Monday = 1); `hour_of`. Evaluate each on an in-memory SQLite engine for fixed datetimes, including a Sunday, the 1st of a quarter and 23:59.
   - Compile each with `sqlalchemy.dialects.mysql.dialect()` and assert the MariaDB SQL (`DATE`, `DATE_FORMAT`, `WEEKDAY`, `QUARTER`, `HOUR`), as `tests/unit/test_cash_session_service.py` does.
 
 ### Implementation
 
-- [ ] T005 Write `migrations/031_business_analytics.sql` (data-model.md "Schema changes"), in the style of `migrations/029_supplier_payments.sql`:
+- [X] T005 Write `migrations/031_business_analytics.sql` (data-model.md "Schema changes"), in the style of `migrations/029_supplier_payments.sql`:
   - `ALTER TABLE sales_order ADD COLUMN confirmation_time DATETIME NULL` after `date`;
   - `UPDATE sales_order SET confirmation_time = date WHERE completed = 1` (no fallback, R2);
   - indexes `sales_order_confirmation_time_idx`, `customer_payment_date_idx`, `customer_refund_date_idx`, `fiscal_document_type_issued_idx (type, issued)`;
   - `CREATE TABLE analytics_export` with the columns, FK to `user(user_id)` and engine/charset of the other tables.
 
   Write `migrations/031_business_analytics_rollback.sql`, which drops the table, the four indexes and the column. **Do not apply it to mbe_dev** (that is T061 and needs the user's confirmation).
-- [ ] T006 Add `confirmation_time: Mapped[datetime | None]` to `SalesOrder` in `app/models/sales.py`, and `confirmation_time: LocalDateTime | None = None` to the sales order response in `app/schemas/sales_order.py`.
-- [ ] T007 In `_confirm_locked` (`app/services/sales_order_service.py`, where `order.completed = True` is set), set `order.confirmation_time = local_now()`. Change nothing else in the function. T003 passes.
-- [ ] T008 [P] Add the eight codes of contracts/api.md "Error codes" to `ErrorCode` in `app/core/error_codes.py`, with their statuses and params. Add `ExportStatus` to the enum registry used for `enum:` params, following how existing enum params are registered. Add the same rows under a new `## analytics` section of `specs/036-localizable-error-codes/contracts/error-codes.md`. Raise the pinned count from 243 to 251 in both places it is pinned: `tests/unit/test_contract_docs.py` (`len(_documented_codes())`) and `tests/api/test_openapi_problem.py` (`len(schemas['ErrorCode']['enum'])`). `tests/unit/test_error_codes.py`, `tests/api/test_openapi_problem.py` and the error-code cases of `tests/unit/test_contract_docs.py` pass.
-- [ ] T009 [P] Add `'analytics_export': 'analytics_export'` to `RESOURCE_NAMES` in `app/core/errors.py`.
-- [ ] T010 [P] Create `app/services/analytics/__init__.py` (empty) and `app/services/analytics/sql.py` with the `FunctionElement`s `period_start(grain, col)`, `weekday(col)` and `hour_of(col)`, each with a default (SQLite) and a `mysql` `@compiles` (R7). Add a helper `period_bounds(start, end) -> (datetime, datetime)` giving `>= start 00:00` and `< end + 1 day`. T004 passes.
-- [ ] T011 Create `app/schemas/analytics.py` with the enums used by every story: `MeasureKey` (the 19 keys of data-model.md), `DimensionKey` (`date`, `weekday`, `hour`, `facility`, `point_of_sale`, `salesperson`, `cash_session`, `customer`, `customer_type`, `product`, `brand`, `model`, `label`, `payment_terms`, `payment_method`), `Grain`, `Comparison`, `VatTreatment`, `DetailKind`, `DetailFlag` (`overdue`, `below_cost`, `without_cost`, `collected`, `paid_out`, `store_credit`), `ExportSource`, `ExportFormat`, `ExportStatus`. All are `StrEnum`. Request and response models are added by the stories.
+- [X] T006 Add `confirmation_time: Mapped[datetime | None]` to `SalesOrder` in `app/models/sales.py`, and `confirmation_time: LocalDateTime | None = None` to the sales order response in `app/schemas/sales_order.py`.
+- [X] T007 In `_confirm_locked` (`app/services/sales_order_service.py`, where `order.completed = True` is set), set `order.confirmation_time = local_now()`. Change nothing else in the function. T003 passes.
+- [X] T008 [P] Add the eight codes of contracts/api.md "Error codes" to `ErrorCode` in `app/core/error_codes.py`, with their statuses and params. Add `ExportStatus` to the enum registry used for `enum:` params, following how existing enum params are registered. Add the same rows under a new `## analytics` section of `specs/036-localizable-error-codes/contracts/error-codes.md`. Raise the pinned count from 243 to 251 in both places it is pinned: `tests/unit/test_contract_docs.py` (`len(_documented_codes())`) and `tests/api/test_openapi_problem.py` (`len(schemas['ErrorCode']['enum'])`). `tests/unit/test_error_codes.py`, `tests/api/test_openapi_problem.py` and the error-code cases of `tests/unit/test_contract_docs.py` pass.
+- [X] T009 [P] Add `'analytics_export': 'analytics_export'` to `RESOURCE_NAMES` in `app/core/errors.py`.
+- [X] T010 [P] Create `app/services/analytics/__init__.py` (empty) and `app/services/analytics/sql.py` with the `FunctionElement`s `period_start(grain, col)`, `weekday(col)` and `hour_of(col)`, each with a default (SQLite) and a `mysql` `@compiles` (R7). Add a helper `period_bounds(start, end) -> (datetime, datetime)` giving `>= start 00:00` and `< end + 1 day`. T004 passes.
+- [X] T011 Create `app/schemas/analytics.py` with the enums used by every story: `MeasureKey` (the 19 keys of data-model.md), `DimensionKey` (`date`, `weekday`, `hour`, `facility`, `point_of_sale`, `salesperson`, `cash_session`, `customer`, `customer_type`, `product`, `brand`, `model`, `label`, `payment_terms`, `payment_method`), `Grain`, `Comparison`, `VatTreatment`, `DetailKind`, `DetailFlag` (`overdue`, `below_cost`, `without_cost`, `collected`, `paid_out`, `store_credit`), `ExportSource`, `ExportFormat`, `ExportStatus`. All are `StrEnum`. Request and response models are added by the stories.
 
 **Checkpoint**: migration files exist, confirming records the moment, the codes are in the catalog, and the dialect functions work on both dialects.
 

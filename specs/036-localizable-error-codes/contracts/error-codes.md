@@ -6,6 +6,21 @@ Every code the API serves, with its HTTP status, its `params` and the situation 
 - A code is never renamed or reused. A retired code stays here, marked deprecated.
 - Codes are grouped by domain, alphabetically.
 
+## analytics
+
+Spec 037. Measure and dimension keys are the catalog's (`GET /analytics/catalog`).
+
+| Code | Status | Params | Situation |
+|---|---|---|---|
+| `analytics.dimension_not_applicable` | 422 | measure: str, dimension: str | A measure can't be grouped or filtered by a dimension (a payment measure by product). |
+| `analytics.export_expired` | 410 | expiry_time: datetime | The export's file was deleted after 24 hours. |
+| `analytics.export_not_ready` | 409 | status: enum:ExportStatus | The export is still running or failed. |
+| `analytics.export_source_invalid` | 422 | — | An export request must name exactly one source, and a dashboard exports only to PDF. |
+| `analytics.pdf_too_large` | 422 | rows: int, max_rows: int | A PDF would hold more than 2,000 table rows; export to XLSX or CSV instead. |
+| `analytics.period_invalid` | 422 | start: date, end: date, max_days: int | The end is before the start, or the period is longer than five years. |
+| `analytics.sort_invalid` | 422 | sort: str | The sort key is neither a requested measure nor a requested dimension. |
+| `analytics.too_many_dimensions` | 422 | max: int, given: int | More than three dimensions were requested. |
+
 ## auth
 
 | Code | Status | Params | Situation |

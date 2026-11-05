@@ -174,6 +174,9 @@ class SalesOrderResponse(BaseModel):
     sales_quote: int | None
     payment_terms: PaymentTerms
     date: LocalDateTime
+    #: When the order was confirmed (spec 037): the moment analytics count the sale on. Null on
+    #: drafts.
+    confirmation_time: LocalDateTime | None = None
     promise_date: LocalDateTime
     due_date: LocalDateTime
     contact: int | None

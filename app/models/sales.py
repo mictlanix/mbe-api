@@ -65,6 +65,9 @@ class SalesOrder(Base):
     )
     payment_terms: Mapped[int] = mapped_column(SmallInteger)
     date: Mapped[datetime] = mapped_column(DateTime)
+    # When the order was confirmed (spec 037, FR-002): set once by `_confirm_locked`, never changed
+    # afterwards, null only on drafts. Migration 031 filled it from `date` for older orders.
+    confirmation_time: Mapped[datetime | None] = mapped_column(DateTime)
     promise_date: Mapped[datetime] = mapped_column(DateTime)
     recipient: Mapped[str | None] = mapped_column(String(13))
     recipient_name: Mapped[str | None] = mapped_column(String(250))

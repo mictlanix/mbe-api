@@ -68,6 +68,7 @@ class DomainError(HTTPException):
 RESOURCE_NAMES: dict[str, str] = {
     'access_privilege': 'privilege',
     'address': 'address',
+    'analytics_export': 'analytics_export',
     'bank_account': 'bank_account',
     'cash_count': 'cash_count',
     'cash_drawer': 'cash_drawer',
