@@ -239,16 +239,16 @@ A client opens the existing screen for `document_id`: `/sales-orders/{id}`, `/cu
 
 ```
 AnalyticsExportRequest:
-  format: str              # xlsx | pdf | csv
+  format: ExportFormat     # xlsx | pdf | csv
   query: AnalyticsQueryRequest | None
   dashboard: AnalyticsDashboardRequest | None
   detail: AnalyticsDetailRequest | None
 
 AnalyticsExportResponse:
   analytics_export_id: int
-  source: str              # query | dashboard | detail
-  format: str
-  status: str              # pending | running | ready | failed
+  source: ExportSource     # query | dashboard | detail
+  format: ExportFormat
+  status: ExportStatus     # pending | running | ready | failed
   row_count: int | None
   creation_time: datetime
   completion_time: datetime | None

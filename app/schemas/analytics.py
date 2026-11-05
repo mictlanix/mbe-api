@@ -377,3 +377,27 @@ class AnalyticsDashboardResponse(BaseModel):
     kpis: list[AnalyticsKpi]
     series: list[AnalyticsSeries]
     alerts: list[AnalyticsAlert]
+
+
+# ── Exports ───────────────────────────────────────────────────────────────────
+
+
+class AnalyticsExportRequest(BaseModel):
+    """Exactly one source; a dashboard exports only to PDF (`analytics.export_source_invalid`)."""
+
+    format: ExportFormat
+    query: AnalyticsQueryRequest | None = None
+    dashboard: AnalyticsDashboardRequest | None = None
+    detail: AnalyticsDetailRequest | None = None
+
+
+class AnalyticsExportResponse(BaseModel):
+    analytics_export_id: int
+    source: ExportSource
+    format: ExportFormat
+    status: ExportStatus
+    row_count: int | None
+    creation_time: LocalDateTime
+    completion_time: LocalDateTime | None
+    expiry_time: LocalDateTime | None
+    download_url: str | None

@@ -200,13 +200,14 @@ async def test_unsaved_instance_has_no_blockers() -> None:
 
 @pytest.mark.asyncio
 async def test_user_has_nothing_left_to_check_once_its_cascades_are_exempt() -> None:
-    """`user_settings` and `access_privilege` are the only tables referencing `user`, so
-    exempting the cascade leaves no blocker to look for and the delete always proceeds."""
+    """`user_settings`, `access_privilege` and `analytics_export` (spec 037) are the only tables
+    referencing `user`, so exempting the cascade leaves no blocker to look for and the delete
+    always proceeds."""
     db = _db_counting([])
     user = User(user_id='tester')
 
     blockers = await find_blocking_references(
-        db, user, exempt=frozenset({'user_settings', 'access_privilege'})
+        db, user, exempt=frozenset({'user_settings', 'access_privilege', 'analytics_export'})
     )
 
     assert blockers == []

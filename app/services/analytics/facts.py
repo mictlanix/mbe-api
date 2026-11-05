@@ -247,19 +247,26 @@ def payment_rows(start: date, end: date, facility: int | None) -> Subquery:
     including 0, is collected tender, net of the change handed back on its live applications.
     """
     payment = CustomerPayment
+    since, until = period_bounds(start, end)
+    # Only the period's payments: without the date the subquery groups every application ever made.
+    applied = CustomerPayment.__table__.alias('applied')
     change = (
         select(
             SalesOrderPayment.customer_payment.label('payment'),
             func.sum(SalesOrderPayment.amount_change).label('change'),
         )
-        .where(SalesOrderPayment.cancelled.is_(False))
+        .join(applied, applied.c.customer_payment_id == SalesOrderPayment.customer_payment)
+        .where(
+            SalesOrderPayment.cancelled.is_(False),
+            applied.c.date >= since,
+            applied.c.date < until,
+        )
         .group_by(SalesOrderPayment.customer_payment)
         .subquery('payment_change')
     )
     store_credit = and_(payment.payment_type == int(PaymentType.CREDIT_NOTE), payment.amount > 0)
     collected = and_(payment.payment_type != int(PaymentType.CREDIT_NOTE), payment.amount > 0)
     paid_out = payment.amount < 0
-    since, until = period_bounds(start, end)
     query = (
         select(
             payment.customer_payment_id.label('id'),

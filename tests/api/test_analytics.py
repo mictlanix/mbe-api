@@ -99,7 +99,11 @@ def keys_in(body: Any) -> set[str]:
 
 
 def sensitive_keys(body: Any) -> set[str]:
-    return {k for k in keys_in(body) if any(w in k for w in ('cost', 'margin', 'costed'))}
+    """Keys naming cost or margin, in a JSON body or a list of file headers (SC-005)."""
+    names = set(body) if isinstance(body, list) and all(isinstance(b, str) for b in body) else None
+    found = names if names is not None else keys_in(body)
+    words = ('cost', 'margin', 'costed', 'coverage', 'costo', 'margen')
+    return {k for k in found if any(w in k.lower() for w in words)}
 
 
 # ── US1 (T015) ────────────────────────────────────────────────────────────────
@@ -545,3 +549,55 @@ async def test_a_page_holds_at_most_one_hundred(http: AsyncClient) -> None:
     response = await http.post(f'{BASE}/detail', json=detail_body('orders', limit=101))
 
     assert response.status_code == 422
+
+
+# ── Polish (T056): the SC-005 sweep over every route ──────────────────────────
+
+VISIBLE = [
+    'gross_sales', 'discounts', 'refunds', 'credit_notes', 'net_sales', 'units_sold',
+    'units_refunded', 'units', 'orders', 'average_ticket',
+]  # fmt: skip
+PAYMENT_MEASURES = ['collected', 'refunds_paid_out', 'store_credit_issued', 'payments']
+
+
+async def test_no_route_gives_cost_or_margin_without_the_cost_privilege(
+    http: AsyncClient,
+    db: AsyncSession,  # noqa: F811
+    priced: None,
+) -> None:
+    import io
+
+    import openpyxl
+
+    await grant(
+        db, SALES, PAYMENTS, SystemObject.DOWNLOAD_CSV_FILES, SystemObject.SALES_ORDERS,
+        SystemObject.CUSTOMER_PAYMENTS, SystemObject.CUSTOMER_REFUNDS,
+        SystemObject.FISCAL_DOCUMENTS,
+    )  # fmt: skip
+    found: set[str] = set()
+
+    found |= sensitive_keys((await http.get(f'{BASE}/catalog')).json())
+    for measures in (VISIBLE, PAYMENT_MEASURES):
+        body = {
+            **MAY,
+            'measures': measures,
+            'dimensions': ['date'],
+            'comparison': 'previous_period',
+        }
+        found |= sensitive_keys((await http.post(f'{BASE}/query', json=body)).json())
+    found |= sensitive_keys(await _dashboard(http))
+    for kind in ('orders', 'lines', 'refunds', 'credit_notes', 'payments'):
+        found |= sensitive_keys((await http.post(f'{BASE}/detail', json=detail_body(kind))).json())
+
+    query = {**MAY, 'measures': VISIBLE, 'dimensions': ['product']}
+    for source in ({'query': query}, {'detail': detail_body('lines')}):
+        as_csv = await http.post(f'{BASE}/exports', json={'format': 'csv', **source})
+        as_xlsx = await http.post(f'{BASE}/exports', json={'format': 'xlsx', **source})
+        assert as_csv.status_code == as_xlsx.status_code == 200, (as_csv.text, as_xlsx.text)
+        found |= sensitive_keys(as_csv.content.decode('utf-8-sig').splitlines()[0].split(','))
+        sheet = openpyxl.load_workbook(io.BytesIO(as_xlsx.content))['Datos']
+        found |= sensitive_keys([str(c.value).lower() for c in sheet[1]])
+    pdf = await http.post(f'{BASE}/exports', json={'format': 'pdf', 'dashboard': MAY})
+    assert pdf.status_code == 200, pdf.text
+
+    assert found == set()

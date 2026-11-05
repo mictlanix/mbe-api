@@ -158,6 +158,17 @@ Each is verified with EXPLAIN on mbe_dev before and after (quickstart §2).
 
 **Rationale**: Every date filter is a full scan today (EXPLAIN: `type ALL`). Detail-table joins already use FK indexes: `sales_order_detail.sales_order`, `customer_refund_detail.customer_refund` and `fiscal_document_detail.document`.
 
+**Before migration 031 (measured 2026-11-04, T060, mbe_dev, the compiled fact queries for 2025):**
+
+| Fact | Plan |
+|---|---|
+| sale_line | `sales_order` ALL (339,597 rows), lines by `sales_order_detail_sales_order_fk_idx` (`date` stood in for `confirmation_time`, which 031 adds) |
+| refund_line | `customer_refund` ALL (9,468), lines and the sold line by their keys |
+| credit_note | `fiscal_document` ALL (58,070), lines by `fiscal_document_detail_document_fk_idx` |
+| payment | `customer_payment` ALL (293,738), change per payment as a lateral derived lookup on `sales_order_payment_customer_payment_idx` |
+
+The first payment fact grouped every `sales_order_payment` row (298,958) for the change, whatever the period; it now joins the period's payments first, which is the lateral lookup above. Non-MXN documents in `sales_order`, `sales_order_detail`, `customer_refund`, `customer_payment` and `fiscal_document`: 0 each (FR-003).
+
 **Not touched**: `sales_order` carries two identical unique keys on (facility, serial). That's unrelated, so it is mentioned and left alone (constitution III).
 
 ## R11. Privileges

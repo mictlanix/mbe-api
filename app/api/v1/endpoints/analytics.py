@@ -8,12 +8,15 @@ SearchCreditsFromAllStores (101), as in specs 033–035.
 
 from datetime import date
 
+import anyio
 from fastapi import APIRouter, Depends, Header, Query, Response
 from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.clock import local_now
 from app.core.deps import CurrentUser, require_any_privilege
+from app.core.error_codes import ErrorCode
+from app.core.errors import DomainError
 from app.db.session import get_db
 from app.enums import AccessRight
 from app.schemas.analytics import (
@@ -23,13 +26,16 @@ from app.schemas.analytics import (
     AnalyticsDetailRequest,
     AnalyticsDetailResponse,
     AnalyticsDimension,
+    AnalyticsExportRequest,
+    AnalyticsExportResponse,
     AnalyticsMeasure,
     AnalyticsQueryRequest,
     AnalyticsQueryResponse,
     Comparison,
     DimensionKey,
+    ExportFormat,
 )
-from app.services.analytics import cache, catalog, dashboard, detail, engine
+from app.services.analytics import cache, catalog, dashboard, detail, engine, exports
 from app.services.analytics.catalog import DIMENSIONS, FAMILY_PRIVILEGES, Family
 
 router = APIRouter()
@@ -143,6 +149,88 @@ async def read_detail(
     facility, cost = await detail.check(db, request, current)
     result = await detail.execute(db, request, facility, everything=False)
     return JSONResponse(detail.serialize_items(result, cost))
+
+
+@router.post(
+    '/exports',
+    response_class=Response,
+    responses={
+        200: {
+            'description': 'The file, when it has at most 10,000 rows (every PDF).',
+            'content': {media: exports.FILE_SCHEMA for media in exports.MEDIA_TYPES.values()},
+        },
+        202: {'model': AnalyticsExportResponse, 'description': 'A background export to poll.'},
+    },
+)
+async def create_export(
+    request: AnalyticsExportRequest,
+    current: CurrentUser = Depends(_ANY_FAMILY),
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    """Export a query, the dashboard or a detail as XLSX, PDF or CSV (FR-050–FR-055), from the same
+    definition the screen ran. Up to 10,000 rows the file comes back at once; above, an XLSX or CSV
+    runs in the background and is downloaded by its owner for 24 hours. Bulk detail downloads
+    (FR-055) need Download CSV files (113)."""
+    checked = await exports.check(db, request, current)
+    rows, answer = await exports.build_table(db, checked, count_only=True)
+    mode = exports.export_mode(checked.format, rows)
+    if mode == 'refused':
+        raise DomainError(
+            ErrorCode.ANALYTICS_PDF_TOO_LARGE,
+            'Too many rows for a PDF; export to XLSX or CSV',
+            {'rows': rows, 'max_rows': exports.PDF_ROWS},
+        )
+    if mode == 'background':
+        row = await exports.start_background(db, checked)
+        return JSONResponse(
+            exports.response_of(row, local_now()).model_dump(mode='json'), status_code=202
+        )
+    if answer is None:
+        _, answer = await exports.build_table(db, checked)
+    if checked.format is ExportFormat.PDF:
+        content = await exports.render_pdf(db, checked, answer)
+    else:
+        content = await anyio.to_thread.run_sync(exports.file_bytes, answer, checked.format)
+    name = f'analytics-{checked.source.value}-{checked.request.start}-{checked.request.end}'
+    return Response(
+        content,
+        media_type=exports.MEDIA_TYPES[checked.format],
+        headers={'Content-Disposition': f'attachment; filename="{name}.{checked.format.value}"'},
+    )
+
+
+@router.get('/exports/{analytics_export_id}', response_model=AnalyticsExportResponse)
+async def read_export(
+    analytics_export_id: int,
+    current: CurrentUser = Depends(_ANY_FAMILY),
+    db: AsyncSession = Depends(get_db),
+) -> AnalyticsExportResponse:
+    """A background export's status. Only its owner sees it; after 24 hours it is gone (410)."""
+    row = await exports.read_export(db, analytics_export_id, current)
+    return exports.response_of(row, local_now())
+
+
+@router.get(
+    '/exports/{analytics_export_id}/file',
+    response_class=Response,
+    responses={
+        200: {'content': {media: exports.FILE_SCHEMA for media in exports.MEDIA_TYPES.values()}}
+    },
+)
+async def download_export(
+    analytics_export_id: int,
+    current: CurrentUser = Depends(_ANY_FAMILY),
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    """Download a ready export, until its expiry (FR-054)."""
+    row = await exports.read_export(db, analytics_export_id, current)
+    content = await exports.read_file(row)
+    format_ = exports.response_of(row, local_now()).format
+    return Response(
+        content,
+        media_type=exports.MEDIA_TYPES[format_],
+        headers={'Content-Disposition': f'attachment; filename="{row.file_name}"'},
+    )
 
 
 def cached_response(body: bytes, if_none_match: str | None) -> Response:

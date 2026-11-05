@@ -171,11 +171,18 @@ def _kpi(
 
 
 async def build(
-    db: AsyncSession, request: AnalyticsDashboardRequest, current: CurrentUser
+    db: AsyncSession,
+    request: AnalyticsDashboardRequest,
+    current: CurrentUser,
+    held: set[Family] | None = None,
 ) -> AnalyticsDashboardResponse:
-    """Every tile and alert the caller may see for the period and scope (FR-031–FR-033)."""
+    """Every tile and alert the caller may see for the period and scope (FR-031–FR-033).
+
+    `held` replaces the caller's families when they were checked earlier (a background export).
+    """
     engine.validate_period(request.start, request.end)
-    held = await engine.families(db, current)
+    if held is None:
+        held = await engine.families(db, current)
     if not held & {Family.SALES, Family.PAYMENTS}:
         raise engine.family_forbidden(Family.SALES)
     facility = await engine.resolve_scope(db, current, request.facility)

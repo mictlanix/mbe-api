@@ -299,14 +299,14 @@ description: "Task list for spec 037, business analytics"
 
 ### Tests
 
-- [ ] T042 [P] [US5] Write `tests/api/test_analytics_exports.py`, direct exports:
+- [X] T042 [P] [US5] Write `tests/api/test_analytics_exports.py`, direct exports:
   - parametrized over 20 fixed query definitions (SC-004) that cover every visible measure, each dimension at least once, a comparison, top N with others, a label grouping and both VAT treatments:
     - XLSX read back with openpyxl: a "Resumen" sheet with title, period, comparison, filters, VAT, `as_of`, user; a "Datos" sheet with numeric money cells formatted `#,##0.00`, date cells as dates, ratios as `0.0%`, a frozen first row, an autofilter and a totals row; every value equals the query JSON;
     - CSV starts with `﻿`, uses ISO dates and dot decimals, has a header of keys and a `TOTAL` row; every value equals the query JSON;
     - PDF starts with `%PDF`, and its text extracted with `pypdf` (already a dependency) contains every row's and the totals' formatted values;
   - an empty result exports the cover sheet, header and zero totals;
   - without 37–39, no export has a cost or margin column.
-- [ ] T043 [P] [US5] Extend `tests/api/test_analytics_exports.py`, refusals and jobs:
+- [X] T043 [P] [US5] Extend `tests/api/test_analytics_exports.py`, refusals and jobs:
   - `analytics.export_source_invalid` for zero or two sources, and for a dashboard in XLSX;
   - `analytics.pdf_too_large` for a PDF over 2,000 rows (monkeypatch the cap low);
   - over the threshold (monkeypatched low) gives 202 with `status: pending`, then `ready`, then the file downloads;
@@ -316,7 +316,7 @@ description: "Task list for spec 037, business analytics"
   - past `expiry_time`, `analytics.export_expired` (410) and the file is gone;
   - a RUNNING row older than 10 minutes reads as `failed`;
   - a bulk detail export (`lines` or `payments` over more than one day with no other filter) is refused with `auth.forbidden` (`required` lists 113) for a caller without 113, and passes for a holder of 113 and for an administrator; a one-day or filtered detail export doesn't need 113.
-- [ ] T044 [P] [US5] Write `tests/unit/test_analytics_exports.py`, without a database or route (constitution, Testing):
+- [X] T044 [P] [US5] Write `tests/unit/test_analytics_exports.py`, without a database or route (constitution, Testing):
   - `export_mode(format, rows)`: inline at 10,000 rows, background at 10,001 for XLSX and CSV; a PDF is always inline and refused above 2,000;
   - `column_widths`: the longest formatted value per column, capped at 60;
   - the XLSX cell format per unit (money `#,##0.00`, quantity, count, ratio `0.0%`, date);
@@ -325,20 +325,20 @@ description: "Task list for spec 037, business analytics"
 
 ### Implementation
 
-- [ ] T045 [US5] Create `app/models/analytics.py` with `AnalyticsExport` (data-model.md table) and register it where the other models are imported, so SQLite test schemas include it.
-- [ ] T046 [US5] Add `AnalyticsExportRequest` and `AnalyticsExportResponse` to `app/schemas/analytics.py`, as contracts/api.md.
-- [ ] T047 [P] [US5] Write the CSV and XLSX writers in `app/services/analytics/exports.py`: they take the columns, rows and totals of a query or detail result and write them per contracts/api.md "File layout". XLSX uses `xlsxwriter.Workbook(path_or_buffer, {'constant_memory': True})`, writes "Resumen" first, sizes columns from the longest formatted value (capped at 60), and runs in a worker thread (`anyio.to_thread.run_sync`).
-- [ ] T048 [P] [US5] Write `app/rendering/templates/_charts.html`: Jinja macros `line_chart`, `bar_chart`, `stacked_bar_chart` and `heatmap` that draw inline `<svg>` from a series' points, with fixed sizes, axis labels and money formatting through the existing filters in `app/rendering/formatting.py`.
-- [ ] T049 [US5] Write `app/rendering/templates/analytics_report.html`, extending `_print_layout.html`: company header, title, period, filters, then KPIs and charts (dashboard) or the table (query, detail). Set a named `@page analytics` that is landscape when there are more than 8 columns, with `Página n de m` counters, and `thead { display: table-header-group }`. Add the PDF context builder to `app/services/analytics/exports.py`, which calls `render_pdf` from `app/rendering/__init__.py`. Refuse over 2,000 rows with `analytics.pdf_too_large`.
-- [ ] T050 [US5] Add the background path to `app/services/analytics/exports.py`:
+- [X] T045 [US5] Create `app/models/analytics.py` with `AnalyticsExport` (data-model.md table) and register it where the other models are imported, so SQLite test schemas include it.
+- [X] T046 [US5] Add `AnalyticsExportRequest` and `AnalyticsExportResponse` to `app/schemas/analytics.py`, as contracts/api.md.
+- [X] T047 [P] [US5] Write the CSV and XLSX writers in `app/services/analytics/exports.py`: they take the columns, rows and totals of a query or detail result and write them per contracts/api.md "File layout". XLSX uses `xlsxwriter.Workbook(path_or_buffer, {'constant_memory': True})`, writes "Resumen" first, sizes columns from the longest formatted value (capped at 60), and runs in a worker thread (`anyio.to_thread.run_sync`).
+- [X] T048 [P] [US5] Write `app/rendering/templates/_charts.html`: Jinja macros `line_chart`, `bar_chart`, `stacked_bar_chart` and `heatmap` that draw inline `<svg>` from a series' points, with fixed sizes, axis labels and money formatting through the existing filters in `app/rendering/formatting.py`.
+- [X] T049 [US5] Write `app/rendering/templates/analytics_report.html`, extending `_print_layout.html`: company header, title, period, filters, then KPIs and charts (dashboard) or the table (query, detail). Set a named `@page analytics` that is landscape when there are more than 8 columns, with `Página n de m` counters, and `thead { display: table-header-group }`. Add the PDF context builder to `app/services/analytics/exports.py`, which calls `render_pdf` from `app/rendering/__init__.py`. Refuse over 2,000 rows with `analytics.pdf_too_large`.
+- [X] T050 [US5] Add the background path to `app/services/analytics/exports.py`:
   - count rows first; at most 10,000 (and every PDF) runs inline and returns the file;
   - otherwise insert an `analytics_export` row (PENDING) and start an `asyncio` task. The task opens its own session from `async_sessionmaker(db.bind, expire_on_commit=False)`, built from the request's session, not `AsyncSessionLocal`, so tests reach the SQLite database (see T033). It sets RUNNING, writes the file to `settings.exports_dir/<id>.<ext>`, then sets READY with `row_count`, `completion_time` and `expiry_time` = completion + 24 h (FAILED on error);
   - **both** writers (XLSX and CSV) and every file delete run in `anyio.to_thread.run_sync`, never in the event loop (constitution VI);
   - keep the task in a module-level set and expose `await exports.drain()` so tests can wait for it;
   - put `export_mode`, `column_widths`, the cell formats and `is_bulk_detail` in module-level functions that T044 tests directly;
   - `read_export(db, id, current)` returns `resource.not_found` for another user's row, shows RUNNING older than 10 minutes as FAILED, deletes the file and answers `analytics.export_expired` after expiry.
-- [ ] T051 [US5] Add `POST /analytics/exports`, `GET /analytics/exports/{analytics_export_id}` and `GET /analytics/exports/{analytics_export_id}/file` to `app/api/v1/endpoints/analytics.py`. The POST checks the source's own privileges (and 113 for bulk detail kinds, FR-055/FR-060) and answers 200 with `Content-Disposition: attachment` or 202 with the job. T042, T043 and T044 pass.
-- [ ] T052 [P] [US5] First write `tests/integration/test_purge_exports.py`: the job removes an expired row and its file and keeps an unexpired one; it fails. Then write `app/jobs/purge_exports.py`, following `app/jobs/expire_orders.py`: delete the files and rows of exports past `expiry_time`, and print the count. The test passes.
+- [X] T051 [US5] Add `POST /analytics/exports`, `GET /analytics/exports/{analytics_export_id}` and `GET /analytics/exports/{analytics_export_id}/file` to `app/api/v1/endpoints/analytics.py`. The POST checks the source's own privileges (and 113 for bulk detail kinds, FR-055/FR-060) and answers 200 with `Content-Disposition: attachment` or 202 with the job. T042, T043 and T044 pass.
+- [X] T052 [P] [US5] First write `tests/integration/test_purge_exports.py`: the job removes an expired row and its file and keeps an unexpired one; it fails. Then write `app/jobs/purge_exports.py`, following `app/jobs/expire_orders.py`: delete the files and rows of exports past `expiry_time`, and print the count. The test passes.
 
 **Checkpoint**: every view exports in three formats, with the same numbers.
 
@@ -370,16 +370,16 @@ description: "Task list for spec 037, business analytics"
 
 ## Phase 9: Polish and cross-cutting concerns
 
-- [ ] T056 [P] Write the SC-005 sweep in `tests/api/test_analytics.py`: for a caller with every family except 37–39, call every route (catalog, query with every visible measure, dashboard, each detail kind, each export format) and assert that no JSON key, CSV header or XLSX header contains `cost`, `margin`, `costed` or `coverage`.
-- [ ] T057 [P] Confirm `tests/unit/test_contract_docs.py` passes with every block of `specs/037-business-analytics/contracts/api.md`. Fix the doc or the schema where they differ, never by weakening the test.
-- [ ] T058 [P] Add the spec to `CHANGELOG.md` under `[Unreleased]`: Added (the analytics routes, `confirmation_time` on sales orders, the eight `analytics.*` codes, XlsxWriter), and Docs (spec 037).
-- [ ] T059 Run `uv run ruff check app/ migrations/ tests/` and the full `uv run pytest -q`. Fix any failure.
+- [X] T056 [P] Write the SC-005 sweep in `tests/api/test_analytics.py`: for a caller with every family except 37–39, call every route (catalog, query with every visible measure, dashboard, each detail kind, each export format) and assert that no JSON key, CSV header or XLSX header contains `cost`, `margin`, `costed` or `coverage`.
+- [X] T057 [P] Confirm `tests/unit/test_contract_docs.py` passes with every block of `specs/037-business-analytics/contracts/api.md`. Fix the doc or the schema where they differ, never by weakening the test.
+- [X] T058 [P] Add the spec to `CHANGELOG.md` under `[Unreleased]`: Added (the analytics routes, `confirmation_time` on sales orders, the eight `analytics.*` codes, XlsxWriter), and Docs (spec 037).
+- [X] T059 Run `uv run ruff check app/ migrations/ tests/` and the full `uv run pytest -q`. Fix any failure.
 
 ### On mbe_dev (quickstart §2–§5)
 
 Deploying the branch to dev :8765 is pre-authorized. Applying migration 031 writes to mbe_dev, so **T061 needs the user's confirmation before it runs**.
 
-- [ ] T060 Before the migration, on mbe_dev (read only):
+- [X] T060 Before the migration, on mbe_dev (read only):
   - record the EXPLAIN of each fact query for 2025 in research.md R10 (expected: `type ALL` on `sales_order` and `customer_payment`);
   - count the documents whose `currency` isn't MXN in `sales_order`, `customer_refund`, `customer_payment` and `fiscal_document`, and record the counts (expected 0, FR-003). If any exist, stop and report.
 - [ ] T061 **Ask the user**, then apply migration 031 on mbe_dev with `uv run python -m app.db.migrate`. Check that no confirmed order lacks `confirmation_time`, that EXPLAIN now shows `range` on the new indexes, and that confirming a draft sets the moment. Record the results in the verifications.

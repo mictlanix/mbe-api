@@ -1,0 +1,68 @@
+{#- SVG chart macros for analytics PDFs (spec 037, FR-052): drawn by the server from the same rows
+the screen charts, so the PDF shows what the screen shows. Values arrive as floats; labels as text.
+Every chart is a fixed 640×220 box. -#}
+
+{% macro line_chart(points, comparison=[]) -%}
+{%- set width, height, pad = 640, 220, 28 -%}
+{%- set values = (points + comparison) | map(attribute=1) | list -%}
+{%- set top = [values | max if values else 0, 0.01] | max -%}
+{%- set step = (width - 2 * pad) / ([points | length - 1, 1] | max) -%}
+<svg class="chart" width="{{ width }}" height="{{ height }}" viewBox="0 0 {{ width }} {{ height }}" xmlns="http://www.w3.org/2000/svg">
+	<line x1="{{ pad }}" y1="{{ height - pad }}" x2="{{ width - pad }}" y2="{{ height - pad }}" stroke="#999" stroke-width="0.5"/>
+	{%- for series, colour in [(comparison, '#bbb'), (points, '#1f5fa8')] if series %}
+	<polyline fill="none" stroke="{{ colour }}" stroke-width="1.5" points="
+		{%- for label, value in series -%}
+		{{ '%.1f' | format(pad + loop.index0 * step) }},{{ '%.1f' | format(height - pad - (value / top) * (height - 2 * pad)) }} {% endfor -%}"/>
+	{%- endfor %}
+	<text x="{{ pad }}" y="{{ height - 8 }}" font-size="8">{{ points[0][0] if points else '' }}</text>
+	<text x="{{ width - pad }}" y="{{ height - 8 }}" font-size="8" text-anchor="end">{{ points[-1][0] if points else '' }}</text>
+	<text x="{{ pad }}" y="{{ pad - 8 }}" font-size="8">{{ '${:,.2f}'.format(top) }}</text>
+</svg>
+{%- endmacro %}
+
+{% macro bar_chart(rows) -%}
+{%- set width, row_height, label_width = 640, 18, 220 -%}
+{%- set top = [rows | map(attribute=1) | map('abs') | max if rows else 0, 0.01] | max -%}
+<svg class="chart" width="{{ width }}" height="{{ (rows | length) * row_height + 4 }}" xmlns="http://www.w3.org/2000/svg">
+	{%- for label, value in rows %}
+	{%- set y = loop.index0 * row_height %}
+	<text x="0" y="{{ y + 12 }}" font-size="8">{{ label | truncate(40, True, '…') }}</text>
+	<rect x="{{ label_width }}" y="{{ y + 3 }}" width="{{ '%.1f' | format((value | abs) / top * (width - label_width - 90)) }}" height="{{ row_height - 6 }}" fill="{{ '#1f5fa8' if value >= 0 else '#b03a2e' }}"/>
+	<text x="{{ width }}" y="{{ y + 12 }}" font-size="8" text-anchor="end">{{ '${:,.2f}'.format(value) }}</text>
+	{%- endfor %}
+</svg>
+{%- endmacro %}
+
+{% macro donut(rows) -%}
+{%- set total = rows | map(attribute=1) | select('>', 0) | sum -%}
+{%- set colours = ['#1f5fa8', '#e08e0b', '#2e8b57', '#b03a2e', '#7d3c98', '#5d6d7e', '#17a589', '#c0392b'] -%}
+<svg class="chart" width="640" height="200" xmlns="http://www.w3.org/2000/svg">
+	{%- set ns = namespace(start=0.0) %}
+	{%- for label, value in rows if value > 0 %}
+	{%- set share = value / total if total else 0 %}
+	<circle r="60" cx="100" cy="100" fill="none" stroke="{{ colours[loop.index0 % 8] }}" stroke-width="36"
+		stroke-dasharray="{{ '%.2f' | format(share * 376.99) }} 376.99" stroke-dashoffset="{{ '%.2f' | format(-ns.start * 376.99) }}" transform="rotate(-90 100 100)"/>
+	<rect x="220" y="{{ 20 + loop.index0 * 18 }}" width="10" height="10" fill="{{ colours[loop.index0 % 8] }}"/>
+	<text x="236" y="{{ 29 + loop.index0 * 18 }}" font-size="8">{{ label }}: {{ '${:,.2f}'.format(value) }} ({{ '%.1f' | format(share * 100) }}%)</text>
+	{%- set ns.start = ns.start + share %}
+	{%- endfor %}
+</svg>
+{%- endmacro %}
+
+{% macro heatmap(cells, days, hours) -%}
+{%- set cell, left, top_pad = 22, 34, 14 -%}
+{%- set top = [cells.values() | max if cells else 0, 1] | max -%}
+<svg class="chart" width="{{ left + (hours | length) * cell }}" height="{{ top_pad + (days | length) * cell }}" xmlns="http://www.w3.org/2000/svg">
+	{%- for hour in hours %}
+	<text x="{{ left + loop.index0 * cell + cell / 2 }}" y="10" font-size="7" text-anchor="middle">{{ hour }}</text>
+	{%- endfor %}
+	{%- for day, day_label in days %}
+	{%- set row = loop.index0 %}
+	<text x="0" y="{{ top_pad + row * cell + 14 }}" font-size="7">{{ day_label }}</text>
+	{%- for hour in hours %}
+	{%- set value = cells.get((day, hour), 0) %}
+	<rect x="{{ left + loop.index0 * cell }}" y="{{ top_pad + row * cell }}" width="{{ cell - 2 }}" height="{{ cell - 2 }}" fill="#1f5fa8" fill-opacity="{{ '%.2f' | format(0.06 + 0.94 * value / top) }}"/>
+	{%- endfor %}
+	{%- endfor %}
+</svg>
+{%- endmacro %}

@@ -229,9 +229,11 @@ class TestIncidences:
         order, effect = _tracked(db)
         with (
             patch('app.services.user_service.assert_not_referenced', new=AsyncMock()),
+            patch('app.services.user_service.exports.delete_for_user', new=AsyncMock()) as purged,
             patch(_RECORD, side_effect=effect) as record,
         ):
             await user_service.delete_user(db, user, updater=9)
+        purged.assert_awaited_once_with(db, 'tester')
         record.assert_called_once_with(
             db,
             source=SourceType.USER_SETTINGS,
