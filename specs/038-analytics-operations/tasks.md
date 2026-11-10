@@ -482,7 +482,7 @@ Deploying the branch to dev :8765 is pre-authorized. Applying migration 032, run
 - [X] T085 Run quickstart §5 without mail: with `SCHEDULED_REPORTS_ENABLED=true` for one shell only, run the job against a due schedule. Expect an `analytics_send` row with outcome `skipped` and code `email.not_configured`. Then run two jobs at once against one due schedule, and expect exactly one send row (SC-008). Record both.
 - [X] T086 Only if the user provides SMTP settings and agrees: one real send, with the attachment, to the user. Otherwise record it as not run. Installing the cron entry on any server is a deployment step outside this spec unless the user asks.
 - [X] T087 Run quickstart §6 (SC-005): for each legacy row marked Q, D, Detail or V, run the stated request on dev and record the request and a one-line result in the verifications.
-- [ ] T088 Open the PR from `038-analytics-operations`. Under "Roadmap": `Closes mictlanix/mbe-roadmap#94`, `#96`, `#100`, `#102`, and `Part of mictlanix/mbe-roadmap#9`. End the body with "🤖 Generated with [Claude Code](https://claude.com/claude-code)".
+- [X] T088 (mictlanix/mbe-api#300) Open the PR from `038-analytics-operations`. Under "Roadmap": `Closes mictlanix/mbe-roadmap#94`, `#96`, `#100`, `#102`, and `Part of mictlanix/mbe-roadmap#9`. End the body with "🤖 Generated with [Claude Code](https://claude.com/claude-code)".
 - [ ] T089 After the merge:
   - open the mbe-ui issue of quickstart §7;
   - record the verifications, mark the spec complete and commit `.spec-context.json` to main;
