@@ -330,6 +330,16 @@ class ErrorCode(StrEnum):
     SALES_ORDER_PAID_CANNOT_CANCEL = 'sales_order.paid_cannot_cancel', 409
     SALES_ORDER_ZERO_PRICED_LINES = 'sales_order.zero_priced_lines', 409
 
+    # sales_order_delivery
+    SALES_ORDER_DELIVERY_INTENT_MISSING = 'sales_order_delivery.intent_missing', 409
+    SALES_ORDER_DELIVERY_PROMISE_DATE_PAST = 'sales_order_delivery.promise_date_past', 409
+    SALES_ORDER_DELIVERY_SHIP_TO_MISSING = 'sales_order_delivery.ship_to_missing', 409
+
+    # sales_order_line
+    SALES_ORDER_LINE_INSUFFICIENT_STOCK = 'sales_order_line.insufficient_stock', 409
+    SALES_ORDER_LINE_NO_WAREHOUSE = 'sales_order_line.no_warehouse', 409
+    SALES_ORDER_LINE_ZERO_PRICED = 'sales_order_line.zero_priced', 409
+
     # server
     SERVER_ERROR = 'server.error', 500
 

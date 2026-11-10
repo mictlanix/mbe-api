@@ -16,6 +16,7 @@ import pytest
 from fastapi import HTTPException
 from pydantic import ValidationError
 
+from app.core.error_codes import ErrorCode
 from app.enums import FulfillmentType, OrderOrigin, PaymentTerms
 from app.schemas.sales_order import (
     SalesOrderCreate,
@@ -41,6 +42,7 @@ def _line(product: int, warehouse: int | None, quantity: str, price: str = '10')
         price=Decimal(price),
         product_name=f'Product {product}',
         sales_order_detail_id=product * 100,
+        product_code=f'P{product}',
     )
 
 
@@ -90,6 +92,18 @@ class TestZeroPricedLines:
     def test_no_offenders_when_all_priced(self) -> None:
         assert zero_priced_lines([_line(1, 1, '1', price='10')]) == []
 
+    def test_each_offender_has_a_part(self) -> None:
+        parts: list[dict] = []
+
+        zero_priced_lines([_line(1, 1, '1', price='10'), _line(2, 1, '1', price='0')], parts)
+
+        assert parts == [
+            {
+                'code': ErrorCode.SALES_ORDER_LINE_ZERO_PRICED,
+                'params': {'sales_order_detail_id': 200, 'product_id': 2, 'product_code': 'P2'},
+            }
+        ]
+
 
 class TestStockShortfalls:
     def test_aggregates_the_same_product_across_lines(self) -> None:
@@ -113,6 +127,29 @@ class TestStockShortfalls:
 
         assert len(shortfalls) == 1
         assert 'warehouse' in shortfalls[0].lower()
+
+    def test_parts_carry_the_aggregate_and_the_warehouseless_line(self) -> None:
+        parts: list[dict] = []
+        lines = [_line(1, None, '1'), _line(2, 5, '4'), _line(2, 5, '4')]
+
+        stock_shortfalls(lines, available={(2, 5): Decimal('6')}, stocked={1, 2}, parts=parts)
+
+        assert parts == [
+            {
+                'code': ErrorCode.SALES_ORDER_LINE_NO_WAREHOUSE,
+                'params': {'sales_order_detail_id': 100, 'product_id': 1, 'product_code': 'P1'},
+            },
+            {
+                'code': ErrorCode.SALES_ORDER_LINE_INSUFFICIENT_STOCK,
+                'params': {
+                    'product_id': 2,
+                    'product_code': 'P2',
+                    'warehouse_id': 5,
+                    'requested': Decimal('8'),
+                    'available': Decimal('6'),
+                },
+            },
+        ]
 
     def test_non_stocked_products_are_ignored(self) -> None:
         """A product that does not require stock never blocks confirmation."""
@@ -1154,3 +1191,22 @@ class TestWhatABackOfficeOrderNeedsToBeConfirmed:
         empty = self._order(intent=None, ship_to=None, promise=datetime(2026, 10, 1))
 
         assert self._missing(empty) == ['fulfillment_intent', 'promise_date']
+
+    def test_parts_follow_the_names(self) -> None:
+        parts: list[dict] = []
+        empty = self._order(intent=None, ship_to=None, promise=datetime(2026, 10, 1))
+        sales_order_service.missing_delivery_details(empty, today=self.TODAY, parts=parts)
+
+        assert parts == [
+            {'code': ErrorCode.SALES_ORDER_DELIVERY_INTENT_MISSING},
+            {
+                'code': ErrorCode.SALES_ORDER_DELIVERY_PROMISE_DATE_PAST,
+                'params': {'promise_date': date(2026, 10, 1)},
+            },
+        ]
+
+        parts = []
+        no_address = self._order(intent=FulfillmentType.DELIVERY, ship_to=None)
+        sales_order_service.missing_delivery_details(no_address, today=self.TODAY, parts=parts)
+
+        assert parts == [{'code': ErrorCode.SALES_ORDER_DELIVERY_SHIP_TO_MISSING}]

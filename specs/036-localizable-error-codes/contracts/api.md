@@ -63,10 +63,21 @@ A delete still referenced. Public names, never table names:
 |---|---|---|
 | 403 on any protected route while a password change is pending | `detail: "password_change_required"` | `status`, `code: auth.password_change_required` |
 | 422 from sales order create, update, confirm and quote convert | string `detail` | `status`, `code`, `params` |
-| 409 `POST /sales-orders/{id}/confirm`, zero-priced lines / insufficient stock / missing delivery details | `detail: {"message", "lines"}` or `{"message", "missing"}` | `status`, `code` |
+| 409 `POST /sales-orders/{id}/confirm`, zero-priced lines / insufficient stock / missing delivery details | `detail: {"message", "lines"}` or `{"message", "missing"}` | `status`, `code`, `errors[]` |
 | 422 `POST /delivery-itineraries/{id}/depart`, lines over-committed | `detail: {"message", "lines"}` | `status`, `code` |
 
-Phase 3, a later spec, moves the dict details to a string `detail` plus `errors[]`. That change is breaking.
+The confirm 409 carries one part per line in `errors[]` (code and params only), in the order of the `detail` entries:
+
+```json
+{
+  "status": 409,
+  "code": "sales_order.zero_priced_lines",
+  "detail": {"message": "Order has lines priced at zero", "lines": ["Widget (line 5)"]},
+  "errors": [{"code": "sales_order_line.zero_priced", "params": {"sales_order_detail_id": 5, "product_id": 7, "product_code": "W-1"}}]
+}
+```
+
+Phase 3, a later spec, only replaces the dict `detail` with a string; the parts are already in `errors[]`. That change is breaking.
 
 ## `PUT /inventory-counts/{id}/lines` — 422 batch refusal
 

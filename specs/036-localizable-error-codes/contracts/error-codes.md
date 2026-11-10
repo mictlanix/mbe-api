@@ -418,12 +418,28 @@ Specs 037 and 038. Measure and dimension keys are the catalog's (`GET /analytics
 | `sales_order.already_cancelled` | 409 | — | The sales order is already cancelled. |
 | `sales_order.below_min_quantity` | 422 | product_id: int, min_order_qty: int | A line orders less than the product's minimum order quantity. |
 | `sales_order.has_payment_applications` | 409 | application_ids: list[int] | The sales order still has payment applications to reverse first. |
-| `sales_order.insufficient_stock` | 409 | — (dict `detail` kept: message, lines) | Lines lack stock or a warehouse. Phase 3 moves the lines to `errors[]`. |
-| `sales_order.missing_delivery_details` | 409 | — (dict `detail` kept: message, missing) | A back-office order lacks delivery details. Phase 3 moves the parts to `errors[]`. |
+| `sales_order.insufficient_stock` | 409 | — (dict `detail` kept: message, lines; `errors[]` carries `sales_order_line.insufficient_stock` and `sales_order_line.no_warehouse`) | Lines lack stock or a warehouse. |
+| `sales_order.missing_delivery_details` | 409 | — (dict `detail` kept: message, missing; `errors[]` carries `sales_order_delivery.intent_missing`, `sales_order_delivery.ship_to_missing` and `sales_order_delivery.promise_date_past`) | A back-office order lacks delivery details. |
 | `sales_order.no_lines` | 409 | — | The sales order has no lines to confirm. |
 | `sales_order.not_confirmed` | 409 | sales_order_id: int | Sales order is not confirmed or is cancelled (loading its lines into a transfer). |
 | `sales_order.paid_cannot_cancel` | 409 | — | A paid sales order cannot be cancelled. |
-| `sales_order.zero_priced_lines` | 409 | — (dict `detail` kept: message, lines) | Lines are priced at zero. Phase 3 moves the lines to `errors[]`. |
+| `sales_order.zero_priced_lines` | 409 | — (dict `detail` kept: message, lines; `errors[]` carries `sales_order_line.zero_priced`) | Lines are priced at zero. |
+
+## sales_order_delivery
+
+| Code | Status | Params | Situation |
+|---|---|---|---|
+| `sales_order_delivery.intent_missing` | 409 | — (an `errors[]` item) | The order has no fulfilment intent. |
+| `sales_order_delivery.promise_date_past` | 409 | promise_date: date (an `errors[]` item) | The promise date is already behind today. |
+| `sales_order_delivery.ship_to_missing` | 409 | — (an `errors[]` item) | A delivery or mixed order has no ship-to address. |
+
+## sales_order_line
+
+| Code | Status | Params | Situation |
+|---|---|---|---|
+| `sales_order_line.insufficient_stock` | 409 | product_id: int, product_code: str, warehouse_id: int, requested: decimal, available: decimal (an `errors[]` item) | A product's total across the order's lines in one warehouse exceeds its availability. |
+| `sales_order_line.no_warehouse` | 409 | sales_order_detail_id: int, product_id: int, product_code: str (an `errors[]` item) | A stocked line has no warehouse. |
+| `sales_order_line.zero_priced` | 409 | sales_order_detail_id: int, product_id: int, product_code: str (an `errors[]` item) | A line is priced at zero. |
 
 ## server
 

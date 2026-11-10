@@ -284,6 +284,12 @@ async def test_confirming_with_zero_priced_lines_names_them() -> None:
     conflict = DomainError(
         ErrorCode.SALES_ORDER_ZERO_PRICED_LINES,
         {'message': 'Order has lines priced at zero', 'lines': ['Widget (line 5)']},
+        errors=[
+            {
+                'code': ErrorCode.SALES_ORDER_LINE_ZERO_PRICED,
+                'params': {'sales_order_detail_id': 5, 'product_id': 7, 'product_code': 'W-1'},
+            }
+        ],
     )
     with patch(
         'app.services.sales_order_service.get_order', AsyncMock(return_value=_order())
@@ -297,6 +303,43 @@ async def test_confirming_with_zero_priced_lines_names_them() -> None:
         'lines': ['Widget (line 5)'],
     }
     assert 'params' not in body
+    assert body['errors'] == [
+        {
+            'code': 'sales_order_line.zero_priced',
+            'params': {'sales_order_detail_id': 5, 'product_id': 7, 'product_code': 'W-1'},
+        }
+    ]
+
+
+@pytest.mark.asyncio
+async def test_confirming_without_stock_serializes_decimal_params_as_strings() -> None:
+    _auth()
+    conflict = DomainError(
+        ErrorCode.SALES_ORDER_INSUFFICIENT_STOCK,
+        {'message': 'Insufficient stock', 'lines': ['Product 2 needs 8 in warehouse 5']},
+        errors=[
+            {
+                'code': ErrorCode.SALES_ORDER_LINE_INSUFFICIENT_STOCK,
+                'params': {
+                    'product_id': 2,
+                    'product_code': 'P2',
+                    'warehouse_id': 5,
+                    'requested': Decimal('8.000'),
+                    'available': Decimal('6'),
+                },
+            }
+        ],
+    )
+    with patch(
+        'app.services.sales_order_service.get_order', AsyncMock(return_value=_order())
+    ), patch('app.services.sales_order_service.confirm_order', AsyncMock(side_effect=conflict)):
+        async with await _client() as client:
+            response = await client.post('/api/v1/sales-orders/1/confirm')
+
+    body = assert_problem(response, status.HTTP_409_CONFLICT, 'sales_order.insufficient_stock')
+    assert body['errors'][0]['code'] == 'sales_order_line.insufficient_stock'
+    assert body['errors'][0]['params']['requested'] == '8.000'
+    assert body['errors'][0]['params']['available'] == '6'
 
 
 # ── Missing user context ──────────────────────────────────────────────────────
