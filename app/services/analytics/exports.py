@@ -25,7 +25,7 @@ from typing import Any
 
 import anyio
 import xlsxwriter
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app import rendering
@@ -34,15 +34,19 @@ from app.core.config import settings
 from app.core.deps import CurrentUser
 from app.core.error_codes import ErrorCode
 from app.core.errors import DomainError, not_found
-from app.models.analytics import AnalyticsExport
+from app.models.analytics import AnalyticsExport, AnalyticsView
 from app.models.core import Employee
 from app.schemas.analytics import (
+    AnalyticsCustomerRequest,
+    AnalyticsCustomerResponse,
     AnalyticsDashboardRequest,
     AnalyticsDashboardResponse,
     AnalyticsDetailRequest,
     AnalyticsDetailResponse,
     AnalyticsExportRequest,
     AnalyticsExportResponse,
+    AnalyticsKardexRequest,
+    AnalyticsKardexResponse,
     AnalyticsQueryRequest,
     AnalyticsQueryResponse,
     DetailKind,
@@ -53,8 +57,8 @@ from app.schemas.analytics import (
     MeasureKey,
 )
 from app.services import print_contexts
-from app.services.analytics import dashboard, detail, engine
-from app.services.analytics.catalog import DIMENSIONS, MEASURES, Family
+from app.services.analytics import customer, dashboard, detail, engine, kardex
+from app.services.analytics.catalog import DIMENSIONS, MEASURE_FAMILIES, MEASURES, Family
 
 log = logging.getLogger(__name__)
 
@@ -65,7 +69,13 @@ LANDSCAPE_COLUMNS = 8
 EXPIRY = timedelta(hours=24)
 STALE = timedelta(minutes=10)
 
-SOURCE_CODES = {ExportSource.QUERY: 0, ExportSource.DASHBOARD: 1, ExportSource.DETAIL: 2}
+SOURCE_CODES = {
+    ExportSource.QUERY: 0,
+    ExportSource.DASHBOARD: 1,
+    ExportSource.DETAIL: 2,
+    ExportSource.KARDEX: 3,
+    ExportSource.CUSTOMER: 4,
+}
 FORMAT_CODES = {ExportFormat.XLSX: 0, ExportFormat.PDF: 1, ExportFormat.CSV: 2}
 STATUS_CODES = {
     ExportStatus.PENDING: 0,
@@ -118,10 +128,10 @@ def export_mode(format_: ExportFormat, rows: int) -> str:
 
 
 def is_bulk_detail(request: AnalyticsDetailRequest) -> bool:
-    """A legacy-style bulk download (FR-055): lines or payments over more than one day, with no
-    other filter. It needs Download CSV files (113)."""
+    """A legacy-style bulk download (FR-055): lines, payments or (spec 038, legacy row 38) purchases
+    over more than one day, with no other filter. It needs Download CSV files (113)."""
     return (
-        request.kind in (DetailKind.LINES, DetailKind.PAYMENTS)
+        request.kind in (DetailKind.LINES, DetailKind.PAYMENTS, DetailKind.PURCHASES)
         and request.end > request.start
         and not request.filters
         and request.flag is None
@@ -212,7 +222,9 @@ def _write_row(
     for index, (value, column) in enumerate(zip(row, columns, strict=True)):
         if value is None:
             sheet.write_blank(number, index, None, text_format)
-        elif column.unit in ('money', 'quantity', 'count', 'ratio', 'int'):
+        elif column.unit in ('money', 'quantity', 'count', 'ratio', 'int') and not isinstance(
+            value, str
+        ):
             sheet.write_number(number, index, float(value), formats.get(column.unit))
         elif column.unit in ('date', 'datetime') and isinstance(value, (date, datetime)):
             moment = (
@@ -278,22 +290,207 @@ def detail_columns(cost: bool) -> list[Column]:
     return columns + [Column('payment_method', 'Forma de pago', 'int')]
 
 
+#: The spec 038 kinds' own columns, `figures.values` in the contract's order (contracts/api.md
+#: "Detail"), so a file holds what the screen shows. A figure named as an item field is left out.
+FIGURE_COLUMNS = {
+    DetailKind.STOCK: [
+        Column('on_hand', 'Existencia', 'quantity'),
+        Column('reserved', 'Reservado', 'quantity'),
+        Column('available', 'Disponible', 'quantity'),
+        Column('in_transit', 'En tránsito', 'quantity'),
+        Column('velocity', 'Venta diaria', 'quantity'),
+        Column('cover', 'Días de cobertura', 'quantity'),
+        Column('reorder_point', 'Punto de reorden', 'quantity'),
+        Column('suggested', 'Sugerido', 'quantity'),
+        Column('last_movement', 'Último movimiento', 'datetime'),
+        Column('value', 'Valor', 'money'),
+    ],
+    DetailKind.MOVEMENTS: [
+        Column('movement_type', 'Tipo', 'int'),
+        Column('source', 'Movimiento', 'text'),
+        Column('reference', 'Referencia', 'int'),
+    ],
+    DetailKind.RECEIVABLES: [
+        Column('balance', 'Saldo', 'money'),
+        Column('exchange_rate', 'Tipo de cambio', 'quantity'),
+        Column('due_date', 'Vencimiento', 'datetime'),
+        Column('days_past_due', 'Días vencido', 'int'),
+        Column('bucket', 'Antigüedad', 'text'),
+        Column('due_bucket', 'Vence en', 'text'),
+    ],
+    DetailKind.INVOICES: [
+        Column('type', 'Tipo', 'text'),
+        Column('status', 'Estado', 'text'),
+        Column('issuer', 'Emisor', 'text'),
+        Column('uuid', 'UUID', 'text'),
+        Column('issued', 'Emitido', 'datetime'),
+        Column('stamped', 'Timbrado', 'datetime'),
+        Column('cancelled', 'Cancelado', 'datetime'),
+        Column('subtotal', 'Subtotal', 'money'),
+        Column('vat', 'IVA', 'money'),
+        Column('total', 'Total', 'money'),
+    ],
+    DetailKind.UNINVOICED_LINES: [
+        Column('sold', 'Vendido', 'quantity'),
+        Column('invoiced', 'Facturado', 'quantity'),
+        Column('invoiced_amount', 'Importe facturado', 'money'),
+        Column('first_invoiced', 'Primera factura', 'datetime'),
+        Column('lag_days', 'Días a facturar', 'int'),
+    ],
+    DetailKind.PURCHASES: [
+        Column('supplier', 'Proveedor', 'int'),
+        Column('supplier_name', 'Nombre del proveedor', 'text'),
+        Column('unit_price', 'Precio unitario', 'money'),
+        Column('previous_price', 'Precio anterior', 'money'),
+        Column('change', 'Cambio', 'money'),
+        Column('change_pct', 'Cambio %', 'ratio'),
+        Column('received', 'Recibido', 'quantity'),
+    ],
+    DetailKind.COMMISSION_LINES: [
+        Column('month', 'Mes', 'datetime'),
+        Column('status', 'Estado', 'text'),
+        Column('movement', 'Movimiento', 'text'),
+        Column('scheme', 'Esquema', 'int'),
+        Column('sales_order', 'Pedido', 'int'),
+        Column('sales_order_detail', 'Partida', 'int'),
+        Column('customer_refund_detail', 'Partida de devolución', 'int'),
+        Column('order_date', 'Fecha del pedido', 'datetime'),
+        Column('paid_date', 'Fecha de pago', 'datetime'),
+        Column('product', 'Producto (id)', 'int'),
+        Column('label', 'Etiqueta', 'int'),
+        Column('label_name', 'Nombre de la etiqueta', 'text'),
+        Column('label_rate', 'Tasa de la etiqueta', 'quantity'),
+        Column('participation', 'Participación', 'int'),
+        Column('participation_name', 'Nombre de la participación', 'text'),
+        Column('participation_rate', 'Parte del agente', 'quantity'),
+        Column('rate', 'Tasa', 'quantity'),
+        Column('price', 'Precio', 'money'),
+        Column('base', 'Base', 'money'),
+        Column('share', 'Parte pagada', 'quantity'),
+        Column('full_commission', 'Comisión completa', 'money'),
+    ],
+}
+#: The kinds whose items carry a warehouse.
+WAREHOUSE_KINDS = {DetailKind.STOCK, DetailKind.MOVEMENTS, DetailKind.PURCHASES}
+#: Spec 037's sums shown in its kinds' TOTAL line.
+SUMMED = ('quantity', 'amount', 'cost', 'margin')
+
+
+def _figure(value: str | None, unit: str) -> Any:
+    """A figure's text as a typed cell: decimals, ints, and dates or datetimes by their shape."""
+    if value is None or unit == 'text':
+        return value
+    if unit == 'int':
+        return int(value)
+    if unit == 'datetime':
+        return datetime.fromisoformat(value) if 'T' in value else date.fromisoformat(value)
+    return Decimal(value)
+
+
 def detail_table(
-    result: AnalyticsDetailResponse, cost: bool, cover: list[tuple[str, str]]
+    result: AnalyticsDetailResponse, cost: bool, cover: list[tuple[str, str]], kind: DetailKind
 ) -> Table:
+    """Spec 037's columns; a spec 038 kind adds its warehouse and its figures (a stock pair's
+    value with the cost privilege only), and totals every column its `sums` names."""
     columns = detail_columns(cost)
-    rows = [[getattr(item, c.key) for c in columns] for item in result.items]
+    figures = [
+        c for c in FIGURE_COLUMNS.get(kind, []) if cost or c.key not in detail.SENSITIVE_VALUES
+    ]
+    if kind in WAREHOUSE_KINDS:
+        columns.append(Column('warehouse', 'Almacén', 'int'))
+    rows = []
+    for item in result.items:
+        values = item.figures.values if item.figures is not None else {}
+        rows.append(
+            [getattr(item, c.key) for c in columns]
+            + [_figure(values.get(c.key), c.unit) for c in figures]
+        )
+    columns += figures
     sums = result.sums
+    summed = SUMMED if kind not in FIGURE_COLUMNS else [c.key for c in columns]
     totals = [
         'TOTAL'
         if c.key == 'document_id'
         else sums.get(c.key)
-        if c.key in ('quantity', 'amount', 'cost', 'margin')
+        if c.key in summed
         else None
         for c in columns
     ]
     columns[0] = Column('document_id', 'Documento', 'text')
     return Table('Detalle', columns, rows, totals, cover)
+
+
+def kardex_table(
+    result: AnalyticsKardexResponse, cost: bool, cover: list[tuple[str, str]]
+) -> Table:
+    """Every entry of the range with its running balance; the value column with cost only."""
+    columns = [
+        Column('date', 'Fecha', 'datetime'),
+        Column('movement_type', 'Tipo', 'int'),
+        Column('source', 'Movimiento', 'text'),
+        Column('reference', 'Referencia', 'int'),
+        Column('document_id', 'Documento', 'int'),
+        Column('quantity', 'Cantidad', 'quantity'),
+        Column('balance', 'Saldo', 'quantity'),
+    ]
+    if cost:
+        columns.append(Column('value', 'Valor', 'money'))
+    rows = [[getattr(row, c.key) for c in columns] for row in result.rows]
+    totals = [
+        'TOTAL' if c.key == 'date' else
+        result.closing - result.opening if c.key == 'quantity' else
+        result.closing if c.key == 'balance' else None
+        for c in columns
+    ]  # fmt: skip
+    columns[0] = Column('date', 'Fecha', 'text')
+    lines = [
+        ('Producto', str(result.product)),
+        ('Almacén', str(result.warehouse)),
+        ('Saldo inicial', format(result.opening, 'f')),
+        *cover,
+    ]
+    if cost:
+        unit = '' if result.unit_cost is None else format(result.unit_cost, 'f')
+        lines.append(('Costo unitario', unit or 'Sin costo'))
+    return Table('Kardex', columns, rows, totals, lines)
+
+
+def customer_table(result: AnalyticsCustomerResponse, cover: list[tuple[str, str]]) -> Table:
+    """One line per section row and measure, with its comparison, then the customer's figures. The
+    row is the keys' labels, "(others)" or TOTAL; a section the caller lacks has no lines."""
+    columns = [
+        Column('section', 'Sección', 'text'),
+        Column('row', 'Fila', 'text'),
+        Column('measure', 'Medida', 'text'),
+        Column('value', 'Valor', 'quantity'),
+        Column('comparison', 'Comparación', 'quantity'),
+    ]
+    rows: list[list[Any]] = []
+    for name in ('sales', 'receivable', 'top_products'):
+        section: AnalyticsQueryResponse | None = getattr(result, name)
+        if section is None:
+            continue
+        labelled = [(' / '.join(k.label for k in row.keys), row) for row in section.rows]
+        if section.others is not None:
+            labelled.append(('(others)', section.others))
+        labelled.append(('TOTAL', section.totals))
+        for label, row in labelled:
+            for measure, value in row.values.items():
+                rows.append([name, label, measure, value, (row.comparison or {}).get(measure)])
+    figures: list[tuple[str, Any]] = []
+    if result.sales is not None:
+        figures += [
+            ('last_purchase', formatted(result.last_purchase, 'datetime') or None),
+            ('orders_per_month', result.orders_per_month),
+        ]
+    if result.receivable is not None:
+        figures += [
+            ('credit_limit', result.credit_limit),
+            ('credit_utilization', result.credit_utilization),
+        ]
+    rows += [['customer', '', key, value, None] for key, value in figures]
+    lines = [('Cliente', f'{result.customer} {result.customer_name}'), *cover]
+    return Table(f'Cliente {result.customer_name}', columns, rows, None, lines)
 
 
 # ── Running an export ─────────────────────────────────────────────────────────
@@ -306,6 +503,8 @@ def source_of(request: AnalyticsExportRequest) -> ExportSource:
             (ExportSource.QUERY, request.query),
             (ExportSource.DASHBOARD, request.dashboard),
             (ExportSource.DETAIL, request.detail),
+            (ExportSource.KARDEX, request.kardex),
+            (ExportSource.CUSTOMER, request.customer),
         )
         if value is not None
     ]
@@ -325,7 +524,13 @@ class Checked:
 
     source: ExportSource
     format: ExportFormat
-    request: AnalyticsQueryRequest | AnalyticsDashboardRequest | AnalyticsDetailRequest
+    request: (
+        AnalyticsQueryRequest
+        | AnalyticsDashboardRequest
+        | AnalyticsDetailRequest
+        | AnalyticsKardexRequest
+        | AnalyticsCustomerRequest
+    )
     facility: int | None
     families: set[Family]
     user: str
@@ -351,16 +556,21 @@ async def check(db: AsyncSession, request: AnalyticsExportRequest, current: Curr
             inner: Any = prepared.definition
             facility = prepared.facility
         case ExportSource.DASHBOARD:
-            if not held & {Family.SALES, Family.PAYMENTS}:
+            if not held & set(MEASURE_FAMILIES):
                 raise engine.family_forbidden(Family.SALES)
             engine.validate_period(request.dashboard.start, request.dashboard.end)
             facility = await engine.resolve_scope(db, current, request.dashboard.facility)
             inner = request.dashboard.model_copy(update={'facility': facility})
+        case ExportSource.KARDEX:
+            facility, _ = await kardex.check(db, request.kardex, current)
+            inner = request.kardex
+        case ExportSource.CUSTOMER:
+            _, facility = await customer.check(db, request.customer, current, held)
+            inner = request.customer.model_copy(update={'facility': facility})
         case _:
             if is_bulk_detail(request.detail) and Family.BULK not in held:
                 raise engine.family_forbidden(Family.BULK)
-            facility, _ = await detail.check(db, request.detail, current)
-            inner = request.detail
+            inner, facility, _ = await detail.check(db, request.detail, current)
     employee = await db.get(Employee, current.employee_id) if current.employee_id else None
     name = f'{employee.first_name} {employee.last_name}' if employee else current.user_id
     return Checked(source, request.format, inner, facility, held, current.user_id, name)
@@ -390,16 +600,33 @@ async def build_table(
             )
             if count_only:
                 return result.total, None
-            return result.total, detail_table(result, cost, cover)
+            return result.total, detail_table(result, cost, cover, checked.request.kind)
+        case ExportSource.KARDEX:
+            found = await kardex.read(db, checked.request, cost=cost, everything=not count_only)
+            if count_only:
+                return found.total, None
+            return found.total, kardex_table(found, cost, cover)
+        case ExportSource.CUSTOMER:
+            answer = await customer.build(
+                db, checked.request, _checked_user(checked), checked.families
+            )
+            table = customer_table(answer, cover)
+            return len(table.rows), table
         case _:
-            # Built with the families checked at the request, so it shows what the caller saw. The
-            # facility was resolved then too, which is what makes the scope check below a no-op.
-            current = CurrentUser(
-                user_id=checked.user, session_version=0, administrator=True,
-                facility_id=checked.facility or 0, employee_id=0,
-            )  # fmt: skip
-            built = await dashboard.build(db, checked.request, current, checked.families)
+            built = await dashboard.build(
+                db, checked.request, _checked_user(checked), checked.families
+            )
             return sum(len(s.query.rows) for s in built.series), built
+
+
+def _checked_user(checked: Checked) -> CurrentUser:
+    """The caller of a dashboard or customer 360 export, built with the families checked at the
+    request so it shows what the caller saw. The facility was resolved then too, which is what
+    makes the build's scope check a no-op."""
+    return CurrentUser(
+        user_id=checked.user, session_version=0, administrator=True,
+        facility_id=checked.facility or 0, employee_id=0,
+    )  # fmt: skip
 
 
 def _cover(checked: Checked) -> list[tuple[str, str]]:
@@ -439,6 +666,7 @@ SERIES_TITLES = {
     'top_customers': 'Clientes principales',
     'payment_mix': 'Cobranza por forma de pago',
     'heatmap': 'Pedidos por día y hora',
+    'stock_value_by_facility': 'Valor de inventario por sucursal',
 }
 WEEKDAYS = [(1, 'Lun'), (2, 'Mar'), (3, 'Mié'), (4, 'Jue'), (5, 'Vie'), (6, 'Sáb'), (7, 'Dom')]
 
@@ -646,7 +874,9 @@ async def purge(db: AsyncSession, now: datetime) -> int:
 
 
 async def delete_for_user(db: AsyncSession, user_id: str) -> None:
-    """Delete a user's exports, rows and files, before the user is deleted. The caller commits."""
+    """Delete a user's exports, rows and files, and their saved views (spec 038), before the user
+    is deleted. A view's shares, schedules and sends cascade with it. The caller commits."""
+    await db.execute(delete(AnalyticsView).where(AnalyticsView.user == user_id))
     rows = (
         (await db.execute(select(AnalyticsExport).where(AnalyticsExport.user == user_id)))
         .scalars()

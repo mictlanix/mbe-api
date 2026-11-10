@@ -46,11 +46,14 @@ AnalyticsCatalogResponse:
 AnalyticsMeasure:
   key: MeasureKey          # e.g. net_sales
   label: str
-  unit: str                # money | quantity | count | ratio
+  unit: str                # money | quantity | count | ratio | days
+  family: str              # spec 038: the measure's family
+  kind: str                # spec 038: flow | balance
   sensitive: bool
   vat: bool                # true when vat=included changes it
   additive: bool           # false for ratios
   dimensions: [DimensionKey, ...]  # the dimensions it can be grouped or filtered by
+  definition: str          # spec 038: the written definition
 
 AnalyticsDimension:
   key: DimensionKey        # e.g. product
@@ -73,6 +76,7 @@ AnalyticsQueryRequest:
   vat: VatTreatment        # excluded (default) | included
   sort: str | None         # a requested measure or dimension key; "-" prefix = descending
   top: int | None          # 1-100; the rest folds into others
+  stock_options: StockOptions | None  # spec 038: inventory windows and targets
 
 AnalyticsFilter:
   dimension: DimensionKey
@@ -110,7 +114,7 @@ AnalyticsKey:
 
 ## Dashboard
 
-`GET /analytics/dashboard?start=&end=&facility=&comparison=` (comparison defaults to `previous_period`).
+`GET /analytics/dashboard?start=&end=&facility=&comparison=&families=` (comparison defaults to `previous_period`; `families` repeats, as in `families=sales&families=payments`).
 
 ```
 AnalyticsDashboardRequest:
@@ -118,6 +122,7 @@ AnalyticsDashboardRequest:
   end: date
   facility: int | None
   comparison: Comparison | None   # previous_period (default) | same_period_last_year
+  families: [Family, ...] | None  # spec 038: only these families' tiles; null (default) for all
 
 AnalyticsDashboardResponse:
   as_of: datetime
@@ -151,7 +156,7 @@ AnalyticsAlert:
   facility: int | None     # refund_rate only: one alert per facility where it fires
   count: int
   amount: Decimal | None
-  detail: AnalyticsDetailRequest
+  detail: AnalyticsDetailRequest | None  # null only for spec 038's payables_overdue
 ```
 
 **Tiles:**
@@ -180,6 +185,7 @@ AnalyticsDetailRequest:
   sort: str | None         # date | amount | document; "-" = descending (default -date)
   skip: int
   limit: int               # 1-100, default 20
+  price_change_pct: int | None  # spec 038: whole percent, default 10; purchases' price_change flag
 
 AnalyticsDetailResponse:
   as_of: datetime
@@ -190,10 +196,10 @@ AnalyticsDetailResponse:
 AnalyticsDetailItem:
   kind: DetailKind
   id: int                  # sales_order_id | sales_order_detail_id | customer_refund_id | fiscal_document_id | customer_payment_id
-  document_id: int         # the document to open: the order for a line, the refund, the fiscal document, the payment
+  document_id: int | None  # spec 038: null for stock pairs; the document to open: the order for a line, the refund, the fiscal document, the payment
   folio: str | None
-  date: datetime
-  facility: int
+  date: datetime | None    # spec 038: null for stock pairs
+  facility: int | None    # spec 038: null only where a kind has none
   customer: int | None
   customer_name: str | None
   salesperson: int | None
@@ -201,10 +207,12 @@ AnalyticsDetailItem:
   product_code: str | None
   product_name: str | None
   quantity: Decimal | None
-  amount: Decimal          # positive: a line's or order's sales amount, a refund's, a credit note's, or a payment's amount in its class (collected net of change, paid out, store credit); the balance with `flag=overdue`; with the request's VAT treatment
+  amount: Decimal | None   # spec 038: null where a kind has no amount; positive: a line's or order's sales amount, a refund's, a credit note's, or a payment's amount in its class (collected net of change, paid out, store credit); the balance with `flag=overdue`; with the request's VAT treatment
   cost: Decimal | None     # cost privilege only; null for uncosted lines
   margin: Decimal | None   # cost privilege only
   payment_method: int | None
+  warehouse: int | None    # spec 038
+  figures: AnalyticsDetailFigures | None  # spec 038: the kind's own columns
 ```
 
 **Flags** select the documents of an alert whose condition isn't a dimension, so `total` equals the alert's `count`:
@@ -243,10 +251,12 @@ AnalyticsExportRequest:
   query: AnalyticsQueryRequest | None
   dashboard: AnalyticsDashboardRequest | None
   detail: AnalyticsDetailRequest | None
+  kardex: AnalyticsKardexRequest | None  # spec 038
+  customer: AnalyticsCustomerRequest | None  # spec 038
 
 AnalyticsExportResponse:
   analytics_export_id: int
-  source: ExportSource     # query | dashboard | detail
+  source: ExportSource     # query | dashboard | detail; spec 038: kardex, customer
   format: ExportFormat
   status: ExportStatus     # pending | running | ready | failed
   row_count: int | None

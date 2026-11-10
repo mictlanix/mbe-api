@@ -1,3 +1,4 @@
+from datetime import date
 from decimal import Decimal
 from typing import Literal
 from zoneinfo import ZoneInfo
@@ -96,6 +97,16 @@ class Settings(BaseSettings):
     # Background analytics exports (spec 037). Private like `pod_dir`: never mounted, served only to
     # the export's owner through the authenticated download route, and purged after 24 hours.
     exports_dir: str = 'exports'
+    # Operations analytics (spec 038). Stock history starts after the ledger reset of 2025-02-06
+    # (research R3); a cost of 0 or at least the placeholder leaves a pair uncosted (R4).
+    stock_history_start: date = date(2025, 2, 7)
+    placeholder_cost: Decimal = Decimal('99999')
+    # Restock defaults, overridable per request (R5).
+    restock_lead_days: int = 7
+    restock_cover_days: int = 30
+    # Scheduled report sends (R15). On for one instance only: dev and test share a database.
+    scheduled_reports_enabled: bool = False
+    report_attachment_max_bytes: int = 10 * 1024 * 1024
 
     # Outgoing mail (spec 024): the quote email now, the invoice email later. Optional: mail is off,
     # and routes that send it answer 503, while either `smtp_host` or `mail_from` is empty. Plain

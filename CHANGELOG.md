@@ -7,6 +7,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
+- **Operations analytics** (mictlanix/mbe-roadmap#94, #96, #100, #102, spec 038). Spec 037's catalog grows to 76 measures and 26 dimensions, on the same query, dashboard, detail and export routes:
+  - **Families:** inventory (on hand, reserved, available, in transit, movements, velocity, cover, stock-outs, reorder, dead and slow stock; value, turnover and days of inventory at current cost), receivables (balances as of any month-end or today, aging and due buckets, DSO, CEI, credit use), payables, commissions (spec 025's lines, closed or live), fiscal (invoiced, output VAT, payment receipts, invoice coverage and lag) and purchases (by supplier and product, average price, price history, purchase against sale). Each is gated by the reports it replaces (research R17): inventory 67, 32, 99; receivables 18, 46; payables 19; commissions 112, or being a commission agent (own lines only); fiscal 23, 48; purchases 20, 75. Values derived from cost still need 37–39.
+  - **Detail kinds:** `stock`, `movements`, `receivables`, `invoices`, `uninvoiced_lines`, `purchases` (flag `price_change`, threshold `price_change_pct`) and `commission_lines`; stock flags `stock_out`, `below_reorder`, `dead`, `slow`, `uncosted`. Their exports carry the warehouse and every figure the screen shows.
+  - **Dashboard:** stock value, receivable, DSO and fiscal tiles and series; stock and payables alerts. An optional, repeated `families` parameter returns only those families' tiles, so mbe-ui can load the tile groups in parallel; without it the dashboard is unchanged. Saved dashboard views and the dashboard export carry it. The stock value's comparison is omitted when the comparison period starts before the stock history.
+  - `GET /analytics/kardex`: a product's ledger in one warehouse with its running balance.
+  - `GET /analytics/customers/{id}`: the customer 360 (sales, receivable, top products, last purchase, credit use).
+  - `/analytics/views` (list, create, read, change, delete, run): saved definitions with relative periods (this month, last month, last N days…), shareable with active users.
+  - `/analytics/schedules` and `/analytics/schedules/{id}/sends`: a view emailed daily, weekly or monthly to eligible users, as its owner at send time, once per occurrence.
+  - **Jobs:** `app.jobs.snapshot_receivables` stores each month-end's open credit orders (backfill with `--from 2025-01`); `app.jobs.send_scheduled_reports` sends the due schedules every five minutes on the one instance with `SCHEDULED_REPORTS_ENABLED=true`.
+  - **Settings:** `SCHEDULED_REPORTS_ENABLED`, `STOCK_HISTORY_START` (2025-02-07), `PLACEHOLDER_COST`, `RESTOCK_LEAD_DAYS`, `RESTOCK_COVER_DAYS` and `REPORT_ATTACHMENT_MAX_BYTES`.
+  - **Migration 032** adds the ledger date index `lot_serial_tracking_date_idx` and the tables `receivable_snapshot`, `receivable_snapshot_month`, `analytics_view`, `analytics_view_share`, `analytics_schedule`, `analytics_schedule_recipient` and `analytics_send`, with its rollback.
+  - **Codes:** six new ones, `analytics.before_history`, `analytics.period_not_month_end`, `analytics.stock_options_invalid`, `analytics.view_invalid`, `analytics.recipient_ineligible` and `analytics.attachment_too_large`, bring the catalog to 257.
+  - **API shapes mbe-ui must know:** `AnalyticsAlert.detail` is nullable (null for `payables_overdue`, which has no detail kind). `AnalyticsExportRequest` gains the sources `kardex` and `customer`. `AnalyticsDetailItem`'s `document_id`, `date`, `facility` and `amount` are optional, and it gains `warehouse` and `figures` (the kind's own columns as `figures.values`). `AnalyticsMeasure` gains `family`, `kind` (flow or balance) and `definition`. `AnalyticsQueryRequest` gains `stock_options`, and `AnalyticsDetailRequest` gains `price_change_pct`. A query of receivable balances only, ending on a past day that is no month-end, answers with the month-end it read in `definition`.
 - **Business analytics** (mictlanix/mbe-roadmap#88, #90, #92, #98, #104, spec 037). One catalog of 19 measures and 15 dimensions, defined once (`specs/037-business-analytics/spec.md`, FR-004) and served under `/api/v1/analytics`:
   - `GET /analytics/catalog`: the measures and dimensions the caller may use.
   - `POST /analytics/query`: any measures by up to three dimensions, with filters, a time grain, a comparison period, shares, sort and top N with "others", computed server-side; rows add up to the totals to the cent. Identical requests within three minutes are cached, with an `ETag` and 304.
@@ -24,6 +37,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   - **Framework errors:** an unknown route, a wrong method and a missing token are coded too.
   - **Inventory count batch:** the 422 of `PUT /inventory-counts/{id}/lines` keeps its `detail` and every key of its `errors[]` items, and each item gains a `code`.
   - **Bulk approve:** each `BulkApproveResult` of `POST /purchase-requests/approve` gains `code` and `params` beside `reason`; both are null when the request was approved.
+
+### Docs
+- Spec 038, operations analytics: `specs/038-analytics-operations/` (spec, plan, research, data model, contracts, quickstart, tasks).
 
 ### Fixed
 - **Analytics cost of sales and margin no longer divide cost by 1 + VAT** (spec 037, research R4). The cost recorded on a sale line is without VAT, as spec 031 established for the cost list and purchase prices, but analytics treated it as including VAT, so cost of sales was about 14% too low and margin too high. A line is now below cost when its price without VAT is under its cost. For 2025 on mbe_dev this raises the cost of costed lines from $56.7M to $65.7M and the lines sold below cost from 4,112 to 9,822.

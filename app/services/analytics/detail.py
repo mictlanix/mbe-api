@@ -7,35 +7,44 @@ document. `sums` cover every page; which one equals which measure is the contrac
 """
 
 from collections.abc import Sequence
+from datetime import datetime
 from decimal import Decimal
+from types import SimpleNamespace
 from typing import Any
 
-from sqlalchemy import Select, case, func, literal, null, select, true
+from sqlalchemy import Select, and_, case, func, literal, null, or_, select, true
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 from sqlalchemy.sql.expression import ColumnElement
 
 from app.core.clock import local_now
 from app.core.deps import CurrentUser, forbidden, has_any_privilege
 from app.core.error_codes import ErrorCode
 from app.core.errors import DomainError
-from app.enums import AccessRight, SystemObject
+from app.enums import AccessRight, CommissionMovement, SystemObject
 from app.models.customer import Customer
 from app.models.fiscal import FiscalDocument
 from app.models.product import Product
+from app.models.purchases import PurchaseOrder, PurchaseOrderDetail
 from app.models.sales import CustomerPayment, CustomerRefund, SalesOrder
+from app.models.supplier import Supplier
 from app.schemas.analytics import (
+    AnalyticsDetailFigures,
     AnalyticsDetailItem,
     AnalyticsDetailRequest,
     AnalyticsDetailResponse,
     DetailFlag,
     DetailKind,
+    DimensionKey,
     Grain,
     MeasureKey,
+    StockOptions,
     VatTreatment,
 )
-from app.services import sales_order_service
-from app.services.analytics import engine, facts
+from app.services import accounts_service, kardex_service, sales_order_service, totals
+from app.services.analytics import balances, commissions, engine, facts
 from app.services.analytics.catalog import DIMENSIONS, Availability, Fact, Family
+from app.services.analytics.sql import period_bounds
 
 KIND_FACT = {
     DetailKind.ORDERS: Fact.SALE_LINE,
@@ -43,6 +52,13 @@ KIND_FACT = {
     DetailKind.REFUNDS: Fact.REFUND_LINE,
     DetailKind.CREDIT_NOTES: Fact.CREDIT_NOTE,
     DetailKind.PAYMENTS: Fact.PAYMENT,
+    DetailKind.STOCK: Fact.STOCK,
+    DetailKind.MOVEMENTS: Fact.MOVEMENT,
+    DetailKind.RECEIVABLES: Fact.RECEIVABLE,
+    DetailKind.COMMISSION_LINES: Fact.COMMISSION,
+    DetailKind.INVOICES: Fact.INVOICE_LINE,
+    DetailKind.UNINVOICED_LINES: Fact.INVOICE_COVERAGE,
+    DetailKind.PURCHASES: Fact.PURCHASE_LINE,
 }
 #: The measure a kind's refusals name (`analytics.dimension_not_applicable`).
 KIND_MEASURE = {
@@ -51,17 +67,50 @@ KIND_MEASURE = {
     DetailKind.REFUNDS: MeasureKey.REFUNDS,
     DetailKind.CREDIT_NOTES: MeasureKey.CREDIT_NOTES,
     DetailKind.PAYMENTS: MeasureKey.COLLECTED,
+    DetailKind.STOCK: MeasureKey.ON_HAND,
+    DetailKind.MOVEMENTS: MeasureKey.UNITS_IN,
+    DetailKind.RECEIVABLES: MeasureKey.RECEIVABLE,
+    DetailKind.COMMISSION_LINES: MeasureKey.COMMISSION,
+    DetailKind.INVOICES: MeasureKey.INVOICED,
+    DetailKind.UNINVOICED_LINES: MeasureKey.UNINVOICED_SALES,
+    DetailKind.PURCHASES: MeasureKey.PURCHASES,
 }
-#: Read on the document kind, besides the family (FR-060).
+#: The family a kind belongs to; the rest are sales.
+KIND_FAMILY = {
+    DetailKind.PAYMENTS: Family.PAYMENTS,
+    DetailKind.STOCK: Family.INVENTORY,
+    DetailKind.MOVEMENTS: Family.INVENTORY,
+    DetailKind.RECEIVABLES: Family.RECEIVABLES,
+    DetailKind.COMMISSION_LINES: Family.COMMISSIONS,
+    DetailKind.INVOICES: Family.FISCAL,
+    DetailKind.UNINVOICED_LINES: Family.FISCAL,
+    DetailKind.PURCHASES: Family.PURCHASES,
+}
+#: Read on the document kind, besides the family (FR-060); stock pairs need none.
 KIND_PRIVILEGE = {
     DetailKind.ORDERS: SystemObject.SALES_ORDERS,
     DetailKind.LINES: SystemObject.SALES_ORDERS,
     DetailKind.REFUNDS: SystemObject.CUSTOMER_REFUNDS,
     DetailKind.CREDIT_NOTES: SystemObject.FISCAL_DOCUMENTS,
     DetailKind.PAYMENTS: SystemObject.CUSTOMER_PAYMENTS,
+    DetailKind.MOVEMENTS: SystemObject.KARDEX,
+    DetailKind.RECEIVABLES: SystemObject.SALES_ORDERS,
+    DetailKind.INVOICES: SystemObject.FISCAL_DOCUMENTS,
+    DetailKind.UNINVOICED_LINES: SystemObject.SALES_ORDERS,
+    DetailKind.PURCHASES: SystemObject.PURCHASES_ORDERS,
 }
 COST_FLAGS = {DetailFlag.BELOW_COST, DetailFlag.WITHOUT_COST}
 SENSITIVE_KEYS = {'cost', 'margin'}
+#: A stock pair's value is cost-derived too: left out of its figures and of `sums` (spec 038).
+SENSITIVE_VALUES = {'value'}
+#: What each stock flag selects (research R5).
+STOCK_FLAGS = {
+    DetailFlag.STOCK_OUT: lambda pair: pair.stock_out,
+    DetailFlag.BELOW_REORDER: lambda pair: pair.below_reorder,
+    DetailFlag.DEAD: lambda pair: pair.dead,
+    DetailFlag.SLOW: lambda pair: pair.slow,
+    DetailFlag.UNCOSTED: lambda pair: pair.uncosted,
+}
 SORTS = {'date', 'amount', 'document'}
 
 
@@ -79,14 +128,21 @@ def parse_sort(sort: str | None) -> tuple[str, bool]:
 
 async def check(
     db: AsyncSession, request: AnalyticsDetailRequest, current: CurrentUser
-) -> tuple[int | None, bool]:
-    """Privileges, scope and applicability. Returns the facility scope and cost visibility."""
+) -> tuple[AnalyticsDetailRequest, int | None, bool]:
+    """Privileges, scope and applicability. Returns the request to run (a commission agent without
+    112 gets their own lines only, spec 038 R11), the facility scope and cost visibility."""
     engine.validate_period(request.start, request.end)
+    if request.kind is DetailKind.STOCK:
+        engine.history_guard([MeasureKey.ON_HAND], stock_moment(request), request.end)
+    elif request.kind is DetailKind.MOVEMENTS:
+        engine.history_guard([MeasureKey.UNITS_IN], request.start, request.end)
+    elif request.kind is DetailKind.RECEIVABLES:
+        engine.history_guard([MeasureKey.RECEIVABLE], receivable_day(request), request.end)
     held = await engine.families(db, current)
-    family = Family.PAYMENTS if request.kind is DetailKind.PAYMENTS else Family.SALES
+    family = KIND_FAMILY.get(request.kind, Family.SALES)
     if family not in held:
         raise engine.family_forbidden(family)
-    if not current.administrator:
+    if not current.administrator and request.kind in KIND_PRIVILEGE:
         grant = (KIND_PRIVILEGE[request.kind], AccessRight.READ)
         if not await has_any_privilege(db, current.user_id, [grant]):
             raise forbidden([grant])
@@ -104,7 +160,13 @@ async def check(
     parse_sort(request.sort)
     facility = await engine.resolve_scope(db, current, request.facility)
     await engine.check_facility_filters(db, current, engine.parse_filters(request.filters))
-    return facility, cost
+    if request.kind is DetailKind.COMMISSION_LINES:
+        agent = await engine.own_commissions(db, current)
+        if agent is not None:
+            request = request.model_copy(
+                update={'filters': engine.only_agent(request.filters, agent)}
+            )
+    return request, facility, cost
 
 
 # ── The row selects ───────────────────────────────────────────────────────────
@@ -203,8 +265,22 @@ async def execute(
 ) -> AnalyticsDetailResponse:
     """A page of items (or every item, for an export) with the sums over all of them."""
     as_of = local_now()
+    if request.kind is DetailKind.RECEIVABLES:
+        return await _receivables(db, request, facility, as_of, everything=everything)
     if request.flag is DetailFlag.OVERDUE:
         return await _overdue(db, request, facility, as_of, everything=everything)
+    if request.kind is DetailKind.STOCK:
+        return await _stock(db, request, facility, as_of, everything=everything)
+    if request.kind is DetailKind.MOVEMENTS:
+        return await _movements(db, request, facility, as_of, everything=everything)
+    if request.kind is DetailKind.COMMISSION_LINES:
+        return await _commission_lines(db, request, facility, as_of, everything=everything)
+    if request.kind is DetailKind.INVOICES:
+        return await _invoices(db, request, facility, as_of, everything=everything)
+    if request.kind is DetailKind.UNINVOICED_LINES:
+        return await _uninvoiced_lines(db, request, facility, as_of, everything=everything)
+    if request.kind is DetailKind.PURCHASES:
+        return await _purchases(db, request, facility, as_of, everything=everything)
     base = _base(request, facility).subquery('detail')
     total = (await db.execute(select(func.count()).select_from(base))).scalar_one()
     aggregate = (
@@ -353,10 +429,696 @@ async def _customer_names(db: AsyncSession, ids: Sequence[int]) -> dict[int, str
 
 def serialize_items(response: AnalyticsDetailResponse, cost_visible: bool) -> dict[str, Any]:
     """The response as JSON-ready data. Without the cost privilege, `cost` and `margin` are left
-    out of every item and of `sums`: absent, not null (FR-042, SC-005). Holders keep a null cost on
-    an uncosted line, which is why this never uses `exclude_none`."""
+    out of every item and of `sums`, and so is a stock pair's value: absent, not null (FR-042,
+    SC-005). Holders keep a null cost on an uncosted line, which is why this never uses
+    `exclude_none`."""
     if cost_visible:
         return response.model_dump(mode='json')
     data = response.model_dump(mode='json', exclude={'items': {'__all__': SENSITIVE_KEYS}})
-    data['sums'] = {k: v for k, v in data['sums'].items() if k not in SENSITIVE_KEYS}
+    for item in data['items']:
+        if item.get('figures'):
+            for key in SENSITIVE_VALUES:
+                item['figures']['values'].pop(key, None)
+    hidden = SENSITIVE_KEYS | SENSITIVE_VALUES
+    data['sums'] = {k: v for k, v in data['sums'].items() if k not in hidden}
     return data
+
+
+# ── Stock and movements (spec 038) ────────────────────────────────────────────
+
+
+def stock_moment(request: AnalyticsDetailRequest) -> Any:
+    """Stock pairs are listed as of the end of the period, or now when it reaches today."""
+    return min(request.end, local_now().date())
+
+
+def _text(value: Decimal | None, step: Decimal = engine.QUANTITY) -> str | None:
+    return None if value is None else str(value.quantize(step, rounding='ROUND_HALF_UP'))
+
+
+def _stock_figures(pair: balances.Pair) -> dict[str, str | None]:
+    cover = pair.cover
+    return {
+        'on_hand': _text(pair.on_hand),
+        'reserved': _text(pair.reserved),
+        'available': _text(pair.available) if pair.reserved is not None else None,
+        'in_transit': _text(pair.in_transit),
+        'velocity': _text(pair.velocity),
+        'cover': _text(cover, engine.DAYS),
+        'reorder_point': _text(pair.reorder_point),
+        'suggested': _text(pair.suggested),
+        'last_movement': None if pair.last is None else pair.last.isoformat(),
+        'value': str(engine.money(pair.value_c)) if pair.cost is not None else None,
+    }
+
+
+async def _stock(
+    db: AsyncSession,
+    request: AnalyticsDetailRequest,
+    facility: int | None,
+    as_of: datetime,
+    *,
+    everything: bool,
+) -> AnalyticsDetailResponse:
+    """The product × warehouse pairs at the moment, with R5's figures at the default options, and
+    a flag's pairs only. The pairs are what the stock fact sums, so the sums equal the query."""
+    moment = stock_moment(request)
+    options = StockOptions()
+    found = await balances.ledger(
+        db,
+        [moment],
+        facility=facility,
+        filters=engine.parse_filters(request.filters),
+        options=options,
+    )
+    keep = STOCK_FLAGS.get(request.flag) if request.flag is not None else None
+    pairs = [
+        pair
+        for pair in found.pairs[moment]
+        if (keep(pair) if keep is not None else any(balances.columns(pair, options).values()))
+    ]
+    info = found.products
+
+    def code(pair: balances.Pair) -> str:
+        return info.get(pair.product, balances.ProductInfo()).code or ''
+
+    # Sorted by code and warehouse, then stably by the requested column, null last: `date` is the
+    # last movement, `amount` the on hand, `document` the product code.
+    name, descending = parse_sort(request.sort)
+    pairs.sort(key=lambda pair: (code(pair), pair.warehouse))
+    value = {'date': lambda p: p.last, 'amount': lambda p: p.on_hand, 'document': code}[name]
+    present = sorted((p for p in pairs if value(p) is not None), key=value, reverse=descending)
+    pairs = present + [p for p in pairs if value(p) is None]
+    shown = pairs if everything else pairs[request.skip : request.skip + request.limit]
+    items = [
+        AnalyticsDetailItem(
+            kind=DetailKind.STOCK, id=pair.product, folio=None, facility=pair.facility,
+            customer=None, customer_name=None, salesperson=None, product=pair.product,
+            product_code=info.get(pair.product, balances.ProductInfo()).code,
+            product_name=info.get(pair.product, balances.ProductInfo()).name,
+            quantity=engine.quantity(pair.on_hand), cost=pair.cost, payment_method=None,
+            warehouse=pair.warehouse, figures=AnalyticsDetailFigures(values=_stock_figures(pair)),
+        )
+        for pair in shown
+    ]  # fmt: skip
+    sums = {
+        'quantity': engine.quantity(sum((p.on_hand for p in pairs), Decimal(0))),
+        'suggested': engine.quantity(sum((p.suggested for p in pairs), Decimal(0))),
+        'value': engine.money(sum(p.value_c for p in pairs)),
+    }
+    return AnalyticsDetailResponse(as_of=as_of, items=items, total=len(pairs), sums=sums)
+
+
+async def _movements(
+    db: AsyncSession,
+    request: AnalyticsDetailRequest,
+    facility: int | None,
+    as_of: datetime,
+    *,
+    everything: bool,
+) -> AnalyticsDetailResponse:
+    """The ledger entries of the period, each resolved to its document as the kardex does."""
+    rows, joins, conditions = _filtered(Fact.MOVEMENT, request, facility)
+    c = rows.c
+    base = (
+        joins.apply(
+            select(
+                c.id, c.at, c.facility, c.warehouse, c.product, c.qty.label('quantity'),
+                c.movement_type, c.reference, c.units_in, c.units_out,
+            ).select_from(rows)
+        )
+        .where(true(), *conditions)
+        .subquery('detail')
+    )  # fmt: skip
+    total = (await db.execute(select(func.count()).select_from(base))).scalar_one()
+    aggregate = (
+        await db.execute(
+            select(
+                func.coalesce(func.sum(base.c.quantity), 0),
+                func.coalesce(func.sum(base.c.units_in), 0),
+                func.coalesce(func.sum(base.c.units_out), 0),
+            )
+        )
+    ).one()
+    sums = {
+        'quantity': engine.quantity(aggregate[0]),
+        'units_in': engine.quantity(aggregate[1]),
+        'units_out': engine.quantity(aggregate[2]),
+    }
+    name, descending = parse_sort(request.sort)
+    order = {'date': base.c.at, 'amount': base.c.quantity, 'document': base.c.reference}[name]
+    page = (
+        select(base, Product.code.label('product_code'), Product.name.label('product_name'))
+        .outerjoin(Product, Product.product_id == base.c.product)
+        .order_by(
+            order.desc() if descending else order.asc(),
+            base.c.id.desc() if descending else base.c.id,
+        )
+    )
+    if not everything:
+        page = page.offset(request.skip).limit(request.limit)
+    found = (await db.execute(page)).all()
+    entries = [
+        SimpleNamespace(
+            lot_serial_tracking_id=row.id, source=row.movement_type, reference=row.reference,
+            product=row.product,
+        )
+        for row in found
+    ]  # fmt: skip
+    documents = await kardex_service._documents(
+        db, kardex_service.references_by_type(entries), {row.product for row in found}
+    )
+    resolved = kardex_service.resolve(entries, documents)
+    items = []
+    for row in found:
+        document = resolved.get(row.id)
+        items.append(
+            AnalyticsDetailItem(
+                kind=DetailKind.MOVEMENTS, id=row.id,
+                document_id=None if document is None else document.id,
+                folio=None if document is None or document.serial is None else str(document.serial),
+                date=row.at, facility=row.facility, customer=None, customer_name=None,
+                salesperson=None, product=row.product, product_code=row.product_code,
+                product_name=row.product_name, quantity=engine.quantity(row.quantity),
+                payment_method=None, warehouse=row.warehouse,
+                figures=AnalyticsDetailFigures(
+                    values={
+                        'movement_type': str(row.movement_type),
+                        'source': kardex_service.source_name(row.movement_type),
+                        'reference': str(row.reference),
+                    }
+                ),
+            )
+        )  # fmt: skip
+    return AnalyticsDetailResponse(as_of=as_of, items=items, total=total, sums=sums)
+
+
+# ── Receivables (spec 038) ────────────────────────────────────────────────────
+
+
+def receivable_day(request: AnalyticsDetailRequest) -> Any:
+    """The open orders are listed as of the period's end: now when it reaches today, else the
+    stored month-end on or before it, as the receivable fact reads them (R8)."""
+    return balances.read_day(stock_moment(request), local_now().date())
+
+
+async def _receivables(
+    db: AsyncSession,
+    request: AnalyticsDetailRequest,
+    facility: int | None,
+    as_of: datetime,
+    *,
+    everything: bool,
+) -> AnalyticsDetailResponse:
+    """The open credit orders the receivable fact sums at the moment, with flag `overdue` those
+    past due. `amount` is the balance in base currency; the sum rounds once, as the fact does."""
+    day = receivable_day(request)
+    found = (await balances.receivables_at(db, [day], facility))[day]
+    documents = balances.selected(found, engine.parse_filters(request.filters), day)
+    if request.flag is DetailFlag.OVERDUE:
+        documents = [d for d in documents if accounts_service.days_past_due(d.due_date, day) > 0]
+    orders = {}
+    if documents:
+        rows = await db.execute(
+            select(SalesOrder.sales_order_id, SalesOrder.serial, SalesOrder.confirmation_time,
+                   SalesOrder.date)
+            .where(SalesOrder.sales_order_id.in_([d.id for d in documents]))
+        )  # fmt: skip
+        orders = {oid: (serial, confirmed or dated) for oid, serial, confirmed, dated in rows.all()}
+    name, descending = parse_sort(request.sort)
+    value = {
+        'date': lambda d: orders.get(d.id, (None, None))[1],
+        'amount': lambda d: d.base,
+        'document': lambda d: d.id,
+    }[name]
+    documents.sort(key=lambda d: d.id, reverse=descending)
+    present = sorted((d for d in documents if value(d) is not None), key=value, reverse=descending)
+    documents = present + [d for d in documents if value(d) is None]
+    shown = documents if everything else documents[request.skip : request.skip + request.limit]
+    names = await _customer_names(db, [d.party for d in shown])
+    items = []
+    for document in shown:
+        serial, dated = orders.get(document.id, (None, None))
+        days = accounts_service.days_past_due(document.due_date, day)
+        items.append(
+            AnalyticsDetailItem(
+                kind=DetailKind.RECEIVABLES, id=document.id, document_id=document.id,
+                folio=None if serial is None else str(serial), date=dated,
+                facility=document.facility, customer=document.party,
+                customer_name=names.get(document.party), salesperson=document.salesperson,
+                product=None, product_code=None, product_name=None, quantity=None,
+                amount=document.base.quantize(totals.CENTS, rounding='ROUND_HALF_UP'),
+                payment_method=None,
+                figures=AnalyticsDetailFigures(
+                    values={
+                        'balance': str(document.balance),
+                        'exchange_rate': str(document.exchange_rate),
+                        'due_date': None if document.due_date is None
+                        else document.due_date.isoformat(),
+                        'days_past_due': str(days),
+                        'bucket': accounts_service.bucket(days),
+                        'due_bucket': balances.due_bucket(document.due_date, day),
+                    }
+                ),
+            )
+        )  # fmt: skip
+    total = sum((d.base for d in documents), Decimal(0))
+    sums = {'amount': engine.money(balances.cents(total))}
+    return AnalyticsDetailResponse(as_of=as_of, items=items, total=len(documents), sums=sums)
+
+
+# ── Commissions (spec 038) ────────────────────────────────────────────────────
+
+
+def _rate(value: Any, step: str) -> str:
+    return str(Decimal(str(value)).quantize(Decimal(step), rounding='ROUND_HALF_UP'))
+
+
+def _commission_figures(entry: commissions.Entry) -> dict[str, str | None]:
+    """Everything an agent needs to recompute the line: base × label rate × participation share
+    (× the paid share, partial-payment scheme), less what earlier months already paid."""
+    x = entry.line
+
+    def text(value: Any) -> str | None:
+        return None if value is None else str(value)
+
+    return {
+        'month': entry.month.isoformat(),
+        'status': entry.status,
+        'movement': CommissionMovement(x.movement).name.lower(),
+        'scheme': str(x.scheme),
+        'sales_order': str(x.sales_order),
+        'sales_order_detail': str(x.sales_order_detail),
+        'customer_refund_detail': text(x.customer_refund_detail),
+        'order_date': x.order_date.isoformat(),
+        'paid_date': x.paid_date.isoformat(),
+        'product': str(x.product),
+        'label': text(x.label),
+        'label_name': x.label_name,
+        'label_rate': _rate(x.label_rate, '0.000001'),
+        'participation': str(x.participation),
+        'participation_name': x.participation_name,
+        'participation_rate': _rate(x.participation_rate, '0.000001'),
+        'rate': _rate(x.rate, '0.00000001'),
+        'price': _rate(x.price, '0.01'),
+        'base': _rate(x.total, '0.01'),
+        'share': None if x.share is None else _rate(x.share, '0.000001'),
+        'full_commission': _rate(x.full_commission, '0.01'),
+        'amount': _rate(entry.commission, '0.01'),
+    }
+
+
+async def _commission_lines(
+    db: AsyncSession,
+    request: AnalyticsDetailRequest,
+    facility: int | None,
+    as_of: datetime,
+    *,
+    everything: bool,
+) -> AnalyticsDetailResponse:
+    """Spec 025's lines of the months the period touches: the lines the commission fact sums, so
+    `sums.amount` is the commission, `sums.base` its base and `total` the line count (R11)."""
+    found = commissions.selected(
+        await commissions.entries(db, request.start, request.end, facility),
+        engine.parse_filters(request.filters),
+        Grain.MONTH,
+    )
+    name, descending = parse_sort(request.sort)
+    value = {
+        'date': lambda e: e.line.paid_date,
+        'amount': lambda e: e.commission,
+        'document': lambda e: e.line.sales_order,
+    }[name]
+    found.sort(
+        key=lambda e: (
+            e.month, e.line.sales_order, e.line.sales_order_detail, e.line.salesperson,
+            e.line.participation, e.line.movement, e.line.customer_refund_detail or 0,
+        ),
+        reverse=descending,
+    )  # fmt: skip
+    found.sort(key=value, reverse=descending)
+    shown = found if everything else found[request.skip : request.skip + request.limit]
+    folios = await _folios(db, DetailKind.ORDERS, [e.line.sales_order for e in shown])
+    codes: dict[int, str] = {}
+    if shown:
+        rows = await db.execute(
+            select(Product.product_id, Product.code).where(
+                Product.product_id.in_({e.line.product for e in shown})
+            )
+        )
+        codes = dict(rows.all())
+    items = [
+        AnalyticsDetailItem(
+            kind=DetailKind.COMMISSION_LINES, id=e.line.sales_order_detail,
+            document_id=e.line.sales_order, folio=folios.get(e.line.sales_order),
+            date=e.line.paid_date, facility=e.facility, customer=e.line.customer,
+            customer_name=e.line.customer_name, salesperson=e.line.salesperson,
+            product=e.line.product, product_code=codes.get(e.line.product),
+            product_name=e.line.product_name, quantity=engine.quantity(e.line.quantity),
+            amount=engine.money(commissions.cents(e.commission)), payment_method=None,
+            figures=AnalyticsDetailFigures(values=_commission_figures(e)),
+        )
+        for e in shown
+    ]  # fmt: skip
+    sums = {
+        'amount': engine.money(sum(commissions.cents(e.commission) for e in found)),
+        'base': engine.money(sum(commissions.cents(e.line.total) for e in found)),
+    }
+    return AnalyticsDetailResponse(as_of=as_of, items=items, total=len(found), sums=sums)
+
+
+# ── Fiscal (spec 038) ─────────────────────────────────────────────────────────
+
+
+def _iso(value: datetime | None) -> str | None:
+    return None if value is None else value.isoformat()
+
+
+def _money_text(cents: Any) -> str:
+    return str(engine.money(cents or 0))
+
+
+async def _invoices(
+    db: AsyncSession,
+    request: AnalyticsDetailRequest,
+    facility: int | None,
+    as_of: datetime,
+    *,
+    everything: bool,
+) -> AnalyticsDetailResponse:
+    """The fiscal documents the invoice fact sums, one item each: stamped only unless the request
+    filters by status, as the query counts them (R12). `sums` are `invoiced`, `output_vat` and
+    `payment_receipts`; with `document_type` invoice, `total` is `invoices`."""
+    rows, joins, conditions = _filtered(Fact.INVOICE_LINE, request, facility)
+    c = rows.c
+    if DimensionKey.DOCUMENT_STATUS not in {item.dimension for item in request.filters}:
+        conditions.append(c.document_status == facts.STAMPED)
+    sub, tax, receipt = func.sum(c.sub_c), func.sum(c.tax_c), func.sum(c.receipt_c)
+    amount = (sub + tax if request.vat is VatTreatment.INCLUDED else sub) + receipt
+    base = (
+        joins.apply(
+            select(
+                c.doc.label('id'), func.max(c.at).label('at'),
+                func.max(c.facility).label('facility'), func.max(c.customer).label('customer'),
+                func.max(c.document_type).label('document_type'),
+                func.max(c.document_status).label('document_status'),
+                func.max(c.issuer).label('issuer'), sub.label('sub_c'), tax.label('tax_c'),
+                receipt.label('receipt_c'), amount.label('amount_c'),
+            ).select_from(rows)
+        )
+        .where(true(), *conditions)
+        .group_by(c.doc)
+        .subquery('detail')
+    )  # fmt: skip
+    b = base.c
+    invoice, stamped = b.document_type == facts.INVOICE, b.document_status == facts.STAMPED
+    total = (await db.execute(select(func.count()).select_from(base))).scalar_one()
+    aggregate = (
+        await db.execute(
+            select(
+                func.coalesce(func.sum(case((invoice, b.amount_c), else_=0)), 0),
+                func.coalesce(
+                    func.sum(
+                        case(
+                            (and_(stamped, invoice), b.tax_c),
+                            (and_(stamped, b.document_type == facts.CREDIT_NOTE), -b.tax_c),
+                            else_=0,
+                        )
+                    ),
+                    0,
+                ),
+                func.coalesce(func.sum(b.receipt_c), 0),
+            )
+        )
+    ).one()
+    sums = {
+        'invoiced': engine.money(aggregate[0]),
+        'output_vat': engine.money(aggregate[1]),
+        'payment_receipts': engine.money(aggregate[2]),
+    }
+    name, descending = parse_sort(request.sort)
+    order = {'date': b.at, 'amount': b.amount_c, 'document': b.id}[name]
+    document = FiscalDocument
+    page = (
+        select(
+            base, Customer.name.label('customer_name'), document.batch, document.serial,
+            document.stamp_uuid, document.stamped, document.cancellation_date,
+        )
+        .join(document, document.fiscal_document_id == b.id)
+        .outerjoin(Customer, Customer.customer_id == b.customer)
+        .order_by(order.desc() if descending else order.asc(), b.id.desc() if descending else b.id)
+    )  # fmt: skip
+    if not everything:
+        page = page.offset(request.skip).limit(request.limit)
+    items = []
+    for row in (await db.execute(page)).all():
+        folio = None if row.serial is None else str(row.serial)
+        if folio is not None and row.batch:
+            folio = f'{row.batch}-{folio}'
+        receipt_only = row.document_type == facts.PAYMENT_RECEIPT
+        items.append(
+            AnalyticsDetailItem(
+                kind=DetailKind.INVOICES, id=row.id, document_id=row.id, folio=folio,
+                date=row.at, facility=row.facility, customer=row.customer,
+                customer_name=row.customer_name, salesperson=None, product=None,
+                product_code=None, product_name=None, quantity=None,
+                amount=engine.money(row.amount_c), payment_method=None,
+                figures=AnalyticsDetailFigures(
+                    values={
+                        'type': row.document_type,
+                        'status': row.document_status,
+                        'issuer': row.issuer,
+                        'uuid': row.stamp_uuid,
+                        'issued': _iso(row.at),
+                        'stamped': _iso(row.stamped),
+                        'cancelled': _iso(row.cancellation_date)
+                        if row.document_status == facts.CANCELLED
+                        else None,
+                        'subtotal': _money_text(row.sub_c),
+                        'vat': _money_text(row.tax_c),
+                        'total': _money_text(
+                            row.receipt_c if receipt_only else (row.sub_c or 0) + (row.tax_c or 0)
+                        ),
+                    }
+                ),
+            )
+        )  # fmt: skip
+    return AnalyticsDetailResponse(as_of=as_of, items=items, total=total, sums=sums)
+
+
+async def _uninvoiced_lines(
+    db: AsyncSession,
+    request: AnalyticsDetailRequest,
+    facility: int | None,
+    as_of: datetime,
+    *,
+    everything: bool,
+) -> AnalyticsDetailResponse:
+    """The sale lines of the period not wholly invoiced, from the coverage fact: `quantity` and
+    `amount` are what is not invoiced, so `sums.amount` is `uninvoiced_sales` (R12)."""
+    rows, joins, conditions = _filtered(Fact.INVOICE_COVERAGE, request, facility)
+    c = rows.c
+    with_vat = request.vat is VatTreatment.INCLUDED
+    left = c.sub_c - c.inv_sub_c + ((c.tax_c - c.inv_tax_c) if with_vat else 0)
+    invoiced = c.inv_sub_c + (c.inv_tax_c if with_vat else 0)
+    conditions.append(or_(c.inv_qty < c.qty, c.sub_c != c.inv_sub_c, c.tax_c != c.inv_tax_c))
+    base = (
+        joins.apply(
+            select(
+                c.id, c.doc.label('document_id'), c.at, c.facility, c.customer, c.salesperson,
+                c.product, (c.qty - c.inv_qty).label('quantity'), c.qty.label('sold'),
+                c.inv_qty, left.label('amount_c'), invoiced.label('invoiced_c'),
+                c.first_invoiced,
+            ).select_from(rows)
+        )
+        .where(true(), *conditions)
+        .subquery('detail')
+    )  # fmt: skip
+    b = base.c
+    total = (await db.execute(select(func.count()).select_from(base))).scalar_one()
+    aggregate = (
+        await db.execute(
+            select(func.coalesce(func.sum(b.amount_c), 0), func.coalesce(func.sum(b.quantity), 0))
+        )
+    ).one()
+    sums = {'amount': engine.money(aggregate[0]), 'quantity': engine.quantity(aggregate[1])}
+    name, descending = parse_sort(request.sort)
+    order = {'date': b.at, 'amount': b.amount_c, 'document': b.document_id}[name]
+    page = (
+        select(
+            base, Customer.name.label('customer_name'), Product.code.label('product_code'),
+            Product.name.label('product_name'),
+        )
+        .outerjoin(Customer, Customer.customer_id == b.customer)
+        .outerjoin(Product, Product.product_id == b.product)
+        .order_by(order.desc() if descending else order.asc(), b.id.desc() if descending else b.id)
+    )  # fmt: skip
+    if not everything:
+        page = page.offset(request.skip).limit(request.limit)
+    found = (await db.execute(page)).all()
+    folios = await _folios(db, DetailKind.ORDERS, [row.document_id for row in found])
+    items = [
+        AnalyticsDetailItem(
+            kind=DetailKind.UNINVOICED_LINES, id=row.id, document_id=row.document_id,
+            folio=folios.get(row.document_id), date=row.at, facility=row.facility,
+            customer=row.customer, customer_name=row.customer_name, salesperson=row.salesperson,
+            product=row.product, product_code=row.product_code, product_name=row.product_name,
+            quantity=engine.quantity(row.quantity), amount=engine.money(row.amount_c),
+            payment_method=None,
+            figures=AnalyticsDetailFigures(
+                values={
+                    'sold': _text(engine.quantity(row.sold)),
+                    'invoiced': _text(engine.quantity(row.inv_qty)),
+                    'invoiced_amount': _money_text(row.invoiced_c),
+                    'first_invoiced': _iso(row.first_invoiced),
+                    'lag_days': None if row.first_invoiced is None
+                    else str((row.first_invoiced.date() - row.at.date()).days),
+                }
+            ),
+        )
+        for row in found
+    ]  # fmt: skip
+    return AnalyticsDetailResponse(as_of=as_of, items=items, total=total, sums=sums)
+
+
+# ── Purchases (spec 038) ──────────────────────────────────────────────────────
+
+#: Price history flags a change above this whole percent unless the request says otherwise (R13).
+PRICE_CHANGE_PCT = 10
+#: Unit prices and their changes are shown to four decimals, as purchase prices are typed.
+PRICE = Decimal('0.0001')
+
+
+def purchases_select(request: AnalyticsDetailRequest, facility: int | None) -> Select:
+    """The purchase lines the purchase fact sums, each with the product's previous purchase price.
+
+    The previous price is `LAG` over every earlier confirmed purchase of the product, by
+    (product, date, line id), from before the period too and whatever the supplier, facility or
+    filters: the product's price history (R13). Lines at price 0 (after discount) are left out of
+    that history: they are never a previous price and have none. With flag `price_change`, only
+    lines whose price moved by more than `price_change_pct` percent of the previous one.
+    """
+    rows, joins, conditions = _filtered(Fact.PURCHASE_LINE, request, facility)
+    c = rows.c
+    since, until = period_bounds(request.start, request.end)
+    # Only the products bought in the period need their history.
+    some, its = aliased(PurchaseOrderDetail), aliased(PurchaseOrder)
+    bought = (
+        select(some.product)
+        .join(its, its.purchase_order_id == some.purchase_order)
+        .where(
+            its.completed.is_(True),
+            its.cancelled.is_(False),
+            its.modification_time >= since,
+            its.modification_time < until,
+        )
+    )
+    line, order = PurchaseOrderDetail, PurchaseOrder
+    unit = line.price * (1 - line.discount)
+    history = (
+        select(
+            line.purchase_order_detail_id.label('id'),
+            func.lag(unit, type_=unit.type)
+            .over(
+                partition_by=line.product,
+                order_by=(order.modification_time, line.purchase_order_detail_id),
+            )
+            .label('previous'),
+        )
+        .join(order, order.purchase_order_id == line.purchase_order)
+        .where(
+            order.completed.is_(True),
+            order.cancelled.is_(False),
+            order.modification_time < until,
+            unit > 0,
+            line.product.in_(bought),
+        )
+        .subquery('price_history')
+    )
+    previous = history.c.previous
+    if request.flag is DetailFlag.PRICE_CHANGE:
+        pct = request.price_change_pct
+        threshold = PRICE_CHANGE_PCT if pct is None else pct
+        conditions.append(func.abs(c.unit - previous) * 100 > previous * threshold)
+    return (
+        joins.apply(
+            select(
+                c.id, c.doc.label('document_id'), c.at, c.facility, c.warehouse, c.product,
+                c.supplier, c.qty.label('quantity'), c.sub_c.label('amount_c'), c.unit,
+                previous.label('previous'), c.received,
+            )
+            .select_from(rows)
+            .outerjoin(history, history.c.id == c.id)
+        )
+        .where(true(), *conditions)
+    )  # fmt: skip
+
+
+def _price_figures(row: Any) -> dict[str, str | None]:
+    unit = Decimal(str(row.unit))
+    previous = None if row.previous is None else Decimal(str(row.previous))
+    change = None if previous is None else unit - previous
+    return {
+        'supplier': None if row.supplier is None else str(row.supplier),
+        'supplier_name': row.supplier_name,
+        'unit_price': _text(unit, PRICE),
+        'previous_price': _text(previous, PRICE),
+        'change': _text(change, PRICE),
+        'change_pct': None if change is None else _text(change / previous, engine.RATIO),
+        'received': _text(engine.quantity(row.received)),
+    }
+
+
+async def _purchases(
+    db: AsyncSession,
+    request: AnalyticsDetailRequest,
+    facility: int | None,
+    as_of: datetime,
+    *,
+    everything: bool,
+) -> AnalyticsDetailResponse:
+    """Purchase order lines with their price history (R13). `amount` is the line before tax,
+    whatever `vat` says; `sums` are `amount` (`purchases`), `quantity` (`purchase_quantity`) and
+    `received` (`received_quantity`)."""
+    base = purchases_select(request, facility).subquery('detail')
+    b = base.c
+    total = (await db.execute(select(func.count()).select_from(base))).scalar_one()
+    aggregate = (
+        await db.execute(
+            select(
+                func.coalesce(func.sum(b.amount_c), 0),
+                func.coalesce(func.sum(b.quantity), 0),
+                func.coalesce(func.sum(b.received), 0),
+            )
+        )
+    ).one()
+    sums = {
+        'amount': engine.money(aggregate[0]),
+        'quantity': engine.quantity(aggregate[1]),
+        'received': engine.quantity(aggregate[2]),
+    }
+    name, descending = parse_sort(request.sort)
+    order = {'date': b.at, 'amount': b.amount_c, 'document': b.document_id}[name]
+    page = (
+        select(
+            base, Product.code.label('product_code'), Product.name.label('product_name'),
+            Supplier.name.label('supplier_name'),
+        )
+        .outerjoin(Product, Product.product_id == b.product)
+        .outerjoin(Supplier, Supplier.supplier_id == b.supplier)
+        .order_by(order.desc() if descending else order.asc(), b.id.desc() if descending else b.id)
+    )  # fmt: skip
+    if not everything:
+        page = page.offset(request.skip).limit(request.limit)
+    items = [
+        AnalyticsDetailItem(
+            kind=DetailKind.PURCHASES, id=row.id, document_id=row.document_id, folio=None,
+            date=row.at, facility=row.facility, customer=None, customer_name=None,
+            salesperson=None, product=row.product, product_code=row.product_code,
+            product_name=row.product_name, quantity=engine.quantity(row.quantity),
+            amount=engine.money(row.amount_c), payment_method=None, warehouse=row.warehouse,
+            figures=AnalyticsDetailFigures(values=_price_figures(row)),
+        )
+        for row in (await db.execute(page)).all()
+    ]  # fmt: skip
+    return AnalyticsDetailResponse(as_of=as_of, items=items, total=total, sums=sums)

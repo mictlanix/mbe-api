@@ -16,7 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.clock import local_now
 from app.enums import PaymentTerms
 from app.services import sales_order_service
-from app.services.analytics import cache, engine
+from app.services.analytics import balances, cache, engine
 from tests.integration.analytics_seed import (
     CREDIT_CUSTOMER,
     L,
@@ -93,7 +93,9 @@ async def test_each_kpi_equals_the_query_for_its_measure(client: AsyncClient, ma
     keys = [k['key'] for k in body['kpis']]
     assert keys == [
         'net_sales', 'margin_pct', 'cost_coverage', 'orders', 'average_ticket', 'collected',
-        'collected_today', 'refunds',
+        'collected_today', 'refunds', 'stock_value',  # spec 038: the administrator reads stock
+        'receivable_overdue', 'dso',  # and receivables
+        'uninvoiced_sales',  # and fiscal
     ]  # fmt: skip
 
 
@@ -125,6 +127,9 @@ async def test_the_series(client: AsyncClient, may: None) -> None:
     assert set(series) == {
         'sales_over_time', 'sales_by_facility', 'sales_by_label', 'sales_by_brand',
         'top_products', 'top_customers', 'payment_mix', 'heatmap',
+        'stock_value_by_facility',  # spec 038
+        'receivable_overdue_trend', 'top_debtors', 'collected_vs_due',
+        'invoice_coverage',
     }  # fmt: skip
     over_time = series['sales_over_time']['query']
     assert over_time['totals']['comparison']['net_sales'] == '100.00'  # April 8
@@ -223,3 +228,51 @@ async def test_a_normal_month_raises_no_refund_alert(client: AsyncClient, histor
     alerts = await _dashboard(client, start='2026-04-01', end='2026-04-30')
 
     assert [a for a in alerts['alerts'] if a['key'] == 'refund_rate'] == []
+
+
+async def test_the_stock_comparison_is_read_at_its_end_only(
+    client: AsyncClient, may: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Spec 038, R18: the stock value KPI shows the comparison period's end, never its buckets, so
+    the stock fact reads one moment before the period, not a sparkline's worth."""
+    read: list = []
+    many = balances.stock_many
+
+    async def spied(db: AsyncSession, slices):  # noqa: ANN001, ANN202
+        read.extend(m for s in slices for m in s.moments)
+        return await many(db, slices)
+
+    monkeypatch.setattr(balances, 'stock_many', spied)
+
+    body = await _dashboard(client)
+
+    assert 'stock_value' in {k['key'] for k in body['kpis']}
+    assert {m for m in read if m < date(2026, 5, 1)} == {date(2026, 4, 30)}
+
+
+async def test_no_stock_comparison_before_the_stock_history(
+    client: AsyncClient, may: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A comparison period starting before the stock history has no stock comparison, as the
+    query refuses it (`analytics.before_history`): the KPI shows none and reads none."""
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, 'stock_history_start', date(2026, 5, 1))
+    read: list = []
+    many = balances.stock_many
+
+    async def spied(db: AsyncSession, slices):  # noqa: ANN001, ANN202
+        read.extend(m for s in slices for m in s.moments)
+        return await many(db, slices)
+
+    monkeypatch.setattr(balances, 'stock_many', spied)
+
+    body = await _dashboard(client)
+
+    value = next(k for k in body['kpis'] if k['key'] == 'stock_value')
+    assert (value['comparison'], value['change'], value['change_pct']) == (None, None, None)
+    assert value['value'] is not None
+    assert value['drill']['comparison'] is None
+    assert [m for m in read if m < date(2026, 5, 1)] == []
+    drilled = await _query(client, value['drill'])
+    assert drilled['totals']['values']['stock_value'] == value['value']

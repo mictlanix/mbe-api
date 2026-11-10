@@ -19,14 +19,20 @@ class ErrorCode(StrEnum):
         return member
 
     # analytics
+    ANALYTICS_ATTACHMENT_TOO_LARGE = 'analytics.attachment_too_large', 422
+    ANALYTICS_BEFORE_HISTORY = 'analytics.before_history', 422
     ANALYTICS_DIMENSION_NOT_APPLICABLE = 'analytics.dimension_not_applicable', 422
     ANALYTICS_EXPORT_EXPIRED = 'analytics.export_expired', 410
     ANALYTICS_EXPORT_NOT_READY = 'analytics.export_not_ready', 409
     ANALYTICS_EXPORT_SOURCE_INVALID = 'analytics.export_source_invalid', 422
     ANALYTICS_PDF_TOO_LARGE = 'analytics.pdf_too_large', 422
     ANALYTICS_PERIOD_INVALID = 'analytics.period_invalid', 422
+    ANALYTICS_PERIOD_NOT_MONTH_END = 'analytics.period_not_month_end', 422
+    ANALYTICS_RECIPIENT_INELIGIBLE = 'analytics.recipient_ineligible', 422
     ANALYTICS_SORT_INVALID = 'analytics.sort_invalid', 422
+    ANALYTICS_STOCK_OPTIONS_INVALID = 'analytics.stock_options_invalid', 422
     ANALYTICS_TOO_MANY_DIMENSIONS = 'analytics.too_many_dimensions', 422
+    ANALYTICS_VIEW_INVALID = 'analytics.view_invalid', 422
 
     # auth
     AUTH_ADMINISTRATOR_REQUIRED = 'auth.administrator_required', 403

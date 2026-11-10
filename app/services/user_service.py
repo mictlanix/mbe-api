@@ -252,12 +252,25 @@ async def update_user(db: AsyncSession, user: User, data: UserUpdate, *, updater
     return user
 
 
+#: Tables whose rows go with a deleted user. Shares and schedule recipients naming the user cascade
+#: in the database; the user's exports and views are deleted by `exports.delete_for_user`.
+USER_CASCADES = frozenset(
+    {
+        'user_settings',
+        'access_privilege',
+        'analytics_export',
+        'analytics_view',
+        'analytics_view_share',
+        'analytics_schedule_recipient',
+    }
+)
+
+
 async def delete_user(db: AsyncSession, user: User, *, updater: int) -> None:
-    await assert_not_referenced(
-        db, user, exempt=frozenset({'user_settings', 'access_privilege', 'analytics_export'})
-    )
+    await assert_not_referenced(db, user, exempt=USER_CASCADES)
     user_id, employee_id = user.user_id, user.employee_id
-    # A user's analytics exports are private and short-lived (spec 037): they go with the user.
+    # A user's analytics exports are private and short-lived (spec 037), and their saved views
+    # (spec 038) are theirs alone: both go with the user.
     await exports.delete_for_user(db, user_id)
     incidences.record(
         db,

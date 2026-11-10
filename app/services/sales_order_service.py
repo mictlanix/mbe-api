@@ -15,7 +15,7 @@ from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from decimal import ROUND_HALF_UP, Decimal
 
-from sqlalchemy import and_, func, or_, select
+from sqlalchemy import and_, case, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
@@ -36,6 +36,7 @@ from app.models.fiscal import (
 )
 from app.models.product import Product, ProductPrice
 from app.models.sales import (
+    CustomerPayment,
     CustomerRefund,
     CustomerRefundDetail,
     SalesOrder,
@@ -305,7 +306,9 @@ async def attach_derived(db: AsyncSession, order: SalesOrder) -> SalesOrder:
     return order
 
 
-async def refunded_by_order(db: AsyncSession, order_ids: Sequence[int]) -> dict[int, Decimal]:
+async def refunded_by_order(
+    db: AsyncSession, order_ids: Sequence[int], *, as_of: datetime | None = None
+) -> dict[int, Decimal]:
     """What has been handed back on each order, in one query for the whole page (#223).
 
     Goods a customer returned are goods they do not owe for, and nothing else in the data records
@@ -317,28 +320,34 @@ async def refunded_by_order(db: AsyncSession, order_ids: Sequence[int]) -> dict[
     Totalled through `totals.document_totals`, the same rule the refund's own endpoints report, so
     a refund's total means one thing across the system. Note `discount` here against
     `discount_rate` on a sales order line — the columns differ, the arithmetic does not.
+
+    `as_of` counts only the refunds dated by then; one without a date by its last change (spec
+    038, research R7).
     """
     if not order_ids:
         return {}
 
-    rows = (
-        await db.execute(
-            select(
-                CustomerRefund.sales_order,
-                CustomerRefund.customer_refund_id,
-                CustomerRefundDetail,
-            )
-            .join(
-                CustomerRefundDetail,
-                CustomerRefundDetail.customer_refund == CustomerRefund.customer_refund_id,
-            )
-            .where(
-                CustomerRefund.sales_order.in_(order_ids),
-                CustomerRefund.completed.is_(True),
-                CustomerRefund.cancelled.is_(False),
-            )
+    query = (
+        select(
+            CustomerRefund.sales_order,
+            CustomerRefund.customer_refund_id,
+            CustomerRefundDetail,
         )
-    ).all()
+        .join(
+            CustomerRefundDetail,
+            CustomerRefundDetail.customer_refund == CustomerRefund.customer_refund_id,
+        )
+        .where(
+            CustomerRefund.sales_order.in_(order_ids),
+            CustomerRefund.completed.is_(True),
+            CustomerRefund.cancelled.is_(False),
+        )
+    )
+    if as_of is not None:
+        query = query.where(
+            func.coalesce(CustomerRefund.date, CustomerRefund.modification_time) <= as_of
+        )
+    rows = (await db.execute(query)).all()
 
     lines_by_refund: dict[tuple[int, int], list[totals.Line]] = {}
     for order_id, refund_id, line in rows:
@@ -421,7 +430,9 @@ async def _fiscal_lines_by_order(
     return by_document
 
 
-async def _credited_by_order(db: AsyncSession, order_ids: Sequence[int]) -> dict[int, Decimal]:
+async def _credited_by_order(
+    db: AsyncSession, order_ids: Sequence[int], *, as_of: datetime | None = None
+) -> dict[int, Decimal]:
     """Each order's share of the live credit notes against its invoices (spec 033, research R2).
 
     A note line copied from an order's line counts in full for that order. The rest of the note,
@@ -429,6 +440,8 @@ async def _credited_by_order(db: AsyncSession, order_ids: Sequence[int]) -> dict
     of the 115 live note lines in mbe_dev keeps its order line, so the share is what applies in
     practice. The parts span every order on the invoice, not just `order_ids`, so an order's figure
     doesn't depend on which other orders were asked about.
+
+    `as_of` counts the notes issued by then and not cancelled by then (spec 038, research R7).
     """
     if not order_ids:
         return {}
@@ -458,6 +471,13 @@ async def _credited_by_order(db: AsyncSession, order_ids: Sequence[int]) -> dict
         return {}
 
     note = aliased(FiscalDocument)
+    note_live = fiscal_document_service.live(note)
+    if as_of is not None:
+        # The XML join below already requires a sealed note; only its dates decide.
+        note_live = and_(
+            note.issued <= as_of,
+            or_(note.cancelled.is_(False), note.cancellation_date > as_of),
+        )
     note_rows = (
         await db.execute(
             select(note.fiscal_document_id, FiscalDocumentRelation.relation, FiscalDocumentXml.data)
@@ -471,7 +491,7 @@ async def _credited_by_order(db: AsyncSession, order_ids: Sequence[int]) -> dict
             .where(
                 FiscalDocumentRelation.relation.in_(invoices),
                 note.type == FiscalDocumentType.CREDIT_NOTE,
-                fiscal_document_service.live(note),
+                note_live,
             )
             .order_by(note.fiscal_document_id, FiscalDocumentRelation.fiscal_document_relation_id)
         )
@@ -501,6 +521,22 @@ async def _credited_by_order(db: AsyncSession, order_ids: Sequence[int]) -> dict
     return credited
 
 
+#: Legacy applications dated before this (year 1) count at their payment's date (spec 038, R7).
+LEGACY_DATE = datetime(1900, 1, 1)
+
+
+def application_date():  # noqa: ANN201 — a SQL expression
+    """When an application counts (spec 038, research R7): its own date, or its payment's when it
+    has none or a legacy year-1 one. The query must join `customer_payment`."""
+    return case(
+        (
+            or_(SalesOrderPayment.date.is_(None), SalesOrderPayment.date < LEGACY_DATE),
+            CustomerPayment.date,
+        ),
+        else_=SalesOrderPayment.date,
+    )
+
+
 @dataclass(frozen=True)
 class OrderBalance:
     """What an order says and what is still owed on it (spec 033, FR-002)."""
@@ -516,12 +552,18 @@ class OrderBalance:
         return self.totals.total
 
 
-async def order_balances(db: AsyncSession, orders: Sequence[SalesOrder]) -> dict[int, OrderBalance]:
+async def order_balances(
+    db: AsyncSession, orders: Sequence[SalesOrder], *, as_of: datetime | None = None
+) -> dict[int, OrderBalance]:
     """The one balance rule for sales orders, batched over `orders` (spec 033, FR-001).
 
     Total, less completed refunds, less the order's share of live credit notes, less live
     applications, floored at zero. Change handed back is not subtracted: it is money the payment
     returned, not money the order received (research R14).
+
+    `as_of` gives the balance at that moment (spec 038, research R7): only the applications,
+    refunds and credit notes that had happened by then count. An application counts from its own
+    date; one dated in year 1 (legacy) from its payment's.
     """
     ids = [order.sales_order_id for order in orders]
     if not ids:
@@ -544,19 +586,23 @@ async def order_balances(db: AsyncSession, orders: Sequence[SalesOrder]) -> dict
             )
         )
 
-    applied_rows = (
-        await db.execute(
-            select(SalesOrderPayment.sales_order, func.sum(SalesOrderPayment.amount))
-            .where(
-                SalesOrderPayment.sales_order.in_(ids),
-                SalesOrderPayment.cancelled.is_(False),
-            )
-            .group_by(SalesOrderPayment.sales_order)
+    applied = (
+        select(SalesOrderPayment.sales_order, func.sum(SalesOrderPayment.amount))
+        .where(
+            SalesOrderPayment.sales_order.in_(ids),
+            SalesOrderPayment.cancelled.is_(False),
         )
-    ).all()
+        .group_by(SalesOrderPayment.sales_order)
+    )
+    if as_of is not None:
+        applied = applied.join(
+            CustomerPayment,
+            CustomerPayment.customer_payment_id == SalesOrderPayment.customer_payment,
+        ).where(application_date() <= as_of)
+    applied_rows = (await db.execute(applied)).all()
     applied_by = {oid: amount or Decimal(0) for oid, amount in applied_rows}
-    refunded_by = await refunded_by_order(db, ids)
-    credited_by = await _credited_by_order(db, ids)
+    refunded_by = await refunded_by_order(db, ids, as_of=as_of)
+    credited_by = await _credited_by_order(db, ids, as_of=as_of)
 
     balances = {}
     for oid in ids:
@@ -580,19 +626,28 @@ async def _credit_candidates(
     customer: int | None = None,
     facility: int | None = None,
     due_before: datetime | None = None,
+    as_of: datetime | None = None,
 ) -> list[tuple[SalesOrder, OrderBalance]]:
     """Credit orders not flagged paid, with their balances: the one customer-side selector.
 
     The flag closes an order whatever it computes (spec 033, clarification Q1), which keeps the
     16,405 legacy paid orders out and the set small. `payment_terms == NET_D` is load-bearing:
     `derive_due_date` makes an immediate-terms order due on its own date (#207).
+
+    `as_of` selects the orders confirmed by then and not yet settled then: not flagged paid, or
+    zeroed later. Flagged paid without a zero time stays closed at every moment (spec 038, R7).
     """
+    unpaid = SalesOrder.paid.is_(False)
+    if as_of is not None:
+        unpaid = or_(unpaid, SalesOrder.balance_zeroed_time > as_of)
     query = select(SalesOrder).where(
         SalesOrder.payment_terms == PaymentTerms.NET_D,
         SalesOrder.completed.is_(True),
         SalesOrder.cancelled.is_(False),
-        SalesOrder.paid.is_(False),
+        unpaid,
     )
+    if as_of is not None:
+        query = query.where(SalesOrder.confirmation_time <= as_of)
     if customer is not None:
         query = query.where(SalesOrder.customer == customer)
     if facility is not None:
@@ -600,7 +655,7 @@ async def _credit_candidates(
     if due_before is not None:
         query = query.where(SalesOrder.due_date < due_before)
     orders = list((await db.execute(query.order_by(SalesOrder.sales_order_id))).scalars().all())
-    balances = await order_balances(db, orders)
+    balances = await order_balances(db, orders, as_of=as_of)
     return [(order, balances[order.sales_order_id]) for order in orders]
 
 
@@ -610,11 +665,13 @@ async def open_credit_orders(
     customer: int | None = None,
     facility: int | None = None,
     due_before: datetime | None = None,
+    as_of: datetime | None = None,
 ) -> list[tuple[SalesOrder, OrderBalance]]:
     """The customer side's open documents: credit orders not flagged paid that still owe more than
-    `totals.SETTLED` (spec 033, FR-007). The credit check, the AR view and statements read them."""
+    `totals.SETTLED` (spec 033, FR-007). The credit check, the AR view and statements read them.
+    `as_of` gives them at a past moment (spec 038, research R7)."""
     candidates = await _credit_candidates(
-        db, customer=customer, facility=facility, due_before=due_before
+        db, customer=customer, facility=facility, due_before=due_before, as_of=as_of
     )
     return [(order, balance) for order, balance in candidates if balance.balance > totals.SETTLED]
 

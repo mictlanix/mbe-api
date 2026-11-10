@@ -20,6 +20,7 @@ from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.core.clock import local_now
+from app.core.config import settings
 from app.core.deps import CurrentUser
 from app.schemas.analytics import (
     AnalyticsAlert,
@@ -38,11 +39,12 @@ from app.schemas.analytics import (
     DimensionKey,
     Grain,
     MeasureKey,
+    StockOptions,
     VatTreatment,
 )
-from app.services import sales_order_service
-from app.services.analytics import engine, facts
-from app.services.analytics.catalog import Fact, Family
+from app.services import sales_order_service, supplier_payment_service
+from app.services.analytics import balances, engine, facts
+from app.services.analytics.catalog import MEASURE_FAMILIES, Fact, Family
 
 #: Sparklines: day grain up to 62 days, week up to a year, then month (contracts/api.md "Tiles").
 DAY_LIMIT = 62
@@ -83,6 +85,13 @@ def refund_rate_alert(
     )
 
 
+def trend_start(today: date) -> date:
+    """The receivable trend's first month: 12 month-ends before today's month, and today, from the
+    first stored month-end on (spec 038, R8)."""
+    total = today.year * 12 + today.month - 1 - BASELINE_MONTHS
+    return max(date(total // 12, total % 12 + 1, 1), engine.RECEIVABLE_HISTORY_START.replace(day=1))
+
+
 def baseline_months(start: date) -> tuple[date, date]:
     """The 12 calendar months before the month the period starts in."""
     first = start.replace(day=1)
@@ -93,7 +102,7 @@ def baseline_months(start: date) -> tuple[date, date]:
 # ── Running the tiles ─────────────────────────────────────────────────────────
 
 
-async def _concurrently(db: AsyncSession, jobs: Sequence[Callable[[AsyncSession], Awaitable[Any]]]):
+async def concurrently(db: AsyncSession, jobs: Sequence[Callable[[AsyncSession], Awaitable[Any]]]):
     """Run independent jobs at once, each on its own session; one after another on SQLite."""
     if db.bind.dialect.name == 'sqlite':
         return [await job(db) for job in jobs]
@@ -104,13 +113,6 @@ async def _concurrently(db: AsyncSession, jobs: Sequence[Callable[[AsyncSession]
             return await job(session)
 
     return await asyncio.gather(*(run(job) for job in jobs))
-
-
-def _fact_job(fact: Fact, slice_: facts.Slice) -> Callable[[AsyncSession], Awaitable[list[Any]]]:
-    async def job(session: AsyncSession) -> list[Any]:
-        return await engine.run_fact(session, fact, slice_)
-
-    return job
 
 
 async def _overdue_job(session: AsyncSession, facility: int | None) -> list[Any]:
@@ -147,10 +149,13 @@ def _kpi(
     grain: Grain,
     start: date | None = None,
     end: date | None = None,
+    sparkline: AnalyticsQueryResponse | None = None,
 ) -> AnalyticsKpi:
+    """The KPI's value and comparison from `result`'s totals; its sparkline from `result`'s rows,
+    or from `sparkline`'s when the two are read apart."""
     totals = result.totals
     name = measure.value
-    points = {row.keys[0].value: row.values.get(name) for row in result.rows}
+    points = {row.keys[0].value: row.values.get(name) for row in (sparkline or result).rows}
     empty = engine.select_measures(engine.derive({}, VatTreatment.EXCLUDED), [measure])[name]
     start, end = start or request.start, end or request.end
     vat = VatTreatment.INCLUDED if measure is MeasureKey.AVERAGE_TICKET else VatTreatment.EXCLUDED
@@ -188,15 +193,30 @@ async def build(
     engine.validate_period(request.start, request.end)
     if held is None:
         held = await engine.families(db, current)
-    if not held & {Family.SALES, Family.PAYMENTS}:
+    if not held & set(MEASURE_FAMILIES):
         raise engine.family_forbidden(Family.SALES)
     facility = await engine.resolve_scope(db, current, request.facility)
     comparison = request.comparison or Comparison.PREVIOUS_PERIOD
     request = request.model_copy(update={'facility': facility, 'comparison': comparison})
     before_start, before_end = engine.comparison_period(request.start, request.end, comparison)
     grain = sparkline_grain(request.start, request.end)
-    sales, cost, payments = (Family.SALES in held, Family.COST in held, Family.PAYMENTS in held)
+    # The tile groups asked for, of those held (R18); cost only widens sales and inventory.
+    shown = held if request.families is None else held & set(request.families)
+    sales, cost, payments = (Family.SALES in shown, Family.COST in held, Family.PAYMENTS in shown)
+    # Stock is read only within its history (spec 038, R3), as the query refuses before it. So is
+    # its comparison: one starting before it is omitted, as for a tile without a comparison.
+    inventory = Family.INVENTORY in shown and request.start >= settings.stock_history_start
+    stock_comparison = comparison if before_start >= settings.stock_history_start else None
     today = local_now().date()
+    # Receivables from the first stored month-end, the comparison's included (R8); payables once
+    # go-live sets the balance cutoff (R10).
+    receivables = Family.RECEIVABLES in shown and (
+        balances.read_day(min(before_end, today), today) >= engine.RECEIVABLE_HISTORY_START
+    )
+    payables = (
+        Family.PAYABLES in shown and await supplier_payment_service.get_cutoff(db) is not None
+    )
+    fiscal = Family.FISCAL in shown
 
     planned: list[tuple[str, str, AnalyticsQueryRequest]] = []
 
@@ -232,17 +252,61 @@ async def build(
             comparison=Comparison.PREVIOUS_PERIOD,
         )  # fmt: skip
         plan('payment_mix', 'donut', collected, DimensionKey.PAYMENT_METHOD)
+    if inventory and cost:
+        value = [MeasureKey.STOCK_VALUE]
+        # A balance's comparison is its value at the comparison period's end (R1): the KPI reads
+        # that moment alone, and the sparkline's buckets without it, so the stock fact never reads
+        # the comparison period's buckets (R18).
+        plan('stock_value', '', value, comparison=stock_comparison)
+        plan('stock_value_sparkline', '', value, DimensionKey.DATE, grain=grain, comparison=None)
+        # With the alerts' options, so its totals are the alerts' stock query (R18).
+        plan(
+            'stock_value_by_facility', 'bar', value, DimensionKey.FACILITY, comparison=None,
+            stock_options=StockOptions(),
+        )  # fmt: skip
+    if receivables:
+        overdue = [MeasureKey.RECEIVABLE_OVERDUE]
+        plan('receivable_overdue', '', overdue, DimensionKey.DATE, grain=grain)
+        if engine.whole_months(request.start, request.end):
+            plan('dso', '', [MeasureKey.DSO])
+        plan(
+            'receivable_overdue_trend', 'line', overdue, DimensionKey.DATE, grain=Grain.MONTH,
+            start=trend_start(today), end=today, comparison=None,
+        )  # fmt: skip
+        plan(
+            'top_debtors', 'bar', [MeasureKey.RECEIVABLE], DimensionKey.CUSTOMER, top=TOP,
+            comparison=None,
+        )  # fmt: skip
+        plan(
+            'collected_vs_due', 'bar',
+            [MeasureKey.DUE_IN_PERIOD, MeasureKey.DUE_COLLECTED, MeasureKey.COLLECTED_ON_CREDIT],
+            comparison=None,
+        )  # fmt: skip
+    if fiscal:
+        uninvoiced = [MeasureKey.UNINVOICED_SALES]
+        plan('uninvoiced_sales', '', uninvoiced, DimensionKey.DATE, grain=grain)
+        plan('invoice_coverage', 'bar', [MeasureKey.INVOICE_COVERAGE], DimensionKey.FACILITY)
 
     prepared = [_prepared(definition, facility, held) for _, _, definition in planned]
     wanted = [pair for one in prepared for pair in engine.wanted(one)]
     if sales:
         wanted += _alert_facts(request, facility)
-    distinct = {engine.fact_key(fact, slice_): (fact, slice_) for fact, slice_ in wanted}
-    jobs = [_fact_job(fact, slice_) for fact, slice_ in distinct.values()]
+    stock_alerts = _prepared(_stock_alert_definition(request, facility), facility, held)
+    if inventory:
+        wanted += engine.wanted(stock_alerts)
+    payable_alert = _prepared(_payable_alert_definition(request, facility, today), facility, held)
+    if payables:
+        wanted += engine.wanted(payable_alert)
+    batches = engine.fact_jobs(wanted)
+    jobs = [job for _, job in batches]
     if sales:
         jobs.append(lambda session: _overdue_job(session, facility))
-    results = await _concurrently(db, jobs)
-    found = dict(zip(distinct, results[: len(distinct)], strict=True))
+    results = await concurrently(db, jobs)
+    found = {
+        key: rows
+        for (keys, _), found_rows in zip(batches, results, strict=False)
+        for key, rows in zip(keys, found_rows, strict=True)
+    }
     overdue = results[-1] if sales else []
     answered = {
         name: await engine.assemble(db, one, found)
@@ -280,6 +344,30 @@ async def build(
                 'refunds', MeasureKey.REFUNDS, answered['sales_over_time'], request, facility, grain
             )
         )
+    if inventory and cost:
+        kpis.append(
+            _kpi(
+                'stock_value', MeasureKey.STOCK_VALUE, answered['stock_value'],
+                request.model_copy(update={'comparison': stock_comparison}), facility, grain,
+                sparkline=answered['stock_value_sparkline'],
+            )
+        )  # fmt: skip
+    if receivables:
+        kpis.append(
+            _kpi(
+                'receivable_overdue', MeasureKey.RECEIVABLE_OVERDUE,
+                answered['receivable_overdue'], request, facility, grain,
+            )
+        )  # fmt: skip
+        if 'dso' in answered:
+            kpis.append(_kpi('dso', MeasureKey.DSO, answered['dso'], request, facility, grain))
+    if fiscal:
+        kpis.append(
+            _kpi(
+                'uninvoiced_sales', MeasureKey.UNINVOICED_SALES, answered['uninvoiced_sales'],
+                request, facility, grain,
+            )
+        )  # fmt: skip
 
     series = [
         AnalyticsSeries(key=name, chart=chart, query=answered[name])
@@ -287,6 +375,10 @@ async def build(
         if chart
     ]
     alerts = _alerts(request, facility, found, overdue, sales=sales, cost=cost)
+    if inventory:
+        alerts += _stock_alerts(request, facility, found, stock_alerts, cost=cost)
+    if payables:
+        alerts += _payable_alerts(found, payable_alert)
     return AnalyticsDashboardResponse(
         as_of=local_now(),
         definition=request,
@@ -379,6 +471,82 @@ def _alerts(
 
     alerts += _refund_rate_alerts(request, facility, found, by_facility, history)
     return alerts
+
+
+def _stock_alert_definition(
+    request: AnalyticsDashboardRequest, facility: int | None
+) -> AnalyticsQueryRequest:
+    """The stock as of the period's end with the default options: one stock query counts every
+    inventory alert, the same pairs the `stock` detail lists with each flag (spec 038)."""
+    return _definition(
+        request, facility, measures=[MeasureKey.STOCK_OUT_PAIRS], comparison=None,
+        stock_options=StockOptions(),
+    )  # fmt: skip
+
+
+#: Each inventory alert: its key, the stock fact's count and amount columns, its flag, and whether
+#: it needs the cost privilege. Dead stock means no movement in 180 days, the default.
+STOCK_ALERTS = (
+    ('stock_outs', 'stock_outs', None, DetailFlag.STOCK_OUT, False),
+    ('below_reorder', 'below', None, DetailFlag.BELOW_REORDER, False),
+    ('dead_stock', 'dead_pairs', 'dead_value_c', DetailFlag.DEAD, True),
+    ('uncosted_stock', 'uncosted_pairs', None, DetailFlag.UNCOSTED, False),
+)
+
+
+def _stock_alerts(
+    request: AnalyticsDashboardRequest,
+    facility: int | None,
+    found: engine.Found,
+    prepared: engine.Prepared,
+    *,
+    cost: bool,
+) -> list[AnalyticsAlert]:
+    rows = [
+        row
+        for fact, slice_ in engine.wanted(prepared)[:1]
+        for row in found[engine.fact_key(fact, slice_)]
+    ]
+    alerts: list[AnalyticsAlert] = []
+    for key, count, amount, flag, sensitive in STOCK_ALERTS:
+        total = sum(int(row.get(count, 0) or 0) for row in rows)
+        if not total or (sensitive and not cost):
+            continue
+        alerts.append(
+            AnalyticsAlert(
+                key=key,
+                count=total,
+                amount=engine.money(sum(int(row.get(amount, 0)) for row in rows))
+                if amount
+                else None,
+                detail=_detail(request, facility, kind=DetailKind.STOCK, flag=flag),
+            )
+        )
+    return alerts
+
+
+def _payable_alert_definition(
+    request: AnalyticsDashboardRequest, facility: int | None, today: date
+) -> AnalyticsQueryRequest:
+    """Payables exist only now (R10), whatever the period."""
+    return _definition(
+        request, facility, measures=[MeasureKey.PAYABLE_OVERDUE], start=today, end=today,
+        comparison=None,
+    )  # fmt: skip
+
+
+def _payable_alerts(found: engine.Found, prepared: engine.Prepared) -> list[AnalyticsAlert]:
+    """The open purchase orders past due now. There is no payables detail kind, so no detail."""
+    rows = [
+        row
+        for fact, slice_ in engine.wanted(prepared)[:1]
+        for row in found[engine.fact_key(fact, slice_)]
+    ]
+    count = sum(int(row.get('overdue_orders', 0) or 0) for row in rows)
+    if not count:
+        return []
+    amount = engine.money(sum(int(row.get('overdue_c', 0) or 0) for row in rows))
+    return [AnalyticsAlert(key='payables_overdue', count=count, amount=amount, detail=None)]
 
 
 def _refund_rate_alerts(

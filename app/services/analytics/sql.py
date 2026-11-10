@@ -129,3 +129,22 @@ def _cents_sqlite(element: cents, compiler, **kw) -> str:
 @compiles(cents, 'mysql')
 def _cents_mysql(element: cents, compiler, **kw) -> str:
     return f'CAST(ROUND({compiler.process(_column(element), **kw)}, 2) * 100 AS SIGNED)'
+
+
+class days_between(FunctionElement):  # noqa: N801
+    """Whole calendar days from the first column's day to the second's (spec 038, R12)."""
+
+    type = Integer()
+    inherit_cache = True
+
+
+@compiles(days_between)
+def _days_between_sqlite(element: days_between, compiler, **kw) -> str:
+    start, end = (compiler.process(c, **kw) for c in element.clauses)
+    return f'CAST(julianday(date({end})) - julianday(date({start})) AS INTEGER)'
+
+
+@compiles(days_between, 'mysql')
+def _days_between_mysql(element: days_between, compiler, **kw) -> str:
+    start, end = (compiler.process(c, **kw) for c in element.clauses)
+    return f'DATEDIFF({end}, {start})'

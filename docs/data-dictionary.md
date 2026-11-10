@@ -819,6 +819,100 @@ One background analytics export (spec 037, FR-054): an XLSX or CSV over 10,000 r
 | `completion_time` | datetime | YES | When the file was written |
 | `expiry_time` | datetime | YES | `completion_time` + 24 h; afterwards the file is deleted and a download answers `analytics.export_expired`. Indexed for the purge job |
 
+### `receivable_snapshot`
+One open credit order at one month-end (spec 038, FR-121): spec 033's balance as of 23:59:59 that day, written by `app.jobs.snapshot_receivables`. **API-only**, added by migration 032.
+
+| Column | Type | Null | Description |
+|--------|------|------|-------------|
+| `month_end` | date | NO | PK part. The last day of the month |
+| `sales_order` | int(11) | NO | PK part. FK → `sales_order` |
+| `customer` | int(11) | NO | FK → `customer` |
+| `facility` | int(11) | NO | The order's facility |
+| `salesperson` | int(11) | YES | The order's salesperson |
+| `sales_agent` | int(11) | YES | The customer's agent when the row was written |
+| `due_date` | datetime | YES | The order's due date |
+| `currency` | int(11) | NO | The order's currency |
+| `exchange_rate` | decimal(18,4) | NO | The order's exchange rate |
+| `total` | decimal(18,2) | NO | Order total (spec 033) |
+| `balance` | decimal(18,2) | NO | Balance at the month-end, in the order's currency |
+| `credit_limit` | decimal(18,2) | YES | The customer's limit when written |
+| `limit_historical` | tinyint(1) | NO | 1 when written at that month-end; 0 for a backfilled month, whose limit is the one at backfill time |
+| `written_at` | datetime | NO | When the row was written |
+
+### `receivable_snapshot_month`
+One written month-end, even one with no open orders, so the snapshot job doesn't redo it (spec 038). **API-only**, added by migration 032.
+
+| Column | Type | Null | Description |
+|--------|------|------|-------------|
+| `month_end` | date | NO | PK |
+| `written_at` | datetime | NO | When the month-end was written |
+| `orders` | int(11) | NO | Open credit orders written for it; may be 0 |
+
+### `analytics_view`
+A saved analytics view (spec 038, R14): a query, dashboard, detail or customer 360 request with a relative period. **API-only**, added by migration 032.
+
+| Column | Type | Null | Description |
+|--------|------|------|-------------|
+| `analytics_view_id` | int(11) | NO | PK |
+| `user` | varchar(20) | NO | FK → `user` — the owner. Unique with `name` |
+| `name` | varchar(100) | NO | Unique per owner |
+| `kind` | tinyint(4) | NO | 0 query, 1 dashboard, 2 detail, 3 customer 360 |
+| `definition` | text | NO | JSON of the request without `start` and `end` |
+| `period` | text | NO | JSON `{key, days?, start?, end?}`, resolved on the day the view runs |
+| `creation_time` | datetime | NO | Created at |
+| `modification_time` | datetime | NO | Last updated |
+
+### `analytics_view_share`
+A user a view is shared with (spec 038). Deleted with the view or the user. **API-only**, added by migration 032.
+
+| Column | Type | Null | Description |
+|--------|------|------|-------------|
+| `analytics_view` | int(11) | NO | PK part. FK → `analytics_view`, on delete cascade |
+| `user` | varchar(20) | NO | PK part. FK → `user`, on delete cascade |
+
+### `analytics_schedule`
+An emailed schedule of a view (spec 038, R15); the owner is the view's. Deleted with the view. **API-only**, added by migration 032.
+
+| Column | Type | Null | Description |
+|--------|------|------|-------------|
+| `analytics_schedule_id` | int(11) | NO | PK |
+| `analytics_view` | int(11) | NO | FK → `analytics_view`, on delete cascade |
+| `cadence` | tinyint(4) | NO | 0 daily, 1 weekly, 2 monthly |
+| `weekdays` | tinyint(4) | NO | Bitmask, Monday = 1 … Sunday = 64; weekly only |
+| `month_day` | tinyint(4) | YES | 1–31, monthly only; past the month's end, its last day |
+| `time_of_day` | time | NO | Business time |
+| `format` | tinyint(4) | NO | 0 xlsx, 1 pdf, 2 csv |
+| `subject` | varchar(150) | NO | Email subject |
+| `enabled` | tinyint(1) | NO | Disabled schedules are not sent |
+| `next_run_time` | datetime | NO | The next occurrence, business time. A send claims it by moving it forward |
+| `creation_time` | datetime | NO | Created at |
+| `modification_time` | datetime | NO | Last updated |
+
+### `analytics_schedule_recipient`
+A user a schedule is emailed to, at most 10 per schedule (spec 038). **API-only**, added by migration 032.
+
+| Column | Type | Null | Description |
+|--------|------|------|-------------|
+| `analytics_schedule` | int(11) | NO | PK part. FK → `analytics_schedule`, on delete cascade |
+| `user` | varchar(20) | NO | PK part. FK → `user`, on delete cascade |
+
+### `analytics_send`
+One attempt to send a schedule's occurrence (spec 038, R15). Deleted with the schedule. **API-only**, added by migration 032.
+
+| Column | Type | Null | Description |
+|--------|------|------|-------------|
+| `analytics_send_id` | int(11) | NO | PK |
+| `analytics_schedule` | int(11) | NO | FK → `analytics_schedule`, on delete cascade |
+| `occurrence` | datetime | NO | The scheduled moment this send is for |
+| `started_at` | datetime | NO | When the send started |
+| `finished_at` | datetime | YES | Null while running; a row running over 10 minutes reads as failed |
+| `outcome` | tinyint(4) | NO | 0 running, 1 sent, 2 failed, 3 skipped |
+| `code` | varchar(64) | YES | Spec 036 code of a failure or skip |
+| `recipients` | text | NO | JSON: user ids sent to, and those dropped and why |
+| `format` | tinyint(4) | NO | 0 xlsx, 1 pdf, 2 csv |
+| `size` | int(11) | YES | Attachment bytes |
+| `row_count` | int(11) | YES | Rows in the attachment |
+
 ## 7. Inventory
 
 ### `inventory_receipt`
@@ -954,7 +1048,7 @@ Lot/serial number movement ledger (all inventory transactions).
 | `lot_serial_tracking_id` | int(11) | NO | PK |
 | `source` | int(11) | NO | Enum: InventoryReceipt, SalesOrder, Transfer, etc. |
 | `reference` | int(11) | NO | ID of the source document |
-| `date` | datetime | NO | Transaction date |
+| `date` | datetime | NO | Transaction date. Indexed by migration 032 for analytics periods (spec 038) |
 | `warehouse` | int(11) | NO | FK → `warehouse` |
 | `product` | int(11) | NO | FK → `product` |
 | `quantity` | decimal(18,4) | NO | Positive=in, Negative=out |

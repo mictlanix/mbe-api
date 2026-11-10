@@ -12,7 +12,7 @@ is placed. `detail.py` reads the same subqueries, so a drill-down's amounts are 
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import date, timedelta
 from typing import Any
 
 from sqlalchemy import (
@@ -27,15 +27,19 @@ from sqlalchemy import (
     or_,
     select,
     true,
+    union_all,
 )
 from sqlalchemy.sql.expression import ColumnElement, Subquery
 
 from app.core.config import settings
 from app.enums import FiscalDocumentType, PaymentTerms, PaymentType
-from app.models.core import CashSession
+from app.models.analytics import ReceivableSnapshot
+from app.models.core import CashSession, Warehouse
 from app.models.customer import Customer
 from app.models.fiscal import FiscalDocument, FiscalDocumentDetail
+from app.models.inventory import InventoryReceipt, InventoryReceiptDetail, LotSerialTracking
 from app.models.product import Product, product_label
+from app.models.purchases import PurchaseOrder, PurchaseOrderDetail
 from app.models.sales import (
     CustomerPayment,
     CustomerRefund,
@@ -44,14 +48,25 @@ from app.models.sales import (
     SalesOrderDetail,
     SalesOrderPayment,
 )
-from app.schemas.analytics import DimensionKey, Grain
+from app.schemas.analytics import DimensionKey, Grain, StockOptions
 from app.services.analytics.catalog import DIMENSIONS, Availability, Fact
-from app.services.analytics.sql import cents, hour_of, period_bounds, period_start, weekday
+from app.services.analytics.sql import (
+    cents,
+    days_between,
+    hour_of,
+    period_bounds,
+    period_start,
+    weekday,
+)
+from app.services.sales_order_service import application_date
 
 #: Customer type and payment terms values, as keys and filter values.
 CREDIT, CASH, IMMEDIATE = 'credit', 'cash', 'immediate'
 #: Payment classes (R6): the cash cut's sales tender, its money refunds and its store credit.
 COLLECTED, PAID_OUT, STORE_CREDIT = 'collected', 'paid_out', 'store_credit'
+#: Fiscal document types and statuses (spec 038, R12), as keys and filter values.
+INVOICE, CREDIT_NOTE, PAYMENT_RECEIPT = 'invoice', 'credit_note', 'payment_receipt'
+STAMPED, CANCELLED, PENDING = 'stamped', 'cancelled', 'pending'
 
 
 @dataclass(frozen=True)
@@ -60,6 +75,16 @@ class Slice:
 
     `filters` hold parsed values: ints for entity ids, weekday and hour; dates for `date` (period
     starts at `grain`); lowercase trimmed text for brand and model; the class strings otherwise.
+
+    `moments` is set only for a balance fact (spec 038, research R1): the days at whose end it
+    gives its values. Its slice then has neither a date dimension nor a date filter; the engine
+    places each moment's values in their date bucket.
+
+    `stock_options` is set only for the stock fact, when a measure reads velocity, cover, dead or
+    slow stock (research R5); without it the fact skips them.
+
+    `stamped_only` is set only for the invoice fact, when the request neither groups nor filters by
+    document status: its measures then count stamped documents only (spec 038, R12).
     """
 
     dimensions: tuple[DimensionKey, ...] = ()
@@ -68,6 +93,9 @@ class Slice:
     start: date = date.min
     end: date = date.max
     facility: int | None = None
+    moments: tuple[date, ...] = ()
+    stock_options: StockOptions | None = None
+    stamped_only: bool = False
 
 
 # ── Line pricing (mirrors totals.line_amounts) ────────────────────────────────
@@ -314,12 +342,318 @@ def payment_rows(start: date, end: date, facility: int | None) -> Subquery:
     return query.subquery('payments')
 
 
+#: A movement's document as one number, so `COUNT(DISTINCT …)` works on both dialects: the
+#: ledger type in the high digits, the reference below (references stay under 10^10).
+DOCUMENT_BASE = 10_000_000_000
+
+
+def movement_rows(start: date, end: date, facility: int | None) -> Subquery:
+    """Every ledger entry of the period (spec 038, research R2), placed by its warehouse.
+
+    The facility is the warehouse's, so stock in a transit warehouse counts for the facility it is
+    travelling to (spec 030, `split_transit`). The supplier is the product's.
+    """
+    entry = LotSerialTracking
+    since, until = period_bounds(start, end)
+    query = (
+        select(
+            entry.lot_serial_tracking_id.label('id'),
+            entry.date.label('at'),
+            entry.product.label('product'),
+            entry.warehouse.label('warehouse'),
+            Warehouse.facility.label('facility'),
+            entry.source.label('movement_type'),
+            entry.reference.label('reference'),
+            Product.supplier.label('supplier'),
+            entry.quantity.label('qty'),
+            case((entry.quantity > 0, entry.quantity), else_=0).label('units_in'),
+            case((entry.quantity < 0, -entry.quantity), else_=0).label('units_out'),
+            (entry.source * DOCUMENT_BASE + entry.reference).label('doc'),
+        )
+        .join(Warehouse, Warehouse.warehouse_id == entry.warehouse)
+        .join(Product, Product.product_id == entry.product)
+        .where(entry.date >= since, entry.date < until)
+    )
+    if facility is not None:
+        query = query.where(Warehouse.facility == facility)
+    return query.subquery('movements')
+
+
+def month_end_on_or_before(day: date) -> date:
+    """`day` when it ends a month, else the end of the month before: the stored receivable
+    month-end a moment reads (spec 038, research R8)."""
+    return day if (day + timedelta(days=1)).day == 1 else day.replace(day=1) - timedelta(days=1)
+
+
+def credit_flow_rows(start: date, end: date, facility: int | None) -> Subquery:
+    """The collection flows of credit orders in the period (spec 038, research R9), by the order's
+    facility, one row source of three parts:
+
+    - credit sales: spec 037's sale lines of credit-terms orders, gross with VAT;
+    - collected on credit: live applications to credit-terms orders by application date (R7), in
+      base currency; those to an order the start balance holds as due in the period are also due
+      collected;
+    - due in the period: the stored balance at the period's start (the month-end on or before the
+      day before it) of the orders due in the period, in base currency, by due date.
+    """
+    since, until = period_bounds(start, end)
+    credit = int(PaymentTerms.NET_D)
+    zero = literal(0)
+    opening = month_end_on_or_before(start - timedelta(days=1))
+    snapshot = ReceivableSnapshot
+    due_here = and_(snapshot.due_date >= since, snapshot.due_date < until)
+
+    lines = sale_lines(start, end, facility)
+    sales = select(
+        lines.c.doc.label('doc'), lines.c.at.label('at'), lines.c.facility.label('facility'),
+        lines.c.customer.label('customer'), lines.c.salesperson.label('salesperson'),
+        lines.c.payment_terms.label('payment_terms'),
+        (lines.c.sub_c + lines.c.tax_c).label('credit_sales_c'), zero.label('collected_c'),
+        zero.label('due_c'), zero.label('due_collected_c'),
+    ).where(lines.c.payment_terms == credit)  # fmt: skip
+
+    order, applied_at = SalesOrder, application_date()
+    collected = cents(SalesOrderPayment.amount * order.exchange_rate)
+    applications = (
+        select(
+            order.sales_order_id.label('doc'), applied_at.label('at'),
+            order.facility.label('facility'), order.customer.label('customer'),
+            order.salesperson.label('salesperson'), order.payment_terms.label('payment_terms'),
+            zero.label('credit_sales_c'), collected.label('collected_c'), zero.label('due_c'),
+            case((snapshot.sales_order.is_not(None), collected), else_=0).label('due_collected_c'),
+        )
+        .join(order, order.sales_order_id == SalesOrderPayment.sales_order)
+        .join(
+            CustomerPayment,
+            CustomerPayment.customer_payment_id == SalesOrderPayment.customer_payment,
+        )
+        .outerjoin(
+            snapshot,
+            and_(
+                snapshot.sales_order == order.sales_order_id,
+                snapshot.month_end == opening,
+                due_here,
+            ),
+        )
+        .where(
+            SalesOrderPayment.cancelled.is_(False),
+            order.payment_terms == credit,
+            applied_at >= since,
+            applied_at < until,
+        )
+    )  # fmt: skip
+
+    due = select(
+        snapshot.sales_order.label('doc'), snapshot.due_date.label('at'),
+        snapshot.facility.label('facility'), snapshot.customer.label('customer'),
+        snapshot.salesperson.label('salesperson'), literal(credit).label('payment_terms'),
+        zero.label('credit_sales_c'), zero.label('collected_c'),
+        cents(snapshot.balance * snapshot.exchange_rate).label('due_c'),
+        zero.label('due_collected_c'),
+    ).where(snapshot.month_end == opening, due_here)  # fmt: skip
+
+    if facility is not None:
+        applications = applications.where(order.facility == facility)
+        due = due.where(snapshot.facility == facility)
+    return union_all(sales, applications, due).subquery('credit_flow')
+
+
+def _document_status(document: type[FiscalDocument]) -> ColumnElement:
+    """R12: stamped and live; cancelled after stamping; pending (issued, neither stamped nor
+    cancelled). The rows exclude drafts cancelled before stamping."""
+    return case(
+        (and_(document.stamped.is_not(None), document.cancelled.is_(False)), literal(STAMPED)),
+        (document.stamped.is_not(None), literal(CANCELLED)),
+        else_=literal(PENDING),
+    )
+
+
+def invoice_lines(start: date, end: date, facility: int | None) -> Subquery:
+    """The fiscal documents issued in the period (spec 038, R12), by the issuing facility: every
+    line of the invoices and credit notes, priced with the line rule as `credit_note_lines` does,
+    and one row per payment receipt carrying its payment amount (a receipt's lines are worth
+    nothing). Drafts cancelled before they were ever stamped are left out."""
+    line, document = FiscalDocumentDetail, FiscalDocument
+    subtotal, tax, _, _ = _priced(
+        line.quantity, line.price, line.discount, line.tax_rate, line.tax_included
+    )
+    since, until = period_bounds(start, end)
+    issued = [
+        document.issued >= since,
+        document.issued < until,
+        or_(document.stamped.is_not(None), document.cancelled.is_(False)),
+    ]
+    if facility is not None:
+        issued.append(document.facility == facility)
+    status = _document_status(document).label('document_status')
+    zero = literal(0)
+    lines = (
+        select(
+            line.fiscal_document_detail_id.label('id'), line.document.label('doc'),
+            case(
+                (document.type == int(FiscalDocumentType.INVOICE), literal(INVOICE)),
+                else_=literal(CREDIT_NOTE),
+            ).label('document_type'),
+            status, document.issuer.label('issuer'), document.facility.label('facility'),
+            document.customer.label('customer'), line.product.label('product'),
+            document.issued.label('at'),
+            _with_residual(subtotal, line.document, line.fiscal_document_detail_id, subtotal).label(
+                'sub_c'
+            ),
+            _with_residual(tax, line.document, line.fiscal_document_detail_id, subtotal).label(
+                'tax_c'
+            ),
+            case((line.order_detail.is_(None), 1), else_=0).label('standalone'),
+            zero.label('receipt_c'),
+        )
+        .join(document, document.fiscal_document_id == line.document)
+        .where(
+            document.type.in_(
+                [int(FiscalDocumentType.INVOICE), int(FiscalDocumentType.CREDIT_NOTE)]
+            ),
+            *issued,
+        )
+    )  # fmt: skip
+    receipts = select(
+        document.fiscal_document_id.label('id'), document.fiscal_document_id.label('doc'),
+        literal(PAYMENT_RECEIPT).label('document_type'), status,
+        document.issuer.label('issuer'), document.facility.label('facility'),
+        document.customer.label('customer'), null().label('product'),
+        document.issued.label('at'), zero.label('sub_c'), zero.label('tax_c'),
+        zero.label('standalone'),
+        cents(func.coalesce(document.payment_amount, 0)).label('receipt_c'),
+    ).where(document.type == int(FiscalDocumentType.PAYMENT_RECEIPT), *issued)  # fmt: skip
+    return union_all(lines, receipts).subquery('invoice_lines')
+
+
+def coverage_lines(start: date, end: date, facility: int | None) -> Subquery:
+    """Spec 037's sale lines of the period, each with what live stamped invoices invoiced on it,
+    whenever they were issued (spec 038, R12).
+
+    The invoiced quantity is capped at the line's, and valued at the sale line's own cents ×
+    invoiced ÷ sold, rounded, so a line's invoiced and not invoiced cents add up to its sale cents.
+    `lag_w` is the days from the sale to the line's first invoice × its invoiced cents without VAT:
+    summed and divided by those cents, it is the lag weighted by invoiced amount.
+    """
+    sold = sale_lines(start, end, facility)
+    line, document = FiscalDocumentDetail, FiscalDocument
+    since, until = period_bounds(start, end)
+    # Only the invoice lines of the period's sales, so the grouping never reads the whole history.
+    invoiced = (
+        select(
+            line.order_detail.label('line'),
+            func.sum(line.quantity).label('qty'),
+            func.min(document.issued).label('first'),
+        )
+        .join(document, document.fiscal_document_id == line.document)
+        .join(SalesOrderDetail, SalesOrderDetail.sales_order_detail_id == line.order_detail)
+        .join(SalesOrder, SalesOrder.sales_order_id == SalesOrderDetail.sales_order)
+        .where(
+            document.type == int(FiscalDocumentType.INVOICE),
+            document.stamped.is_not(None),
+            document.cancelled.is_(False),
+            SalesOrder.confirmation_time >= since,
+            SalesOrder.confirmation_time < until,
+        )
+        .group_by(line.order_detail)
+        .subquery('invoiced')
+    )
+    s = sold.c
+    asked = func.coalesce(invoiced.c.qty, 0)
+    capped = case((s.qty <= 0, 0), (asked > s.qty, s.qty), (asked < 0, 0), else_=asked)
+
+    def share(amount: ColumnElement) -> ColumnElement:
+        # Cents × invoiced × 0.01 ÷ sold: pesos, rounded once to cents. The decimal literal keeps
+        # SQLite off integer division and MariaDB on exact DECIMALs.
+        return case((s.qty > 0, cents(amount * capped * literal_column('0.01') / s.qty)), else_=0)
+
+    invoiced_sub = share(s.sub_c)
+    lag = case(
+        (invoiced.c.first.is_(None), 0), else_=days_between(s.at, invoiced.c.first) * invoiced_sub
+    )
+    return (
+        select(
+            s.id, s.doc, s.product, s.qty, s.facility, s.salesperson, s.customer, s.at,
+            s.sub_c, s.tax_c, capped.label('inv_qty'), invoiced_sub.label('inv_sub_c'),
+            share(s.tax_c).label('inv_tax_c'), invoiced.c.first.label('first_invoiced'),
+            lag.label('lag_w'),
+        )
+        .select_from(sold)
+        .outerjoin(invoiced, invoiced.c.line == s.id)
+        .subquery('invoice_coverage')
+    )  # fmt: skip
+
+
+def purchase_lines(start: date, end: date, facility: int | None) -> Subquery:
+    """Every line of the purchase orders confirmed in the period: completed, not cancelled, and
+    dated by the order's `modification_time`, the moment spec 033 dates them by (spec 038, R13).
+
+    Legacy orders count. The amount is quantity × price × (1 − discount), before tax, whatever the
+    tax-included flag says (spec 031, FR-034), with each order's rounding residual on its largest
+    line, so an order's lines sum to its subtotal. Each line is placed by its own warehouse's
+    facility (R17); a line without a warehouse has none. An order can span facilities, so the
+    scope applies after the residual is placed. `received` is the quantity of confirmed receipt
+    lines linked to it. `unit` is the price after discount, which price history reads.
+    """
+    line, order = PurchaseOrderDetail, PurchaseOrder
+    since, until = period_bounds(start, end)
+    dated = [
+        order.completed.is_(True),
+        order.cancelled.is_(False),
+        order.modification_time >= since,
+        order.modification_time < until,
+    ]
+    # Only the receipts of the period's orders, so the grouping never reads the whole history.
+    receipt, got = InventoryReceipt, InventoryReceiptDetail
+    received = (
+        select(got.purchase_order_detail.label('line'), func.sum(got.quantity).label('qty'))
+        .join(receipt, receipt.inventory_receipt_id == got.receipt)
+        .join(line, line.purchase_order_detail_id == got.purchase_order_detail)
+        .join(order, order.purchase_order_id == line.purchase_order)
+        .where(receipt.completed.is_(True), receipt.cancelled.is_(False), *dated)
+        .group_by(got.purchase_order_detail)
+        .subquery('received')
+    )
+    unit = line.price * (1 - line.discount)
+    amount = line.quantity * unit
+    query = (
+        select(
+            line.purchase_order_detail_id.label('id'),
+            line.purchase_order.label('doc'),
+            line.product.label('product'),
+            line.warehouse.label('warehouse'),
+            Warehouse.facility.label('facility'),
+            order.supplier.label('supplier'),
+            order.modification_time.label('at'),
+            line.quantity.label('qty'),
+            unit.label('unit'),
+            _with_residual(
+                amount, line.purchase_order, line.purchase_order_detail_id, amount
+            ).label('sub_c'),
+            func.coalesce(received.c.qty, 0).label('received'),
+        )
+        .join(order, order.purchase_order_id == line.purchase_order)
+        .outerjoin(Warehouse, Warehouse.warehouse_id == line.warehouse)
+        .outerjoin(received, received.c.line == line.purchase_order_detail_id)
+        .where(*dated)
+    )
+    if facility is None:
+        return query.subquery('purchase_lines')
+    placed = query.subquery('placed_lines')
+    return select(placed).where(placed.c.facility == facility).subquery('purchase_lines')
+
+
 #: The row source of each fact, by period and facility scope.
 SOURCES = {
     Fact.SALE_LINE: sale_lines,
     Fact.REFUND_LINE: refund_lines,
     Fact.CREDIT_NOTE: credit_note_lines,
     Fact.PAYMENT: payment_rows,
+    Fact.MOVEMENT: movement_rows,
+    Fact.CREDIT_FLOW: credit_flow_rows,
+    Fact.INVOICE_LINE: invoice_lines,
+    Fact.INVOICE_COVERAGE: coverage_lines,
+    Fact.PURCHASE_LINE: purchase_lines,
 }
 
 #: What each fact sums, by output name.
@@ -328,6 +662,11 @@ _SUMS = {
     Fact.REFUND_LINE: ('sub_c', 'tax_c', 'cost_c', 'qty'),
     Fact.CREDIT_NOTE: ('sub_c', 'tax_c'),
     Fact.PAYMENT: ('collected_c', 'paid_out_c', 'store_c'),
+    Fact.MOVEMENT: ('units_in', 'units_out'),
+    Fact.CREDIT_FLOW: ('credit_sales_c', 'collected_c', 'due_c', 'due_collected_c'),
+    Fact.INVOICE_LINE: ('receipt_c',),
+    Fact.INVOICE_COVERAGE: ('sub_c', 'tax_c', 'inv_sub_c', 'inv_tax_c', 'lag_w'),
+    Fact.PURCHASE_LINE: ('sub_c', 'qty', 'received'),
 }
 
 
@@ -394,6 +733,10 @@ def dimension_expression(
             return product_label.c.label
         case DimensionKey.POINT_OF_SALE:
             return rows.point_sale
+        case DimensionKey.SALES_AGENT:
+            # The customer's agent, as spec 033's screen groups (research R9).
+            joins.customer = True
+            return Customer.salesperson
         case _:
             return rows[dimension.value]
 
@@ -442,6 +785,8 @@ def query(fact: Fact, slice_: Slice) -> Select:
     ]
 
     c = rows.c
+    if fact is Fact.INVOICE_LINE and slice_.stamped_only:
+        conditions.append(c.document_status == STAMPED)
     columns += [_sum(c[name]).label(name) for name in _SUMS[fact]]
     if fact in (Fact.SALE_LINE, Fact.REFUND_LINE):
         columns.append(_sum(case((c.costed == 1, c.sub_c), else_=0)).label('costed_sub_c'))
@@ -456,8 +801,34 @@ def query(fact: Fact, slice_: Slice) -> Select:
         ]
     if fact is Fact.REFUND_LINE:
         columns.append(func.count(func.distinct(c.doc)).label('documents'))
+    if fact is Fact.PURCHASE_LINE:
+        columns.append(func.count(func.distinct(c.doc)).label('orders'))
     if fact is Fact.PAYMENT:
         columns.append(_sum(case((c['class'] == COLLECTED, 1), else_=0)).label('payments'))
+    if fact is Fact.INVOICE_LINE:
+        invoice = c.document_type == INVOICE
+        standalone = and_(invoice, c.standalone == 1)
+        stamped = c.document_status == STAMPED
+        columns += [
+            _sum(case((invoice, c.sub_c), else_=0)).label('sub_c'),
+            _sum(case((invoice, c.tax_c), else_=0)).label('tax_c'),
+            _sum(case((standalone, c.sub_c), else_=0)).label('standalone_sub_c'),
+            _sum(case((standalone, c.tax_c), else_=0)).label('standalone_tax_c'),
+            # Output VAT (FR-143): stamped live invoices less stamped live credit notes.
+            _sum(
+                case(
+                    (and_(stamped, invoice), c.tax_c),
+                    (and_(stamped, c.document_type == CREDIT_NOTE), -c.tax_c),
+                    else_=0,
+                )
+            ).label('vat_c'),
+            func.count(func.distinct(case((invoice, c.doc), else_=null()))).label('invoices'),
+        ]
+    if fact is Fact.MOVEMENT:
+        columns += [
+            func.count().label('entries'),
+            func.count(func.distinct(c.doc)).label('documents'),
+        ]
 
     statement = joins.apply(select(*columns).select_from(rows)).where(true(), *conditions)
     if grouped:

@@ -103,7 +103,12 @@ def sensitive_keys(body: Any) -> set[str]:
     names = set(body) if isinstance(body, list) and all(isinstance(b, str) for b in body) else None
     found = names if names is not None else keys_in(body)
     words = ('cost', 'margin', 'costed', 'coverage', 'costo', 'margen')
-    return {k for k in found if any(w in k.lower() for w in words)}
+    return {k for k in found if any(w in k.lower() for w in words)} - NOT_COST
+
+
+#: Keys the words above match that are not cost-derived: spec 038's invoiced share of sales, which
+#: a fiscal reader (23, granted below for the credit-note detail) sees without the cost privilege.
+NOT_COST = {'invoice_coverage'}
 
 
 # ── US1 (T015) ────────────────────────────────────────────────────────────────
