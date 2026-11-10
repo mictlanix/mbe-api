@@ -483,7 +483,7 @@ Deploying the branch to dev :8765 is pre-authorized. Applying migration 032, run
 - [X] T086 Only if the user provides SMTP settings and agrees: one real send, with the attachment, to the user. Otherwise record it as not run. Installing the cron entry on any server is a deployment step outside this spec unless the user asks.
 - [X] T087 Run quickstart §6 (SC-005): for each legacy row marked Q, D, Detail or V, run the stated request on dev and record the request and a one-line result in the verifications.
 - [X] T088 (mictlanix/mbe-api#300) Open the PR from `038-analytics-operations`. Under "Roadmap": `Closes mictlanix/mbe-roadmap#94`, `#96`, `#100`, `#102`, and `Part of mictlanix/mbe-roadmap#9`. End the body with "🤖 Generated with [Claude Code](https://claude.com/claude-code)".
-- [ ] T089 After the merge:
+- [X] T089 (mictlanix/mbe-ui#238) After the merge:
   - open the mbe-ui issue of quickstart §7;
   - record the verifications, mark the spec complete and commit `.spec-context.json` to main;
   - delete the branch locally and remotely, and remove the worktree.

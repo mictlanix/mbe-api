@@ -3,7 +3,7 @@
   "specName": "Operations analytics (inventory, receivables, commissions, fiscal, suppliers) with saved views and scheduled reports",
   "branch": "038-analytics-operations",
   "currentStep": "implement",
-  "status": "implementing",
+  "status": "completed",
   "history": [
     {
       "step": "specify",
@@ -757,6 +757,21 @@
       "kind": "complete",
       "by": "extension",
       "at": "2026-11-10T03:01:03.633Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "task": "T089",
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-11-10T07:04:38.097Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-11-10T07:04:38.098Z"
     }
   ],
   "verified": [
@@ -791,6 +806,10 @@
     {
       "what": "T087 legacy questions on dev (SC-005)",
       "result": "Rows 23, 24, 27, 28, 30, 32, 33 (Q and D), 34, 35, 37 answered by their stated requests with matching drill-downs; row 38 (purchases CSV) not run on dev because exports write; its purchases detail (575 lines, 6,045,813.79) equals the query and the CSV columns are covered by tests."
+    },
+    {
+      "what": "PR merged and hand-off opened",
+      "result": "mictlanix/mbe-api#300 merged as bfa04d8; mictlanix/mbe-roadmap#94, #96, #100, #102 closed by the merge; mbe-ui hand-off opened as mictlanix/mbe-ui#238 (quickstart §7)"
     }
   ],
   "concerns": [
@@ -804,5 +823,5 @@
       "note": "Parallel dashboard tile groups only overlap their Python work with several uvicorn workers; dev and test run one process."
     }
   ],
-  "currentTask": "T089"
+  "currentTask": null
 }
