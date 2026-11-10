@@ -200,6 +200,69 @@ class TestSchemeOne:
 
         assert [x.commission for x in april] == [D('-30.00')]
 
+    def test_with_no_month_closed_a_refund_of_an_earlier_months_order_lands_in_its_own_month(
+        self,
+    ) -> None:
+        """#301: live April lists the refund, as it would once March closed."""
+        paid = _line(is_paid=True, balance_zeroed_time=datetime(2026, 3, 5))
+        refund = rules.RefundLine(70, 10, datetime(2026, 4, 2), D('-10000.00'), D('0.3'))
+
+        live = _run((2026, 4), [paid], refunds=[refund])
+        march = _run((2026, 3), [paid], refunds=[refund], chain_start=datetime(2026, 3, 1))
+        closed = _run(
+            (2026, 4),
+            [paid],
+            refunds=[refund],
+            stored=_store(march),
+            chain_start=datetime(2026, 3, 1),
+        )
+
+        assert [(x.movement, x.customer_refund_detail, x.commission) for x in live] == [
+            (CommissionMovement.REFUND, 70, D('-30.00'))
+        ]
+        assert live == closed
+
+    def test_with_no_month_closed_an_earlier_months_refund_is_not_deducted_again(self) -> None:
+        """A refund the sale's own month already deducts stays there."""
+        paid = _line(is_paid=True, balance_zeroed_time=datetime(2026, 3, 5))
+        before = rules.RefundLine(70, 10, datetime(2026, 2, 20), D('-10000.00'), D('0.1'))
+        after = rules.RefundLine(71, 10, datetime(2026, 3, 20), D('-10000.00'), D('0.2'))
+
+        march = _run((2026, 3), [paid], refunds=[before, after])
+        april = _run((2026, 4), [paid], refunds=[before, after])
+
+        assert sorted(x.commission for x in march) == [D('-20.00'), D('-10.00'), D('100.00')]
+        assert april == []
+
+    def test_with_no_month_closed_a_reversed_order_deducts_no_refund(self) -> None:
+        """Unpaid now, the March sale would not count, so neither does its refund."""
+        reversed_ = _line(is_paid=False, balance_zeroed_time=datetime(2026, 3, 5))
+        refund = rules.RefundLine(70, 10, datetime(2026, 4, 2), D('-10000.00'), D('0.3'))
+
+        assert _run((2026, 4), [reversed_], refunds=[refund]) == []
+
+    def test_a_chained_month_still_skips_the_refund_of_a_sale_from_before_the_chain(
+        self,
+    ) -> None:
+        """Months the chain reaches are unchanged: a pre-chain sale was never stored."""
+        paid = _line(is_paid=True, balance_zeroed_time=datetime(2026, 3, 5))
+        refund = rules.RefundLine(70, 10, datetime(2026, 5, 2), D('-10000.00'), D('0.3'))
+
+        may = _run((2026, 5), [paid], refunds=[refund], chain_start=datetime(2026, 4, 1))
+
+        assert may == []
+
+    def test_a_month_before_the_chain_deducts_it_as_with_no_month_closed(self) -> None:
+        """A month before the first close stays open, so the first close does not change it."""
+        paid = _line(is_paid=True, balance_zeroed_time=datetime(2026, 3, 5))
+        refund = rules.RefundLine(70, 10, datetime(2026, 4, 2), D('-10000.00'), D('0.3'))
+
+        unchained = _run((2026, 4), [paid], refunds=[refund])
+        chained = _run((2026, 4), [paid], refunds=[refund], chain_start=datetime(2026, 6, 1))
+
+        assert [x.commission for x in chained] == [D('-30.00')]
+        assert chained == unchained
+
     def test_a_refund_already_stored_is_not_deducted_again(self) -> None:
         paid = _line(is_paid=True, balance_zeroed_time=datetime(2026, 3, 5))
         refund = rules.RefundLine(70, 10, datetime(2026, 3, 20), D('-10000.00'), D('0.3'))

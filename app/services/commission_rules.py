@@ -22,6 +22,9 @@ those stored (FR-009a): a reassignment or a rate change never moves a line alrea
 - *Refunds, both schemes:* a negative line for each refund line dated before the month's end that is
   not yet stored for the key. Under scheme 1 its sale must count this month or already be stored,
   which reproduces both of the current system's refund branches and charges a refund once (FR-017).
+  While no month up to this one is closed, a sale paid in an earlier month is stored nowhere, so a
+  refund dated in this month of an order paid earlier counts too, as it would once the earlier
+  months closed in order (#301).
 
 The cap holds by construction: a sale amount is always "what is due by now, less what was stored",
 and "what is due" never exceeds the full commission.
@@ -330,8 +333,17 @@ def month_lines(
             # current system, so that someone sees it and labels it.
             listed_at_zero = full == 0 and not has_stored_sale
             sale_counts_now = False
+            # No month up to this one is closed, so an earlier month's sale is stored nowhere:
+            # its later refunds land in their own month, as once the earlier months closed (#301).
+            earned_before = False
             if scheme == CommissionScheme.FULLY_PAID:
                 zeroed = line.balance_zeroed_time
+                earned_before = (
+                    line.is_paid
+                    and zeroed is not None
+                    and zeroed < month_start
+                    and (chain_start is None or month_start < chain_start)
+                )
                 in_month = zeroed is not None and month_start <= zeroed < next_month
                 picked_up_late = (
                     zeroed is not None
@@ -365,7 +377,9 @@ def month_lines(
                 if refund.date >= next_month or refund.customer_refund_detail in stored_refunds:
                     continue
                 if scheme == CommissionScheme.FULLY_PAID and not (
-                    sale_counts_now or has_stored_sale
+                    sale_counts_now
+                    or has_stored_sale
+                    or (earned_before and refund.date >= month_start)
                 ):
                     continue
                 refund_total = _round(refund.price * refund.quantity)
