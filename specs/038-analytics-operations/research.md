@@ -141,6 +141,8 @@ Each month is written in one transaction (delete, then insert).
 
 **Writes on mbe_dev**: running the backfill on mbe_dev writes rows, so it needs the user's confirmation, like a migration.
 
+**Measured on mbe_dev** (T079, T082): `open_credit_orders(as_of=…)` takes 1.7–2.1 s for 2025-06-30 (389 orders), 1.1–1.3 s for 2026-06-30 (599) and 1.1–1.2 s for now (606, $6,861,865.40, spec 033's figure). The backfill from 2025-01 wrote 22 month-ends (13,770 rows) in 37 s; rebuilding 2025-06, 2025-12 and 2026-09 gave identical rows (count, balance and a checksum of every column but `written_at`).
+
 ## R9. Receivable measures
 
 **Decision**: all amounts are in base currency (balance × exchange rate), as `accounts_service.summarize` computes them.
@@ -314,6 +316,20 @@ Locally, through an SSH tunnel to mbe_dev, a year's dashboard went from 36 s (25
 
 Re-timed after those (dashboard p95 3.6 s for a month and 10.1 s for a year on dev, against 2 s and 5 s), every tile still ran in one Python process, so one request could not get much faster. The decision: the dashboard takes an optional `families` list, and mbe-ui should request its tile groups in parallel, one dashboard request per family (sales, payments, inventory, receivables, payables, fiscal), drawing each group as it arrives. Each request reads only its family's facts, and their union is the whole dashboard.
 
+**Measured on dev, 2026-11-09** (p95 of 10 runs per group, response cache flushed before each, run on the xolotl box itself; a runaway probe query was still holding one MariaDB core, so these are on the high side):
+
+| Tile group | Month alone | Year alone |
+|---|---|---|
+| sales (spec 037) | 1.38 s | 4.55 s |
+| payments | 0.08 s | 0.65 s |
+| inventory | 1.63 s | 3.14 s |
+| receivables | 0.95 s | 1.89 s |
+| fiscal | 0.19 s | 2.74 s |
+
+Every group meets SC-009 on its own. Fired together at one dev instance, all five take 2.9 s for a month and 10.0 s for a year, because dev runs a single uvicorn process and the groups' Python work queues on its one event loop; they only overlap their database waits. The parallel load pays off where the API runs several worker processes (`uvicorn --workers N`), which is a deployment setting outside this spec.
+
+Other SC-009 timings on dev (30 runs, p95): stock as of 2026-06-30 for every pair by warehouse × product 3.9 s; receivables by customer × bucket × month over 12 month-ends 2.6 s; kardex of the busiest pair (2,724 entries) 0.3 s first page, 0.2 s last page. Commissions over 12 open months by agent × label: 7.7 s, a known miss accepted by the user: spec 025's candidate query costs about 2.75 s per open month (mictlanix/mbe-api#298), and closed months read stored lines.
+
 ## R19. Migration 032
 
 **Decision**: `migrations/032_operations_analytics.sql`, with a rollback. It adds:
@@ -321,6 +337,8 @@ Re-timed after those (dashboard p95 3.6 s for a month and 10.1 s for a year on d
 - the tables `receivable_snapshot`, `receivable_snapshot_month` (one marker per written month-end, so a month with no open orders isn't rewritten), `analytics_view`, `analytics_view_share`, `analytics_schedule`, `analytics_schedule_recipient` and `analytics_send`.
 
 There are no column changes to existing tables. Applying it on mbe_dev needs the user's confirmation, as 031 did.
+
+**On mbe_dev** (T078, T080): before the migration, the EXPLAIN of 2025's movements was `ALL` on `lot_serial_tracking` (674k rows, no date index). Applied with the user's OK on 2026-11-09 (8 statements, about 3 s). After it, October 2025's movements read `range` on `lot_serial_tracking_date_idx` (8,219 rows); a whole year, about 18% of the ledger, still scans, which is the optimizer's choice at that selectivity. The seven tables were created empty.
 
 ## R20. Error codes
 
