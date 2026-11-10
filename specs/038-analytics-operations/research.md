@@ -32,13 +32,26 @@ Python then adds the movements cumulatively onto the opening.
 
 Measured: every product × warehouse pair as of a date takes about 1.2 s, and five year-end snapshots in one pass take 1.9 s.
 
+**Incremental moments.** The facts are computed per pair (R5), then grouped. A later moment updates only the pairs that moved in its bucket: each one is taken out of its groups at its old figures and put back at its new ones, so the rules that are not linear in on hand still hold exactly (negative stock and uncosted products add no value; stocked, costed and uncosted pairs are counts). Without `stock_options` a pair's figures depend only on its on hand, so this is exact. With them (velocity, cover, dead and slow stock) the windows move with the moment, so every pair is assessed at each moment asked; the dashboard and the detail ask for one.
+
+**Daily checkpoint.** Each process keeps, per database, every pair's ledger sum and last entry over the entries dated up to the end of yesterday (business time) with an id up to the highest one it read, built on the first read of the day. A read at the end of day D then sums only:
+- for D after the checkpoint's day, the entries dated after it up to D;
+- for D before it, minus the covered entries dated after D (a range read on the date index);
+- in both cases, the entries with a higher id dated on or before the checkpoint's day or D.
+
+The last condition keeps a back-dated entry from being missed. They happen: on mbe_dev (2026-11-09) 16 days since 2025 hold an entry written after a later-dated one, up to 34 days back (2026-03-17 written after 2026-04-20). The last entry of a pair can't be taken back, so a read before the checkpoint's day that needs it (R5's dead stock) still sums the whole ledger.
+
+The checkpoint relies on the ledger being append-only. This API only inserts into `lot_serial_tracking` (spec 030); a cancel posts a reversing entry. On mbe_dev, ids since 2025-02-07 have 22 gaps: one of 11,902 ids after id 1,217,074 (the 2025-02-06 reset) and 21 of 1–23 ids (85 in all), consistent with rolled-back inserts. Rows changed in place by the legacy application can't be detected from the data. Such a change would be picked up when the checkpoint is next rebuilt, the next day.
+
+**Measured cause (spec 038 dashboard on dev, before this design):** a month took 22 s and a year 40 s at p95, against 2 s and 5 s. The `stock_value` sparkline reads the stock fact at every bucket: 31 moments for a month, about 53 for a year. Each read cost about 2.5 s for the opening (a `GROUP BY` over the whole ledger, 28,913 pairs) plus 0.8 s for the bucketed movements, then about 0.55 s of Python per moment, copying and regrouping every pair. All pairs by warehouse × product as of a date took 4.0–4.2 s.
+
 Migration 032 adds an index on `lot_serial_tracking(date)`, which has none today. The as-of sum still reads every earlier row, but movements in a period become a range read.
 
 **Reserved and available**: today only, from `stock_ledger.reserved_by_warehouse`, because reservations have no history. Asking for them at a past date gives null, and the catalog says so.
 
 **In transit**: spec 030's `split_transit` rule. Stock in a transit warehouse belongs to the transfer's destination facility.
 
-**Alternatives considered**: storing daily stock snapshots would hold 18k pairs a day, a new table and a writer on every movement path, for a read that already takes 1.2 s.
+**Alternatives considered**: storing daily stock snapshots would hold 18k pairs a day, a new table and a writer on every movement path. The in-process checkpoint gives the same read without a table or a writer, at the cost of one full sum per process per day.
 
 ## R3. Reliable history starts on 2025-02-07
 
@@ -287,6 +300,8 @@ Facility scope:
 The two heaviest reads are both timed in the quickstart, and if either misses its target that is reported before anything is redesigned:
 - **Stock as of today for all pairs**, about 1.2 s. The dashboard's stock tiles share one such query.
 - **Commission months computed live.**
+
+Stock missed its target on dev: the `stock_value` sparkline cost one Python pass over every pair per bucket, on top of a full-ledger opening (R2's measured cause). R2's incremental moments make a later moment cost only its moved pairs, and its daily checkpoint makes the opening a range read near the checkpoint instead of a sum over the whole ledger. The first read of each day per process still pays one full sum.
 
 ## R19. Migration 032
 

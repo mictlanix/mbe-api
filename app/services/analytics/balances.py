@@ -4,7 +4,8 @@ history start, and receivables and payables (at the end of this file).
 On hand at the end of day D is Σ `lot_serial_tracking.quantity` dated before D + 1, the sum spec
 030's `stock_ledger.on_hand` and kardex opening take, so the two can't diverge (R2). Every moment
 is read in two queries: the opening at the first moment, then the movements between moments,
-added on in Python.
+added on in Python. The opening starts from a per-process checkpoint of yesterday's sums, so it
+reads only the entries between the checkpoint and the moment (`checkpoint`, `_opening`).
 
 Everything is computed per product × warehouse pair and then grouped in Python, because velocity,
 cover, stock-outs, dead and slow stock are pair-level rules (R5) that no group sum can reproduce.
@@ -15,7 +16,9 @@ Value is today's list-0 cost without VAT (R4). A cost of 0 or less, or at least
 `settings.placeholder_cost`, is uncosted: such pairs carry no value.
 """
 
+import asyncio
 import itertools
+import weakref
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import date, datetime, time, timedelta
@@ -247,51 +250,187 @@ def _scoped(query, facility: int | None, filters: Mapping[DimensionKey, Sequence
     return _pushed(query, filters)
 
 
-Balances = dict[tuple[int, int], tuple[Decimal, datetime | None]]
+Pairs = tuple[int, int]
+Balances = dict[Pairs, tuple[Decimal, datetime | None]]
+#: A bucket's movements: `(pair, Σ quantity, last entry)` of each pair that moved in it.
+Moved = list[tuple[Pairs, Decimal, datetime | None]]
 
 
-async def _balances(
+def _opening_query(
+    until: datetime, facility: int | None, filters: Mapping[DimensionKey, Sequence[Any]]
+):  # noqa: ANN202
+    """`(product, warehouse, Σ quantity, last date)` of the entries dated before `until`."""
+    entry = LotSerialTracking
+    return _scoped(
+        select(entry.product, entry.warehouse, func.sum(entry.quantity), func.max(entry.date))
+        .where(entry.date < until)
+        .group_by(entry.product, entry.warehouse),
+        facility,
+        filters,
+    )
+
+
+def _movements_query(
+    moments: Sequence[date], facility: int | None, filters: Mapping[DimensionKey, Sequence[Any]]
+):  # noqa: ANN202
+    """The entries after the first moment up to the last, grouped by pair and by the moment that
+    ends their bucket (1 for the second moment, and so on)."""
+    entry = LotSerialTracking
+    bounds = [day_end(m) for m in moments]
+    bucket = case(*((entry.date < bound, i) for i, bound in enumerate(bounds[1:], start=1)))
+    return _scoped(
+        select(
+            entry.product, entry.warehouse, bucket.label('bucket'), func.sum(entry.quantity),
+            func.max(entry.date),
+        )
+        .where(entry.date >= bounds[0], entry.date < bounds[-1])
+        .group_by(entry.product, entry.warehouse, bucket),
+        facility,
+        filters,
+    )  # fmt: skip
+
+
+def _delta_query(
+    condition: Any, facility: int | None, filters: Mapping[DimensionKey, Sequence[Any]]
+):  # noqa: ANN202
+    """`(product, warehouse, Σ quantity, last date)` of the entries matching `condition`."""
+    entry = LotSerialTracking
+    return _scoped(
+        select(entry.product, entry.warehouse, func.sum(entry.quantity), func.max(entry.date))
+        .where(condition)
+        .group_by(entry.product, entry.warehouse),
+        facility,
+        filters,
+    )
+
+
+# ── The daily checkpoint (research R2, R18) ───────────────────────────────────
+
+
+@dataclass(frozen=True)
+class Checkpoint:
+    """Every pair's ledger sum and last entry over the entries with an id up to `max_id` dated
+    before the end of `day` (yesterday, business time), in every warehouse. A read adds what came
+    after: the entries dated after `day`, and those with a higher id dated on or before it (a
+    back-dated entry), so the checkpoint can't go stale. The ledger is append-only (spec 030)."""
+
+    day: date
+    max_id: int
+    sums: Balances
+
+
+#: One checkpoint per database engine, per process; rebuilt on the first read of each day.
+_checkpoints: weakref.WeakKeyDictionary[Any, Checkpoint] = weakref.WeakKeyDictionary()
+_building: weakref.WeakKeyDictionary[Any, asyncio.Lock] = weakref.WeakKeyDictionary()
+
+
+async def checkpoint(db: AsyncSession) -> Checkpoint | None:
+    """The engine's checkpoint at the end of yesterday, built when missing or a day old."""
+    bind = getattr(db, 'bind', None)
+    engine = getattr(bind, 'sync_engine', None)
+    if engine is None:
+        return None
+    day = local_now().date() - timedelta(days=1)
+    found = _checkpoints.get(engine)
+    if found is not None and found.day == day:
+        return found
+    lock = _building.setdefault(engine, asyncio.Lock())
+    async with lock:
+        found = _checkpoints.get(engine)
+        if found is None or found.day != day:
+            entry = LotSerialTracking
+            max_id = (
+                await db.execute(select(func.coalesce(func.max(entry.lot_serial_tracking_id), 0)))
+            ).scalar_one()
+            covered = (entry.lot_serial_tracking_id <= max_id) & (entry.date < day_end(day))
+            rows = (await db.execute(_delta_query(covered, None, {}))).all()
+            sums = {(p, w): (Decimal(q or 0), _datetime(last)) for p, w, q, last in rows}
+            found = Checkpoint(day, int(max_id), sums)
+            _checkpoints[engine] = found
+    return found
+
+
+def _kept(
+    key: Pairs,
+    facility: int | None,
+    filters: Mapping[DimensionKey, Sequence[Any]],
+    warehouses: Mapping[int, tuple[int, bool]],
+) -> bool:
+    """What `_scoped` keeps in SQL, applied to a checkpoint's pairs."""
+    product, warehouse = key
+    if facility is not None and warehouses.get(warehouse, (None, False))[0] != facility:
+        return False
+    for dimension, value in ((DimensionKey.PRODUCT, product), (DimensionKey.WAREHOUSE, warehouse)):
+        values = filters.get(dimension)
+        if values is not None and None not in values and value not in values:
+            return False
+    return True
+
+
+async def _opening(
+    db: AsyncSession,
+    moment: date,
+    facility: int | None,
+    filters: Mapping[DimensionKey, Sequence[Any]],
+    warehouses: Mapping[int, tuple[int, bool]],
+    *,
+    last: bool,
+) -> Balances:
+    """`(on hand, last entry)` per pair at the end of `moment` (R2): from the checkpoint plus or
+    minus the entries between it and the moment, else one sum over the whole ledger. The last
+    entry can't be taken back, so a `last` read before the checkpoint sums the whole ledger; a
+    read that doesn't need it leaves it unset before the checkpoint."""
+    until = day_end(moment)
+    found = await checkpoint(db)
+    if found is None or (last and moment < found.day):
+        rows = (await db.execute(_opening_query(until, facility, filters))).all()
+        return {(p, w): (Decimal(q or 0), _datetime(at)) for p, w, q, at in rows}
+
+    entry = LotSerialTracking
+    covered_end = day_end(found.day)
+    later = entry.lot_serial_tracking_id > found.max_id
+    forward = moment >= found.day
+    state: Balances = {
+        key: (held, at if forward else None)
+        for key, (held, at) in found.sums.items()
+        if _kept(key, facility, filters, warehouses)
+    }
+    changes = [(1, later & (entry.date < min(covered_end, until)))]
+    if moment > found.day:
+        changes.append((1, (entry.date >= covered_end) & (entry.date < until)))
+    elif moment < found.day:
+        covered = entry.lot_serial_tracking_id <= found.max_id
+        changes.append((-1, covered & (entry.date >= until) & (entry.date < covered_end)))
+    for sign, condition in changes:
+        for p, w, q, at in (await db.execute(_delta_query(condition, facility, filters))).all():
+            held, before = state.get((p, w), (ZERO, None))
+            moved = _datetime(at) if sign > 0 and forward else None
+            state[(p, w)] = (held + sign * Decimal(q or 0), _latest(before, moved))
+    return state
+
+
+def _latest(*moments: datetime | None) -> datetime | None:
+    return max((m for m in moments if m is not None), default=None)
+
+
+async def _read(
     db: AsyncSession,
     moments: Sequence[date],
     facility: int | None,
     filters: Mapping[DimensionKey, Sequence[Any]],
-) -> list[Balances]:
-    """`(on hand, last entry)` per pair at the end of each moment: the opening at the first, then
-    each later one adds the entries since the one before (R2)."""
-    entry = LotSerialTracking
-    pair = (entry.product, entry.warehouse)
-    opening = _scoped(
-        select(*pair, func.sum(entry.quantity), func.max(entry.date))
-        .where(entry.date < day_end(moments[0]))
-        .group_by(*pair),
-        facility,
-        filters,
-    )
-    state: Balances = {
-        (p, w): (Decimal(q or 0), _datetime(last))
-        for p, w, q, last in (await db.execute(opening)).all()
-    }
-    result = [dict(state)]
-    if len(moments) == 1:
-        return result
-    bounds = [day_end(m) for m in moments]
-    bucket = case(*((entry.date < bound, i) for i, bound in enumerate(bounds[1:], start=1)))
-    movements = _scoped(
-        select(*pair, bucket.label('bucket'), func.sum(entry.quantity), func.max(entry.date))
-        .where(entry.date >= bounds[0], entry.date < bounds[-1])
-        .group_by(*pair, bucket),
-        facility,
-        filters,
-    )
-    by_bucket: dict[int, list[tuple]] = {}
-    for p, w, index, q, last in (await db.execute(movements)).all():
-        by_bucket.setdefault(int(index), []).append(((p, w), Decimal(q or 0), _datetime(last)))
-    for index in range(1, len(moments)):
-        for key, q, last in by_bucket.get(index, []):
-            held, before = state.get(key, (ZERO, None))
-            state[key] = (held + q, max((d for d in (before, last) if d), default=None))
-        result.append(dict(state))
-    return result
+    warehouses: Mapping[int, tuple[int, bool]],
+    *,
+    last: bool,
+) -> tuple[Balances, dict[int, Moved]]:
+    """The balances at the first moment, and each later moment's movements since the one before
+    (R2): two reads whatever the number of moments."""
+    opening = await _opening(db, moments[0], facility, filters, warehouses, last=last)
+    moved: dict[int, Moved] = {}
+    if len(moments) > 1:
+        rows = (await db.execute(_movements_query(moments, facility, filters))).all()
+        for p, w, index, q, at in rows:
+            moved.setdefault(int(index), []).append(((p, w), Decimal(q or 0), _datetime(at)))
+    return opening, moved
 
 
 def _datetime(value: Any) -> datetime | None:
@@ -406,21 +545,26 @@ async def ledger(
     today = local_now().date()
     warehouses = await _warehouses(db)
     transit = {w: f for w, (f, moving) in warehouses.items() if moving}
-    states = await _balances(db, moments, facility, filters)
+    state, moved = await _read(db, moments, facility, filters, warehouses, last=options is not None)
+    held = set(state) | {key for bucket in moved.values() for key, _, _ in bucket}
     reserved: dict[tuple[int, int], Decimal] = {}
     reads_reserved = today in moments and (options is not None or reservations)
     if reads_reserved:
-        held = {p for state in states for p, _ in state}
         reserved = {
             key: Decimal(q)
-            for key, q in (await stock_ledger.reserved_by_warehouse(db, products=held)).items()
+            for key, q in (
+                await stock_ledger.reserved_by_warehouse(db, products={p for p, _ in held})
+            ).items()
             if facility is None or warehouses.get(key[1], (None,))[0] == facility
         }
-    products = {p for state in states for p, _ in state} | {p for p, _ in reserved}
+    products = {p for p, _ in held} | {p for p, _ in reserved}
     found = Ledger(products=await _products(db, products) if described else {})
     cost = await costs(db, products)
 
-    for moment, state in zip(moments, states, strict=True):
+    for index, moment in enumerate(moments):
+        for key, q, at in moved.get(index, []):
+            before, last = state.get(key, (ZERO, None))
+            state[key] = (before + q, _latest(last, at))
         sold, fractional = (
             await _sold(db, moment, options.velocity_days, facility, filters)
             if options is not None
@@ -430,12 +574,12 @@ async def ledger(
         keys = set(state) | set(sold) | (set(reserved) if now else set())
         pairs = []
         for p, w in keys:
-            held, last = state.get((p, w), (ZERO, None))
+            on_hand, last = state.get((p, w), (ZERO, None))
             pair = Pair(
                 product=p,
                 warehouse=w,
                 facility=warehouses.get(w, (None, False))[0],
-                on_hand=held,
+                on_hand=on_hand,
                 last=last,
                 cost=cost.get(p),
                 reserved=reserved.get((p, w), ZERO) if now else None,
@@ -513,21 +657,95 @@ def _rows(
 
 async def stock(db: AsyncSession, slice_: facts.Slice) -> list[dict[str, Any]]:
     """The stock fact: on hand, transit, value and coverage at each moment; with options, the R5
-    measures. One row per moment and group."""
+    measures. One row per moment and group.
+
+    R5's rules depend on the moment itself (the windows move), so with options every pair is
+    assessed at every moment asked, which is one moment on the dashboard and the detail. Without
+    them a pair's columns depend only on its on hand, so each later moment updates only the pairs
+    that moved and moves their groups' sums by the difference (`Groups`)."""
     options = slice_.stock_options
-    found = await ledger(
-        db,
-        sorted(slice_.moments),
-        facility=slice_.facility,
-        filters=slice_.filters,
-        options=options,
-        described=bool(DESCRIBED & {*slice_.dimensions, *slice_.filters}),
+    moments = sorted(slice_.moments)
+    described = bool(DESCRIBED & {*slice_.dimensions, *slice_.filters})
+    if options is not None:
+        found = await ledger(
+            db, moments, facility=slice_.facility, filters=slice_.filters, options=options,
+            described=described,
+        )  # fmt: skip
+        rows: list[dict[str, Any]] = []
+        for moment, pairs in found.pairs.items():
+            groups = group(pairs, slice_.dimensions, found.products, lambda p: columns(p, options))
+            rows += _rows(moment, groups, len(slice_.dimensions), {})
+        return rows
+
+    warehouses = await _warehouses(db)
+    transit = {w: f for w, (f, moving) in warehouses.items() if moving}
+    opening, moved = await _read(
+        db, moments, slice_.facility, slice_.filters, warehouses, last=False
     )
-    rows: list[dict[str, Any]] = []
-    for moment, pairs in found.pairs.items():
-        groups = group(pairs, slice_.dimensions, found.products, lambda p: columns(p, options))
-        rows += _rows(moment, groups, len(slice_.dimensions), {})
+    keys = set(opening) | {key for bucket in moved.values() for key, _, _ in bucket}
+    products = {p for p, _ in keys}
+    info = await _products(db, products) if described else {}
+    cost = await costs(db, products)
+    groups = Groups(slice_.dimensions)
+    pairs: dict[Pairs, Pair | None] = {}
+
+    def pair_of(key: Pairs) -> Pair | None:
+        """The pair, made at its first appearance; None when the filters leave it out."""
+        if key not in pairs:
+            p, w = key
+            made = Pair(p, w, warehouses.get(w, (None, False))[0], cost=cost.get(p))
+            found = info.get(p, ProductInfo())
+            pairs[key] = made if matches(made, slice_.filters, found) else None
+        return pairs[key]
+
+    def place(pair: Pair, on_hand: Decimal) -> None:
+        pair.on_hand = on_hand
+        pair.in_transit = ZERO
+        _place_transit([pair], transit)
+
+    for key, (on_hand, _) in opening.items():
+        if (pair := pair_of(key)) is not None:
+            place(pair, on_hand)
+            groups.add(pair, info, 1)
+    rows = groups.rows(moments[0])
+    for index, moment in enumerate(moments[1:], start=1):
+        for key, q, _ in moved.get(index, []):
+            if (pair := pair_of(key)) is not None:
+                groups.add(pair, info, -1)
+                place(pair, pair.on_hand + q)
+                groups.add(pair, info, 1)
+        rows += groups.rows(moment)
     return rows
+
+
+class Groups:
+    """Running sums of `columns` per group of `dimensions`, moved pair by pair: a pair that moves
+    is taken out at its old figures and put back at its new ones, so the non-linear rules (no
+    value for negative stock or an uncosted product, the pair counts) hold exactly."""
+
+    def __init__(self, dimensions: Sequence[DimensionKey]) -> None:
+        self.dimensions = tuple(dimensions)
+        self.sums: dict[tuple, tuple[list[str | None], dict[str, Any]]] = {}
+
+    def add(self, pair: Pair, products: Mapping[int, ProductInfo], sign: int) -> None:
+        values = columns(pair, None)
+        if not any(values.values()):
+            return
+        info = products.get(pair.product, ProductInfo())
+        for combo in itertools.product(*(keys_of(pair, d, info) for d in self.dimensions)):
+            labels, sums = self.sums.setdefault(
+                tuple(k for k, _ in combo), ([None] * len(self.dimensions), {})
+            )
+            for index, (_, label) in enumerate(combo):
+                if label is not None and (labels[index] is None or label > labels[index]):
+                    labels[index] = label
+            for name, value in values.items():
+                sums[name] = sums.get(name, 0) + sign * value
+
+    def rows(self, moment: date) -> list[dict[str, Any]]:
+        """The groups that hold anything at `moment`, as the stock fact's rows."""
+        held = {key: group for key, group in self.sums.items() if any(group[1].values())}
+        return _rows(moment, held, len(self.dimensions), {})
 
 
 async def stock_today(db: AsyncSession, slice_: facts.Slice) -> list[dict[str, Any]]:

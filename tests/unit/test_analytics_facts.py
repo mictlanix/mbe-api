@@ -351,24 +351,32 @@ class _Recording:
 
 
 async def test_the_stock_ledger_queries_compile_for_mariadb() -> None:
-    """T075: the opening sum, the CASE-bucketed movements of later moments and the units sold,
-    which US1 ran on SQLite only, compile for MariaDB with nothing SQLite-only."""
+    """T075: the opening sum, the CASE-bucketed movements of later moments, a checkpoint's
+    difference and the units sold, which US1 ran on SQLite only, compile for MariaDB with nothing
+    SQLite-only."""
     session = _Recording()
     filters = {DimensionKey.PRODUCT: (1, 2)}
     moments = [date(2026, 3, 31), date(2026, 4, 30), date(2026, 5, 31)]
-    await balances._balances(session, moments, 1, filters)  # type: ignore[arg-type]
     await balances._sold(session, moments[-1], 90, 1, filters)  # type: ignore[arg-type]
-
-    opening, movements, sold = (
-        str(s.compile(dialect=mysql.dialect())).upper() for s in session.statements
+    entry = LotSerialTracking
+    statements = (
+        balances._opening_query(balances.day_end(moments[0]), 1, filters),
+        balances._movements_query(moments, 1, filters),
+        balances._delta_query(entry.lot_serial_tracking_id > 5, 1, filters),
+        *session.statements,
     )
-    for sql in (opening, movements, sold):
+
+    opening, movements, delta, sold = (
+        str(s.compile(dialect=mysql.dialect())).upper() for s in statements
+    )
+    for sql in (opening, movements, delta, sold):
         assert 'STRFTIME' not in sql and 'JULIANDAY' not in sql
         assert 'WAREHOUSE.FACILITY =' in sql
         assert 'LOT_SERIAL_TRACKING.PRODUCT IN' in sql
     assert 'SUM(LOT_SERIAL_TRACKING.QUANTITY)' in opening
     assert 'CASE WHEN (LOT_SERIAL_TRACKING.DATE <' in movements
     assert 'GROUP BY LOT_SERIAL_TRACKING.PRODUCT, LOT_SERIAL_TRACKING.WAREHOUSE, CASE' in movements
+    assert 'LOT_SERIAL_TRACKING.LOT_SERIAL_TRACKING_ID >' in delta
     assert 'ROUND(LOT_SERIAL_TRACKING.QUANTITY' in sold
 
 

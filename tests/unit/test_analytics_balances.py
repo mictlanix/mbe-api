@@ -4,7 +4,7 @@ Stock at the end of a day is the ledger sum before the next day, the rule spec 0
 `stock_ledger.on_hand` and kardex use, so every figure here is checked against those.
 """
 
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 
 import pytest
@@ -32,6 +32,7 @@ ADMIN = CurrentUser(
     user_id='tester', session_version=1, administrator=True, facility_id=1, employee_id=1
 )
 MARCH = date(2026, 3, 31)
+_DAY = timedelta(days=1)
 
 
 @pytest.fixture
@@ -212,3 +213,89 @@ async def test_negative_on_hand_is_a_stock_out_and_adds_no_value(
     assert rows[0]['on_hand'] == -2
     assert rows[0]['value_c'] == 0
     assert rows[0]['stock_outs'] == 1
+
+
+# ── The daily checkpoint and the incremental moments (research R2, R18) ───────
+
+
+async def _full(db: AsyncSession, moment: date) -> dict:  # noqa: F811
+    """The opening as one sum over the whole ledger: what the checkpoint must reproduce."""
+    rows = (await db.execute(balances._opening_query(balances.day_end(moment), None, {}))).all()
+    return {(p, w): (q, balances._datetime(at)) for p, w, q, at in rows}
+
+
+async def test_a_checkpointed_read_equals_a_full_read(db: AsyncSession, site: Inventory) -> None:  # noqa: F811
+    """Entries written after the checkpoint count wherever they are dated: today, yesterday, or
+    back-dated into March, before the checkpoint's day."""
+    found = await balances.checkpoint(db)
+    today = local_now().date()
+    yesterday = found.day
+    assert yesterday == date.fromordinal(today.toordinal() - 1)
+    p, w = site.stockable, site.a.warehouse
+    await entry(db, p, w, '2', datetime(2026, 3, 10, 8))  # back-dated
+    await entry(db, p, w, '-1', datetime.combine(yesterday, datetime.min.time()))
+    await entry(db, p, site.b.warehouse, '3', local_now())
+    late = await product(db, code='LATE')  # a pair the checkpoint never saw
+    await entry(db, late, w, '4', datetime(2026, 2, 1))
+    warehouses = await balances._warehouses(db)
+
+    assert await balances.checkpoint(db) is found  # built once a day
+    for moment in (date(2026, 1, 31), MARCH, yesterday, today):
+        full = await _full(db, moment)
+        read = await balances._opening(db, moment, None, {}, warehouses, last=True)
+        assert read == full, moment
+        quick = await balances._opening(db, moment, None, {}, warehouses, last=False)
+        assert {k: q for k, (q, _) in quick.items() if q} == {
+            k: q for k, (q, _) in full.items() if q
+        }, moment
+    scoped = await balances._opening(
+        db, MARCH, site.b.facility, {DimensionKey.PRODUCT: (p,)}, warehouses, last=False
+    )
+    assert {k: q for k, (q, _) in scoped.items()} == {(p, site.b.warehouse): 7}
+
+
+async def test_the_checkpoint_is_rebuilt_the_next_day(
+    db: AsyncSession,  # noqa: F811
+    site: Inventory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    first = await balances.checkpoint(db)
+    tomorrow = local_now() + _DAY
+    monkeypatch.setattr(balances, 'local_now', lambda: tomorrow)
+
+    second = await balances.checkpoint(db)
+
+    assert second is not first and second.day == first.day + _DAY
+    assert second.max_id == first.max_id
+
+
+async def test_later_moments_touch_only_the_pairs_that_moved(
+    db: AsyncSession,  # noqa: F811
+    site: Inventory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Two pairs hold stock at the end of January; between then and April the facility-1 pair
+    moves in three buckets, so each later moment re-reads that pair alone: taken
+    out and put back; a facility-2 pair first appears in February. Counted by the pair figures
+    computed."""
+    computed = []
+    figures = balances.columns
+
+    def counted(pair: balances.Pair, options: StockOptions | None) -> dict:
+        computed.append((pair.product, pair.warehouse))
+        return figures(pair, options)
+
+    monkeypatch.setattr(balances, 'columns', counted)
+    await entry(db, site.non_stockable, site.b.warehouse, '1', datetime(2026, 1, 5))
+    moments = (date(2026, 1, 31), date(2026, 2, 28), MARCH, date(2026, 4, 30))
+
+    rows = await balances.stock(db, _slice(moments=moments))
+
+    moving = (site.stockable, site.a.warehouse)
+    still = (site.non_stockable, site.b.warehouse)
+    arriving = (site.stockable, site.b.warehouse)
+    assert computed.count(still) == 1  # read at the opening, never again
+    assert computed.count(moving) == 1 + 2 * 3  # the opening, then out and in three times
+    assert computed.count(arriving) in (2, 3)  # February only (and a zero opening, if read)
+    assert set(computed) == {moving, still, arriving}
+    assert [row['on_hand'] for row in rows] == [11, 15, 20, 19]
