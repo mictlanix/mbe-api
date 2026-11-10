@@ -277,6 +277,34 @@ async def test_each_kind_runs_as_its_route(
     assert _without_as_of(ran.json()) == _without_as_of(direct.json())
 
 
+async def test_a_dashboard_view_runs_with_its_families(
+    client: AsyncClient, db: AsyncSession, book: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The UI loads tile groups in parallel (R18): a stored `families` runs with it."""
+    saved = await _save(
+        client,
+        {
+            'name': 'Cobranza', 'kind': 'dashboard', 'definition': {'families': ['payments']},
+            'period': LAST_MONTH,
+        },
+    )  # fmt: skip
+    _on(monkeypatch, date(2026, 6, 10))
+
+    ran = await client.post(f'{VIEWS}/{saved["analytics_view_id"]}/run')
+    direct = await client.get(
+        f'{URL}/dashboard',
+        params={'start': '2026-05-01', 'end': '2026-05-31', 'families': ['payments']},
+    )
+
+    stored = await db.get(AnalyticsView, saved['analytics_view_id'])
+    assert json.loads(stored.definition) == {'families': ['payments']}
+    assert ran.status_code == 200, ran.text
+    assert {k['key'] for k in ran.json()['kpis']} == {'collected', 'collected_today'}
+    assert {s['key'] for s in ran.json()['series']} == {'payment_mix'}
+    assert ran.json()['alerts'] == []
+    assert _without_as_of(ran.json()) == _without_as_of(direct.json())
+
+
 async def test_a_shared_user_runs_it_with_their_own_scope(
     client: AsyncClient, db: AsyncSession, users: None, book: None
 ) -> None:

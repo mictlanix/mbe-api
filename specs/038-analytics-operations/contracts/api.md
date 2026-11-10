@@ -93,6 +93,21 @@ Rules beyond spec 037's:
 
 ## Dashboard
 
+`GET /analytics/dashboard` takes an optional repeated `families` (R18):
+
+```
+AnalyticsDashboardRequest:
+  start: date
+  end: date
+  facility: int | None
+  comparison: Comparison | None
+  families: [Family, ...] | None  # sales | payments | inventory | receivables | payables | fiscal | …
+```
+
+- **Null or absent** (the default): every family the caller holds, as before.
+- **A list**: only the KPIs, series and alerts of those families the caller holds; a family the caller lacks gives nothing, not an error, and an unknown one is a 422. Cost is not a tile group: it still widens the sales and inventory tiles of a holder, and alone it gives nothing, as do bulk, commissions and purchases, which have no tiles.
+- Each family's request reads only its own facts; the union of one request per family is the whole dashboard, tile for tile and value for value. The cache key, saved dashboard views and the dashboard export carry the field.
+
 `AnalyticsDashboardResponse` (spec 037) gains these, omitted per family:
 - **KPIs:** `stock_value` (cost), `receivable_overdue`, `dso`, `uninvoiced_sales`.
 - **Series:**
@@ -110,7 +125,7 @@ Rules beyond spec 037's:
 
 The `overdue_credit_orders` alert of spec 037 is unchanged.
 
-Inventory tiles appear for an inventory reader when the period starts within the stock history (2025-02-07 on). The `stock_value` KPI's sparkline is the value at each bucket's end. The inventory alerts count the pairs as of the period's end at the default `StockOptions` (dead after 180 days), from one stock query shared with `stock_value_by_facility`'s totals (R18); each `count` is its detail's `total`. Only `dead_stock` has an `amount`, the dead pairs' value; the others' is null.
+Inventory tiles appear for an inventory reader when the period starts within the stock history (2025-02-07 on). When the comparison period starts before it, `stock_value` has no comparison (`comparison`, `change` and `change_pct` null, and its `drill` has none), since the query refuses one with `analytics.before_history`. The `stock_value` KPI's sparkline is the value at each bucket's end. The inventory alerts count the pairs as of the period's end at the default `StockOptions` (dead after 180 days), from one stock query shared with `stock_value_by_facility`'s totals (R18); each `count` is its detail's `total`. Only `dead_stock` has an `amount`, the dead pairs' value; the others' is null.
 
 ## Detail
 

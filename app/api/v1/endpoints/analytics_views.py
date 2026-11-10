@@ -114,6 +114,7 @@ async def run_view(
                 request.end,
                 request.facility,
                 request.comparison,
+                request.families,
                 if_none_match,
                 current,
                 db,

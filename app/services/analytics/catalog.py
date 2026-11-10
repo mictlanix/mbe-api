@@ -11,7 +11,7 @@ from enum import StrEnum
 from typing import Any
 
 from app.enums import SystemObject
-from app.schemas.analytics import DimensionKey, Grain, MeasureKey, MeasureKind
+from app.schemas.analytics import DimensionKey, Family, Grain, MeasureKey, MeasureKind
 
 
 class Fact(StrEnum):
@@ -68,20 +68,6 @@ class Availability(StrEnum):
 COLUMN, NONE, REFUSED = Availability.COLUMN, Availability.NONE, Availability.REFUSED
 
 SALES_FACTS = (Fact.SALE_LINE, Fact.REFUND_LINE, Fact.CREDIT_NOTE)
-
-
-class Family(StrEnum):
-    SALES = 'sales'
-    COST = 'cost'
-    PAYMENTS = 'payments'
-    BULK = 'bulk'
-    # Spec 038
-    INVENTORY = 'inventory'
-    RECEIVABLES = 'receivables'
-    PAYABLES = 'payables'
-    COMMISSIONS = 'commissions'
-    FISCAL = 'fiscal'
-    PURCHASES = 'purchases'
 
 
 #: The existing report privileges that open each family (FR-060, research R11).

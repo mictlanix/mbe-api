@@ -248,3 +248,31 @@ async def test_the_stock_comparison_is_read_at_its_end_only(
 
     assert 'stock_value' in {k['key'] for k in body['kpis']}
     assert {m for m in read if m < date(2026, 5, 1)} == {date(2026, 4, 30)}
+
+
+async def test_no_stock_comparison_before_the_stock_history(
+    client: AsyncClient, may: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A comparison period starting before the stock history has no stock comparison, as the
+    query refuses it (`analytics.before_history`): the KPI shows none and reads none."""
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, 'stock_history_start', date(2026, 5, 1))
+    read: list = []
+    many = balances.stock_many
+
+    async def spied(db: AsyncSession, slices):  # noqa: ANN001, ANN202
+        read.extend(m for s in slices for m in s.moments)
+        return await many(db, slices)
+
+    monkeypatch.setattr(balances, 'stock_many', spied)
+
+    body = await _dashboard(client)
+
+    value = next(k for k in body['kpis'] if k['key'] == 'stock_value')
+    assert (value['comparison'], value['change'], value['change_pct']) == (None, None, None)
+    assert value['value'] is not None
+    assert value['drill']['comparison'] is None
+    assert [m for m in read if m < date(2026, 5, 1)] == []
+    drilled = await _query(client, value['drill'])
+    assert drilled['totals']['values']['stock_value'] == value['value']

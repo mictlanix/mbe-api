@@ -145,14 +145,16 @@ async def read_dashboard(
     end: date,
     facility: int | None = None,
     comparison: Comparison = Query(default=Comparison.PREVIOUS_PERIOD),
+    families: list[Family] | None = Query(default=None),
     if_none_match: str | None = Header(default=None),
     current: CurrentUser = Depends(_any_family),
     db: AsyncSession = Depends(get_db),
 ) -> Response:
     """Every tile the caller may see for a period and scope, in one call (FR-031–FR-033). Tiles
-    and alerts of a family the caller lacks are absent, not zero."""
+    and alerts of a family the caller lacks are absent, not zero. With `families`, only those
+    families' tiles, so the UI can load tile groups in parallel (spec 038, R18)."""
     request = AnalyticsDashboardRequest(
-        start=start, end=end, facility=facility, comparison=comparison
+        start=start, end=end, facility=facility, comparison=comparison, families=families
     )
     scope = await engine.resolve_scope(db, current, facility)
     held = await engine.families(db, current)

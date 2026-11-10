@@ -114,7 +114,7 @@ AnalyticsKey:
 
 ## Dashboard
 
-`GET /analytics/dashboard?start=&end=&facility=&comparison=` (comparison defaults to `previous_period`).
+`GET /analytics/dashboard?start=&end=&facility=&comparison=&families=` (comparison defaults to `previous_period`; `families` repeats, as in `families=sales&families=payments`).
 
 ```
 AnalyticsDashboardRequest:
@@ -122,6 +122,7 @@ AnalyticsDashboardRequest:
   end: date
   facility: int | None
   comparison: Comparison | None   # previous_period (default) | same_period_last_year
+  families: [Family, ...] | None  # spec 038: only these families' tiles; null (default) for all
 
 AnalyticsDashboardResponse:
   as_of: datetime

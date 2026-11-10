@@ -240,6 +240,22 @@ class Cadence(StrEnum):
     MONTHLY = 'monthly'
 
 
+class Family(StrEnum):
+    """The analytics families (FR-060); the catalog maps each to the privileges that open it."""
+
+    SALES = 'sales'
+    COST = 'cost'
+    PAYMENTS = 'payments'
+    BULK = 'bulk'
+    # Spec 038
+    INVENTORY = 'inventory'
+    RECEIVABLES = 'receivables'
+    PAYABLES = 'payables'
+    COMMISSIONS = 'commissions'
+    FISCAL = 'fiscal'
+    PURCHASES = 'purchases'
+
+
 class SendOutcome(StrEnum):
     RUNNING = 'running'
     SENT = 'sent'
@@ -579,6 +595,12 @@ class AnalyticsDashboardRequest(BaseModel):
     end: date
     facility: int | None = None
     comparison: Comparison | None = Comparison.PREVIOUS_PERIOD
+    families: list[Family] | None = Field(
+        default=None,
+        description='Only the tiles, series and alerts of these families, of those the caller '
+        'holds; null for every one. Cost only widens the sales and inventory tiles, so alone it '
+        'gives none. The UI requests tile groups in parallel (spec 038, R18).',
+    )
 
 
 class AnalyticsPoint(BaseModel):

@@ -116,4 +116,5 @@ After merge, open an mbe-ui issue that links this contract and lists:
 - the new keys, kinds, tiles and detail kinds;
 - the views and schedules routes;
 - the six new `analytics.*` codes for the Spanish catalog (mictlanix/mbe-ui#232);
-- `AnalyticsAlert.detail` is now nullable (null for `payables_overdue`, which has no detail kind).
+- `AnalyticsAlert.detail` is now nullable (null for `payables_overdue`, which has no detail kind);
+- the dashboard's `families` parameter: request the tile groups in parallel, one dashboard call per family (sales, payments, inventory, receivables, payables, fiscal), and draw each as it arrives (research R18).

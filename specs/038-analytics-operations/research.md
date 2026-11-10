@@ -312,6 +312,8 @@ Re-timed after that (2026-11-09; dashboard month 5.6 s and year 13.4 s at p50 on
 
 Locally, through an SSH tunnel to mbe_dev, a year's dashboard went from 36 s (25 s CPU) to 11–12 s (7.9 s CPU), and a month's from 9.9–12 s to 6.5–7.7 s (4 s CPU). What remains is mostly the MySQL driver decoding rows (about 190k for the year, most of them the stock movements, one row per pair per weekly bucket): pure-Python decoding on the event loop.
 
+Re-timed after those (dashboard p95 3.6 s for a month and 10.1 s for a year on dev, against 2 s and 5 s), every tile still ran in one Python process, so one request could not get much faster. The decision: the dashboard takes an optional `families` list, and mbe-ui should request its tile groups in parallel, one dashboard request per family (sales, payments, inventory, receivables, payables, fiscal), drawing each group as it arrives. Each request reads only its family's facts, and their union is the whole dashboard.
+
 ## R19. Migration 032
 
 **Decision**: `migrations/032_operations_analytics.sql`, with a rollback. It adds:

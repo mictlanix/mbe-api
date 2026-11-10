@@ -200,17 +200,23 @@ async def build(
     request = request.model_copy(update={'facility': facility, 'comparison': comparison})
     before_start, before_end = engine.comparison_period(request.start, request.end, comparison)
     grain = sparkline_grain(request.start, request.end)
-    sales, cost, payments = (Family.SALES in held, Family.COST in held, Family.PAYMENTS in held)
-    # Stock is read only within its history (spec 038, R3), as the query refuses before it.
-    inventory = Family.INVENTORY in held and request.start >= settings.stock_history_start
+    # The tile groups asked for, of those held (R18); cost only widens sales and inventory.
+    shown = held if request.families is None else held & set(request.families)
+    sales, cost, payments = (Family.SALES in shown, Family.COST in held, Family.PAYMENTS in shown)
+    # Stock is read only within its history (spec 038, R3), as the query refuses before it. So is
+    # its comparison: one starting before it is omitted, as for a tile without a comparison.
+    inventory = Family.INVENTORY in shown and request.start >= settings.stock_history_start
+    stock_comparison = comparison if before_start >= settings.stock_history_start else None
     today = local_now().date()
     # Receivables from the first stored month-end, the comparison's included (R8); payables once
     # go-live sets the balance cutoff (R10).
-    receivables = Family.RECEIVABLES in held and (
+    receivables = Family.RECEIVABLES in shown and (
         balances.read_day(min(before_end, today), today) >= engine.RECEIVABLE_HISTORY_START
     )
-    payables = Family.PAYABLES in held and await supplier_payment_service.get_cutoff(db) is not None
-    fiscal = Family.FISCAL in held
+    payables = (
+        Family.PAYABLES in shown and await supplier_payment_service.get_cutoff(db) is not None
+    )
+    fiscal = Family.FISCAL in shown
 
     planned: list[tuple[str, str, AnalyticsQueryRequest]] = []
 
@@ -251,7 +257,7 @@ async def build(
         # A balance's comparison is its value at the comparison period's end (R1): the KPI reads
         # that moment alone, and the sparkline's buckets without it, so the stock fact never reads
         # the comparison period's buckets (R18).
-        plan('stock_value', '', value)
+        plan('stock_value', '', value, comparison=stock_comparison)
         plan('stock_value_sparkline', '', value, DimensionKey.DATE, grain=grain, comparison=None)
         # With the alerts' options, so its totals are the alerts' stock query (R18).
         plan(
@@ -341,8 +347,9 @@ async def build(
     if inventory and cost:
         kpis.append(
             _kpi(
-                'stock_value', MeasureKey.STOCK_VALUE, answered['stock_value'], request, facility,
-                grain, sparkline=answered['stock_value_sparkline'],
+                'stock_value', MeasureKey.STOCK_VALUE, answered['stock_value'],
+                request.model_copy(update={'comparison': stock_comparison}), facility, grain,
+                sparkline=answered['stock_value_sparkline'],
             )
         )  # fmt: skip
     if receivables:

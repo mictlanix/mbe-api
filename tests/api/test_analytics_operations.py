@@ -6,6 +6,7 @@ privilege is seen in a real response rather than a mocked one.
 
 import csv
 import io
+import json
 from collections.abc import AsyncIterator, Iterator
 from datetime import datetime
 from typing import Any
@@ -175,8 +176,8 @@ async def test_facility_scope_is_the_warehouses_facility(
     assert 'unit_cost' not in own.json()
 
 
-async def _dashboard(http: AsyncClient) -> dict:
-    response = await http.get(f'{BASE}/dashboard', params=MAY)
+async def _dashboard(http: AsyncClient, **params: Any) -> dict:
+    response = await http.get(f'{BASE}/dashboard', params=MAY | params)
     assert response.status_code == 200, response.text
     return response.json()
 
@@ -554,13 +555,8 @@ def _dashboard_families(body: dict) -> dict[str, set[Family]]:
     return found
 
 
-async def test_without_a_family_the_dashboard_shows_nothing_of_it(
-    http: AsyncClient,
-    db: AsyncSession,  # noqa: F811
-    stock: Inventory,
-) -> None:
-    """SC-006: for each family, a caller holding every other one sees no tile, series or alert of
-    it. Commissions and purchases have no dashboard tiles."""
+async def _every_family(db: AsyncSession) -> None:  # noqa: F811
+    """With `stock`: a tile, series or alert of every family that has one on the dashboard."""
     await credit_order(db, confirmed=datetime(2026, 3, 2), due=datetime(2026, 4, 2), price='300')
     vendor = await inventory_seed.supplier(db)
     item = await product(db, code='AP1')
@@ -577,6 +573,16 @@ async def test_without_a_family_the_dashboard_shows_nothing_of_it(
     )
     db.add(SupplierBalanceCutoff(supplier_balance_cutoff_id=1, cutoff=inventory_seed.WHEN))
     await db.commit()
+
+
+async def test_without_a_family_the_dashboard_shows_nothing_of_it(
+    http: AsyncClient,
+    db: AsyncSession,  # noqa: F811
+    stock: Inventory,
+) -> None:
+    """SC-006: for each family, a caller holding every other one sees no tile, series or alert of
+    it. Commissions and purchases have no dashboard tiles."""
+    await _every_family(db)
 
     async def shown(*families: Family) -> dict[str, set[Family]]:
         await db.execute(delete(AccessPrivilege).where(AccessPrivilege.user_id == 'tester'))
@@ -595,3 +601,145 @@ async def test_without_a_family_the_dashboard_shows_nothing_of_it(
             continue  # nothing opens the dashboard
         leaked = {name for name, of in (await shown(*others)).items() if family in of}
         assert leaked == set(), family
+
+
+# ── The families filter: the UI loads tile groups in parallel (R18) ───────────
+
+#: The families with a tile, series or alert on the dashboard.
+TILED = (
+    Family.SALES, Family.PAYMENTS, Family.INVENTORY, Family.RECEIVABLES, Family.PAYABLES,
+    Family.FISCAL,
+)  # fmt: skip
+
+
+def _without_as_of(body: Any) -> Any:
+    if isinstance(body, dict):
+        return {key: _without_as_of(value) for key, value in body.items() if key != 'as_of'}
+    if isinstance(body, list):
+        return [_without_as_of(value) for value in body]
+    return body
+
+
+def _sections(body: dict) -> dict[str, list[str]]:
+    """Each section's items, comparable whatever the order they come in."""
+    return {
+        section: sorted(json.dumps(_without_as_of(item), sort_keys=True) for item in body[section])
+        for section in ('kpis', 'series', 'alerts')
+    }
+
+
+async def test_each_family_alone_gives_its_tiles_and_together_the_whole_dashboard(
+    http: AsyncClient,
+    db: AsyncSession,  # noqa: F811
+    stock: Inventory,
+) -> None:
+    await _every_family(db)
+    await grant(db, *(o for f in Family for o in FAMILY_PRIVILEGES[f]))
+    whole = await _dashboard(http)
+    tiles = _dashboard_families(whole)
+
+    union: dict[str, list] = {'kpis': [], 'series': [], 'alerts': []}
+    for family in MEASURE_FAMILIES:
+        body = await _dashboard(http, families=[family.value])
+        assert body['definition']['families'] == [family.value]
+        assert set(_dashboard_families(body)) == {n for n, of in tiles.items() if family in of}
+        assert bool(body['kpis'] or body['series'] or body['alerts']) == (family in TILED), family
+        for section in union:
+            union[section] += body[section]
+
+    assert _sections(union) == _sections(whole)
+
+
+async def test_without_families_the_dashboard_is_every_family_and_cached_apart(
+    http: AsyncClient,
+    db: AsyncSession,  # noqa: F811
+    stock: Inventory,
+) -> None:
+    await grant(db, SALES, SystemObject.RECEIVED_PAYMENTS)
+    whole = await _dashboard(http)
+    listed = await _dashboard(http, families=[f.value for f in MEASURE_FAMILIES])
+    payments = await http.get(f'{BASE}/dashboard', params=MAY | {'families': ['payments']})
+
+    assert whole['definition']['families'] is None
+    assert _sections(listed) == _sections(whole)
+    assert len(cache.responses.entries) == 3
+    assert payments.status_code == 200, payments.text
+    kpis, series, alerts = _tiles(payments.json())
+    assert kpis == {'collected', 'collected_today'} and series == {'payment_mix'} and not alerts
+    assert 'net_sales' in {k['key'] for k in whole['kpis']}
+
+
+async def test_a_family_the_caller_lacks_gives_no_tiles(
+    http: AsyncClient,
+    db: AsyncSession,  # noqa: F811
+    stock: Inventory,
+) -> None:
+    await grant(db, SALES)
+    lacking = await _dashboard(http, families=['inventory'])
+    mixed = await _dashboard(http, families=['inventory', 'sales'])
+    unknown = await http.get(f'{BASE}/dashboard', params=MAY | {'families': ['weather']})
+
+    assert (lacking['kpis'], lacking['series'], lacking['alerts']) == ([], [], [])
+    assert _sections(mixed) == _sections(await _dashboard(http))
+    assert unknown.status_code == 422, unknown.text
+
+
+async def test_one_family_reads_only_its_own_facts(
+    http: AsyncClient,
+    db: AsyncSession,  # noqa: F811
+    stock: Inventory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A family's request reads no fact of another family, nor the overdue credit orders unless it
+    is sales: each tile group costs only its own reads."""
+    from app.services.analytics import dashboard
+    from app.services.analytics import engine as analytics
+
+    await _every_family(db)
+    await grant(db, *(o for f in Family for o in FAMILY_PRIVILEGES[f]))
+    read: set = set()
+    jobs, overdue = analytics.fact_jobs, dashboard._overdue_job
+
+    def spied_jobs(wanted):  # noqa: ANN001, ANN202
+        read.update(fact for fact, _ in wanted)
+        return jobs(wanted)
+
+    async def spied_overdue(*args, **kw):  # noqa: ANN002, ANN003, ANN202
+        read.add('overdue')
+        return await overdue(*args, **kw)
+
+    monkeypatch.setattr(analytics, 'fact_jobs', spied_jobs)
+    monkeypatch.setattr(dashboard, '_overdue_job', spied_overdue)
+    for family in TILED:
+        read.clear()
+        cache.responses.clear()
+        await _dashboard(http, families=[family.value])
+        own = {fact for m in MEASURES.values() if m.family is family for fact in m.facts}
+        own |= {'overdue'} if family is Family.SALES else set()
+        assert read and read <= own, (family, read - own)
+
+
+async def test_a_dashboard_export_honours_its_families(
+    http: AsyncClient,
+    db: AsyncSession,  # noqa: F811
+    stock: Inventory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.services.analytics import dashboard
+
+    await grant(db, SALES, SystemObject.RECEIVED_PAYMENTS)
+    built: list = []
+    build = dashboard.build
+
+    async def spied(*args, **kw):  # noqa: ANN002, ANN003, ANN202
+        built.append(await build(*args, **kw))
+        return built[-1]
+
+    monkeypatch.setattr(dashboard, 'build', spied)
+    pdf = await http.post(
+        f'{BASE}/exports', json={'format': 'pdf', 'dashboard': MAY | {'families': ['payments']}}
+    )
+
+    assert pdf.status_code == 200, pdf.text
+    assert {k.key for k in built[0].kpis} == {'collected', 'collected_today'}
+    assert {s.key for s in built[0].series} == {'payment_mix'}
