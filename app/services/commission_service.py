@@ -10,8 +10,9 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
+from typing import Any
 
-from sqlalchemy import and_, case, delete, exists, false, func, or_, select
+from sqlalchemy import Select, and_, case, delete, exists, func, null, or_, select, union_all
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.clock import local_now
@@ -145,7 +146,12 @@ async def _settings(db: AsyncSession) -> rules.Settings:
 async def _candidates(
     db: AsyncSession, start: datetime, nxt: datetime, chain: datetime | None
 ) -> list[rules.CandidateLine]:
-    """Research R1 (a)–(d): every line the month could owe something on."""
+    """Research R1 (a)–(d): every line the month could owe something on.
+
+    Each arm is read on its own first, from the table its date filters, and the lines are then
+    read for those orders alone (mictlanix/mbe-api#298). One statement OR-ing the arms made
+    MariaDB walk every customer's order lines and every application, about 2.75 s a month.
+    """
     agents = select(CommissionAgent.employee)
     stored = _stored_rows().subquery()
     zeroed = and_(
@@ -153,45 +159,91 @@ async def _candidates(
         SalesOrder.balance_zeroed_time >= _SENTINEL,
         SalesOrder.balance_zeroed_time < nxt,
     )
-    paid_now = and_(
-        SalesOrder.paid.is_(True),
-        zeroed,
-        or_(
-            SalesOrder.balance_zeroed_time >= start,
-            and_(
+    has_stored = exists().where(
+        stored.c.sales_order_detail == SalesOrderDetail.sales_order_detail_id
+    )
+    of_agents = or_(
+        SalesOrder.salesperson.in_(agents),
+        Customer.salesperson.in_(agents),
+        has_stored,
+    )
+    live = and_(SalesOrder.completed.is_(True), SalesOrder.cancelled.is_(False))
+    applications = select(SalesOrderPayment.sales_order, null().label('line')).join(
+        CustomerPayment,
+        CustomerPayment.customer_payment_id == SalesOrderPayment.customer_payment,
+    )
+    arms: list[Select[Any]] = [
+        # (a) paid in the month.
+        select(SalesOrder.sales_order_id, null().label('line')).where(
+            SalesOrder.paid.is_(True), zeroed, SalesOrder.balance_zeroed_time >= start
+        ),
+        # (b) applied in the month: `COALESCE(sop.date, cp.date)` split so each date's index serves.
+        applications.where(
+            SalesOrderPayment.cancelled.is_(False),
+            SalesOrderPayment.date.is_not(None),
+            SalesOrderPayment.date >= start,
+            SalesOrderPayment.date < nxt,
+        ),
+        applications.where(
+            SalesOrderPayment.cancelled.is_(False),
+            SalesOrderPayment.date.is_(None),
+            CustomerPayment.date >= start,
+            CustomerPayment.date < nxt,
+        ),
+        # (c) refunded in the month.
+        select(SalesOrderDetail.sales_order, SalesOrderDetail.sales_order_detail_id)
+        .join(
+            CustomerRefundDetail,
+            CustomerRefundDetail.sales_order_detail == SalesOrderDetail.sales_order_detail_id,
+        )
+        .join(
+            CustomerRefund,
+            CustomerRefund.customer_refund_id == CustomerRefundDetail.customer_refund,
+        )
+        .where(
+            CustomerRefund.completed.is_(True),
+            CustomerRefund.cancelled.is_(False),
+            CustomerRefund.date >= start,
+            CustomerRefund.date < nxt,
+        ),
+        # (d) any stored scheme 2 sale.
+        select(SalesOrderDetail.sales_order, SalesOrderDetail.sales_order_detail_id)
+        .join(stored, stored.c.sales_order_detail == SalesOrderDetail.sales_order_detail_id)
+        .where(
+            stored.c.scheme == int(CommissionScheme.PARTIAL_PAYMENTS),
+            stored.c.movement == int(CommissionMovement.SALE),
+        ),
+    ]
+    if chain is not None:
+        # (a) paid since the chain start, its sale not stored yet.
+        arms.append(
+            select(SalesOrderDetail.sales_order, SalesOrderDetail.sales_order_detail_id)
+            .join(SalesOrder, SalesOrder.sales_order_id == SalesOrderDetail.sales_order)
+            .join(Customer, Customer.customer_id == SalesOrder.customer)
+            .where(
+                live,
+                of_agents,
+                SalesOrder.paid.is_(True),
+                zeroed,
                 SalesOrder.balance_zeroed_time >= chain,
                 ~exists().where(
                     stored.c.sales_order_detail == SalesOrderDetail.sales_order_detail_id,
                     stored.c.movement == int(CommissionMovement.SALE),
                 ),
             )
-            if chain is not None
-            else false(),
-        ),
-    )
-    applied_in_month = exists().where(
-        SalesOrderPayment.sales_order == SalesOrder.sales_order_id,
-        SalesOrderPayment.customer_payment == CustomerPayment.customer_payment_id,
-        SalesOrderPayment.cancelled.is_(False),
-        _APPLICATION_DATE >= start,
-        _APPLICATION_DATE < nxt,
-    )
-    refunded_in_month = exists().where(
-        CustomerRefundDetail.sales_order_detail == SalesOrderDetail.sales_order_detail_id,
-        CustomerRefund.customer_refund_id == CustomerRefundDetail.customer_refund,
-        CustomerRefund.completed.is_(True),
-        CustomerRefund.cancelled.is_(False),
-        CustomerRefund.date >= start,
-        CustomerRefund.date < nxt,
-    )
-    has_stored_partial = exists().where(
-        stored.c.sales_order_detail == SalesOrderDetail.sales_order_detail_id,
-        stored.c.scheme == int(CommissionScheme.PARTIAL_PAYMENTS),
-        stored.c.movement == int(CommissionMovement.SALE),
-    )
-    has_stored = exists().where(
-        stored.c.sales_order_detail == SalesOrderDetail.sales_order_detail_id
-    )
+        )
+    # Arms (a) and (b) select every line of an order; (c), (d) and the chain arm single lines.
+    orders: set[int] = set()
+    whole: set[int] = set()
+    single: set[int] = set()
+    for order, line in (await db.execute(union_all(*arms))).all():
+        orders.add(order)
+        if line is None:
+            whole.add(order)
+        else:
+            single.add(line)
+    if not orders:
+        return []
 
     query = (
         select(
@@ -216,19 +268,12 @@ async def _candidates(
         .join(Customer, Customer.customer_id == SalesOrder.customer)
         .outerjoin(CommissionProduct, CommissionProduct.product == SalesOrderDetail.product)
         .outerjoin(Commission, Commission.commission_id == CommissionProduct.commission)
-        .where(
-            SalesOrder.completed.is_(True),
-            SalesOrder.cancelled.is_(False),
-            or_(
-                SalesOrder.salesperson.in_(agents),
-                Customer.salesperson.in_(agents),
-                has_stored,
-            ),
-            or_(paid_now, applied_in_month, refunded_in_month, has_stored_partial),
-        )
+        .where(live, of_agents, SalesOrder.sales_order_id.in_(sorted(orders)))
     )
     lines = []
     for r in (await db.execute(query)).all():
+        if r.sales_order_id not in whole and r.sales_order_detail_id not in single:
+            continue
         zeroed_at = r.balance_zeroed_time
         lines.append(
             rules.CandidateLine(
