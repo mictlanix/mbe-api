@@ -14,6 +14,7 @@ from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from decimal import ROUND_HALF_UP, Decimal
+from typing import Any
 
 from sqlalchemy import and_, case, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -83,13 +84,31 @@ def assert_quantity_allowed(quantity: Decimal, *, min_order_qty: int, product_id
         )
 
 
-def zero_priced_lines(lines: Iterable[object]) -> list[str]:
-    """Name every line priced at zero, so confirmation can report them all at once (FR-017)."""
+def _line_part(code: ErrorCode, line: object) -> dict[str, Any]:
+    return {
+        'code': code,
+        'params': {
+            'sales_order_detail_id': getattr(line, 'sales_order_detail_id', None),
+            'product_id': getattr(line, 'product', None),
+            'product_code': getattr(line, 'product_code', None),
+        },
+    }
+
+
+def zero_priced_lines(
+    lines: Iterable[object], parts: list[dict[str, Any]] | None = None
+) -> list[str]:
+    """Name every line priced at zero, so confirmation can report them all at once (FR-017).
+
+    `parts`, when given, receives one `errors[]` item per offender, in the same order.
+    """
     offenders = []
     for line in lines:
         if getattr(line, 'price', Decimal(0)) == 0:
             name = getattr(line, 'product_name', 'line')
             offenders.append(f'{name} (line {getattr(line, "sales_order_detail_id", "?")})')
+            if parts is not None:
+                parts.append(_line_part(ErrorCode.SALES_ORDER_LINE_ZERO_PRICED, line))
     return offenders
 
 
@@ -98,6 +117,7 @@ def stock_shortfalls(
     *,
     available: dict[tuple[int, int], Decimal],
     stocked: set[int],
+    parts: list[dict[str, Any]] | None = None,
 ) -> list[str]:
     """Report what the order cannot fulfil (FR-018, FR-055a).
 
@@ -108,8 +128,11 @@ def stock_shortfalls(
     have reserved — not raw on-hand. Confirmation stopped decrementing on-hand when consumption
     moved to delivery, so checking on-hand here would pass the same physical unit to every order
     that asked for it.
+
+    `parts`, when given, receives one `errors[]` item per problem, in the same order.
     """
     demand: dict[tuple[int, int], Decimal] = {}
+    codes: dict[int, Any] = {}
     problems: list[str] = []
 
     for line in lines:
@@ -120,7 +143,10 @@ def stock_shortfalls(
         if warehouse is None:
             name = getattr(line, 'product_name', str(product))
             problems.append(f'{name} requires stock but no warehouse is set')
+            if parts is not None:
+                parts.append(_line_part(ErrorCode.SALES_ORDER_LINE_NO_WAREHOUSE, line))
             continue
+        codes.setdefault(product, getattr(line, 'product_code', None))
         key = (product, warehouse)
         demand[key] = demand.get(key, Decimal(0)) + getattr(line, 'quantity', Decimal(0))
 
@@ -131,11 +157,26 @@ def stock_shortfalls(
                 f'Product {product} needs {needed} in warehouse {warehouse} but only '
                 f'{can_supply} is available'
             )
+            if parts is not None:
+                parts.append(
+                    {
+                        'code': ErrorCode.SALES_ORDER_LINE_INSUFFICIENT_STOCK,
+                        'params': {
+                            'product_id': product,
+                            'product_code': codes[product],
+                            'warehouse_id': warehouse,
+                            'requested': needed,
+                            'available': can_supply,
+                        },
+                    }
+                )
 
     return problems
 
 
-def missing_delivery_details(order: object, *, today: date) -> list[str]:
+def missing_delivery_details(
+    order: object, *, today: date, parts: list[dict[str, Any]] | None = None
+) -> list[str]:
     """What a back-office order still lacks before it can be confirmed (spec 023 FR-008).
 
     - The fulfilment intent, always.
@@ -146,14 +187,26 @@ def missing_delivery_details(order: object, *, today: date) -> list[str]:
     The address is the order's own `ship_to`. mbe-ui enters addresses only on delivery orders,
     after confirming, so until it sets this one a back-office delivery cannot be confirmed
     (FR-018).
+
+    `parts`, when given, receives one `errors[]` item per name, in the same order.
     """
     missing = []
+    found = parts if parts is not None else []
     if order.fulfillment_intent is None:
         missing.append('fulfillment_intent')
+        found.append({'code': ErrorCode.SALES_ORDER_DELIVERY_INTENT_MISSING})
     elif order.fulfillment_intent != FulfillmentType.PICKUP and order.ship_to is None:
         missing.append('ship_to')
-    if order.promise_date.date() < today:
+        found.append({'code': ErrorCode.SALES_ORDER_DELIVERY_SHIP_TO_MISSING})
+    promise_date = order.promise_date.date()
+    if promise_date < today:
         missing.append('promise_date')
+        found.append(
+            {
+                'code': ErrorCode.SALES_ORDER_DELIVERY_PROMISE_DATE_PAST,
+                'params': {'promise_date': promise_date},
+            }
+        )
     return missing
 
 
@@ -1509,22 +1562,26 @@ async def _confirm_locked(
     # quote converted on credit terms all reached a committed sale unchallenged.
     await _assert_not_on_credit_hold(db, order.customer)
     if order.origin == OrderOrigin.BACK_OFFICE:
-        missing = missing_delivery_details(order, today=local_now().date())
+        parts: list[dict[str, Any]] = []
+        missing = missing_delivery_details(order, today=local_now().date(), parts=parts)
         if missing:
             raise DomainError(
                 ErrorCode.SALES_ORDER_MISSING_DELIVERY_DETAILS,
                 {'message': 'Order is missing delivery details', 'missing': missing},
+                errors=parts,
             )
     employee = current.employee_id
 
     if not lines:
         raise DomainError(ErrorCode.SALES_ORDER_NO_LINES, 'Cannot confirm an order with no lines')
 
-    offenders = zero_priced_lines(lines)
+    parts = []
+    offenders = zero_priced_lines(lines, parts)
     if offenders:
         raise DomainError(
             ErrorCode.SALES_ORDER_ZERO_PRICED_LINES,
             {'message': 'Order has lines priced at zero', 'lines': offenders},
+            errors=parts,
         )
 
     stocked = await _stocked_products(db, {line.product for line in lines})
@@ -1537,11 +1594,13 @@ async def _confirm_locked(
                     db, product=line.product, warehouse=line.warehouse
                 )
 
-    problems = stock_shortfalls(lines, available=available, stocked=stocked)
+    parts = []
+    problems = stock_shortfalls(lines, available=available, stocked=stocked, parts=parts)
     if problems:
         raise DomainError(
             ErrorCode.SALES_ORDER_INSUFFICIENT_STOCK,
             {'message': 'Insufficient stock', 'lines': problems},
+            errors=parts,
         )
 
     # Only a credit order adds to what the customer owes, so a cash sale is weighed against no
