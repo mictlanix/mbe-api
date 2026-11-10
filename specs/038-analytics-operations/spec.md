@@ -385,7 +385,7 @@ How each question of the current system's inventory, receivables, commissions, f
 - **SC-006**: A caller without the cost privilege finds no cost, value, margin or turnover in any response or export of this spec; a caller without a family's privilege gets no tile, row or alert of it.
 - **SC-007**: A saved view opened on two different days resolves its relative period to each day's dates and returns the same figures as the equivalent query.
 - **SC-008**: Over 30 days of simulated occurrences with two schedulers running at once, each occurrence is sent exactly once, and every attempt, sent or failed, is recorded.
-- **SC-009**: Performance: each dashboard tile group (one request per family, R18) under 2 s for a month and 5 s for a year (p95, all facilities); stock as of any date for all products and warehouses, 12-month queries and the kardex of any product under 5 s. Commissions over open months are exempt until spec 025's live computation is faster (mictlanix/mbe-api#298).
+- **SC-009**: Performance: each dashboard tile group (one request per family, R18) under 2 s for a month and 5 s for a year (p95, all facilities); stock as of any date for all products and warehouses, 12-month queries and the kardex of any product under 5 s. Commissions over open months are included: they met the target once spec 025's live computation was rewritten (mictlanix/mbe-api#298, research R18).
 
 ## Assumptions
 
