@@ -186,6 +186,23 @@ async def test_a_later_open_month_does_not_count_an_earlier_one_again(
     assert D(detail['sums']['amount']) == D('100.00') and detail['total'] == 1
 
 
+async def test_with_no_month_closed_a_later_refund_counts_in_its_own_month(
+    client: AsyncClient, db: AsyncSession
+) -> None:
+    """#301: nothing closed, paid in March, part refunded in April. April deducts the refund, as
+    closing March first would, and the in-order deduction leaves it whole."""
+    await setup_commissions(db)
+    order_id, line_id = await order(
+        db, paid=True, zeroed=datetime(2026, 3, 9), when=datetime(2026, 3, 2)
+    )
+    await refund(db, order_id, line_id, quantity='0.3', price='10000', when=datetime(2026, 4, 2))
+
+    body, detail = await _by_month_and_detail(client, {'start': '2026-03-01', 'end': '2026-04-30'})
+
+    assert _rows(body) == {('2026-03-01',): D('100.00'), ('2026-04-01',): D('-30.00')}
+    assert D(detail['sums']['amount']) == D('70.00') and detail['total'] == 2
+
+
 async def test_partial_payments_over_open_months_add_up_to_the_commission(
     client: AsyncClient, db: AsyncSession
 ) -> None:

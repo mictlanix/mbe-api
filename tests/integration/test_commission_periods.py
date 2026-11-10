@@ -15,6 +15,7 @@ from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.deps import CurrentUser
+from app.enums import CommissionMovement
 from app.models.commission import Commission, CommissionPeriodLine, CommissionProduct
 from app.models.customer import Customer
 from app.models.sales import SalesOrder, SalesOrderPayment
@@ -25,6 +26,7 @@ from tests.integration.commission_seed import (
     CUSTOMER,
     order,
     pay,
+    refund,
     setup_commissions,
 )
 
@@ -98,6 +100,33 @@ async def test_a_closed_month_never_changes(db: AsyncSession, seeded: None) -> N
     assert before.final and after.final
     assert _snapshot(after) == _snapshot(before)
     assert [t.commission for t in after.totals] == [D('100.00')]
+
+
+async def test_an_open_month_deducts_a_refund_as_closing_in_order_would(
+    db: AsyncSession, seeded: None
+) -> None:
+    """#301: with no month closed, April lists the refund of an order paid in March, and closing
+    March, then April, stores exactly what each live month showed."""
+    await setup_commissions(db)
+    order_id, line_id = await order(db, paid=True, zeroed=datetime(2026, 3, 9))
+    await refund(db, order_id, line_id, quantity='0.3', price='10000', when=datetime(2026, 4, 2))
+    live_march = await svc.read_period(db, 2026, 3)
+    live_april = await svc.read_period(db, 2026, 4)
+
+    with _today(datetime(2026, 5, 2)):
+        await svc.close(db, 2026, 3, current=USER)
+        after_march = await svc.read_period(db, 2026, 4)
+        await svc.close(db, 2026, 4, current=USER)
+    closed_march = await svc.read_period(db, 2026, 3)
+    closed_april = await svc.read_period(db, 2026, 4)
+
+    assert [(x.movement, x.commission) for x in live_april.lines] == [
+        (CommissionMovement.REFUND, D('-30.00'))
+    ]
+    assert _snapshot(after_march) == _snapshot(live_april)
+    assert closed_april.final and _snapshot(closed_april) == _snapshot(live_april)
+    assert closed_march.final and _snapshot(closed_march) == _snapshot(live_march)
+    assert [x.commission for x in closed_march.lines] == [D('100.00')]
 
 
 async def test_only_the_latest_closed_month_reopens(db: AsyncSession, seeded: None) -> None:
