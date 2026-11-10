@@ -16,7 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.clock import local_now
 from app.enums import PaymentTerms
 from app.services import sales_order_service
-from app.services.analytics import cache, engine
+from app.services.analytics import balances, cache, engine
 from tests.integration.analytics_seed import (
     CREDIT_CUSTOMER,
     L,
@@ -228,3 +228,23 @@ async def test_a_normal_month_raises_no_refund_alert(client: AsyncClient, histor
     alerts = await _dashboard(client, start='2026-04-01', end='2026-04-30')
 
     assert [a for a in alerts['alerts'] if a['key'] == 'refund_rate'] == []
+
+
+async def test_the_stock_comparison_is_read_at_its_end_only(
+    client: AsyncClient, may: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Spec 038, R18: the stock value KPI shows the comparison period's end, never its buckets, so
+    the stock fact reads one moment before the period, not a sparkline's worth."""
+    read: list = []
+    many = balances.stock_many
+
+    async def spied(db: AsyncSession, slices):  # noqa: ANN001, ANN202
+        read.extend(m for s in slices for m in s.moments)
+        return await many(db, slices)
+
+    monkeypatch.setattr(balances, 'stock_many', spied)
+
+    body = await _dashboard(client)
+
+    assert 'stock_value' in {k['key'] for k in body['kpis']}
+    assert {m for m in read if m < date(2026, 5, 1)} == {date(2026, 4, 30)}

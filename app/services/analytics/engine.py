@@ -527,6 +527,40 @@ async def run_fact(db: AsyncSession, fact: Fact, slice_: facts.Slice) -> list[Ma
     return list((await db.execute(facts.query(fact, slice_))).mappings().all())
 
 
+#: A batch of fact queries run together: their `fact_key`s, and a call giving their rows in order.
+FactJob = tuple[list[Hashable], Callable[[AsyncSession], Awaitable[list[list[Mapping[str, Any]]]]]]
+
+
+def fact_jobs(asked: Iterable[tuple[Fact, facts.Slice]]) -> list[FactJob]:
+    """One job per distinct fact query, except that the stock slices which differ only in their
+    dimensions and moments share one read of the ledger (`balances.stock_many`, spec 038 R18)."""
+    distinct = {fact_key(fact, slice_): (fact, slice_) for fact, slice_ in asked}
+    jobs: list[FactJob] = []
+    shared: dict[Hashable, list[tuple[Hashable, facts.Slice]]] = {}
+    for key, (fact, slice_) in distinct.items():
+        if fact is Fact.STOCK and slice_.moments:
+            shared.setdefault(balances.share_key(slice_), []).append((key, slice_))
+        else:
+            jobs.append(([key], _one(fact, slice_)))
+    for batch in shared.values():
+        jobs.append(([key for key, _ in batch], _stock([slice_ for _, slice_ in batch])))
+    return jobs
+
+
+def _one(fact: Fact, slice_: facts.Slice) -> Callable[[AsyncSession], Awaitable[list]]:
+    async def job(db: AsyncSession) -> list:
+        return [await run_fact(db, fact, slice_)]
+
+    return job
+
+
+def _stock(slices: list[facts.Slice]) -> Callable[[AsyncSession], Awaitable[list]]:
+    async def job(db: AsyncSession) -> list:
+        return await balances.stock_many(db, slices)
+
+    return job
+
+
 def fact_key(fact: Fact, slice_: facts.Slice) -> Hashable:
     """What makes two fact queries the same SQL, so a caller running many definitions (the
     dashboard) runs each once. The grain only matters with a date dimension or date filter."""
@@ -1114,7 +1148,9 @@ async def execute(db: AsyncSession, prepared: Prepared) -> AnalyticsQueryRespons
             await commissions.read_months(
                 db, {m for s in commission_slices for m in commissions.months(s.start, s.end)}
             )
-        found = {fact_key(fact, slice_): await run_fact(db, fact, slice_) for fact, slice_ in asked}
+        found: dict[Hashable, list[Mapping[str, Any]]] = {}
+        for keys, job in fact_jobs(asked):
+            found.update(zip(keys, await job(db), strict=True))
     return await assemble(db, prepared, found)
 
 

@@ -303,6 +303,15 @@ The two heaviest reads are both timed in the quickstart, and if either misses it
 
 Stock missed its target on dev: the `stock_value` sparkline cost one Python pass over every pair per bucket, on top of a full-ledger opening (R2's measured cause). R2's incremental moments make a later moment cost only its moved pairs, and its daily checkpoint makes the opening a range read near the checkpoint instead of a sum over the whole ledger. The first read of each day per process still pays one full sum.
 
+Re-timed after that (2026-11-09; dashboard month 5.6 s and year 13.4 s at p50 on dev), the stock tiles were still the critical path, and the dashboard's cost was mostly Python CPU on the one event loop its concurrent facts share (locally, a year's dashboard spent 25 s of CPU in 36 s). The causes, and what each became:
+- **Four stock reads per dashboard**: the KPI now and its comparison, the value by facility and its total (also the alerts). Each reread the warehouses, the opening, the costs and every pair. Stock slices that differ only in their dimensions and moments now share one read (`balances.stock_many`, batched by `engine.fact_jobs` for both the query and the dashboard), so there are two: without options and with them.
+- **The comparison's buckets**: a dated KPI made the stock fact read every bucket of the comparison period, a second year of movements for the year's dashboard, though the KPI shows only the comparison's end. The KPI now takes its value and comparison from an undated read and its sparkline from a dated one without comparison: the same numbers, one comparison moment.
+- **Costs and product descriptions** were read 500 ids at a time, 41 round trips for every pair's product. Above 500 products they are read whole, in one statement, and filtered in Python.
+- **R5's last entry before the checkpoint's day** fell back to a sum over the whole ledger, which every closed month's dashboard alerts hit. Only the pairs that moved since the moment now get their last entry read again, through the product index (past 500 such products it still sums the whole ledger).
+- **Python per moved pair**: a move now changes its groups once, by the difference of its figures, into groups found once per pair, and zero pairs are skipped.
+
+Locally, through an SSH tunnel to mbe_dev, a year's dashboard went from 36 s (25 s CPU) to 11–12 s (7.9 s CPU), and a month's from 9.9–12 s to 6.5–7.7 s (4 s CPU). What remains is mostly the MySQL driver decoding rows (about 190k for the year, most of them the stock movements, one row per pair per weekly bucket): pure-Python decoding on the event loop.
+
 ## R19. Migration 032
 
 **Decision**: `migrations/032_operations_analytics.sql`, with a rollback. It adds:

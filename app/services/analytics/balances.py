@@ -19,7 +19,7 @@ Value is today's list-0 cost without VAT (R4). A cost of 0 or less, or at least
 import asyncio
 import itertools
 import weakref
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Hashable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import date, datetime, time, timedelta
 from decimal import ROUND_CEILING, ROUND_HALF_UP, Decimal
@@ -377,21 +377,22 @@ async def _opening(
     last: bool,
 ) -> Balances:
     """`(on hand, last entry)` per pair at the end of `moment` (R2): from the checkpoint plus or
-    minus the entries between it and the moment, else one sum over the whole ledger. The last
-    entry can't be taken back, so a `last` read before the checkpoint sums the whole ledger; a
-    read that doesn't need it leaves it unset before the checkpoint."""
+    minus the entries between it and the moment, else one sum over the whole ledger.
+
+    A last entry can't be taken back: before the checkpoint's day, the pairs that moved since the
+    moment get theirs read again, through their products (`_last_entries`); a read that doesn't
+    need it leaves it unset there."""
     until = day_end(moment)
     found = await checkpoint(db)
-    if found is None or (last and moment < found.day):
-        rows = (await db.execute(_opening_query(until, facility, filters))).all()
-        return {(p, w): (Decimal(q or 0), _datetime(at)) for p, w, q, at in rows}
+    if found is None:
+        return await _whole(db, until, facility, filters)
 
     entry = LotSerialTracking
     covered_end = day_end(found.day)
     later = entry.lot_serial_tracking_id > found.max_id
-    forward = moment >= found.day
+    keeps_last = last or moment >= found.day
     state: Balances = {
-        key: (held, at if forward else None)
+        key: (held, at if keeps_last else None)
         for key, (held, at) in found.sums.items()
         if _kept(key, facility, filters, warehouses)
     }
@@ -401,12 +402,50 @@ async def _opening(
     elif moment < found.day:
         covered = entry.lot_serial_tracking_id <= found.max_id
         changes.append((-1, covered & (entry.date >= until) & (entry.date < covered_end)))
+    since: set[Pairs] = set()  # the pairs with an entry after the moment
     for sign, condition in changes:
         for p, w, q, at in (await db.execute(_delta_query(condition, facility, filters))).all():
             held, before = state.get((p, w), (ZERO, None))
-            moved = _datetime(at) if sign > 0 and forward else None
+            moved = _datetime(at) if sign > 0 and keeps_last else None
             state[(p, w)] = (held + sign * Decimal(q or 0), _latest(before, moved))
+            if sign < 0:
+                since.add((p, w))
+    if last and since:
+        products = {p for p, _ in since}
+        if len(products) > BULK:
+            return await _whole(db, until, facility, filters)
+        lasts = await _last_entries(db, products, until)
+        for key in since:
+            if key in lasts:
+                state[key] = (state[key][0], lasts[key])
+            else:
+                del state[key]  # no entry up to the moment: the pair didn't exist yet
     return state
+
+
+async def _whole(
+    db: AsyncSession,
+    until: datetime,
+    facility: int | None,
+    filters: Mapping[DimensionKey, Sequence[Any]],
+) -> Balances:
+    """One sum over the whole ledger before `until`."""
+    rows = (await db.execute(_opening_query(until, facility, filters))).all()
+    return {(p, w): (Decimal(q or 0), _datetime(at)) for p, w, q, at in rows}
+
+
+async def _last_entries(
+    db: AsyncSession, products: set[int], until: datetime
+) -> dict[Pairs, datetime | None]:
+    """Each pair's last entry before `until`, for a few products: read through the product's index
+    rather than the date range."""
+    entry = LotSerialTracking
+    rows = await db.execute(
+        select(entry.product, entry.warehouse, func.max(entry.date))
+        .where(entry.product.in_(sorted(products)), entry.date < until)
+        .group_by(entry.product, entry.warehouse)
+    )
+    return {(p, w): _datetime(at) for p, w, at in rows.all()}
 
 
 def _latest(*moments: datetime | None) -> datetime | None:
@@ -478,48 +517,63 @@ async def _sold(
     return sold, fractional
 
 
+#: Above this many products a read takes the whole table and keeps what it needs: one statement
+#: instead of a round trip per 500 ids (spec 038, R18).
+BULK = 500
+
+
+def _among(query, column, ids: set[int]):  # noqa: ANN001, ANN202
+    """`query` narrowed to `ids` when they are few; all of it otherwise (filtered in Python)."""
+    return query.where(column.in_(sorted(ids))) if len(ids) <= BULK else query
+
+
 async def _products(db: AsyncSession, ids: Iterable[int]) -> dict[int, ProductInfo]:
-    ids = sorted(set(ids))
-    found: dict[int, ProductInfo] = {}
+    ids = set(ids)
+    if not ids:
+        return {}
     labels: dict[int, list[int]] = {}
-    for start in range(0, len(ids), 500):
-        chunk = ids[start : start + 500]
-        for p, label in (
-            await db.execute(
-                select(product_label.c.product, product_label.c.label).where(
-                    product_label.c.product.in_(chunk)
-                )
-            )
-        ).all():
+    found_labels = await db.execute(
+        _among(select(product_label.c.product, product_label.c.label), product_label.c.product, ids)
+    )
+    for p, label in found_labels.all():
+        if p in ids:
             labels.setdefault(p, []).append(label)
-        rows = await db.execute(
+    rows = await db.execute(
+        _among(
             select(
                 Product.product_id, Product.code, Product.name, Product.brand, Product.model,
                 Product.supplier,
-            ).where(Product.product_id.in_(chunk))
-        )  # fmt: skip
-        for p, code, name, brand, model, supplier in rows.all():
-            found[p] = ProductInfo(
-                code, name, brand, model, supplier, tuple(sorted(labels.get(p, [])))
-            )
-    return found
+            ),
+            Product.product_id,
+            ids,
+        )
+    )  # fmt: skip
+    return {
+        p: ProductInfo(code, name, brand, model, supplier, tuple(sorted(labels.get(p, []))))
+        for p, code, name, brand, model, supplier in rows.all()
+        if p in ids
+    }
 
 
 async def costs(db: AsyncSession, ids: Iterable[int]) -> dict[int, Decimal]:
     """Today's costed list-0 cost per product (R4); uncosted products are absent."""
-    ids = sorted(set(ids))
-    found: dict[int, Decimal] = {}
-    for start in range(0, len(ids), 500):
-        rows = await db.execute(
+    ids = set(ids)
+    if not ids:
+        return {}
+    rows = await db.execute(
+        _among(
             select(ProductPrice.product, ProductPrice.price).where(
-                ProductPrice.price_list == COST_PRICE_LIST_ID,
-                ProductPrice.product.in_(ids[start : start + 500]),
-            )
+                ProductPrice.price_list == COST_PRICE_LIST_ID
+            ),
+            ProductPrice.product,
+            ids,
         )
-        for p, price in rows.all():
-            if price is not None and 0 < price < settings.placeholder_cost:
-                found[p] = Decimal(price)
-    return found
+    )
+    return {
+        p: Decimal(price)
+        for p, price in rows.all()
+        if p in ids and price is not None and 0 < price < settings.placeholder_cost
+    }
 
 
 async def _warehouses(db: AsyncSession) -> dict[int, tuple[int, bool]]:
@@ -575,6 +629,8 @@ async def ledger(
         pairs = []
         for p, w in keys:
             on_hand, last = state.get((p, w), (ZERO, None))
+            if not on_hand and (p, w) not in sold and not (now and (p, w) in reserved):
+                continue  # nothing held, sold or reserved: no figure to give
             pair = Pair(
                 product=p,
                 warehouse=w,
@@ -615,27 +671,49 @@ def _place_transit(pairs: Sequence[Pair], transit: Mapping[int, int]) -> None:
 
 
 def group(
-    pairs: Iterable[Pair],
+    figures: Iterable[tuple[Pair, dict[str, Any]]],
     dimensions: Sequence[DimensionKey],
     products: Mapping[int, ProductInfo],
-    figures: Any,
 ) -> dict[tuple, tuple[list[str | None], dict[str, Any]]]:
-    """Sum `figures(pair)` per group of `dimensions`, with the groups' display text."""
+    """Sum each pair's figures per group of `dimensions`, with the groups' display text."""
     groups: dict[tuple, tuple[list[str | None], dict[str, Any]]] = {}
-    for pair in pairs:
-        values = figures(pair)
-        if not any(values.values()):
-            continue
-        info = products.get(pair.product, ProductInfo())
-        for combo in itertools.product(*(keys_of(pair, d, info) for d in dimensions)):
-            key = tuple(k for k, _ in combo)
-            labels, sums = groups.setdefault(key, ([None] * len(dimensions), {}))
-            for index, (_, label) in enumerate(combo):
-                if label is not None and (labels[index] is None or label > labels[index]):
-                    labels[index] = label
-            for name, value in values.items():
-                sums[name] = sums.get(name, 0) + value
+    for pair, values in figures:
+        if any(values.values()):
+            _accumulate(groups, pair, values, dimensions, products, 1)
     return groups
+
+
+def _accumulate(
+    groups: dict[tuple, tuple[list[str | None], dict[str, Any]]],
+    pair: Pair,
+    values: Mapping[str, Any],
+    dimensions: Sequence[DimensionKey],
+    products: Mapping[int, ProductInfo],
+    sign: int,
+) -> None:
+    """Add `sign` × `values` to each group of `dimensions` the pair falls in."""
+    for sums in _groups_of(groups, pair, dimensions, products):
+        for name, value in values.items():
+            sums[name] = sums.get(name, 0) + sign * value
+
+
+def _groups_of(
+    groups: dict[tuple, tuple[list[str | None], dict[str, Any]]],
+    pair: Pair,
+    dimensions: Sequence[DimensionKey],
+    products: Mapping[int, ProductInfo],
+) -> list[dict[str, Any]]:
+    """The sums of each group of `dimensions` the pair falls in, made when new, with their
+    display text."""
+    info = products.get(pair.product, ProductInfo())
+    found = []
+    for combo in itertools.product(*(keys_of(pair, d, info) for d in dimensions)):
+        labels, sums = groups.setdefault(tuple(k for k, _ in combo), ([None] * len(dimensions), {}))
+        for index, (_, label) in enumerate(combo):
+            if label is not None and (labels[index] is None or label > labels[index]):
+                labels[index] = label
+        found.append(sums)
+    return found
 
 
 def _rows(
@@ -657,36 +735,66 @@ def _rows(
 
 async def stock(db: AsyncSession, slice_: facts.Slice) -> list[dict[str, Any]]:
     """The stock fact: on hand, transit, value and coverage at each moment; with options, the R5
-    measures. One row per moment and group.
+    measures. One row per moment and group."""
+    return (await stock_many(db, [slice_]))[0]
+
+
+def share_key(slice_: facts.Slice) -> Hashable:
+    """Stock slices with the same key read the ledger once (`stock_many`): they differ only in
+    their dimensions and moments."""
+    filters = tuple(sorted((d.value, tuple(v)) for d, v in slice_.filters.items()))
+    return (slice_.facility, filters, slice_.stock_options)
+
+
+async def stock_many(db: AsyncSession, slices: Sequence[facts.Slice]) -> list[list[dict[str, Any]]]:
+    """The stock fact for several slices of one `share_key`, from one read of the ledger over all
+    their moments, grouped by each one's dimensions (spec 038, R18): the dashboard's stock value
+    now and in the comparison period, and its value by facility and in total.
 
     R5's rules depend on the moment itself (the windows move), so with options every pair is
     assessed at every moment asked, which is one moment on the dashboard and the detail. Without
     them a pair's columns depend only on its on hand, so each later moment updates only the pairs
     that moved and moves their groups' sums by the difference (`Groups`)."""
-    options = slice_.stock_options
-    moments = sorted(slice_.moments)
-    described = bool(DESCRIBED & {*slice_.dimensions, *slice_.filters})
+    first = slices[0]
+    options = first.stock_options
+    moments = sorted({m for s in slices for m in s.moments})
+    shapes = list(dict.fromkeys(s.dimensions for s in slices))
+    asked = {*(d for shape in shapes for d in shape), *first.filters}
+    described = bool(DESCRIBED & asked)
+    rows: dict[tuple[DimensionKey, ...], list[dict[str, Any]]] = {shape: [] for shape in shapes}
+
     if options is not None:
         found = await ledger(
-            db, moments, facility=slice_.facility, filters=slice_.filters, options=options,
+            db, moments, facility=first.facility, filters=first.filters, options=options,
             described=described,
         )  # fmt: skip
-        rows: list[dict[str, Any]] = []
         for moment, pairs in found.pairs.items():
-            groups = group(pairs, slice_.dimensions, found.products, lambda p: columns(p, options))
-            rows += _rows(moment, groups, len(slice_.dimensions), {})
-        return rows
+            figures = [(pair, columns(pair, options)) for pair in pairs]
+            for shape in shapes:
+                groups = group(figures, shape, found.products)
+                rows[shape] += _rows(moment, groups, len(shape), {})
+    else:
+        await _incremental(db, first, moments, shapes, described, rows)
+    return [[row for row in rows[s.dimensions] if row['moment'] in s.moments] for s in slices]
 
+
+async def _incremental(
+    db: AsyncSession,
+    first: facts.Slice,
+    moments: Sequence[date],
+    shapes: Sequence[tuple[DimensionKey, ...]],
+    described: bool,
+    rows: dict[tuple[DimensionKey, ...], list[dict[str, Any]]],
+) -> None:
+    """Without options: every pair at the first moment, then only the pairs that moved."""
     warehouses = await _warehouses(db)
     transit = {w: f for w, (f, moving) in warehouses.items() if moving}
-    opening, moved = await _read(
-        db, moments, slice_.facility, slice_.filters, warehouses, last=False
-    )
+    opening, moved = await _read(db, moments, first.facility, first.filters, warehouses, last=False)
     keys = set(opening) | {key for bucket in moved.values() for key, _, _ in bucket}
     products = {p for p, _ in keys}
     info = await _products(db, products) if described else {}
     cost = await costs(db, products)
-    groups = Groups(slice_.dimensions)
+    groups = Groups(shapes, info)
     pairs: dict[Pairs, Pair | None] = {}
 
     def pair_of(key: Pairs) -> Pair | None:
@@ -695,57 +803,70 @@ async def stock(db: AsyncSession, slice_: facts.Slice) -> list[dict[str, Any]]:
             p, w = key
             made = Pair(p, w, warehouses.get(w, (None, False))[0], cost=cost.get(p))
             found = info.get(p, ProductInfo())
-            pairs[key] = made if matches(made, slice_.filters, found) else None
+            pairs[key] = made if matches(made, first.filters, found) else None
         return pairs[key]
 
     def place(pair: Pair, on_hand: Decimal) -> None:
         pair.on_hand = on_hand
-        pair.in_transit = ZERO
-        _place_transit([pair], transit)
+        if pair.warehouse in transit:
+            pair.in_transit = ZERO
+            _place_transit([pair], transit)
 
     for key, (on_hand, _) in opening.items():
-        if (pair := pair_of(key)) is not None:
+        # A pair at zero adds nothing; it is made when it first moves.
+        if on_hand and (pair := pair_of(key)) is not None:
             place(pair, on_hand)
-            groups.add(pair, info, 1)
-    rows = groups.rows(moments[0])
+            groups.move(pair)
+    groups.emit(moments[0], rows)
     for index, moment in enumerate(moments[1:], start=1):
         for key, q, _ in moved.get(index, []):
             if (pair := pair_of(key)) is not None:
-                groups.add(pair, info, -1)
                 place(pair, pair.on_hand + q)
-                groups.add(pair, info, 1)
-        rows += groups.rows(moment)
-    return rows
+                groups.move(pair)
+        groups.emit(moment, rows)
 
 
 class Groups:
-    """Running sums of `columns` per group of `dimensions`, moved pair by pair: a pair that moves
-    is taken out at its old figures and put back at its new ones, so the non-linear rules (no
-    value for negative stock or an uncosted product, the pair counts) hold exactly."""
+    """Running sums of `columns` per group, for each set of dimensions asked, moved pair by pair: a
+    pair that moves moves its groups by the difference between its new figures and its last, so
+    the non-linear rules (no value for negative stock or an uncosted product, the pair counts)
+    hold exactly. Each pair's groups are found once."""
 
-    def __init__(self, dimensions: Sequence[DimensionKey]) -> None:
-        self.dimensions = tuple(dimensions)
-        self.sums: dict[tuple, tuple[list[str | None], dict[str, Any]]] = {}
+    def __init__(
+        self, shapes: Sequence[tuple[DimensionKey, ...]], products: Mapping[int, ProductInfo]
+    ) -> None:
+        self.products = products
+        self.sums: dict[tuple[DimensionKey, ...], dict] = {shape: {} for shape in shapes}
+        self.figures: dict[Pairs, dict[str, Any]] = {}
+        self.targets: dict[Pairs, list[dict[str, Any]]] = {}
 
-    def add(self, pair: Pair, products: Mapping[int, ProductInfo], sign: int) -> None:
-        values = columns(pair, None)
-        if not any(values.values()):
+    def move(self, pair: Pair) -> None:
+        """Bring the pair's groups to its figures now."""
+        key = (pair.product, pair.warehouse)
+        after = columns(pair, None)
+        before = self.figures.get(key)
+        self.figures[key] = after
+        delta = after if before is None else {k: v - before[k] for k, v in after.items()}
+        if not any(delta.values()):
             return
-        info = products.get(pair.product, ProductInfo())
-        for combo in itertools.product(*(keys_of(pair, d, info) for d in self.dimensions)):
-            labels, sums = self.sums.setdefault(
-                tuple(k for k, _ in combo), ([None] * len(self.dimensions), {})
-            )
-            for index, (_, label) in enumerate(combo):
-                if label is not None and (labels[index] is None or label > labels[index]):
-                    labels[index] = label
-            for name, value in values.items():
-                sums[name] = sums.get(name, 0) + sign * value
+        for sums in self._targets(pair, key):
+            for name, value in delta.items():
+                sums[name] = sums.get(name, 0) + value
 
-    def rows(self, moment: date) -> list[dict[str, Any]]:
+    def _targets(self, pair: Pair, key: Pairs) -> list[dict[str, Any]]:
+        """The sums of every group the pair falls in, made (with their labels) the first time."""
+        if key not in self.targets:
+            found = []
+            for shape, groups in self.sums.items():
+                found += _groups_of(groups, pair, shape, self.products)
+            self.targets[key] = found
+        return self.targets[key]
+
+    def emit(self, moment: date, rows: dict[tuple[DimensionKey, ...], list]) -> None:
         """The groups that hold anything at `moment`, as the stock fact's rows."""
-        held = {key: group for key, group in self.sums.items() if any(group[1].values())}
-        return _rows(moment, held, len(self.dimensions), {})
+        for shape, sums in self.sums.items():
+            held = {key: group for key, group in sums.items() if any(group[1].values())}
+            rows[shape] += _rows(moment, held, len(shape), {})
 
 
 async def stock_today(db: AsyncSession, slice_: facts.Slice) -> list[dict[str, Any]]:
@@ -767,7 +888,8 @@ async def stock_today(db: AsyncSession, slice_: facts.Slice) -> list[dict[str, A
     def figures(pair: Pair) -> dict[str, Any]:
         return {'reserved': pair.reserved or ZERO, 'available': pair.available}
 
-    groups = group(found.pairs[today], slice_.dimensions, found.products, figures)
+    pairs = [(pair, figures(pair)) for pair in found.pairs[today]]
+    groups = group(pairs, slice_.dimensions, found.products)
     return _rows(today, groups, len(slice_.dimensions), {'reserved': ZERO, 'available': ZERO})
 
 

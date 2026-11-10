@@ -115,13 +115,6 @@ async def concurrently(db: AsyncSession, jobs: Sequence[Callable[[AsyncSession],
     return await asyncio.gather(*(run(job) for job in jobs))
 
 
-def _fact_job(fact: Fact, slice_: facts.Slice) -> Callable[[AsyncSession], Awaitable[list[Any]]]:
-    async def job(session: AsyncSession) -> list[Any]:
-        return await engine.run_fact(session, fact, slice_)
-
-    return job
-
-
 async def _overdue_job(session: AsyncSession, facility: int | None) -> list[Any]:
     return await sales_order_service.open_credit_orders(
         session, facility=facility, due_before=local_now()
@@ -156,10 +149,13 @@ def _kpi(
     grain: Grain,
     start: date | None = None,
     end: date | None = None,
+    sparkline: AnalyticsQueryResponse | None = None,
 ) -> AnalyticsKpi:
+    """The KPI's value and comparison from `result`'s totals; its sparkline from `result`'s rows,
+    or from `sparkline`'s when the two are read apart."""
     totals = result.totals
     name = measure.value
-    points = {row.keys[0].value: row.values.get(name) for row in result.rows}
+    points = {row.keys[0].value: row.values.get(name) for row in (sparkline or result).rows}
     empty = engine.select_measures(engine.derive({}, VatTreatment.EXCLUDED), [measure])[name]
     start, end = start or request.start, end or request.end
     vat = VatTreatment.INCLUDED if measure is MeasureKey.AVERAGE_TICKET else VatTreatment.EXCLUDED
@@ -252,7 +248,11 @@ async def build(
         plan('payment_mix', 'donut', collected, DimensionKey.PAYMENT_METHOD)
     if inventory and cost:
         value = [MeasureKey.STOCK_VALUE]
-        plan('stock_value', '', value, DimensionKey.DATE, grain=grain)
+        # A balance's comparison is its value at the comparison period's end (R1): the KPI reads
+        # that moment alone, and the sparkline's buckets without it, so the stock fact never reads
+        # the comparison period's buckets (R18).
+        plan('stock_value', '', value)
+        plan('stock_value_sparkline', '', value, DimensionKey.DATE, grain=grain, comparison=None)
         # With the alerts' options, so its totals are the alerts' stock query (R18).
         plan(
             'stock_value_by_facility', 'bar', value, DimensionKey.FACILITY, comparison=None,
@@ -291,12 +291,16 @@ async def build(
     payable_alert = _prepared(_payable_alert_definition(request, facility, today), facility, held)
     if payables:
         wanted += engine.wanted(payable_alert)
-    distinct = {engine.fact_key(fact, slice_): (fact, slice_) for fact, slice_ in wanted}
-    jobs = [_fact_job(fact, slice_) for fact, slice_ in distinct.values()]
+    batches = engine.fact_jobs(wanted)
+    jobs = [job for _, job in batches]
     if sales:
         jobs.append(lambda session: _overdue_job(session, facility))
     results = await concurrently(db, jobs)
-    found = dict(zip(distinct, results[: len(distinct)], strict=True))
+    found = {
+        key: rows
+        for (keys, _), found_rows in zip(batches, results, strict=False)
+        for key, rows in zip(keys, found_rows, strict=True)
+    }
     overdue = results[-1] if sales else []
     answered = {
         name: await engine.assemble(db, one, found)
@@ -338,7 +342,7 @@ async def build(
         kpis.append(
             _kpi(
                 'stock_value', MeasureKey.STOCK_VALUE, answered['stock_value'], request, facility,
-                grain,
+                grain, sparkline=answered['stock_value_sparkline'],
             )
         )  # fmt: skip
     if receivables:

@@ -22,6 +22,7 @@ from app.schemas.analytics import (
 from app.services import kardex_service, stock_ledger
 from app.services.analytics import balances, facts
 from app.services.analytics import engine as analytics
+from app.services.analytics.catalog import Fact
 from tests.integration.conftest import db, engine, seeded, sessions  # noqa: F401
 from tests.integration.inventory_seed import Inventory, cost, product, reserve, setup_inventory
 from tests.integration.stock_seed import T, entry
@@ -33,6 +34,7 @@ ADMIN = CurrentUser(
 )
 MARCH = date(2026, 3, 31)
 _DAY = timedelta(days=1)
+_OPENING_QUERY = balances._opening_query
 
 
 @pytest.fixture
@@ -162,12 +164,16 @@ async def test_reserved_and_available_are_today_only(db: AsyncSession, site: Inv
     assert answer.totals.values['on_hand'] == Decimal('19.0000')
 
 
+@pytest.mark.parametrize('bulk', [500, 0], ids=['by-id', 'whole-table'])
 async def test_value_is_todays_cost_and_placeholders_are_uncosted(
     db: AsyncSession,  # noqa: F811
     site: Inventory,
+    monkeypatch: pytest.MonkeyPatch,
+    bulk: int,
 ) -> None:
     """R4: list-0 cost without VAT; a cost of 0 or 99,999 is uncosted, has no value, lowers the
     coverage and adds its on hand to the uncosted quantity."""
+    monkeypatch.setattr(balances, 'BULK', bulk)  # many products: the whole list in one read
     zero = await product(db, code='ZERO')
     placeholder = await product(db, code='PH')
     await cost(db, site.stockable, '2.50')
@@ -220,13 +226,23 @@ async def test_negative_on_hand_is_a_stock_out_and_adds_no_value(
 
 async def _full(db: AsyncSession, moment: date) -> dict:  # noqa: F811
     """The opening as one sum over the whole ledger: what the checkpoint must reproduce."""
-    rows = (await db.execute(balances._opening_query(balances.day_end(moment), None, {}))).all()
+    query = _OPENING_QUERY(balances.day_end(moment), None, {})
+    rows = (await db.execute(query)).all()
     return {(p, w): (q, balances._datetime(at)) for p, w, q, at in rows}
 
 
-async def test_a_checkpointed_read_equals_a_full_read(db: AsyncSession, site: Inventory) -> None:  # noqa: F811
+@pytest.mark.parametrize('bulk', [500, 0], ids=['last-by-product', 'last-from-the-ledger'])
+async def test_a_checkpointed_read_equals_a_full_read(
+    db: AsyncSession,  # noqa: F811
+    site: Inventory,
+    monkeypatch: pytest.MonkeyPatch,
+    bulk: int,
+) -> None:
     """Entries written after the checkpoint count wherever they are dated: today, yesterday, or
-    back-dated into March, before the checkpoint's day."""
+    back-dated into March, before the checkpoint's day. Before the checkpoint's day, the last entry
+    of the pairs that moved since is read again for those pairs' products only; past `BULK`
+    products, from one sum over the ledger."""
+    monkeypatch.setattr(balances, 'BULK', bulk)
     found = await balances.checkpoint(db)
     today = local_now().date()
     yesterday = found.day
@@ -240,10 +256,17 @@ async def test_a_checkpointed_read_equals_a_full_read(db: AsyncSession, site: In
     warehouses = await balances._warehouses(db)
 
     assert await balances.checkpoint(db) is found  # built once a day
+    whole = balances._opening_query
+    sums: list[date] = []
+    monkeypatch.setattr(
+        balances, '_opening_query', lambda until, *a: sums.append(until.date()) or whole(until, *a)
+    )
     for moment in (date(2026, 1, 31), MARCH, yesterday, today):
         full = await _full(db, moment)
+        sums.clear()
         read = await balances._opening(db, moment, None, {}, warehouses, last=True)
         assert read == full, moment
+        assert sums == ([] if bulk or moment >= yesterday else [moment + _DAY]), moment
         quick = await balances._opening(db, moment, None, {}, warehouses, last=False)
         assert {k: q for k, (q, _) in quick.items() if q} == {
             k: q for k, (q, _) in full.items() if q
@@ -275,9 +298,9 @@ async def test_later_moments_touch_only_the_pairs_that_moved(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Two pairs hold stock at the end of January; between then and April the facility-1 pair
-    moves in three buckets, so each later moment re-reads that pair alone: taken
-    out and put back; a facility-2 pair first appears in February. Counted by the pair figures
-    computed."""
+    moves in three buckets, so each later moment re-reads that pair alone, once, and moves its
+    groups by the difference; a facility-2 pair first appears in February. Counted by the pair
+    figures computed."""
     computed = []
     figures = balances.columns
 
@@ -295,7 +318,54 @@ async def test_later_moments_touch_only_the_pairs_that_moved(
     still = (site.non_stockable, site.b.warehouse)
     arriving = (site.stockable, site.b.warehouse)
     assert computed.count(still) == 1  # read at the opening, never again
-    assert computed.count(moving) == 1 + 2 * 3  # the opening, then out and in three times
-    assert computed.count(arriving) in (2, 3)  # February only (and a zero opening, if read)
+    assert computed.count(moving) == 1 + 3  # the opening, then once per bucket it moved in
+    assert computed.count(arriving) == 1  # February
     assert set(computed) == {moving, still, arriving}
     assert [row['on_hand'] for row in rows] == [11, 15, 20, 19]
+
+
+# ── One ledger read for several stock slices (research R18) ───────────────────
+
+
+async def test_slices_differing_in_dimensions_and_moments_read_the_ledger_once(
+    db: AsyncSession,  # noqa: F811
+    site: Inventory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The dashboard's stock value now and in the comparison period, and by facility: each answer
+    is what that slice alone gives, from one read."""
+    months = (date(2026, 1, 31), date(2026, 2, 28))
+    by_facility = _slice(DimensionKey.FACILITY, moments=(MARCH,))
+    current = _slice(moments=(MARCH, date(2026, 4, 30)))
+    earlier = _slice(moments=months)
+    alone = [await balances.stock(db, s) for s in (by_facility, current, earlier)]
+    reads = []
+    read = balances._read
+    monkeypatch.setattr(balances, '_read', lambda *a, **kw: reads.append(a[1]) or read(*a, **kw))
+
+    together = await balances.stock_many(db, [by_facility, current, earlier])
+
+    assert together == alone
+    assert [list(moments) for moments in reads] == [[*months, MARCH, date(2026, 4, 30)]]
+
+
+def test_the_engine_batches_stock_slices_that_share_a_read() -> None:
+    """Same scope, filters and options: one job; other stock slices and every other fact: their
+    own."""
+    options = StockOptions()
+    shared = [
+        (Fact.STOCK, _slice(moments=(MARCH,), stock_options=options)),
+        (Fact.STOCK, _slice(DimensionKey.FACILITY, moments=(MARCH,), stock_options=options)),
+    ]
+    other = [
+        (Fact.STOCK, _slice(moments=(MARCH,))),  # no options: another read
+        (Fact.STOCK, _slice(moments=(MARCH,), facility=2, stock_options=options)),
+        (Fact.SALE_LINE, facts.Slice(start=MARCH, end=MARCH)),
+    ]
+
+    jobs = analytics.fact_jobs([*shared, *other, shared[0]])
+
+    sizes = sorted(len(keys) for keys, _ in jobs)
+    assert sizes == [1, 1, 1, 2]
+    [pair] = [keys for keys, _ in jobs if len(keys) == 2]
+    assert pair == [analytics.fact_key(f, s) for f, s in shared]
