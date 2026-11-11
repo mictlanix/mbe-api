@@ -333,8 +333,9 @@ def month_lines(
             # current system, so that someone sees it and labels it.
             listed_at_zero = full == 0 and not has_stored_sale
             sale_counts_now = False
-            # No month up to this one is closed, so an earlier month's sale is stored nowhere:
-            # its later refunds land in their own month, as once the earlier months closed (#301).
+            # A sale earned in an earlier month that was never closed (none is, or it precedes
+            # the first close) is stored nowhere: its later refunds land in their own month, as
+            # the current system deducts them (#301, #303).
             earned_before = False
             if scheme == CommissionScheme.FULLY_PAID:
                 zeroed = line.balance_zeroed_time
@@ -342,7 +343,7 @@ def month_lines(
                     line.is_paid
                     and zeroed is not None
                     and zeroed < month_start
-                    and (chain_start is None or month_start < chain_start)
+                    and (chain_start is None or zeroed < chain_start)
                 )
                 in_month = zeroed is not None and month_start <= zeroed < next_month
                 picked_up_late = (

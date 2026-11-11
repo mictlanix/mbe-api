@@ -44,7 +44,7 @@ For each key:
 |---|---|---|
 | Agent on **scheme 1** | if (a): `full − stored_sales(key)`; 0 otherwise | each refund detail that falls in this month by the legacy rule (dated ≤ month end and the order paid this month, or dated in the month and the order paid earlier), **not already stored for this key**, as `ROUND(refund total × rate, 2)` negative |
 
-A scheme 1 refund "dated in the month, the order paid earlier" needs the earlier sale stored for the key (a closed month), unless no month up to this one is closed: then the sale is stored nowhere, and the refund counts if the order is paid now and its `balance_zeroed_time` falls before the month, as it would once the earlier months closed in order (mictlanix/mbe-api#301). A month the chain reaches skips the refund of a sale stamped before the chain start, which was never stored.
+A scheme 1 refund "dated in the month, the order paid earlier" needs the earlier sale stored for the key (a closed month), unless the sale was earned in a month never closed: no month up to this one is closed (mictlanix/mbe-api#301), or its `balance_zeroed_time` falls before the chain start (mictlanix/mbe-api#303). Then the sale is stored nowhere, and the refund counts in its own month if the order is paid now and stamped before the month. The current system deducts a refund in its own period whenever the sale was paid, and the user chose to keep that rule after the first close (#303).
 | Agent on **scheme 2** | `ROUND(full × min(applied ÷ (order_total − refunded), 1), 2) − stored_sales(key)` | each refund detail dated in the month, not already stored for this key, as a negative line |
 
 Where:
