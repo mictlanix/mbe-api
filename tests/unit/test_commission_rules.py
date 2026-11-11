@@ -241,14 +241,42 @@ class TestSchemeOne:
 
         assert _run((2026, 4), [reversed_], refunds=[refund]) == []
 
-    def test_a_chained_month_still_skips_the_refund_of_a_sale_from_before_the_chain(
+    def test_a_chained_month_deducts_the_refund_of_a_sale_from_before_the_chain(
         self,
     ) -> None:
-        """Months the chain reaches are unchanged: a pre-chain sale was never stored."""
+        """#303: paid before the first close, refunded in a month the chain reaches. The refund
+        lands in its own month, as the current system deducts it."""
         paid = _line(is_paid=True, balance_zeroed_time=datetime(2026, 3, 5))
         refund = rules.RefundLine(70, 10, datetime(2026, 5, 2), D('-10000.00'), D('0.3'))
+        chain = datetime(2026, 4, 1)
+
+        april = _run((2026, 4), [paid], refunds=[refund], chain_start=chain)
+        may = _run((2026, 5), [paid], refunds=[refund], chain_start=chain, stored=_store(april))
+        june = _run(
+            (2026, 6), [paid], refunds=[refund], chain_start=chain, stored=_store(april + may)
+        )
+
+        assert april == []
+        assert [(x.movement, x.customer_refund_detail, x.commission) for x in may] == [
+            (CommissionMovement.REFUND, 70, D('-30.00'))
+        ]
+        assert june == []
+
+    def test_a_chained_month_skips_a_pre_chain_refund_dated_before_it(self) -> None:
+        """#303: a refund dated before the month stays in its own month, never moved later."""
+        paid = _line(is_paid=True, balance_zeroed_time=datetime(2026, 2, 5))
+        refund = rules.RefundLine(70, 10, datetime(2026, 3, 20), D('-10000.00'), D('0.3'))
 
         may = _run((2026, 5), [paid], refunds=[refund], chain_start=datetime(2026, 4, 1))
+
+        assert may == []
+
+    def test_a_chained_month_deducts_no_refund_of_a_reversed_pre_chain_sale(self) -> None:
+        """Unpaid now, the pre-chain sale earns nothing, so neither does its refund."""
+        reversed_ = _line(is_paid=False, balance_zeroed_time=datetime(2026, 3, 5))
+        refund = rules.RefundLine(70, 10, datetime(2026, 5, 2), D('-10000.00'), D('0.3'))
+
+        may = _run((2026, 5), [reversed_], refunds=[refund], chain_start=datetime(2026, 4, 1))
 
         assert may == []
 

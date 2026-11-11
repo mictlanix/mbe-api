@@ -129,6 +129,29 @@ async def test_an_open_month_deducts_a_refund_as_closing_in_order_would(
     assert [x.commission for x in closed_march.lines] == [D('100.00')]
 
 
+async def test_a_closed_chain_deducts_the_refund_of_a_sale_paid_before_it(
+    db: AsyncSession, seeded: None
+) -> None:
+    """#303: paid in February, March is the first close, refunded in April. April lists the
+    refund live and stores it on close; May lists it no more."""
+    await setup_commissions(db)
+    order_id, line_id = await order(db, paid=True, zeroed=datetime(2026, 2, 9))
+    await refund(db, order_id, line_id, quantity='0.3', price='10000', when=datetime(2026, 4, 2))
+
+    with _today(datetime(2026, 6, 2)):
+        await svc.close(db, 2026, 3, current=USER)
+        live_april = await svc.read_period(db, 2026, 4)
+        await svc.close(db, 2026, 4, current=USER)
+        live_may = await svc.read_period(db, 2026, 5)
+    closed_april = await svc.read_period(db, 2026, 4)
+
+    assert [(x.movement, x.commission) for x in live_april.lines] == [
+        (CommissionMovement.REFUND, D('-30.00'))
+    ]
+    assert closed_april.final and _snapshot(closed_april) == _snapshot(live_april)
+    assert live_may.lines == []
+
+
 async def test_only_the_latest_closed_month_reopens(db: AsyncSession, seeded: None) -> None:
     await setup_commissions(db)
     await order(db, paid=True, zeroed=datetime(2026, 4, 9))
