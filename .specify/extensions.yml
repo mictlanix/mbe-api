@@ -28,8 +28,7 @@ hooks:
     optional: false
     priority: 10
     prompt: Execute speckit.companion.after-specify?
-    description: Record specify completion (currentStep=specify, status=specified)
-      into .spec-context.json
+    description: Record the specify start and finish
     condition: null
   after_plan:
   - extension: agent-context
@@ -54,7 +53,7 @@ hooks:
     optional: false
     priority: 10
     prompt: Execute speckit.companion.after-plan?
-    description: Record plan completion (currentStep=plan, status=planned) into .spec-context.json
+    description: Record the plan finish
     condition: null
   after_tasks:
   - extension: git
@@ -71,8 +70,7 @@ hooks:
     optional: false
     priority: 10
     prompt: Execute speckit.companion.after-tasks?
-    description: Record tasks completion (currentStep=tasks, status=ready-to-implement)
-      into .spec-context.json
+    description: Record the tasks finish
     condition: null
   after_implement:
   - extension: git
@@ -89,8 +87,7 @@ hooks:
     optional: false
     priority: 10
     prompt: Execute speckit.companion.after-implement?
-    description: Per-task journaling on implement (currentStep=implement; status=implemented
-      when all tasks checked)
+    description: Sync implement progress from tasks.md
     condition: null
   before_constitution:
   - extension: git
@@ -116,7 +113,7 @@ hooks:
     optional: false
     priority: 10
     prompt: Execute speckit.companion.before-step?
-    description: Read the clock so after_specify can record when specify started
+    description: Save the specify start time until its folder exists
     condition: null
   before_clarify:
   - extension: git
@@ -142,7 +139,7 @@ hooks:
     optional: false
     priority: 10
     prompt: Execute speckit.companion.before-step?
-    description: Record plan start (currentStep=plan, status=planning) into .spec-context.json
+    description: Record the plan start
     condition: null
   before_tasks:
   - extension: git
@@ -159,7 +156,7 @@ hooks:
     optional: false
     priority: 10
     prompt: Execute speckit.companion.before-step?
-    description: Record tasks start (currentStep=tasks, status=tasking) into .spec-context.json
+    description: Record the tasks start
     condition: null
   before_implement:
   - extension: git
@@ -176,8 +173,7 @@ hooks:
     optional: false
     priority: 10
     prompt: Execute speckit.companion.before-step?
-    description: Record implement start (currentStep=implement, status=implementing)
-      into .spec-context.json
+    description: Record the implement start
     condition: null
   before_checklist:
   - extension: git
@@ -258,8 +254,7 @@ hooks:
     optional: false
     priority: 10
     prompt: Execute speckit.companion.before-converge?
-    description: Record converge start (currentStep=converge, status unchanged) into
-      .spec-context.json
+    description: Record the converge start
     condition: null
   after_converge:
   - extension: companion
@@ -268,6 +263,5 @@ hooks:
     optional: false
     priority: 10
     prompt: Execute speckit.companion.after-converge?
-    description: Record converge finish (currentStep=converge, status unchanged) into
-      .spec-context.json
+    description: Record the converge finish
     condition: null
