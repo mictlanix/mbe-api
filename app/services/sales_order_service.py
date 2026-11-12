@@ -16,7 +16,7 @@ from datetime import date, datetime, timedelta
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Any
 
-from sqlalchemy import and_, case, func, or_, select
+from sqlalchemy import and_, case, func, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
@@ -26,6 +26,7 @@ from app.core.constants import COST_PRICE_LIST_ID
 from app.core.deps import CurrentUser
 from app.core.error_codes import ErrorCode
 from app.core.errors import DomainError, not_found
+from app.db.session import NAMED_LOCKS
 from app.enums import CurrencyCode, FiscalDocumentType, FulfillmentType, OrderOrigin, PaymentTerms
 from app.models.core import ExchangeRate, Facility, Warehouse
 from app.models.customer import Customer
@@ -895,6 +896,35 @@ async def _assert_within_credit_limit(
         )
 
 
+_CREDIT_LOCK_WAIT_SECONDS = 10
+
+
+async def _lock_customer_credit(db: AsyncSession, customer_id: int) -> None:
+    """Serialise credit confirmations for one customer across facilities (#157).
+
+    The facility lock already serialises a customer's confirmations within one store; in two
+    stores, both read the debt before either commits, each fits the limit, and together they
+    exceed it. The customer row cannot be the lock: every document insert takes a foreign-key
+    share lock on it, so a `FOR UPDATE` there deadlocks with drafts or payments wherever it sits
+    in spec 035's lock order. A named lock is taken by credit confirmations only, and last, so its
+    holder waits on nothing after it. It opens no snapshot, so the debt read that follows sees the
+    other store's committed order. It outlives the COMMIT and is released when the connection
+    returns to the pool (`app.db.session`).
+    """
+    if db.bind.dialect.name not in ('mysql', 'mariadb'):
+        return
+    conn = await db.connection()
+    name = f'{conn.engine.url.database}.credit.{customer_id}'
+    acquired = await conn.scalar(
+        text('SELECT GET_LOCK(:name, :wait)'), {'name': name, 'wait': _CREDIT_LOCK_WAIT_SECONDS}
+    )
+    if acquired != 1:
+        raise DomainError(
+            ErrorCode.LOCK_BUSY, 'The customer is busy, retry', {'resource': 'customer'}
+        )
+    conn.info.setdefault(NAMED_LOCKS, []).append(name)
+
+
 async def _assert_not_on_credit_hold(db: AsyncSession, customer_id: int) -> None:
     """A customer behind on credit commits nothing further — whatever this order's own terms are.
 
@@ -1555,6 +1585,8 @@ async def _confirm_locked(
     warehouses = {line.warehouse for line in lines if line.warehouse is not None}
     if warehouses:
         await inventory_documents.lock_warehouses(db, warehouses)
+    if order.payment_terms == PaymentTerms.NET_D and order.customer != settings.default_customer_id:
+        await _lock_customer_credit(db, order.customer)
 
     # Before the folio and before the reservation: this is the act that extends credit, and until
     # #219 nothing checked it here. Creation and an explicit terms change were both guarded, but a
