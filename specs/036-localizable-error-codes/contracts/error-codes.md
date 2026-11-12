@@ -292,7 +292,7 @@ Specs 037 and 038. Measure and dimension keys are the catalog's (`GET /analytics
 
 | Code | Status | Params | Situation |
 |---|---|---|---|
-| `lock.busy` | 409 | resource: str (`warehouse`, `facility` or `sales_order`) | Another request holds the lock; retry. |
+| `lock.busy` | 409 | resource: str (`warehouse`, `facility`, `sales_order` or `customer`) | Another request holds the lock; retry. |
 
 ## payment
 
