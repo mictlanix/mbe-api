@@ -17,6 +17,14 @@ class CustomerPaymentCreate(BaseModel):
     payment_type: PaymentType = PaymentType.IMMEDIATE
 
 
+class PaymentRejection(BaseModel):
+    """A payment's latest rejection, read back from its incidence (#310)."""
+
+    reason: str | None
+    rejected_by: int
+    rejected_at: LocalDateTime | None
+
+
 class CustomerPaymentResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -42,6 +50,9 @@ class CustomerPaymentResponse(BaseModel):
     verifier: int | None
     # Derived: amount less its non-cancelled applications and their change (never stored)
     unapplied: Decimal
+    #: The latest rejection, or null if never rejected. A rejection blocks nothing: the payment
+    #: stays unverified and can still be verified or rejected again (#310).
+    last_rejection: PaymentRejection | None = None
 
 
 class ApplicationCreate(BaseModel):

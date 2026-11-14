@@ -116,6 +116,7 @@ async def test_record_a_payment() -> None:
             AsyncMock(return_value=_payment()),
         ),
         patch('app.services.customer_payment_service.attach_customer_names', AsyncMock()),
+        patch('app.services.customer_payment_service.attach_last_rejections', AsyncMock()),
     ):
         async with await _client() as client:
             response = await client.post(
@@ -431,6 +432,7 @@ async def test_verify_records_the_supervisor() -> None:
             AsyncMock(return_value=_payment(verifier=7)),
         ),
         patch('app.services.customer_payment_service.attach_customer_names', AsyncMock()),
+        patch('app.services.customer_payment_service.attach_last_rejections', AsyncMock()),
     ):
         async with await _client() as client:
             response = await client.post('/api/v1/customer-payments/1/verify')
@@ -525,7 +527,11 @@ def _by_id_patches(payment: SimpleNamespace):  # noqa: ANN202
         patch(
             'app.services.customer_payment_service.list_applications', AsyncMock(return_value=[])
         ),
-        patch('app.services.customer_payment_service.attach_customer_names', AsyncMock()),
+        patch.multiple(
+            'app.services.customer_payment_service',
+            attach_customer_names=AsyncMock(),
+            attach_last_rejections=AsyncMock(),
+        ),
     )
 
 

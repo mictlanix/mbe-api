@@ -116,6 +116,9 @@ async def list_unverified_payments(
     method: int | None = Query(None),
     amount_min: Decimal | None = Query(None),
     amount_max: Decimal | None = Query(None),
+    rejected: bool | None = Query(
+        None, description='true: only payments rejected at least once; false: never rejected.'
+    ),
     skip: int = Query(0, ge=0),
     limit: int = Query(20, ge=1, le=100),
     current: CurrentUser = Depends(_VERIFY_READ),
@@ -131,6 +134,7 @@ async def list_unverified_payments(
         amount_min=amount_min,
         amount_max=amount_max,
         unverified_only=True,
+        rejected=rejected,
         # Every facility, narrowed to a named one: the current system's verification screen has no
         # store filter, and verifiers act company-wide (spec 034, FR-012).
         cross_facility=True,
@@ -226,6 +230,7 @@ async def create_customer_payment(
 ) -> CustomerPaymentResponse:
     payment = await customer_payment_service.create_payment(db, data, current=current)
     await customer_payment_service.attach_customer_names(db, [payment])
+    await customer_payment_service.attach_last_rejections(db, [payment])
     return CustomerPaymentResponse.model_validate(payment)
 
 
@@ -238,6 +243,7 @@ async def get_customer_payment(
     payment = await _visible_payment_or_404(db, current, customer_payment_id)
     await customer_payment_service.attach_unapplied(db, payment)
     await customer_payment_service.attach_customer_names(db, [payment])
+    await customer_payment_service.attach_last_rejections(db, [payment])
     return CustomerPaymentResponse.model_validate(payment)
 
 
@@ -327,6 +333,7 @@ async def verify_customer_payment(
     payment = await _payment_or_404(db, customer_payment_id)
     payment = await customer_payment_service.verify_payment(db, payment, current=current)
     await customer_payment_service.attach_customer_names(db, [payment])
+    await customer_payment_service.attach_last_rejections(db, [payment])
     return CustomerPaymentResponse.model_validate(payment)
 
 
@@ -343,4 +350,5 @@ async def reject_customer_payment(
         db, payment, reason=data.reason, current=current
     )
     await customer_payment_service.attach_customer_names(db, [payment])
+    await customer_payment_service.attach_last_rejections(db, [payment])
     return CustomerPaymentResponse.model_validate(payment)
