@@ -174,13 +174,44 @@ async def search_payments_across_facilities(
 async def list_outstanding_orders(
     search: str | None = Query(None),
     customer: int | None = Query(None),
+    facility: int | None = Query(None, description="Omitted: the caller's facility."),
     skip: int = Query(0, ge=0),
     limit: int = Query(20, ge=1, le=100),
     current: CurrentUser = Depends(_READ),
     db: AsyncSession = Depends(get_db),
 ) -> ListResponse[OutstandingOrderResponse]:
+    """Another facility's orders need PaymentsEditor (100), to apply that facility's payment, or
+    SearchCreditsFromAllStores (101), which opens its orders (#308)."""
+    if (
+        facility is not None
+        and facility != current.facility_id
+        and not await _sees_every_facility(db, current)
+        and not await can_see_every_facility(
+            db, current, SystemObject.SEARCH_CREDITS_FROM_ALL_STORES
+        )
+    ):
+        raise DomainError(
+            ErrorCode.FACILITY_OTHER_FACILITY,
+            "Another facility's orders require PaymentsEditor or SearchCreditsFromAllStores read",
+            {
+                'resource': 'sales_order',
+                'required': [
+                    {'system_object': SystemObject.PAYMENTS_EDITOR, 'right': AccessRight.READ},
+                    {
+                        'system_object': SystemObject.SEARCH_CREDITS_FROM_ALL_STORES,
+                        'right': AccessRight.READ,
+                    },
+                ],
+            },
+        )
     rows, total = await customer_payment_service.search_outstanding(
-        db, current=current, search=search, customer=customer, skip=skip, limit=limit
+        db,
+        current=current,
+        facility=facility or current.facility_id,
+        search=search,
+        customer=customer,
+        skip=skip,
+        limit=limit,
     )
     return ListResponse(
         items=[OutstandingOrderResponse.model_validate(r) for r in rows], total=total
