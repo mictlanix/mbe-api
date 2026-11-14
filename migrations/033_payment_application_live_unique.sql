@@ -7,7 +7,7 @@
 -- wrong amount and applying the right one, the most common correction, was impossible.
 --
 -- The rule the key stood for, one application per pair, still holds for live applications. The
--- API now refuses a second live one with `customer_payment.already_applied` (409) before the
+-- API now refuses a second live one with `payment.already_applied` (409) before the
 -- insert; this narrows the key to match:
 --
 -- 1. `live`, a virtual generated column: 1 while the application is live, NULL once reversed.
