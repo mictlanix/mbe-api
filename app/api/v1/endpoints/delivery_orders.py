@@ -15,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import rendering
 from app.core.config import settings
-from app.core.deps import CurrentUser, require_privilege
+from app.core.deps import CurrentUser, can_see_every_facility, require_privilege
 from app.core.error_codes import ErrorCode
 from app.core.errors import DomainError, not_found
 from app.db.session import get_db
@@ -24,6 +24,7 @@ from app.models.core import Warehouse
 from app.models.logistics import DeliveryOrder, ProofOfDelivery
 from app.schemas import ListResponse, LocalDateTime
 from app.schemas.delivery_order import (
+    DeliverableLineResponse,
     DeliveryOrderCreate,
     DeliveryOrderEventResponse,
     DeliveryOrderLineRequest,
@@ -80,7 +81,7 @@ async def list_approval_queue(
     items, total = await delivery_order_service.list_orders(
         db,
         current=current,
-        order_status=DeliveryOrderStatus.PENDING_APPROVAL,
+        order_status=[DeliveryOrderStatus.PENDING_APPROVAL],
         skip=skip,
         limit=limit,
     )
@@ -111,12 +112,38 @@ async def reject_delivery_order(
     return await _with_lines(db, order)
 
 
+# ── Deliverable lines ─────────────────────────────────────────────────────────
+#
+# Registered before `/{delivery_order_id}`, for the same reason as the approval queue.
+
+
+@router.get('/deliverable-lines', response_model=ListResponse[DeliverableLineResponse])
+async def list_deliverable_lines(
+    customer: int = Query(),
+    sales_order: int | None = Query(None),
+    skip: int = Query(0, ge=0),
+    limit: int = Query(20, ge=1, le=100),
+    _: CurrentUser = Depends(_READ),
+    db: AsyncSession = Depends(get_db),
+) -> ListResponse[DeliverableLineResponse]:
+    """What `POST /{id}/lines` would accept for this customer, and how much of each (#313).
+
+    Every facility's sales: a consolidated shipment may draw on any of them.
+    """
+    rows, total = await delivery_order_service.deliverable_lines(
+        db, customer=customer, sales_order=sales_order, skip=skip, limit=limit
+    )
+    return ListResponse(
+        items=[DeliverableLineResponse.model_validate(row) for row in rows], total=total
+    )
+
+
 # ── Delivery orders ───────────────────────────────────────────────────────────
 
 
 @router.get('', response_model=ListResponse[DeliveryOrderSummary])
 async def list_delivery_orders(
-    order_status: DeliveryOrderStatus | None = Query(None, alias='status'),
+    order_status: list[DeliveryOrderStatus] | None = Query(None, alias='status'),
     customer: int | None = Query(None),
     facility: int | None = Query(None),
     fulfillment_type: FulfillmentType | None = Query(None),
@@ -133,7 +160,30 @@ async def list_delivery_orders(
     """`mine` is how an author finds a rejected draft — no notification is sent (FR-067).
 
     `sales_order` answers "which deliveries belong to this sale?" in one call (#147).
+
+    `status` repeats (`?status=0&status=2`), so every order still in play is one paginated
+    request (#312).
     """
+    if (
+        facility is not None
+        and facility != current.facility_id
+        and not await can_see_every_facility(
+            db, current, SystemObject.SEARCH_CREDITS_FROM_ALL_STORES
+        )
+    ):
+        raise DomainError(
+            ErrorCode.FACILITY_OTHER_FACILITY,
+            "Another facility's delivery orders require SearchCreditsFromAllStores read",
+            {
+                'resource': 'delivery_order',
+                'required': [
+                    {
+                        'system_object': SystemObject.SEARCH_CREDITS_FROM_ALL_STORES,
+                        'right': AccessRight.READ,
+                    }
+                ],
+            },
+        )
     items, total = await delivery_order_service.list_orders(
         db,
         current=current,

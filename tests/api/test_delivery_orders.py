@@ -552,7 +552,7 @@ async def test_approval_queue_is_not_matched_as_an_id() -> None:
             response = await client.get('/api/v1/delivery-orders/approval')
 
     assert response.status_code == 200
-    assert listed.await_args.kwargs['order_status'] == DeliveryOrderStatus.PENDING_APPROVAL
+    assert listed.await_args.kwargs['order_status'] == [DeliveryOrderStatus.PENDING_APPROVAL]
 
 
 @pytest.mark.asyncio
@@ -593,7 +593,7 @@ async def test_mine_filter_is_the_rejection_discovery_path() -> None:
             await client.get('/api/v1/delivery-orders?mine=true&status=0')
 
     assert listed.await_args.kwargs['mine'] is True
-    assert listed.await_args.kwargs['order_status'] == DeliveryOrderStatus.DRAFT
+    assert listed.await_args.kwargs['order_status'] == [DeliveryOrderStatus.DRAFT]
 
 
 # ── Cancellation and retry ────────────────────────────────────────────────────

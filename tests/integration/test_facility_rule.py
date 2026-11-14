@@ -164,11 +164,13 @@ class TestPaymentWrites:
     ) -> None:
         """Scenario 2."""
         await _grant(db, SystemObject.PAYMENTS_EDITOR)
+        # Another order: the payment already has a live application to `there_order` (#309)
+        order, _ = await _order(db, world['other'], completed=True)
         _as(CLERK)
 
         applied = await client.post(
             f'/api/v1/customer-payments/{world["there_payment"]}/applications',
-            json={'sales_order': world['there_order'], 'amount': '5'},
+            json={'sales_order': order, 'amount': '5'},
         )
 
         assert applied.status_code == 201, applied.text
@@ -224,10 +226,12 @@ class TestOrderWrites:
         self, client: AsyncClient, db: AsyncSession, world: dict
     ) -> None:
         """The fixture's own caller is an administrator."""
+        # Another order: the payment already has a live application to `there_order` (#309)
+        order, _ = await _order(db, world['other'], completed=True)
         updated = await client.put(f'/api/v1/sales-orders/{world["draft"]}', json={})
         applied = await client.post(
             f'/api/v1/customer-payments/{world["there_payment"]}/applications',
-            json={'sales_order': world['there_order'], 'amount': '5'},
+            json={'sales_order': order, 'amount': '5'},
         )
 
         assert updated.status_code == 200, updated.text

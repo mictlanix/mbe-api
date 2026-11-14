@@ -112,6 +112,7 @@ Specs 037 and 038. Measure and dimension keys are the catalog's (`GET /analytics
 | `delivery_order.not_failed` | 409 | status: enum:DeliveryOrderStatus | Re-queueing an order that did not fail. |
 | `delivery_order.not_in_preparation` | 409 | status: enum:DeliveryOrderStatus | Loading onto a trip an order that is not IN_PREPARATION. |
 | `delivery_order.not_pending_approval` | 409 | status: enum:DeliveryOrderStatus, action: str (`approve` or `reject`) | Approving or rejecting an order not awaiting approval. |
+| `delivery_order.on_itinerary` | 409 | itinerary_ids: list[int] | Cancelling an order whose lines are loaded on an open itinerary. |
 | `delivery_order.pickup_not_loadable` | 409 | — | A counter-pickup order cannot be loaded onto a trip. |
 | `delivery_order.proof_incomplete` | 422 | — | Proof of delivery lacks receiver name or identification shown. |
 | `delivery_order.quantity_exceeds_remaining` | 422 | sales_order_line_id: int, remaining: decimal, requested: decimal | Requested quantity is more than the sales line still owes. |
@@ -298,6 +299,7 @@ Specs 037 and 038. Measure and dimension keys are the catalog's (`GET /analytics
 
 | Code | Status | Params | Situation |
 |---|---|---|---|
+| `payment.already_applied` | 409 | customer_payment_id: int, sales_order_id: int, sales_order_payment_id: int | The payment already has a live application to this order; reverse it before applying again. |
 | `payment.already_verified` | 409 | — | The payment has already been verified. |
 | `payment.application_reversed` | 409 | — | The payment application was already reversed. |
 | `payment.currency_mismatch` | 422 | payment_currency: enum:CurrencyCode, order_currency: enum:CurrencyCode | The payment currency differs from the order currency. |

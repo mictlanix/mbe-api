@@ -22,6 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.enums import DeliveryOrderStatus, ItineraryStatus
 from app.models.logistics import DeliveryOrderDetail
 from tests.integration.seed import seed_sales_order
+from tests.problem import assert_problem
 
 
 def _png() -> bytes:
@@ -259,6 +260,77 @@ async def test_cancelling_a_trip_releases_what_it_held(
     ).scalars().one()
     await db.refresh(line)
     assert line.committed_quantity == Decimal('0')
+
+
+async def test_an_order_loaded_on_an_open_trip_cannot_be_cancelled(
+    client: AsyncClient, db: AsyncSession, seeded: None
+) -> None:
+    """Cancelling it would leave the trip unable to depart (#311); removing the stop first works."""
+    delivery_id = await _approved_delivery_order(client, db)
+    itinerary_id = (
+        await client.post('/api/v1/delivery-itineraries', json={'warehouse': 1})
+    ).json()['deliveries_itinerary_id']
+    stop = await client.post(
+        f'/api/v1/delivery-itineraries/{itinerary_id}/stops', json={'delivery_order': delivery_id}
+    )
+    stop_id = stop.json()['stops'][0]['deliveries_itinerary_stop_id']
+    loaded = await client.post(
+        f'/api/v1/delivery-itineraries/{itinerary_id}/stops/{stop_id}/lines/all',
+        json={'delivery_order': delivery_id},
+    )
+    assert loaded.status_code == 200, loaded.text
+
+    refused = await client.post(
+        f'/api/v1/delivery-orders/{delivery_id}/cancel', json={'reason': 'Cliente canceló'}
+    )
+
+    problem = assert_problem(refused, 409, 'delivery_order.on_itinerary')
+    assert problem['params']['itinerary_ids'] == [itinerary_id]
+    line = (
+        await db.execute(
+            select(DeliveryOrderDetail).where(DeliveryOrderDetail.delivery_order == delivery_id)
+        )
+    ).scalars().one()
+    await db.refresh(line)
+    assert line.committed_quantity == Decimal('10')
+
+    removed = await client.delete(f'/api/v1/delivery-itineraries/{itinerary_id}/stops/{stop_id}')
+    assert removed.status_code == 200, removed.text
+    cancelled = await client.post(
+        f'/api/v1/delivery-orders/{delivery_id}/cancel', json={'reason': 'Cliente canceló'}
+    )
+
+    assert cancelled.status_code == 200, cancelled.text
+    assert cancelled.json()['status'] == DeliveryOrderStatus.CANCELLED
+    await db.refresh(line)
+    assert line.committed_quantity == Decimal('0')
+
+
+async def test_a_cancelled_order_cannot_be_loaded(
+    client: AsyncClient, db: AsyncSession, seeded: None
+) -> None:
+    """A stop added before the cancel does not let the order's lines onto the trip afterwards."""
+    delivery_id = await _approved_delivery_order(client, db)
+    itinerary_id = (
+        await client.post('/api/v1/delivery-itineraries', json={'warehouse': 1})
+    ).json()['deliveries_itinerary_id']
+    stop = await client.post(
+        f'/api/v1/delivery-itineraries/{itinerary_id}/stops', json={'delivery_order': delivery_id}
+    )
+    stop_id = stop.json()['stops'][0]['deliveries_itinerary_stop_id']
+    cancelled = await client.post(
+        f'/api/v1/delivery-orders/{delivery_id}/cancel', json={'reason': 'Cliente canceló'}
+    )
+    assert cancelled.status_code == 200, cancelled.text
+    line_id = cancelled.json()['lines'][0]['delivery_order_detail_id']
+
+    refused = await client.post(
+        f'/api/v1/delivery-itineraries/{itinerary_id}/stops/{stop_id}/lines',
+        json={'delivery_order_detail': line_id},
+    )
+
+    problem = assert_problem(refused, 409, 'delivery_order.not_in_preparation')
+    assert problem['params']['status'] == DeliveryOrderStatus.CANCELLED
 
 
 async def test_the_pending_deliveries_view_lists_what_is_loadable(
