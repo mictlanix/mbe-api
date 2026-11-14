@@ -49,6 +49,28 @@ class DeliveryOrderLineRequest(BaseModel):
     quantity: Decimal = Field(gt=0)
 
 
+class DeliverableLineResponse(BaseModel):
+    """A sales line with something left to deliver, and how much (#313)."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    sales_order: int
+    sales_order_detail: int
+    facility: int
+    product: int
+    product_code: str
+    product_name: str
+    # Null when the sale named none; `add_line` then dispatches from the delivery order's facility.
+    warehouse: int | None
+    quantity: Decimal
+    covered: Decimal
+
+    @computed_field
+    @property
+    def remaining(self) -> Decimal:
+        return self.quantity - self.covered
+
+
 # ── Header ────────────────────────────────────────────────────────────────────
 
 

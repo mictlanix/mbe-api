@@ -501,6 +501,7 @@ async def apply_payment(
         balance = await _balance(db, order)
 
         assert_order_payable(order)
+        await _assert_not_applied(db, payment.customer_payment_id, order.sales_order_id)
         assert_same_customer(payment.customer, order.customer)
         assert_same_currency(CurrencyCode(payment.currency), CurrencyCode(order.currency))
         assert_not_settled(order, balance)
@@ -526,6 +527,34 @@ async def apply_payment(
         await db.commit()
     await db.refresh(application)
     return application
+
+
+async def _assert_not_applied(
+    db: AsyncSession, customer_payment_id: int, sales_order_id: int
+) -> None:
+    """One live application per payment and order (#309). A reversed one doesn't count: reversing
+    a wrong amount and applying the right one is the usual correction. Migration 033 enforces the
+    same in the database; this names the refusal instead of a generic conflict."""
+    existing = (
+        await db.execute(
+            select(SalesOrderPayment.sales_order_payment_id).where(
+                SalesOrderPayment.customer_payment == customer_payment_id,
+                SalesOrderPayment.sales_order == sales_order_id,
+                SalesOrderPayment.cancelled.is_(False),
+            )
+        )
+    ).scalar_one_or_none()
+    if existing is not None:
+        raise DomainError(
+            ErrorCode.PAYMENT_ALREADY_APPLIED,
+            f'Payment {customer_payment_id} is already applied to sales order {sales_order_id}; '
+            f'reverse application {existing} first',
+            {
+                'customer_payment_id': customer_payment_id,
+                'sales_order_id': sales_order_id,
+                'sales_order_payment_id': existing,
+            },
+        )
 
 
 async def reverse_application(
@@ -676,6 +705,7 @@ async def search_outstanding(
     db: AsyncSession,
     *,
     current: CurrentUser,
+    facility: int | None = None,
     search: str | None = None,
     customer: int | None = None,
     skip: int = 0,
@@ -694,7 +724,7 @@ async def search_outstanding(
         SalesOrder.completed.is_(True),
         SalesOrder.cancelled.is_(False),
         SalesOrder.paid.is_(False),
-        SalesOrder.facility == current.facility_id,
+        SalesOrder.facility == (facility or current.facility_id),
     )
 
     if customer is not None:

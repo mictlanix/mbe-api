@@ -14,7 +14,7 @@ from collections.abc import Sequence
 from datetime import datetime, timedelta
 from decimal import Decimal
 
-from sqlalchemy import Select, func, or_, select
+from sqlalchemy import Select, and_, func, join, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.clock import local_now
@@ -23,9 +23,12 @@ from app.core.deps import CurrentUser
 from app.core.error_codes import ErrorCode
 from app.core.errors import DomainError, not_found
 from app.enums import DeliveryOrderStatus as S
-from app.enums import FulfillmentType, PaymentTerms, TransactionType
+from app.enums import FulfillmentType, ItineraryStatus, PaymentTerms, TransactionType
 from app.models.core import Facility, Warehouse
 from app.models.logistics import (
+    DeliveriesItinerary,
+    DeliveriesItineraryDetail,
+    DeliveriesItineraryStop,
     DeliveryOrder,
     DeliveryOrderDetail,
     DeliveryOrderEvent,
@@ -117,6 +120,29 @@ def narrow_to_requested(
 
 
 # ── Creation from a sales order ───────────────────────────────────────────────
+
+
+def assert_sale_deliverable(order: SalesOrder) -> None:
+    """A sale's lines may go onto a delivery order only once it is completed, uncancelled and —
+    when the setting asks — paid or on credit. `create_from_sales_order` and `add_line` both apply
+    it, and `deliverable_lines` states the same rule in SQL (#313)."""
+    if not order.completed or order.cancelled:
+        raise DomainError(
+            ErrorCode.DELIVERY_ORDER_SALES_ORDER_NOT_DELIVERABLE,
+            'Only a completed, uncancelled sales order can be delivered',
+        )
+    # "Paid, or on credit" is a register's rule: at a counter, money precedes handover. It is not
+    # a universal one, and this is where the difference shows — an order taken for delivery on
+    # immediate terms, to be paid on receipt, is refused here for want of a route to payment it
+    # actually has (#211). Expressing that needs a field recording payable-on-delivery, which no
+    # table has, so the setting keeps its meaning and states its assumption instead. Off by default.
+    if settings.delivery_order_requires_paid_or_credit_sales_order and not (
+        order.paid or order.payment_terms == PaymentTerms.NET_D
+    ):
+        raise DomainError(
+            ErrorCode.DELIVERY_ORDER_SALES_ORDER_UNPAID,
+            'This sales order must be paid or on credit terms before it can be delivered',
+        )
 
 
 async def _covered_quantities(db: AsyncSession, sales_order_id: int) -> dict[int, Decimal]:
@@ -233,23 +259,7 @@ async def create_from_sales_order(
     order = await db.get(SalesOrder, sales_order_id)
     if order is None:
         raise not_found(SalesOrder, sales_order_id)
-    if not order.completed or order.cancelled:
-        raise DomainError(
-            ErrorCode.DELIVERY_ORDER_SALES_ORDER_NOT_DELIVERABLE,
-            'Only a completed, uncancelled sales order can be delivered',
-        )
-    # "Paid, or on credit" is a register's rule: at a counter, money precedes handover. It is not
-    # a universal one, and this is where the difference shows — an order taken for delivery on
-    # immediate terms, to be paid on receipt, is refused here for want of a route to payment it
-    # actually has (#211). Expressing that needs a field recording payable-on-delivery, which no
-    # table has, so the setting keeps its meaning and states its assumption instead. Off by default.
-    if settings.delivery_order_requires_paid_or_credit_sales_order and not (
-        order.paid or order.payment_terms == PaymentTerms.NET_D
-    ):
-        raise DomainError(
-            ErrorCode.DELIVERY_ORDER_SALES_ORDER_UNPAID,
-            'This sales order must be paid or on credit terms before it can be delivered',
-        )
+    assert_sale_deliverable(order)
 
     # Every line is deliverable. `docs/specs/06-logistics.md` says the set is the lines flagged
     # `delivery = true`, and FR-012 followed it — but that column is 0 on all 910,891 rows in this
@@ -414,7 +424,7 @@ async def list_orders(
     db: AsyncSession,
     *,
     current: CurrentUser,
-    order_status: S | None = None,
+    order_status: Sequence[S] | None = None,
     customer: int | None = None,
     facility: int | None = None,
     fulfillment_type: FulfillmentType | None = None,
@@ -436,8 +446,8 @@ async def list_orders(
 
     both(DeliveryOrder.facility == (facility if facility is not None else current.facility_id))
 
-    if order_status is not None:
-        both(DeliveryOrder.status == order_status)
+    if order_status:
+        both(DeliveryOrder.status.in_(order_status))
     if customer is not None:
         both(DeliveryOrder.customer == customer)
     if fulfillment_type is not None:
@@ -490,6 +500,70 @@ async def list_orders(
         .scalars()
         .all()
     )
+    return rows, total
+
+
+async def deliverable_lines(
+    db: AsyncSession,
+    *,
+    customer: int,
+    sales_order: int | None = None,
+    skip: int = 0,
+    limit: int = 20,
+) -> tuple[Sequence, int]:
+    """Every line of the customer's sales that still has something to deliver (#313).
+
+    What `add_line` would accept, across every facility: consolidation spans them. Eligibility is
+    `assert_sale_deliverable` in SQL, and coverage is `_covered_quantities` — the sum over lines of
+    non-cancelled delivery orders — joined in rather than read per sale.
+    """
+    covering = join(
+        DeliveryOrderDetail,
+        DeliveryOrder,
+        and_(
+            DeliveryOrder.delivery_order_id == DeliveryOrderDetail.delivery_order,
+            DeliveryOrder.status != S.CANCELLED,
+        ),
+    )
+    covered = func.coalesce(func.sum(DeliveryOrderDetail.quantity), 0)
+    line_id = SalesOrderDetail.sales_order_detail_id
+    keys = (
+        SalesOrderDetail.sales_order,
+        SalesOrderDetail.product,
+        SalesOrderDetail.product_code,
+        SalesOrderDetail.product_name,
+        SalesOrderDetail.warehouse,
+        SalesOrderDetail.quantity,
+        SalesOrder.facility,
+    )
+    query = (
+        select(*keys, line_id.label('sales_order_detail'), covered.label('covered'))
+        .join(SalesOrder, SalesOrder.sales_order_id == SalesOrderDetail.sales_order)
+        .outerjoin(
+            covering,
+            DeliveryOrderDetail.sales_order_detail == SalesOrderDetail.sales_order_detail_id,
+        )
+        .where(
+            SalesOrder.customer == customer,
+            SalesOrder.completed.is_(True),
+            SalesOrder.cancelled.is_(False),
+        )
+        .group_by(line_id, *keys)
+        .having(SalesOrderDetail.quantity - covered > 0)
+    )
+    if settings.delivery_order_requires_paid_or_credit_sales_order:
+        query = query.where(
+            or_(SalesOrder.paid.is_(True), SalesOrder.payment_terms == PaymentTerms.NET_D)
+        )
+    if sales_order is not None:
+        query = query.where(SalesOrderDetail.sales_order == sales_order)
+
+    total = (await db.execute(select(func.count()).select_from(query.subquery()))).scalar_one()
+    rows = (
+        await db.execute(
+            query.order_by(SalesOrderDetail.sales_order.desc(), line_id).offset(skip).limit(limit)
+        )
+    ).all()
     return rows, total
 
 
@@ -571,6 +645,8 @@ async def add_line(
             f'Line {item.sales_order_detail} is not a deliverable line of this customer',
             {'sales_order_line_id': item.sales_order_detail},
         )
+    # The rule `create_from_sales_order` applies, so a line refused there cannot come in here.
+    assert_sale_deliverable(sale)
 
     # `first`, not `scalar_one_or_none`: nothing in the schema stops a legacy row set carrying the
     # same sales-order line twice, and that should refuse rather than raise.
@@ -838,8 +914,50 @@ async def requeue(db: AsyncSession, order: DeliveryOrder, *, current: CurrentUse
 async def cancel(
     db: AsyncSession, order: DeliveryOrder, reason: str, *, current: CurrentUser
 ) -> DeliveryOrder:
-    """Retire the order, releasing anything it was holding (FR-007)."""
+    """Retire the order, releasing anything it was holding (FR-007).
+
+    Refused while any of its lines sit on an open trip: departure would otherwise try to move a
+    cancelled order into transit and the whole trip would be stuck (#311).
+    """
     employee = current.employee_id
+
+    itinerary_ids = (
+        (
+            await db.execute(
+                select(DeliveriesItinerary.deliveries_itinerary_id)
+                .join(
+                    DeliveriesItineraryStop,
+                    DeliveriesItineraryStop.deliveries_itinerary
+                    == DeliveriesItinerary.deliveries_itinerary_id,
+                )
+                .join(
+                    DeliveriesItineraryDetail,
+                    DeliveriesItineraryDetail.deliveries_itinerary_stop
+                    == DeliveriesItineraryStop.deliveries_itinerary_stop_id,
+                )
+                .join(
+                    DeliveryOrderDetail,
+                    DeliveryOrderDetail.delivery_order_detail_id
+                    == DeliveriesItineraryDetail.delivery_order_detail,
+                )
+                .where(
+                    DeliveryOrderDetail.delivery_order == order.delivery_order_id,
+                    DeliveriesItinerary.status == ItineraryStatus.OPEN,
+                )
+                .distinct()
+                .order_by(DeliveriesItinerary.deliveries_itinerary_id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    if itinerary_ids:
+        raise DomainError(
+            ErrorCode.DELIVERY_ORDER_ON_ITINERARY,
+            f'This order is loaded on open itinerary {", ".join(map(str, itinerary_ids))}; '
+            f'remove it from the itinerary before cancelling',
+            {'itinerary_ids': list(itinerary_ids)},
+        )
 
     for line in await lines_of(db, order.delivery_order_id):
         line.committed_quantity = Decimal(0)
