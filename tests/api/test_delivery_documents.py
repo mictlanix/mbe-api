@@ -61,7 +61,7 @@ async def _client() -> AsyncClient:
 
 
 def _order(order_status: int = DeliveryOrderStatus.APPROVED) -> SimpleNamespace:
-    return SimpleNamespace(delivery_order_id=42, status=order_status)
+    return SimpleNamespace(delivery_order_id=42, facility=1, status=order_status)
 
 
 def _patches(order: SimpleNamespace | None, *, lines: list | None = None):  # noqa: ANN202
