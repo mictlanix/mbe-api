@@ -12,7 +12,7 @@ from collections.abc import Sequence
 from datetime import datetime
 from decimal import Decimal
 
-from sqlalchemy import and_, func, or_, select
+from sqlalchemy import and_, exists, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
@@ -26,6 +26,7 @@ from app.enums import CurrencyCode, FiscalDocumentType, SourceType
 from app.models.core import Employee
 from app.models.customer import Customer
 from app.models.fiscal import FiscalDocument, FiscalDocumentDetail, FiscalDocumentRelation
+from app.models.incidence import Incidence
 from app.models.sales import (
     CustomerPayment,
     CustomerRefund,
@@ -47,6 +48,9 @@ from app.services import inventory_documents as inv
 #: The first year whose orders the stale-flag correction gives a zero time (spec 033, FR-012).
 STALE_ZERO_TIME_FROM = 2026
 STALE_FLAG_REASON = 'Paid flag corrected: balance is settled (spec 033)'
+#: How a rejection's incidence begins. A reversed application keys to the same payment, so this is
+#: what tells the two apart when rejections are read back (#310).
+REJECTION_PREFIX = 'Rejected payment '
 
 # ── Decision rules (pure) ─────────────────────────────────────────────────────
 
@@ -228,6 +232,38 @@ async def attach_customer_names(db: AsyncSession, payments: Sequence[CustomerPay
         payment.__dict__['customer_display_name'] = names.get(payment.customer)
 
 
+def _is_rejection():  # noqa: ANN202
+    return and_(
+        Incidence.source == int(SourceType.CUSTOMER_PAYMENT),
+        Incidence.content.startswith(REJECTION_PREFIX),
+    )
+
+
+async def attach_last_rejections(db: AsyncSession, payments: Sequence[CustomerPayment]) -> None:
+    """Each payment's latest rejection, or None, for a page of payments in one query (#310)."""
+    ids = [p.customer_payment_id for p in payments]
+    latest: dict[int, Incidence] = {}
+    if ids:
+        rows = await db.execute(
+            select(Incidence)
+            .where(_is_rejection(), Incidence.instance_id.in_(ids))
+            .order_by(Incidence.modification_time, Incidence.incidence_id)
+        )
+        for entry in rows.scalars().all():
+            latest[entry.instance_id] = entry
+    for payment in payments:
+        entry = latest.get(payment.customer_payment_id)
+        payment.__dict__['last_rejection'] = (
+            None
+            if entry is None
+            else {
+                'reason': entry.comment,
+                'rejected_by': entry.updater,
+                'rejected_at': entry.modification_time,
+            }
+        )
+
+
 async def create_payment(
     db: AsyncSession, data: CustomerPaymentCreate, *, current: CurrentUser
 ) -> CustomerPayment:
@@ -314,6 +350,7 @@ async def list_payments(
     method: int | None = None,
     verified: bool | None = None,
     unverified_only: bool = False,
+    rejected: bool | None = None,
     amount_min: Decimal | None = None,
     amount_max: Decimal | None = None,
     reference: str | None = None,
@@ -364,12 +401,18 @@ async def list_payments(
         both(CustomerPayment.verifier.is_(None))
     elif verified is True:
         both(CustomerPayment.verifier.is_not(None))
+    if rejected is not None:
+        was_rejected = exists().where(
+            _is_rejection(), Incidence.instance_id == CustomerPayment.customer_payment_id
+        )
+        both(was_rejected if rejected else ~was_rejected)
 
     total: int = (await db.execute(count_q)).scalar_one()
     page = base.order_by(CustomerPayment.customer_payment_id.desc()).offset(skip).limit(limit)
     items = (await db.execute(page)).scalars().all()
     await attach_summary_unapplied(db, items)
     await attach_customer_names(db, items)
+    await attach_last_rejections(db, items)
     return items, total
 
 
@@ -595,7 +638,7 @@ async def reject_payment(
         instance_id=payment.customer_payment_id,
         updater=employee,
         reason=reason,
-        context=f'Rejected payment {payment.customer_payment_id} of {payment.amount}',
+        context=f'{REJECTION_PREFIX}{payment.customer_payment_id} of {payment.amount}',
     )
     await db.commit()
     await db.refresh(payment)

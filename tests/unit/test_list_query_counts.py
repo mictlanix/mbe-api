@@ -16,7 +16,11 @@ import pytest
 
 from app.services.cash_session_service import attach_relations, attach_summary_amounts
 from app.services.credit_note_service import list_credit_notes
-from app.services.customer_payment_service import attach_customer_names, attach_summary_unapplied
+from app.services.customer_payment_service import (
+    attach_customer_names,
+    attach_last_rejections,
+    attach_summary_unapplied,
+)
 from app.services.customer_refund_service import (
     attach_customer_names as refund_customer_names,
 )
@@ -436,3 +440,21 @@ class TestRefundPayouts:
         assert db.execute.await_count == 1
         payouts = [r.__dict__['payout'] for r in refunds]
         assert payouts == ['cash', 'credit_note', *[None] * (size - 2)][:size]
+
+
+class TestPaymentLastRejections:
+    """#310 — one query for the page's rejections, the latest per payment."""
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize('size', PAGE_SIZES)
+    async def test_one_query_regardless_of_page_size(self, size: int) -> None:
+        payments = [SimpleNamespace(customer_payment_id=i) for i in range(size)]
+        older = SimpleNamespace(instance_id=0, comment='old', updater=1, modification_time=1)
+        newer = SimpleNamespace(instance_id=0, comment='new', updater=2, modification_time=2)
+        db = _db(_rows([older, newer]))
+
+        await attach_last_rejections(db, payments)
+
+        assert db.execute.await_count == 1
+        assert payments[0].__dict__['last_rejection']['reason'] == 'new'
+        assert all(p.__dict__['last_rejection'] is None for p in payments[1:])
