@@ -237,6 +237,7 @@ class ErrorCode(StrEnum):
     LOCK_BUSY = 'lock.busy', 409
 
     # payment
+    PAYMENT_ALREADY_APPLIED = 'payment.already_applied', 409
     PAYMENT_ALREADY_VERIFIED = 'payment.already_verified', 409
     PAYMENT_APPLICATION_REVERSED = 'payment.application_reversed', 409
     PAYMENT_CURRENCY_MISMATCH = 'payment.currency_mismatch', 422

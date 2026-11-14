@@ -299,6 +299,7 @@ Specs 037 and 038. Measure and dimension keys are the catalog's (`GET /analytics
 
 | Code | Status | Params | Situation |
 |---|---|---|---|
+| `payment.already_applied` | 409 | customer_payment_id: int, sales_order_id: int, sales_order_payment_id: int | The payment already has a live application to this order; reverse it before applying again. |
 | `payment.already_verified` | 409 | — | The payment has already been verified. |
 | `payment.application_reversed` | 409 | — | The payment application was already reversed. |
 | `payment.currency_mismatch` | 422 | payment_currency: enum:CurrencyCode, order_currency: enum:CurrencyCode | The payment currency differs from the order currency. |
