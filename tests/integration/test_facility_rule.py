@@ -300,3 +300,56 @@ class TestLists:
         assert ids == {world['there_order'], world['draft']}
         assert [row['credit_note_id'] for row in notes.json()['items']] == [there]
         assert read.status_code == 200, read.text
+
+
+class TestOutstandingOrders:
+    """#308: the orders a payment can pay come from the caller's facility unless it names another,
+    which needs PaymentsEditor (100) or SearchCreditsFromAllStores (101)."""
+
+    URL = '/api/v1/customer-payments/outstanding-orders'
+
+    @staticmethod
+    def _ids(response) -> set[int]:  # noqa: ANN001
+        assert response.status_code == 200, response.text
+        return {row['sales_order_id'] for row in response.json()['items']}
+
+    async def test_the_callers_facility_needs_no_privilege(
+        self, client: AsyncClient, db: AsyncSession, world: dict
+    ) -> None:
+        _as(CLERK)
+
+        omitted = await client.get(self.URL, params={'limit': 100})
+        named = await client.get(self.URL, params={'facility': 1, 'limit': 100})
+
+        assert world['here_order'] in self._ids(omitted)
+        assert world['there_order'] not in self._ids(omitted)
+        assert self._ids(named) == self._ids(omitted)
+
+    async def test_another_facility_without_either_privilege_is_403(
+        self, client: AsyncClient, db: AsyncSession, world: dict
+    ) -> None:
+        _as(CLERK)
+
+        response = await client.get(self.URL, params={'facility': world['other']})
+
+        assert response.status_code == 403, response.text
+        body = response.json()
+        assert body['code'] == 'facility.other_facility'
+        assert body['params']['resource'] == 'sales_order'
+        assert {r['system_object'] for r in body['params']['required']} == {
+            int(SystemObject.PAYMENTS_EDITOR),
+            int(SystemObject.SEARCH_CREDITS_FROM_ALL_STORES),
+        }
+
+    @pytest.mark.parametrize(
+        'privilege', [SystemObject.PAYMENTS_EDITOR, SystemObject.SEARCH_CREDITS_FROM_ALL_STORES]
+    )
+    async def test_either_privilege_opens_another_facility(
+        self, client: AsyncClient, db: AsyncSession, world: dict, privilege: SystemObject
+    ) -> None:
+        await _grant(db, privilege)
+        _as(CLERK)
+
+        response = await client.get(self.URL, params={'facility': world['other']})
+
+        assert self._ids(response) == {world['there_order']}

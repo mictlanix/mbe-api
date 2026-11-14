@@ -633,6 +633,7 @@ async def search_outstanding(
     db: AsyncSession,
     *,
     current: CurrentUser,
+    facility: int | None = None,
     search: str | None = None,
     customer: int | None = None,
     skip: int = 0,
@@ -651,7 +652,7 @@ async def search_outstanding(
         SalesOrder.completed.is_(True),
         SalesOrder.cancelled.is_(False),
         SalesOrder.paid.is_(False),
-        SalesOrder.facility == current.facility_id,
+        SalesOrder.facility == (facility or current.facility_id),
     )
 
     if customer is not None:
