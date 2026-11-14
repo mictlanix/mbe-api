@@ -297,6 +297,9 @@ def _db(line: SimpleNamespace):
         async def execute(self, _statement):
             return _Result(line)
 
+        async def get(self, _model, _id):
+            return SimpleNamespace(status=S.IN_PREPARATION)
+
         async def commit(self):
             return None
 

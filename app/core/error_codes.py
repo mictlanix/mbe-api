@@ -95,6 +95,7 @@ class ErrorCode(StrEnum):
     DELIVERY_ORDER_NOT_FAILED = 'delivery_order.not_failed', 409
     DELIVERY_ORDER_NOT_IN_PREPARATION = 'delivery_order.not_in_preparation', 409
     DELIVERY_ORDER_NOT_PENDING_APPROVAL = 'delivery_order.not_pending_approval', 409
+    DELIVERY_ORDER_ON_ITINERARY = 'delivery_order.on_itinerary', 409
     DELIVERY_ORDER_PICKUP_NOT_LOADABLE = 'delivery_order.pickup_not_loadable', 409
     DELIVERY_ORDER_PROOF_INCOMPLETE = 'delivery_order.proof_incomplete', 422
     DELIVERY_ORDER_QUANTITY_EXCEEDS_REMAINING = 'delivery_order.quantity_exceeds_remaining', 422
