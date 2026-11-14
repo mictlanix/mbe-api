@@ -23,9 +23,12 @@ from app.core.deps import CurrentUser
 from app.core.error_codes import ErrorCode
 from app.core.errors import DomainError, not_found
 from app.enums import DeliveryOrderStatus as S
-from app.enums import FulfillmentType, PaymentTerms, TransactionType
+from app.enums import FulfillmentType, ItineraryStatus, PaymentTerms, TransactionType
 from app.models.core import Facility, Warehouse
 from app.models.logistics import (
+    DeliveriesItinerary,
+    DeliveriesItineraryDetail,
+    DeliveriesItineraryStop,
     DeliveryOrder,
     DeliveryOrderDetail,
     DeliveryOrderEvent,
@@ -421,7 +424,7 @@ async def list_orders(
     db: AsyncSession,
     *,
     current: CurrentUser,
-    order_status: S | None = None,
+    order_status: Sequence[S] | None = None,
     customer: int | None = None,
     facility: int | None = None,
     fulfillment_type: FulfillmentType | None = None,
@@ -443,8 +446,8 @@ async def list_orders(
 
     both(DeliveryOrder.facility == (facility if facility is not None else current.facility_id))
 
-    if order_status is not None:
-        both(DeliveryOrder.status == order_status)
+    if order_status:
+        both(DeliveryOrder.status.in_(order_status))
     if customer is not None:
         both(DeliveryOrder.customer == customer)
     if fulfillment_type is not None:
@@ -911,8 +914,50 @@ async def requeue(db: AsyncSession, order: DeliveryOrder, *, current: CurrentUse
 async def cancel(
     db: AsyncSession, order: DeliveryOrder, reason: str, *, current: CurrentUser
 ) -> DeliveryOrder:
-    """Retire the order, releasing anything it was holding (FR-007)."""
+    """Retire the order, releasing anything it was holding (FR-007).
+
+    Refused while any of its lines sit on an open trip: departure would otherwise try to move a
+    cancelled order into transit and the whole trip would be stuck (#311).
+    """
     employee = current.employee_id
+
+    itinerary_ids = (
+        (
+            await db.execute(
+                select(DeliveriesItinerary.deliveries_itinerary_id)
+                .join(
+                    DeliveriesItineraryStop,
+                    DeliveriesItineraryStop.deliveries_itinerary
+                    == DeliveriesItinerary.deliveries_itinerary_id,
+                )
+                .join(
+                    DeliveriesItineraryDetail,
+                    DeliveriesItineraryDetail.deliveries_itinerary_stop
+                    == DeliveriesItineraryStop.deliveries_itinerary_stop_id,
+                )
+                .join(
+                    DeliveryOrderDetail,
+                    DeliveryOrderDetail.delivery_order_detail_id
+                    == DeliveriesItineraryDetail.delivery_order_detail,
+                )
+                .where(
+                    DeliveryOrderDetail.delivery_order == order.delivery_order_id,
+                    DeliveriesItinerary.status == ItineraryStatus.OPEN,
+                )
+                .distinct()
+                .order_by(DeliveriesItinerary.deliveries_itinerary_id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    if itinerary_ids:
+        raise DomainError(
+            ErrorCode.DELIVERY_ORDER_ON_ITINERARY,
+            f'This order is loaded on open itinerary {", ".join(map(str, itinerary_ids))}; '
+            f'remove it from the itinerary before cancelling',
+            {'itinerary_ids': list(itinerary_ids)},
+        )
 
     for line in await lines_of(db, order.delivery_order_id):
         line.committed_quantity = Decimal(0)

@@ -17,6 +17,7 @@ from app.enums import CurrencyCode, EntityStatus, PaymentMethod, PaymentType
 from app.models.customer import Customer
 from app.models.sales import CreditNote, CustomerPayment, SalesOrder, SalesOrderPayment
 from tests.integration.seed import seed_facility, seed_sales_order
+from tests.problem import assert_problem
 
 
 async def _completed_order_with_total(client: AsyncClient, db: AsyncSession) -> tuple[int, str]:
@@ -103,6 +104,66 @@ async def test_reversing_an_application_restores_the_balance(
     # Still listed, marked cancelled — not removed.
     listed = await client.get(f'/api/v1/sales-orders/{order_id}/payments')
     assert [row['cancelled'] for row in listed.json()] == [True]
+
+
+async def test_a_reversed_application_can_be_applied_again(
+    client: AsyncClient, db: AsyncSession, seeded: None
+) -> None:
+    """#309 — reverse a wrong amount, apply the right one; the reversal stays on record."""
+    order_id, total = await _completed_order_with_total(client, db)
+    payment = await client.post(
+        '/api/v1/customer-payments',
+        json={'customer': 1, 'amount': total, 'method': PaymentMethod.CASH},
+    )
+    payment_id = payment.json()['customer_payment_id']
+    applied = await client.post(
+        f'/api/v1/customer-payments/{payment_id}/applications',
+        json={'sales_order': order_id, 'amount': '100'},
+    )
+    await client.post(
+        f'/api/v1/customer-payments/{payment_id}/applications/'
+        f'{applied.json()["sales_order_payment_id"]}/reverse',
+        json={'reason': 'Monto equivocado'},
+    )
+
+    again = await client.post(
+        f'/api/v1/customer-payments/{payment_id}/applications',
+        json={'sales_order': order_id, 'amount': total},
+    )
+
+    assert again.status_code == 201, again.text
+    listed = await client.get(f'/api/v1/sales-orders/{order_id}/payments')
+    assert [row['cancelled'] for row in listed.json()] == [True, False]
+    order = await client.get(f'/api/v1/sales-orders/{order_id}')
+    assert order.json()['balance'] == '0.00'
+
+
+async def test_a_second_live_application_to_the_same_order_is_refused(
+    client: AsyncClient, db: AsyncSession, seeded: None
+) -> None:
+    """#309 — one live application per payment and order; the client is told which to reverse."""
+    order_id, total = await _completed_order_with_total(client, db)
+    payment = await client.post(
+        '/api/v1/customer-payments',
+        json={'customer': 1, 'amount': total, 'method': PaymentMethod.CASH},
+    )
+    payment_id = payment.json()['customer_payment_id']
+    applied = await client.post(
+        f'/api/v1/customer-payments/{payment_id}/applications',
+        json={'sales_order': order_id, 'amount': '100'},
+    )
+
+    response = await client.post(
+        f'/api/v1/customer-payments/{payment_id}/applications',
+        json={'sales_order': order_id, 'amount': '100'},
+    )
+
+    body = assert_problem(response, 409, 'payment.already_applied')
+    assert body['params'] == {
+        'customer_payment_id': payment_id,
+        'sales_order_id': order_id,
+        'sales_order_payment_id': applied.json()['sales_order_payment_id'],
+    }
 
 
 async def test_applying_more_than_the_payment_holds_is_refused(
