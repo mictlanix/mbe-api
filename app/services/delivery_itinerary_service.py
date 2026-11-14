@@ -418,6 +418,13 @@ async def commit_line(
     assert_open(itinerary)
 
     line = await _lock_line(db, delivery_order_detail)
+    order = await db.get(DeliveryOrder, line.delivery_order)
+    if order is not None and S(order.status) is not S.IN_PREPARATION:
+        raise DomainError(
+            ErrorCode.DELIVERY_ORDER_NOT_IN_PREPARATION,
+            f'Only an order in IN_PREPARATION can be loaded; this one is {S(order.status).name}',
+            {'status': S(order.status)},
+        )
     remaining = delivery_order_service.open_quantity(line)
 
     requested = remaining if quantity is None else quantity
