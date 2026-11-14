@@ -505,6 +505,11 @@ class TestMixedIsNotADeliveryOrderKind:
         } == {S.APPROVED, S.IN_PREPARATION}
 
 
+def _deliverable_sale(**over) -> SimpleNamespace:  # noqa: ANN003
+    base = {'customer': 5, 'completed': True, 'cancelled': False, 'paid': True, 'payment_terms': 0}
+    return SimpleNamespace(**(base | over))
+
+
 class TestAddingALineToAnExistingDraft:
     """#163 — a detail row that is not born inside `create_from_sales_order`.
 
@@ -522,7 +527,7 @@ class TestAddingALineToAnExistingDraft:
     def _db(*, sales_line, sales_orders=None, existing: int | None = None) -> SimpleNamespace:
         # Sale 42 is the one the order was raised from; 99 is a second sale of the same customer,
         # which consolidation has to accept.
-        sales = sales_orders or {42: SimpleNamespace(customer=5), 99: SimpleNamespace(customer=5)}
+        sales = sales_orders or {42: _deliverable_sale(), 99: _deliverable_sale()}
         objects = {(SalesOrderDetail, 21): sales_line} | {
             (SalesOrder, k): v for k, v in sales.items()
         }
@@ -675,7 +680,7 @@ class TestAddingALineToAnExistingDraft:
     async def test_another_customers_line_is_refused(self) -> None:
         """The one thing that does hold: no consolidated order in the database spans customers."""
         db = self._db(
-            sales_line=self._sales_line(), sales_orders={42: SimpleNamespace(customer=999)}
+            sales_line=self._sales_line(), sales_orders={42: _deliverable_sale(customer=999)}
         )
 
         with pytest.raises(DomainError) as exc:
@@ -700,6 +705,38 @@ class TestAddingALineToAnExistingDraft:
             line = await service.add_line(db, self._draft(), self._request())
 
         assert line.sales_order_detail == 21
+
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize('over', [{'completed': False}, {'cancelled': True}])
+    async def test_a_line_of_an_incomplete_or_cancelled_sale_is_refused(self, over: dict) -> None:
+        """The rule `create_from_sales_order` applies, so the line cannot come in here (#313)."""
+        db = self._db(sales_line=self._sales_line(), sales_orders={42: _deliverable_sale(**over)})
+
+        with pytest.raises(DomainError) as exc:
+            await self._add(db)
+
+        assert exc.value.status_code == 409
+        assert exc.value.code == 'delivery_order.sales_order_not_deliverable'
+        assert db.added == []
+
+    @pytest.mark.asyncio
+    async def test_a_line_of_an_unpaid_sale_is_refused_when_the_setting_asks(self) -> None:
+        db = self._db(
+            sales_line=self._sales_line(), sales_orders={42: _deliverable_sale(paid=False)}
+        )
+
+        with (
+            patch.object(
+                service.settings, 'delivery_order_requires_paid_or_credit_sales_order', True
+            ),
+            pytest.raises(DomainError) as exc,
+        ):
+            await self._add(db)
+
+        assert exc.value.status_code == 422
+        assert exc.value.code == 'delivery_order.sales_order_unpaid'
+        assert db.added == []
 
 
 class TestTheOriginatingSalesAreDerived:

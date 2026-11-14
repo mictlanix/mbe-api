@@ -24,6 +24,7 @@ from app.models.core import Warehouse
 from app.models.logistics import DeliveryOrder, ProofOfDelivery
 from app.schemas import ListResponse, LocalDateTime
 from app.schemas.delivery_order import (
+    DeliverableLineResponse,
     DeliveryOrderCreate,
     DeliveryOrderEventResponse,
     DeliveryOrderLineRequest,
@@ -109,6 +110,32 @@ async def reject_delivery_order(
     order = await _order_or_404(db, delivery_order_id)
     order = await delivery_order_service.reject(db, order, data.reason, current=current)
     return await _with_lines(db, order)
+
+
+# ── Deliverable lines ─────────────────────────────────────────────────────────
+#
+# Registered before `/{delivery_order_id}`, for the same reason as the approval queue.
+
+
+@router.get('/deliverable-lines', response_model=ListResponse[DeliverableLineResponse])
+async def list_deliverable_lines(
+    customer: int = Query(),
+    sales_order: int | None = Query(None),
+    skip: int = Query(0, ge=0),
+    limit: int = Query(20, ge=1, le=100),
+    _: CurrentUser = Depends(_READ),
+    db: AsyncSession = Depends(get_db),
+) -> ListResponse[DeliverableLineResponse]:
+    """What `POST /{id}/lines` would accept for this customer, and how much of each (#313).
+
+    Every facility's sales: a consolidated shipment may draw on any of them.
+    """
+    rows, total = await delivery_order_service.deliverable_lines(
+        db, customer=customer, sales_order=sales_order, skip=skip, limit=limit
+    )
+    return ListResponse(
+        items=[DeliverableLineResponse.model_validate(row) for row in rows], total=total
+    )
 
 
 # ── Delivery orders ───────────────────────────────────────────────────────────
