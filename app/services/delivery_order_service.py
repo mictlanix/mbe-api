@@ -414,7 +414,7 @@ async def list_orders(
     db: AsyncSession,
     *,
     current: CurrentUser,
-    order_status: S | None = None,
+    order_status: Sequence[S] | None = None,
     customer: int | None = None,
     facility: int | None = None,
     fulfillment_type: FulfillmentType | None = None,
@@ -436,8 +436,8 @@ async def list_orders(
 
     both(DeliveryOrder.facility == (facility if facility is not None else current.facility_id))
 
-    if order_status is not None:
-        both(DeliveryOrder.status == order_status)
+    if order_status:
+        both(DeliveryOrder.status.in_(order_status))
     if customer is not None:
         both(DeliveryOrder.customer == customer)
     if fulfillment_type is not None:
