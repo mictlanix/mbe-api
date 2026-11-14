@@ -158,3 +158,22 @@ class TestRealCorpus:
     def test_030_rollback_is_not_applied_automatically(self):
         versions = [m.version for m in discover(Path('migrations'))]
         assert '030_serials_ledger_index_rollback' not in versions
+
+    def test_033_is_discovered_and_ordered_after_032(self):
+        """#309. A virtual column and a unique key over it are MariaDB's; not run on SQLite."""
+        versions = [m.version for m in discover(Path('migrations'))]
+        assert versions.index('033_payment_application_live_unique') > versions.index(
+            '032_operations_analytics'
+        )
+        assert '033_payment_application_live_unique_rollback' not in versions
+
+    def test_033_keys_live_applications_only(self):
+        """The legacy pair key goes, replaced by one a reversed application (NULL `live`) is
+        outside of — so only a live application holds the pair."""
+        sql = Path('migrations/033_payment_application_live_unique.sql').read_text()
+        assert 'AS (IF(`cancelled` = 0, 1, NULL)) VIRTUAL' in sql
+        assert 'DROP KEY IF EXISTS `sales_order_payment_sales_order_customer_payment_idx`' in sql
+        assert (
+            'ADD UNIQUE KEY IF NOT EXISTS `sales_order_payment_live_uq` '
+            '(`sales_order`, `customer_payment`, `live`)'
+        ) in sql

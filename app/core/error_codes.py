@@ -82,6 +82,9 @@ class ErrorCode(StrEnum):
     # customer_discount
     CUSTOMER_DISCOUNT_PRODUCT_NOT_FOUND = 'customer_discount.product_not_found', 422
 
+    # customer_payment
+    CUSTOMER_PAYMENT_ALREADY_APPLIED = 'customer_payment.already_applied', 409
+
     # delivery_order
     DELIVERY_ORDER_INSUFFICIENT_NOTICE = 'delivery_order.insufficient_notice', 422
     DELIVERY_ORDER_LINE_ALREADY_PRESENT = 'delivery_order.line_already_present', 409

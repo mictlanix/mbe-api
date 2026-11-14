@@ -744,6 +744,7 @@ Application of a customer payment to a specific order (many-to-many).
 | `date` | datetime | YES | Application date |
 | `confirmed` | tinyint(1) | YES | Supervisor confirmation |
 | `cancelled` | tinyint(1) | NO | Cancelled/reversed |
+| `live` | tinyint(1) | YES | Generated (virtual): 1 while not reversed, NULL once reversed. In the unique key `(sales_order, customer_payment, live)`, so a pair has at most one live application (migration 033, #309) |
 
 ### `customer_refund`
 Customer return (devolution) header.
