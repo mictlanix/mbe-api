@@ -503,7 +503,7 @@ async def _assert_not_applied(
     ).scalar_one_or_none()
     if existing is not None:
         raise DomainError(
-            ErrorCode.CUSTOMER_PAYMENT_ALREADY_APPLIED,
+            ErrorCode.PAYMENT_ALREADY_APPLIED,
             f'Payment {customer_payment_id} is already applied to sales order {sales_order_id}; '
             f'reverse application {existing} first',
             {

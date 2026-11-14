@@ -158,7 +158,7 @@ async def test_a_second_live_application_to_the_same_order_is_refused(
         json={'sales_order': order_id, 'amount': '100'},
     )
 
-    body = assert_problem(response, 409, 'customer_payment.already_applied')
+    body = assert_problem(response, 409, 'payment.already_applied')
     assert body['params'] == {
         'customer_payment_id': payment_id,
         'sales_order_id': order_id,
