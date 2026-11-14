@@ -54,6 +54,24 @@ async def _order_or_404(db: AsyncSession, delivery_order_id: int):  # noqa: ANN2
     return order
 
 
+async def _sees_every_facility(db: AsyncSession, current: CurrentUser) -> bool:
+    """Another facility's delivery orders are open to SearchCreditsFromAllStores (101), as its
+    sales are, or DeliveryItineraries (87): a trip carries several facilities' orders (#314)."""
+    return await can_see_every_facility(
+        db, current, SystemObject.SEARCH_CREDITS_FROM_ALL_STORES
+    ) or await can_see_every_facility(db, current, SystemObject.DELIVERY_ITINERARIES)
+
+
+async def _visible_order_or_404(  # noqa: ANN202
+    db: AsyncSession, current: CurrentUser, delivery_order_id: int
+):
+    """404 rather than 403 for another facility's order, so the id's existence is not revealed."""
+    order = await _order_or_404(db, delivery_order_id)
+    if order.facility != current.facility_id and not await _sees_every_facility(db, current):
+        raise not_found(DeliveryOrder, delivery_order_id)
+    return order
+
+
 async def _with_lines(db: AsyncSession, order) -> DeliveryOrderResponse:  # noqa: ANN001
     await delivery_order_service.attach_sales_orders(db, [order])
     body = DeliveryOrderResponse.model_validate(order)
@@ -95,7 +113,7 @@ async def approve_delivery_order(
     current: CurrentUser = Depends(_APPROVAL_UPDATE),
     db: AsyncSession = Depends(get_db),
 ) -> DeliveryOrderResponse:
-    order = await _order_or_404(db, delivery_order_id)
+    order = await _visible_order_or_404(db, current, delivery_order_id)
     order = await delivery_order_service.approve(db, order, current=current)
     return await _with_lines(db, order)
 
@@ -107,7 +125,7 @@ async def reject_delivery_order(
     current: CurrentUser = Depends(_APPROVAL_UPDATE),
     db: AsyncSession = Depends(get_db),
 ) -> DeliveryOrderResponse:
-    order = await _order_or_404(db, delivery_order_id)
+    order = await _visible_order_or_404(db, current, delivery_order_id)
     order = await delivery_order_service.reject(db, order, data.reason, current=current)
     return await _with_lines(db, order)
 
@@ -167,20 +185,20 @@ async def list_delivery_orders(
     if (
         facility is not None
         and facility != current.facility_id
-        and not await can_see_every_facility(
-            db, current, SystemObject.SEARCH_CREDITS_FROM_ALL_STORES
-        )
+        and not await _sees_every_facility(db, current)
     ):
         raise DomainError(
             ErrorCode.FACILITY_OTHER_FACILITY,
-            "Another facility's delivery orders require SearchCreditsFromAllStores read",
+            "Another facility's delivery orders require SearchCreditsFromAllStores or "
+            'DeliveryItineraries read',
             {
                 'resource': 'delivery_order',
                 'required': [
                     {
                         'system_object': SystemObject.SEARCH_CREDITS_FROM_ALL_STORES,
                         'right': AccessRight.READ,
-                    }
+                    },
+                    {'system_object': SystemObject.DELIVERY_ITINERARIES, 'right': AccessRight.READ},
                 ],
             },
         )
@@ -226,10 +244,10 @@ async def create_delivery_order(
 @router.get('/{delivery_order_id}', response_model=DeliveryOrderResponse)
 async def get_delivery_order(
     delivery_order_id: int,
-    _: CurrentUser = Depends(_READ),
+    current: CurrentUser = Depends(_READ),
     db: AsyncSession = Depends(get_db),
 ) -> DeliveryOrderResponse:
-    return await _with_lines(db, await _order_or_404(db, delivery_order_id))
+    return await _with_lines(db, await _visible_order_or_404(db, current, delivery_order_id))
 
 
 @router.put('/{delivery_order_id}', response_model=DeliveryOrderResponse)
@@ -239,7 +257,7 @@ async def update_delivery_order(
     current: CurrentUser = Depends(_UPDATE),
     db: AsyncSession = Depends(get_db),
 ) -> DeliveryOrderResponse:
-    order = await _order_or_404(db, delivery_order_id)
+    order = await _visible_order_or_404(db, current, delivery_order_id)
     order = await delivery_order_service.update_order(db, order, data, current=current)
     return await _with_lines(db, order)
 
@@ -252,11 +270,11 @@ async def update_delivery_order(
 async def add_delivery_order_line(
     delivery_order_id: int,
     data: DeliveryOrderLineRequest,
-    _: CurrentUser = Depends(_UPDATE),
+    current: CurrentUser = Depends(_UPDATE),
     db: AsyncSession = Depends(get_db),
 ) -> DeliveryOrderResponse:
     """Add one of the sale's lines to an existing draft (#163)."""
-    order = await _order_or_404(db, delivery_order_id)
+    order = await _visible_order_or_404(db, current, delivery_order_id)
     await delivery_order_service.add_line(db, order, data)
     return await _with_lines(db, order)
 
@@ -266,10 +284,10 @@ async def update_delivery_order_line(
     delivery_order_id: int,
     line_id: int,
     data: DeliveryOrderLineUpdate,
-    _: CurrentUser = Depends(_UPDATE),
+    current: CurrentUser = Depends(_UPDATE),
     db: AsyncSession = Depends(get_db),
 ) -> DeliveryOrderResponse:
-    order = await _order_or_404(db, delivery_order_id)
+    order = await _visible_order_or_404(db, current, delivery_order_id)
     await delivery_order_service.update_line(db, order, line_id, data.quantity)
     return await _with_lines(db, order)
 
@@ -278,10 +296,10 @@ async def update_delivery_order_line(
 async def delete_delivery_order_line(
     delivery_order_id: int,
     line_id: int,
-    _: CurrentUser = Depends(_UPDATE),
+    current: CurrentUser = Depends(_UPDATE),
     db: AsyncSession = Depends(get_db),
 ) -> DeliveryOrderResponse:
-    order = await _order_or_404(db, delivery_order_id)
+    order = await _visible_order_or_404(db, current, delivery_order_id)
     await delivery_order_service.delete_line(db, order, line_id)
     return await _with_lines(db, order)
 
@@ -292,7 +310,7 @@ async def confirm_delivery_order(
     current: CurrentUser = Depends(_UPDATE),
     db: AsyncSession = Depends(get_db),
 ) -> DeliveryOrderResponse:
-    order = await _order_or_404(db, delivery_order_id)
+    order = await _visible_order_or_404(db, current, delivery_order_id)
     order = await delivery_order_service.confirm(db, order, current=current)
     return await _with_lines(db, order)
 
@@ -304,7 +322,7 @@ async def cancel_delivery_order(
     current: CurrentUser = Depends(_UPDATE),
     db: AsyncSession = Depends(get_db),
 ) -> DeliveryOrderResponse:
-    order = await _order_or_404(db, delivery_order_id)
+    order = await _visible_order_or_404(db, current, delivery_order_id)
     order = await delivery_order_service.cancel(db, order, data.reason, current=current)
     return await _with_lines(db, order)
 
@@ -315,7 +333,7 @@ async def requeue_delivery_order(
     current: CurrentUser = Depends(_UPDATE),
     db: AsyncSession = Depends(get_db),
 ) -> DeliveryOrderResponse:
-    order = await _order_or_404(db, delivery_order_id)
+    order = await _visible_order_or_404(db, current, delivery_order_id)
     order = await delivery_order_service.requeue(db, order, current=current)
     return await _with_lines(db, order)
 
@@ -323,10 +341,10 @@ async def requeue_delivery_order(
 @router.get('/{delivery_order_id}/events', response_model=list[DeliveryOrderEventResponse])
 async def list_delivery_order_events(
     delivery_order_id: int,
-    _: CurrentUser = Depends(_READ),
+    current: CurrentUser = Depends(_READ),
     db: AsyncSession = Depends(get_db),
 ) -> list[DeliveryOrderEventResponse]:
-    await _order_or_404(db, delivery_order_id)
+    await _visible_order_or_404(db, current, delivery_order_id)
     events = await delivery_order_service.events_of(db, delivery_order_id)
     return [DeliveryOrderEventResponse.model_validate(e) for e in events]
 
@@ -349,12 +367,12 @@ def _assert_approved(order) -> None:  # noqa: ANN001
 async def print_delivery_order_ticket(
     delivery_order_id: int,
     warehouse: int | None = Query(None, description='Print only the lines from this warehouse'),
-    _: CurrentUser = Depends(_READ),
+    current: CurrentUser = Depends(_READ),
     db: AsyncSession = Depends(get_db),
 ) -> Response:
     """The 72 mm ticket: the delivery ticket, or the counter ticket for a pickup. A cancelled
     order prints stamped; a draft or one awaiting approval is refused."""
-    order = await _order_or_404(db, delivery_order_id)
+    order = await _visible_order_or_404(db, current, delivery_order_id)
     _assert_approved(order)
     if warehouse is not None:
         if await db.get(Warehouse, warehouse) is None:
@@ -380,11 +398,11 @@ async def print_delivery_order_ticket(
 )
 async def print_delivery_order_document(
     delivery_order_id: int,
-    _: CurrentUser = Depends(_READ),
+    current: CurrentUser = Depends(_READ),
     db: AsyncSession = Depends(get_db),
 ) -> Response:
     """The letter-size delivery order. No warehouse filter: a `warehouse` query is ignored."""
-    order = await _order_or_404(db, delivery_order_id)
+    order = await _visible_order_or_404(db, current, delivery_order_id)
     _assert_approved(order)
     template, context = await print_contexts.delivery_order_document_context(db, order)
     pdf = await rendering.render_pdf(template, context)
@@ -400,7 +418,7 @@ async def mark_ready_for_pickup(
     current: CurrentUser = Depends(_UPDATE),
     db: AsyncSession = Depends(get_db),
 ) -> DeliveryOrderResponse:
-    order = await _order_or_404(db, delivery_order_id)
+    order = await _visible_order_or_404(db, current, delivery_order_id)
     order = await delivery_order_service.mark_ready_for_pickup(db, order, current=current)
     return await _with_lines(db, order)
 
@@ -415,7 +433,7 @@ async def confirm_pickup(
     db: AsyncSession = Depends(get_db),
 ) -> DeliveryOrderResponse:
     """Same evidentiary standard as a delivery — this is what settles disputes (v2 §5)."""
-    order = await _order_or_404(db, delivery_order_id)
+    order = await _visible_order_or_404(db, current, delivery_order_id)
     filename = await image_service.save_proof_image(await image.read(), settings.pod_dir)
 
     order = await delivery_order_service.confirm_pickup(
@@ -448,10 +466,10 @@ async def _proof_or_404(db: AsyncSession, order) -> ProofOfDelivery:  # noqa: AN
 @router.get('/{delivery_order_id}/proof', response_model=ProofOfDeliveryResponse)
 async def get_proof(
     delivery_order_id: int,
-    _: CurrentUser = Depends(_READ),
+    current: CurrentUser = Depends(_READ),
     db: AsyncSession = Depends(get_db),
 ) -> ProofOfDeliveryResponse:
-    order = await _order_or_404(db, delivery_order_id)
+    order = await _visible_order_or_404(db, current, delivery_order_id)
     return ProofOfDeliveryResponse.model_validate(await _proof_or_404(db, order))
 
 
@@ -462,7 +480,7 @@ async def get_proof(
 )
 async def get_proof_image(
     delivery_order_id: int,
-    _: CurrentUser = Depends(_READ),
+    current: CurrentUser = Depends(_READ),
     db: AsyncSession = Depends(get_db),
 ) -> FileResponse:
     """Streamed behind the privilege check, never a static URL.
@@ -470,7 +488,7 @@ async def get_proof_image(
     A signature paired with a name and an address is personal data. The `/images` mount is
     unauthenticated — correct for product photos, wrong for this (FR-044a).
     """
-    order = await _order_or_404(db, delivery_order_id)
+    order = await _visible_order_or_404(db, current, delivery_order_id)
     proof = await _proof_or_404(db, order)
 
     path = os.path.join(settings.pod_dir, proof.image_file)
