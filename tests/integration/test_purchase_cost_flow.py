@@ -170,7 +170,13 @@ async def test_a_zero_price_is_reported_and_changes_nothing(client, db, seeded):
     )
     (generated,) = (await client.post(f'{ORDERS}/{order}/confirm')).json()['receipts']
     response = await client.post(f'{RECEIPTS}/{generated["inventory_receipt_id"]}/confirm')
-    assert response.json()['warnings'] == ['INV is priced at 0; its cost was not changed']
+    assert response.json()['warnings'] == [
+        {
+            'code': 'purchase_cost.zero_price',
+            'detail': 'INV is priced at 0; its cost was not changed',
+            'params': {'product_id': setup.stockable, 'product_code': 'INV'},
+        }
+    ]
     assert await _cost(db, setup.stockable) == Decimal('100')
 
 
@@ -189,7 +195,16 @@ async def test_cancel_restores_the_latest_and_warns_on_an_earlier(client, db, se
     assert response.status_code == 200, response.text
     serial = (await db.get(InventoryReceipt, second)).serial
     assert response.json()['warnings'] == [
-        f'Cost of INV not restored: changed since by receipt {serial}'
+        {
+            'code': 'purchase_cost.not_restored',
+            'detail': f'Cost of INV not restored: changed since by receipt {serial}',
+            'params': {
+                'product_id': item,
+                'product_code': 'INV',
+                'receipt': serial,
+                'inventory_receipt_id': second,
+            },
+        }
     ]
     assert await _cost(db, item) == Decimal(120)
 

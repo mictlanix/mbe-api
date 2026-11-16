@@ -18,11 +18,12 @@ RENAMED = {table for table, name in RESOURCE_NAMES.items() if table != name}
 
 
 def test_every_code_is_domain_dot_condition_with_an_error_status() -> None:
+    """200 marks a `warnings[]` item of a successful response (#322), never a raised error."""
     bad = [
         code.value
         for code in ErrorCode
         if not re.fullmatch(r'[a-z][a-z_]*\.[a-z][a-z_]*', code.value)
-        or not 400 <= code.status <= 599
+        or not (400 <= code.status <= 599 or code.status == 200)
     ]
     assert not bad
 

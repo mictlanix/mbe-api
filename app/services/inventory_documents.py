@@ -661,7 +661,7 @@ async def cancel(db: AsyncSession, kind: Kind, document_id: int, *, current: Cur
     A confirmed receipt of a purchase order restores the cost it changed, where no later change
     touched it, and warns otherwise (spec 031, R6); the warnings are kept on `cost_warnings`.
     """
-    cost_warnings: list[str] = []
+    cost_warnings: list[dict[str, Any]] = []
     async with busy_as_conflict(db):
         document = await begin_locked(db, kind, document_id, stock=True, ledger=True)
         costed = (

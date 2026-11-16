@@ -36,30 +36,41 @@ def over_receipt_warnings(
     lines: Iterable[Any],
     ordered_by_po_line: dict[int, Decimal],
     received_elsewhere: dict[int, Decimal],
-) -> list[str]:
-    """One message per order line this receipt takes above the order line's own quantity.
+) -> list[dict[str, Any]]:
+    """One warning per order line this receipt takes above the order line's own quantity.
 
     This receipt's linked lines are summed per order line: a legacy receipt may link one twice.
     The stored `quantity_ordered` is never read; legacy complementary receipts put the remaining
     quantity in it (R7).
     """
     here: dict[int, Decimal] = defaultdict(Decimal)
-    codes: dict[int, str] = {}
+    products: dict[int, tuple[int, str]] = {}
     for line in lines:
         order_line = line.purchase_order_detail
         if order_line is None or order_line not in ordered_by_po_line:
             continue
         here[order_line] += line.quantity
-        codes.setdefault(order_line, line.product_code or str(line.product))
+        products.setdefault(order_line, (line.product, line.product_code or str(line.product)))
 
     warnings = []
     for order_line, quantity in here.items():
         ordered = ordered_by_po_line[order_line]
         total = received_elsewhere.get(order_line, Decimal(0)) + quantity
         if total > ordered:
+            product, code = products[order_line]
             warnings.append(
-                f'Over-received {codes[order_line]} by {_plain(total - ordered)}: '
-                f'{_plain(total)} received of {_plain(ordered)} ordered'
+                {
+                    'code': ErrorCode.INVENTORY_RECEIPT_OVER_RECEIVED,
+                    'detail': f'Over-received {code} by {_plain(total - ordered)}: '
+                    f'{_plain(total)} received of {_plain(ordered)} ordered',
+                    'params': {
+                        'product_id': product,
+                        'product_code': code,
+                        'excess': format(total - ordered, 'f'),
+                        'received': format(total, 'f'),
+                        'ordered': format(ordered, 'f'),
+                    },
+                }
             )
     return warnings
 

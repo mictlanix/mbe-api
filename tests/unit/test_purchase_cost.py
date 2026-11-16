@@ -6,6 +6,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from app.core.error_codes import ErrorCode
 from app.services.purchase_cost_service import apply_lines, average, restore_plan, unit_cost
 
 
@@ -97,7 +98,13 @@ def test_a_zero_price_line_changes_nothing_but_is_on_hand_for_the_next():
         on_hand={7: Decimal('10')},
         costs={7: Decimal('100')},
     )
-    assert warnings == ['P7 is priced at 0; its cost was not changed']
+    assert warnings == [
+        {
+            'code': ErrorCode.PURCHASE_COST_ZERO_PRICE,
+            'detail': 'P7 is priced at 0; its cost was not changed',
+            'params': {'product_id': 7, 'product_code': 'P7'},
+        }
+    ]
     # The zero-priced 10 are on hand at the old cost: (20×100 + 10×130)/30 = 110.
     assert [(c['purchase_order_detail'], c['quantity_on_hand']) for c in changes] == [
         (2, Decimal('20'))
