@@ -5,6 +5,7 @@ statement as MariaDB would receive it, plus every commit and rollback. Each lock
 the row the database would hand over at that moment, and each read of the XML with what it holds.
 """
 
+import re
 from datetime import datetime, timedelta
 from decimal import Decimal
 from types import SimpleNamespace
@@ -18,7 +19,13 @@ from app.core.error_codes import ErrorCode
 from app.core.errors import DomainError
 from app.models.incidence import Incidence
 from app.services import fiscal_stamping
-from app.services.pac.provider import CancellationAnswer, PacRejected, PacTimeout, PacUnavailable
+from app.services.pac.provider import (
+    CancellationAnswer,
+    PacRejected,
+    PacTimeout,
+    PacUnavailable,
+    SatStatus,
+)
 from tests.fakes.pac import SCRIPTED_PAC_RFC, ScriptedPac
 from tests.unit.test_inventory_locks import COMMIT, FakeSession
 
@@ -857,3 +864,408 @@ async def test_cancelling_an_invoice_or_a_receipt_leaves_the_paid_flags(type_: i
     balances.assert_not_called()
     reopen.assert_not_called()
     assert not [sql for sql in session.log if 'FROM sales_order ' in sql]
+
+
+# ── Refresh (R8 "Refresh", R15 rules 1, 6, 7, 10, 11) ─────────────────────────
+
+_NOW = datetime(2026, 11, 17, 12, 0, 0)
+_REQUEST_ID = 40
+
+
+def _pending(**overrides: object) -> SimpleNamespace:
+    """An issued document with an open cancellation request."""
+    return _issued(cancelling_since=_NOW - timedelta(hours=1), **overrides)
+
+
+class RefreshSession(CancelSession):
+    """`CancelSession` that also answers refresh's read of the open request (`request`, a row of
+    id, status, requested_at, reason and substitution) and the status read by id (`by_id`)."""
+
+    def __init__(
+        self,
+        locks: list,
+        *,
+        request: tuple | None = None,
+        by_id: dict[int, list[str]] | None = None,
+        **kwargs: object,
+    ) -> None:
+        super().__init__(locks, **kwargs)
+        self.request = request
+        self.by_id = {key: list(value) for key, value in (by_id or {}).items()}
+
+    def _respond(self, sql: str) -> list:
+        flat = ' '.join(sql.split())
+        if flat.startswith('SELECT fiscal_document_cancellation.fiscal_document_cancellation_id'):
+            return [self.request] if self.request is not None else []
+        if flat.startswith('SELECT fiscal_document_cancellation.status'):
+            request_id = int(re.search(r'fiscal_document_cancellation_id = (\d+)', flat).group(1))
+            return [(self._next(self.by_id[request_id]),)]
+        return super()._respond(sql)
+
+
+def _open(status: str = 'pending', age: timedelta = timedelta(hours=1), reason: str = '02'):  # noqa: ANN202
+    return (_REQUEST_ID, status, _NOW - age, reason, None)
+
+
+def _sat(state: str, cancellation: str) -> SatStatus:
+    return SatStatus(state=state, cancellable='with_acceptance', cancellation=cancellation)
+
+
+async def _refresh(session: StampSession, pac: ScriptedPac) -> SimpleNamespace:
+    with patch('app.services.fiscal_stamping.local_now', return_value=_NOW):
+        return await fiscal_stamping.refresh(session, 9, pac, 7)  # type: ignore[arg-type]
+
+
+async def _refresh_refused(session: StampSession, pac: ScriptedPac) -> DomainError:
+    with pytest.raises(DomainError) as caught:
+        await _refresh(session, pac)
+    return caught.value
+
+
+def _status_session(row: SimpleNamespace, status: str = 'pending', **kwargs: object):  # noqa: ANN202
+    request = kwargs.pop('request', _open(status))
+    by_id = kwargs.pop('by_id', {_REQUEST_ID: [status]})
+    return RefreshSession([row], request=request, by_id=by_id, **kwargs)
+
+
+def _stamping(age: timedelta) -> SimpleNamespace:
+    return _row(stamping_since=_NOW - age)
+
+
+async def test_refresh_runs_two_transactions_around_the_pac_call() -> None:
+    """Rule 1: transaction 1 (lock, read, commit), the PAC call with none open, transaction 2."""
+    pac = ScriptedPac()
+    session = RefreshSession([_stamping(timedelta(minutes=1))])
+    seen: list[list[str]] = []
+    original = pac.find_stamp
+
+    async def find_stamp(sealed_xml: str):  # noqa: ANN202
+        seen.append(list(session.log))
+        return await original(sealed_xml)
+
+    pac.find_stamp = find_stamp  # type: ignore[method-assign]
+
+    await _refresh(session, pac)
+
+    locks = _locks(session)
+    assert len(locks) == 2
+    assert session.log[0] == COMMIT and locks[0] == 1
+    [log] = seen
+    assert log[-1] == COMMIT and len(log) <= locks[1]
+    assert len([i for i in _locks(session) if i < len(log)]) == 1
+    assert session.log[locks[1] - 1] == COMMIT
+    locked = [s for s in session.statements if getattr(s, '_for_update_arg', None) is not None]
+    for statement in locked:
+        assert statement.get_execution_options().get('populate_existing') is True
+    assert session.log[-1] == COMMIT
+
+
+async def test_refresh_of_a_credit_note_locks_note_invoice_orders_before_any_read() -> None:
+    """Rule 10: transaction 2 locks note → invoice → orders, and only then reads the status."""
+    note = _pending(type=100)
+    session = RefreshSession(
+        [note, note, _issued(fiscal_document_id=_INVOICE_ID)],
+        request=_open('pending'),
+        by_id={_REQUEST_ID: ['pending']},
+        orders=_orders(),
+    )
+    pac = ScriptedPac()
+    pac.queue('query_status', _sat('cancelled', 'accepted'))
+
+    with (
+        patch.object(
+            fiscal_stamping.sales_order_service, 'order_balances', return_value=_balances('0', '0')
+        ),
+        patch.object(fiscal_stamping.customer_payment_service, 'reopen') as reopen,
+    ):
+        await _refresh(session, pac)
+
+    log = [' '.join(sql.split()) for sql in session.log]
+    locks = _locks(session)
+    relation = next(i for i, sql in enumerate(log) if 'fiscal_document_relation.relation' in sql)
+    order_ids = next(i for i, sql in enumerate(log) if 'sales_order_detail.sales_order' in sql)
+    assert relation < locks[1] and order_ids < locks[1]
+    b = locks[1]
+    assert log[b - 1] == COMMIT
+    assert log[b].endswith('WHERE fiscal_document.fiscal_document_id = 9 FOR UPDATE')
+    assert log[b + 1].endswith(
+        f'WHERE fiscal_document.fiscal_document_id = {_INVOICE_ID} FOR UPDATE'
+    )
+    assert log[b + 2].endswith(
+        'WHERE sales_order.sales_order_id IN (31, 32) '
+        'ORDER BY sales_order.sales_order_id FOR UPDATE'
+    )
+    assert log[b + 3].startswith('SELECT fiscal_document_cancellation.status')
+    assert note.cancelled is True
+    assert reopen.call_count == 2
+
+
+async def test_a_stamp_found_is_stored() -> None:
+    pac = ScriptedPac()
+    found = pac._make_stamp(_SEALED)
+    pac.queue('find_stamp', found)
+    row = _stamping(timedelta(minutes=1))
+    session = RefreshSession([row])
+
+    document = await _refresh(session, pac)
+
+    assert document is row
+    assert (row.completed, row.stamp_uuid, row.stamping_since) == (True, found.uuid, None)
+    [write] = _xml_writes(session)
+    assert found.uuid in write
+    assert _incidences(session) == [f'CFDI stamp found {found.uuid}']
+    assert pac.calls['find_stamp'] == 1 and pac.calls['stamp'] == 0
+
+
+@pytest.mark.parametrize(
+    ('age', 'sealed'),
+    [(timedelta(minutes=4, seconds=59), False), (timedelta(minutes=5, seconds=1), True)],
+    ids=['4:59', '5:01'],
+)
+async def test_a_stamp_not_found_seals_again_only_past_the_grace(
+    age: timedelta, sealed: bool
+) -> None:
+    pac = ScriptedPac()
+    row = _stamping(age)
+    session = RefreshSession([row])
+
+    document = await _refresh(session, pac)
+
+    assert document is row
+    state = fiscal_stamping.fds.document_status(row, has_xml=True)
+    assert state == ('sealed' if sealed else 'stamping')
+    expected = ['CFDI stamp not found, sealed again'] if sealed else []
+    assert _incidences(session) == expected
+    assert not _xml_writes(session)
+    assert session.log[-1] == COMMIT
+
+
+async def test_a_stamping_marker_that_changed_is_left_alone() -> None:
+    """Rule 6: another stamp set its own marker after `find_stamp` was called."""
+    pac = ScriptedPac()
+    newer = _NOW - timedelta(seconds=10)
+    later = _row(stamping_since=newer)
+    session = RefreshSession([_stamping(timedelta(minutes=6)), later])
+
+    await _refresh(session, pac)
+
+    assert later.stamping_since == newer
+    assert not _incidences(session)
+
+
+@pytest.mark.parametrize(
+    ('status', 'sat', 'closed_as', 'state', 'reason'),
+    [
+        ('pending', _sat('cancelled', 'accepted'), 'accepted', 'cancelled', 'CFDI cancelled'),
+        ('pending', _sat('cancelled', 'expired'), 'expired', 'cancelled', 'CFDI cancelled'),
+        ('requested', _sat('cancelled', 'accepted'), 'accepted', 'cancelled', 'CFDI cancelled'),
+        ('pending', _sat('valid', 'rejected'), 'rejected', 'issued', 'Cancellation rejected'),
+        (
+            'pending',
+            _sat('valid', 'none'),
+            'failed',
+            'issued',
+            'Cancellation not received by SAT',
+        ),
+    ],
+    ids=['accepted', 'expired', 'requested_accepted', 'rejected', 'not_received'],
+)
+async def test_a_result_that_closes_the_request(
+    status: str, sat: SatStatus, closed_as: str, state: str, reason: str
+) -> None:
+    pac = ScriptedPac()
+    pac.queue('query_status', sat)
+    row = _pending()
+    session = _status_session(row, status)
+
+    document = await _refresh(session, pac)
+
+    assert document is row
+    assert fiscal_stamping.fds.document_status(row, has_xml=True) == state
+    assert row.cancelling_since is None
+    [write] = _request_writes(session)
+    assert write['status'] == closed_as
+    assert write['resolved_at'] == _NOW and write['last_checked_at'] == _NOW
+    assert _incidences(session) == [reason]
+    if state == 'cancelled':
+        assert (row.cancelled, row.cancellation_reason, row.cancellation_date) == (True, '02', _NOW)
+    assert session.log[-1] == COMMIT
+    assert pac.calls['query_status'] == 1
+
+
+async def test_the_query_names_the_document() -> None:
+    pac = ScriptedPac()
+    calls: list[tuple] = []
+
+    async def query_status(*args: object) -> SatStatus:
+        calls.append(args)
+        return _sat('valid', 'pending')
+
+    pac.query_status = query_status  # type: ignore[method-assign]
+    row = _pending()
+
+    await _refresh(_status_session(row), pac)
+
+    assert calls == [('EKU9003173C9', 'XAÑ010101AB1', row.stamp_uuid, Decimal('116.00'))]
+
+
+async def test_not_received_within_the_grace_of_a_requested_request_is_unchanged() -> None:
+    """Rule 7: the cancel that sent it may still be waiting on the PAC."""
+    pac = ScriptedPac()
+    pac.queue('query_status', _sat('valid', 'none'))
+    row = _pending()
+    request = _open('requested', age=timedelta(minutes=4, seconds=59))
+    session = _status_session(row, 'requested', request=request)
+
+    await _refresh(session, pac)
+
+    assert row.cancelling_since is not None
+    [write] = _request_writes(session)
+    assert write == {'last_checked_at': _NOW, 'fiscal_document_cancellation_id_1': _REQUEST_ID}
+    assert not _incidences(session)
+
+
+async def test_not_received_past_the_grace_of_a_requested_request_fails_it() -> None:
+    pac = ScriptedPac()
+    pac.queue('query_status', _sat('valid', 'none'))
+    row = _pending()
+    request = _open('requested', age=timedelta(minutes=5, seconds=1))
+
+    await _refresh(session := _status_session(row, 'requested', request=request), pac)
+
+    assert row.cancelling_since is None
+    assert _request_writes(session)[0]['status'] == 'failed'
+    assert _incidences(session) == ['Cancellation not received by SAT']
+
+
+async def test_a_timed_out_request_sat_holds_becomes_pending() -> None:
+    pac = ScriptedPac()
+    pac.queue('query_status', _sat('valid', 'pending'))
+    row = _pending()
+    session = _status_session(row, 'requested')
+
+    await _refresh(session, pac)
+
+    assert fiscal_stamping.fds.document_status(row, has_xml=True) == 'cancellation_pending'
+    [write] = _request_writes(session)
+    assert (write['status'], write['answered_at'], write['last_checked_at']) == (
+        'pending',
+        _NOW,
+        _NOW,
+    )
+    assert 'resolved_at' not in write
+    assert _incidences(session) == ['Cancellation pending the receiver']
+
+
+@pytest.mark.parametrize(
+    ('status', 'sat'),
+    [
+        ('pending', _sat('not_found', 'none')),
+        ('pending', _sat('valid', 'pending')),
+        ('pending', _sat('valid', 'requested')),
+        ('requested', _sat('valid', 'requested')),
+    ],
+    ids=['not_found', 'still_pending', 'pending_requested', 'requested_requested'],
+)
+async def test_anything_else_only_records_the_check(status: str, sat: SatStatus) -> None:
+    pac = ScriptedPac()
+    pac.queue('query_status', sat)
+    row = _pending()
+    before = dict(vars(row))
+    session = _status_session(row, status)
+
+    document = await _refresh(session, pac)
+
+    assert document is row
+    assert vars(row) == before
+    [write] = _request_writes(session)
+    assert write == {'last_checked_at': _NOW, 'fiscal_document_cancellation_id_1': _REQUEST_ID}
+    assert not _incidences(session)
+
+
+async def test_a_request_whose_status_changed_is_left_alone() -> None:
+    """Rules 6 and 11: the kept request was resolved after `query_status` (the status read by id
+    says `rejected`); refresh changes nothing but its `last_checked_at`."""
+    pac = ScriptedPac()
+    pac.queue('query_status', _sat('cancelled', 'accepted'))
+    row = _pending()
+    session = _status_session(row, 'pending', by_id={_REQUEST_ID: ['rejected']})
+
+    await _refresh(session, pac)
+
+    assert row.cancelled is False
+    [write] = _request_writes(session)
+    assert write == {'last_checked_at': _NOW, 'fiscal_document_cancellation_id_1': _REQUEST_ID}
+    assert not _incidences(session)
+    reads = [
+        i
+        for i, sql in enumerate(session.log)
+        if sql.startswith('SELECT fiscal_document_cancellation.status')
+    ]
+    assert reads and reads[0] > _locks(session)[1]
+
+
+async def test_another_open_request_with_the_same_status_is_left_alone() -> None:
+    """Rule 6, by id: the kept request (40) closed and a new cancel opened 41, also `pending`."""
+    pac = ScriptedPac()
+    pac.queue('query_status', _sat('valid', 'rejected'))
+    row = _pending()
+    session = _status_session(row, 'pending', by_id={_REQUEST_ID: ['rejected'], 41: ['pending']})
+
+    await _refresh(session, pac)
+
+    assert row.cancelling_since is not None
+    [write] = _request_writes(session)
+    assert write == {'last_checked_at': _NOW, 'fiscal_document_cancellation_id_1': _REQUEST_ID}
+    assert not _incidences(session)
+
+
+@pytest.mark.parametrize(
+    ('row', 'xml'),
+    [
+        (_row(), None),
+        (_row(), _SEALED),
+        (_issued(), _SEALED),
+        (_issued(cancelled=True), _SEALED),
+    ],
+    ids=['draft', 'sealed', 'issued', 'cancelled'],
+)
+async def test_nothing_to_refresh(row: SimpleNamespace, xml: str | None) -> None:
+    pac = ScriptedPac()
+    session = RefreshSession([row], xmls=[xml])
+
+    error = await _refresh_refused(session, pac)
+
+    assert error.code == ErrorCode.FISCAL_DOCUMENT_NOTHING_TO_REFRESH
+    assert sum(pac.calls.values()) == 0
+    assert len(_locks(session)) == 1
+
+
+@pytest.mark.parametrize(
+    ('failure', 'code'),
+    [(PacUnavailable(), ErrorCode.PAC_UNAVAILABLE), (PacTimeout(), ErrorCode.PAC_TIMEOUT)],
+    ids=['unavailable', 'timeout'],
+)
+@pytest.mark.parametrize('state', ['stamping', 'cancellation_pending'])
+async def test_a_pac_failure_leaves_the_document_and_raises(
+    failure: Exception, code: ErrorCode, state: str
+) -> None:
+    pac = ScriptedPac()
+    if state == 'stamping':
+        row = _stamping(timedelta(minutes=6))
+        session = RefreshSession([row])
+        pac.queue('find_stamp', failure)
+    else:
+        row = _pending()
+        session = _status_session(row)
+        pac.queue('query_status', failure)
+    before = dict(vars(row))
+
+    error = await _refresh_refused(session, pac)
+
+    assert error.code == code
+    if code == ErrorCode.PAC_TIMEOUT:
+        assert error.params == {'state': state}
+    assert vars(row) == before
+    assert len(_locks(session)) == 1
+    assert not _request_writes(session) and not _incidences(session)

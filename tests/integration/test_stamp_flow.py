@@ -5,6 +5,7 @@ one of them.
 """
 
 import logging
+from datetime import timedelta
 
 import pytest
 from fastapi import HTTPException
@@ -209,3 +210,109 @@ async def test_after_a_timeout_the_document_is_stamping_and_never_stamped_twice(
         409,
         'fiscal_document.not_draft',
     )
+
+
+# ── Refresh (US3, SC-004), T033 ───────────────────────────────────────────────
+
+
+async def _timed_out(invoicing: Invoicing, pac: PacProvider, outcome: str) -> tuple[int, str]:  # noqa: F811
+    """A sealed invoice whose stamp timed out; `outcome` says whether the PAC stamped it."""
+    db, current = invoicing.db, invoicing.current
+    sealed = await invoicing.confirm(await _ready(invoicing))
+    document_id = sealed.fiscal_document_id
+    sealed_xml = await fds.get_xml(db, document_id)
+    if isinstance(pac, SimulatedPac):
+        keys = (None, sealed.issuer, sealed.batch or '', sealed.serial)
+        await pac.set_next(keys, stamp=outcome)
+    else:
+        pac.queue('stamp', PacTimeout())
+        if outcome == 'timeout_stamped':
+            pac.queue('find_stamp', pac._make_stamp(sealed_xml))
+    with pytest.raises(HTTPException) as caught:
+        await _stamp(db, current, document_id, pac)
+    assert caught.value.code == 'pac.timeout'
+    return document_id, sealed_xml
+
+
+async def _set_marker_back(db: AsyncSession, document_id: int, minutes: int) -> None:
+    db.expire_all()
+    document = await db.get(FiscalDocument, document_id)
+    document.stamping_since -= timedelta(minutes=minutes)
+    await db.commit()
+
+
+async def _comments(db: AsyncSession, document_id: int) -> list[str]:
+    query = (
+        select(Incidence.comment)
+        .where(Incidence.instance_id == document_id)
+        .order_by(Incidence.incidence_id)
+    )
+    return list((await db.execute(query)).scalars())
+
+
+async def test_refresh_finds_a_stamp_that_timed_out(
+    invoicing: Invoicing,  # noqa: F811
+    pac: PacProvider,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    caplog.set_level(logging.WARNING)
+    db, current = invoicing.db, invoicing.current
+    document_id, sealed_xml = await _timed_out(invoicing, pac, 'timeout_stamped')
+    if isinstance(pac, SimulatedPac):
+        found = await pac.find_stamp(sealed_xml)
+    else:
+        found = pac.queues['find_stamp'][0]
+
+    await fiscal_stamping.refresh(db, document_id, pac, current.employee_id)
+
+    db.expire_all()
+    document = await fds.get_document(db, document_id)
+    assert document.status == 'issued'
+    assert document.stamping_since is None
+    assert document.stamp_uuid == found.uuid
+    assert await fds.get_xml(db, document_id) == found.xml
+    assert f'CFDI stamp found {document.stamp_uuid}' in await _comments(db, document_id)
+    assert _stamp_calls(pac, caplog) == 1
+
+
+async def test_refresh_seals_again_a_stamp_not_found_past_the_grace(
+    invoicing: Invoicing,  # noqa: F811
+    pac: PacProvider,
+) -> None:
+    db, current = invoicing.db, invoicing.current
+    document_id, _sealed_xml = await _timed_out(invoicing, pac, 'timeout_not_stamped')
+
+    # Within the grace it stays stamping.
+    await fiscal_stamping.refresh(db, document_id, pac, current.employee_id)
+    db.expire_all()
+    assert (await fds.get_document(db, document_id)).status == 'stamping'
+
+    await _set_marker_back(db, document_id, 6)
+    await fiscal_stamping.refresh(db, document_id, pac, current.employee_id)
+
+    db.expire_all()
+    assert (await fds.get_document(db, document_id)).status == 'sealed'
+    assert 'CFDI stamp not found, sealed again' in await _comments(db, document_id)
+    await _stamp(db, current, document_id, pac)
+    db.expire_all()
+    assert (await fds.get_document(db, document_id)).status == 'issued'
+
+
+async def test_a_stamp_answer_after_the_reset_is_still_stored(
+    invoicing: Invoicing,  # noqa: F811
+    pac: PacProvider,
+) -> None:
+    db, current = invoicing.db, invoicing.current
+    document_id, sealed_xml = await _timed_out(invoicing, pac, 'timeout_not_stamped')
+    await _set_marker_back(db, document_id, 6)
+    await fiscal_stamping.refresh(db, document_id, pac, current.employee_id)
+    late = ScriptedPac()._make_stamp(sealed_xml)
+
+    await fiscal_stamping._store_stamp(
+        db, document_id, sealed_xml, late, current.employee_id, reason=f'CFDI stamped {late.uuid}'
+    )
+
+    db.expire_all()
+    document = await fds.get_document(db, document_id)
+    assert (document.status, document.stamp_uuid) == ('issued', late.uuid)
+    assert await fds.get_xml(db, document_id) == late.xml

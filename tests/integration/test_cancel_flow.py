@@ -34,6 +34,7 @@ from app.services.pac.provider import (
     PacRejected,
     PacTimeout,
     PacUnavailable,
+    SatStatus,
 )
 from app.services.pac.simulated import SimulatedPac
 from tests.fakes.pac import ScriptedPac
@@ -611,3 +612,121 @@ async def test_xml_and_pdf_while_issued_pending_and_cancelled(
     cancelled = await stamped_note(lines[1])
     await _cancelled_as(db, current, cancelled, pac, 'accepted')
     await readable(cancelled)
+
+
+# ── Refresh resolves a pending cancellation (US3), T034 ───────────────────────
+
+_RECEIVER_STATUS = {
+    'accept': SatStatus(state='cancelled', cancellable='with_acceptance', cancellation='accepted'),
+    'reject': SatStatus(state='valid', cancellable='with_acceptance', cancellation='rejected'),
+    'expire': SatStatus(state='cancelled', cancellable='with_acceptance', cancellation='expired'),
+}
+
+
+async def _receiver(db: AsyncSession, pac: PacProvider, document_id: int, answer: str) -> None:
+    """The receiver answers the pending cancellation; the fake reports it on its next query."""
+    if isinstance(pac, ScriptedPac):
+        pac.queue('query_status', _RECEIVER_STATUS[answer])
+        return
+    db.expire_all()
+    document = await db.get(FiscalDocument, document_id)
+    keys = (document.stamp_uuid, document.issuer, document.batch or '', document.serial)
+    await pac.answer_as_receiver(keys, answer)
+
+
+async def _refresh(db: AsyncSession, current: CurrentUser, document_id: int, pac) -> None:  # noqa: ANN001
+    await fiscal_stamping.refresh(db, document_id, pac, current.employee_id)
+
+
+@pytest.mark.parametrize(
+    ('answer', 'status', 'state', 'reason'),
+    [
+        ('accept', 'accepted', 'cancelled', 'CFDI cancelled'),
+        ('reject', 'rejected', 'issued', 'Cancellation rejected'),
+        ('expire', 'expired', 'cancelled', 'CFDI cancelled'),
+    ],
+)
+async def test_refresh_follows_the_receivers_answer(
+    receipts: Receipts,  # noqa: F811
+    pac: PacProvider,
+    answer: str,
+    status: str,
+    state: str,
+    reason: str,
+) -> None:
+    await _receipts_ready(receipts)
+    db, current = receipts.db, receipts.current
+    invoice = await _ppd_invoice(db)
+    await _cancelled_as(db, current, invoice, pac, 'pending')
+    await _receiver(db, pac, invoice, answer)
+
+    await _refresh(db, current, invoice, pac)
+
+    document = await _load(db, invoice)
+    assert (document.status, document.cancelling_since) == (state, None)
+    assert document.cancelled is (state == 'cancelled')
+    [request] = await _requests(db, invoice)
+    assert request.status == status
+    assert request.resolved_at is not None and request.last_checked_at is not None
+    assert await _reasons(db, invoice) == [
+        'Cancellation requested (02)',
+        'Cancellation pending the receiver',
+        reason,
+    ]
+    # Resolved: nothing is left to refresh.
+    await _refused(_refresh(db, current, invoice, pac), 'fiscal_document.nothing_to_refresh')
+    if answer == 'reject':
+        # Rejected by the receiver, the document can be cancelled again.
+        await _cancelled_as(db, current, invoice, pac, 'accepted')
+        assert [r.status for r in await _requests(db, invoice)] == ['rejected', 'accepted']
+
+
+async def test_refresh_closes_a_request_sat_never_received(
+    receipts: Receipts,  # noqa: F811
+) -> None:
+    """Only the fake can answer `valid`/`none` for an open request; the simulator never does."""
+    await _receipts_ready(receipts)
+    db, current = receipts.db, receipts.current
+    pac = ScriptedPac()
+    invoice = await _ppd_invoice(db)
+    await _cancelled_as(db, current, invoice, pac, 'pending')
+    pac.queue(
+        'query_status',
+        SatStatus(state='valid', cancellable='with_acceptance', cancellation='none'),
+    )
+
+    await _refresh(db, current, invoice, pac)
+
+    document = await _load(db, invoice)
+    assert (document.status, document.cancelling_since) == ('issued', None)
+    [request] = await _requests(db, invoice)
+    assert (request.status, request.resolved_at is not None) == ('failed', True)
+    assert await _reasons(db, invoice) == [
+        'Cancellation requested (02)',
+        'Cancellation pending the receiver',
+        'Cancellation not received by SAT',
+    ]
+
+
+async def test_refresh_of_a_timed_out_cancel_reports_it_pending(
+    receipts: Receipts,  # noqa: F811
+    pac: PacProvider,
+) -> None:
+    await _receipts_ready(receipts)
+    db, current = receipts.db, receipts.current
+    invoice = await _ppd_invoice(db)
+    await _choose(db, pac, invoice, 'timeout')
+    await _refused(_cancel(db, current, invoice, pac), 'pac.timeout')
+    if isinstance(pac, ScriptedPac):
+        pac.queue(
+            'query_status',
+            SatStatus(state='valid', cancellable='with_acceptance', cancellation='pending'),
+        )
+
+    await _refresh(db, current, invoice, pac)
+
+    assert (await _load(db, invoice)).status == 'cancellation_pending'
+    [request] = await _requests(db, invoice)
+    assert request.status == 'pending'
+    assert request.answered_at is not None and request.last_checked_at is not None
+    assert (await _reasons(db, invoice))[-1] == 'Cancellation pending the receiver'

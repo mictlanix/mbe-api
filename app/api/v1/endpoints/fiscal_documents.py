@@ -346,6 +346,21 @@ async def cancel_fiscal_document(
     return await _response(db, fiscal_document_id)
 
 
+@router.post('/{fiscal_document_id}/refresh', response_model=FiscalDocumentResponse)
+async def refresh_fiscal_document(
+    fiscal_document_id: int,
+    current: CurrentUser = Depends(_UPDATE),
+    provider: PacProvider | None = Depends(get_pac_provider),
+    db: AsyncSession = Depends(get_db),
+) -> FiscalDocumentResponse:
+    """Ask the PAC what became of a stamp or a cancellation in process, and apply its answer:
+    the document is returned resolved, or unchanged while it is still in process."""
+    provider = require_provider(provider)
+    await _document_or_404(db, fiscal_document_id)
+    await fiscal_stamping.refresh(db, fiscal_document_id, provider, current.employee_id)
+    return await _response(db, fiscal_document_id)
+
+
 # ── Payment receipts (#53, spec 028) ──────────────────────────────────────────
 
 

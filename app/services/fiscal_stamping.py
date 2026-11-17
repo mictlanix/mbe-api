@@ -16,7 +16,7 @@ Cancel follows the same pattern: transaction A checks the document and commits t
 """
 
 from collections.abc import Sequence
-from datetime import datetime
+from datetime import datetime, timedelta
 from decimal import Decimal
 from uuid import UUID
 
@@ -48,6 +48,7 @@ from app.services.pac.provider import (
     PacRejected,
     PacTimeout,
     PacUnavailable,
+    SatStatus,
     Stamp,
 )
 
@@ -493,4 +494,150 @@ async def _apply_answer(
         await db.commit()
     if error is not None:
         raise error
+    return document
+
+
+# ── Refresh (research R8 "Refresh", R15 rules 6 and 7) ───────────────────────
+
+# A stamp not found returns the document to sealed, and SAT's "never received" closes a
+# `requested` request, only past this grace: the request that sent it may still be waiting (R3).
+STAMP_LOOKUP_GRACE = timedelta(minutes=5)
+_OPEN = ('requested', 'pending')
+
+
+async def refresh(
+    db: AsyncSession, document_id: int, provider: PacProvider, employee_id: int
+) -> FiscalDocument:
+    """Resolve a stamping document or an open cancellation request from the PAC's answer (R8).
+
+    Transaction 1 reads what to ask and commits; the PAC answers with no transaction open;
+    transaction 2 writes only if what transaction 1 read is still true (R15 rule 6).
+    """
+    async with busy_as_conflict(db, BUSY, resource=RESOURCE):
+        document = await _begin_locked(db, document_id)
+        xml = await fds.get_xml(db, document_id)
+        state = fds.document_status(document, has_xml=xml is not None)
+        request = None
+        if state == 'cancellation_pending':
+            request = (
+                await db.execute(
+                    select(
+                        FiscalDocumentCancellation.fiscal_document_cancellation_id,
+                        FiscalDocumentCancellation.status,
+                        FiscalDocumentCancellation.requested_at,
+                        FiscalDocumentCancellation.reason,
+                        FiscalDocumentCancellation.substitution,
+                    ).where(
+                        FiscalDocumentCancellation.fiscal_document == document_id,
+                        FiscalDocumentCancellation.status.in_(_OPEN),
+                    )
+                )
+            ).first()
+        if state != 'stamping' and request is None:
+            raise DomainError(
+                ErrorCode.FISCAL_DOCUMENT_NOTHING_TO_REFRESH,
+                'Neither a stamp nor a cancellation is in process',
+            )
+        marker = document.stamping_since
+        credited = None
+        if request is not None:
+            issuer, recipient, uuid = document.issuer, document.recipient, document.stamp_uuid
+            if document.type == FiscalDocumentType.CREDIT_NOTE:
+                credited = await _credited_ids(db, document_id)
+        await db.commit()
+
+    try:
+        if request is None:
+            found = await provider.find_stamp(xml)
+        else:
+            sat = await provider.query_status(
+                issuer, recipient, uuid, fds.xml_total(xml) or Decimal(0)
+            )
+    except PacRejected as error:
+        raise DomainError(
+            ErrorCode.PAC_REJECTED,
+            'The PAC rejected the query',
+            {
+                'pac_code': error.code[:PAC_CODE_LENGTH],
+                'pac_message': error.message[:PAC_MESSAGE_LENGTH],
+            },
+        ) from None
+    except PacUnavailable:
+        raise DomainError(ErrorCode.PAC_UNAVAILABLE, 'The PAC could not be reached') from None
+    except PacTimeout:
+        raise _pac_timeout(state) from None
+
+    if request is None:
+        if found is not None:
+            return await _store_stamp(
+                db, document_id, xml, found, employee_id, reason=f'CFDI stamp found {found.uuid}'
+            )
+        return await _not_stamped(db, document_id, marker, employee_id)
+    return await _apply_status(db, document_id, request, sat, credited, employee_id)
+
+
+async def _not_stamped(
+    db: AsyncSession, document_id: int, marker: datetime, employee_id: int
+) -> FiscalDocument:
+    """Sealed again past the grace, if the marker is still the one read before `find_stamp`."""
+    async with busy_as_conflict(db, BUSY, resource=RESOURCE):
+        document = await _begin_locked(db, document_id)
+        if document.stamping_since == marker and _now() - marker > STAMP_LOOKUP_GRACE:
+            document.stamping_since = None
+            _record(db, document_id, employee_id, 'CFDI stamp not found, sealed again')
+        await db.commit()
+    return document
+
+
+async def _apply_status(
+    db: AsyncSession,
+    document_id: int,
+    request: Sequence,
+    sat: SatStatus,
+    credited: tuple[int | None, list[int]] | None,
+    employee_id: int,
+) -> FiscalDocument:
+    """Transaction 2 for an open request: the document follows SAT (FR-021), applied only to the
+    request transaction 1 kept and only while its status is unchanged (rule 6)."""
+    request_id, kept, requested_at, reason, substitution = request
+    async with busy_as_conflict(db, BUSY, resource=RESOURCE):
+        document = await _begin_locked(db, document_id)
+        orders: list[SalesOrder] = []
+        if credited is not None and sat.state == 'cancelled':
+            orders = await _lock_credited(db, *credited)
+        # Rule 11: the status as the row holds it now, by the id transaction 1 kept.
+        status = (
+            await db.execute(
+                select(FiscalDocumentCancellation.status).where(
+                    FiscalDocumentCancellation.fiscal_document_cancellation_id == request_id
+                )
+            )
+        ).scalar_one()
+        now = _now()
+        values: dict[str, object] = {'last_checked_at': now}
+        if status == kept:
+            closed = None
+            if sat.state == 'cancelled':
+                closed = 'expired' if sat.cancellation == 'expired' else 'accepted'
+                await _apply_cancelled(db, document, reason, substitution, orders, employee_id)
+            elif sat.state == 'valid' and sat.cancellation == 'rejected':
+                closed = 'rejected'
+                _record(db, document_id, employee_id, 'Cancellation rejected')
+            elif sat.state == 'valid' and sat.cancellation == 'none':
+                # Rule 7: a cancel within the grace may still be waiting on the PAC.
+                if kept != 'requested' or now - requested_at >= STAMP_LOOKUP_GRACE:
+                    closed = 'failed'
+                    _record(db, document_id, employee_id, 'Cancellation not received by SAT')
+            elif sat.state == 'valid' and sat.cancellation == 'pending' and kept == 'requested':
+                values.update(status='pending', answered_at=now)
+                _record(db, document_id, employee_id, 'Cancellation pending the receiver')
+            if closed is not None:
+                values.update(status=closed, resolved_at=now)
+                document.cancelling_since = None
+        await db.execute(
+            update(FiscalDocumentCancellation)
+            .where(FiscalDocumentCancellation.fiscal_document_cancellation_id == request_id)
+            .values(**values)
+        )
+        await db.commit()
     return document

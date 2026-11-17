@@ -311,3 +311,104 @@ async def test_a_cancel_refusal_is_returned_as_its_problem(
 
     body = assert_problem(response, code.status, str(code.value))
     assert body.get('params', {}) == (params or {})
+
+
+# ── POST /refresh ─────────────────────────────────────────────────────────────
+
+_REFRESH_URL = '/api/v1/fiscal-documents/9/refresh'
+
+
+@pytest.mark.asyncio
+async def test_refresh_returns_the_document() -> None:
+    _auth()
+    pac = _provider(ScriptedPac())
+    with (
+        patch(f'{_STAMPING}.refresh', AsyncMock()) as refresh,
+        patch(f'{_SERVICE}.get_document', AsyncMock(return_value=_row(status='cancelled'))),
+    ):
+        async with await _client() as client:
+            response = await client.post(_REFRESH_URL)
+
+    assert response.status_code == status.HTTP_200_OK
+    assert response.json()['status'] == 'cancelled'
+    assert refresh.await_args.args[1:] == (9, pac, 7)
+
+
+@pytest.mark.asyncio
+async def test_refresh_requires_authentication() -> None:
+    async with await _client() as client:
+        response = await client.post(_REFRESH_URL)
+
+    assert response.status_code == status.HTTP_401_UNAUTHORIZED
+
+
+@pytest.mark.asyncio
+async def test_refresh_requires_update_on_fiscal_documents() -> None:
+    _auth(administrator=False)
+    _deny_privileges()
+    _provider(ScriptedPac())
+    with patch(f'{_STAMPING}.refresh', AsyncMock()) as refresh:
+        async with await _client() as client:
+            response = await client.post(_REFRESH_URL)
+
+    body = assert_problem(response, 403, 'auth.forbidden')
+    assert body['params']['required'] == [{'system_object': 23, 'right': int(AccessRight.UPDATE)}]
+    refresh.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_refresh_of_a_missing_document_is_404() -> None:
+    _auth()
+    _provider(ScriptedPac())
+    with (
+        patch(f'{_SERVICE}.get_document', AsyncMock(return_value=None)),
+        patch(f'{_STAMPING}.refresh', AsyncMock()) as refresh,
+    ):
+        async with await _client() as client:
+            response = await client.post(_REFRESH_URL)
+
+    assert_problem(response, 404, 'resource.not_found')
+    refresh.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_refresh_without_a_provider_is_503() -> None:
+    _auth()
+    _provider(None)
+    with patch(f'{_STAMPING}.refresh', AsyncMock()) as refresh:
+        async with await _client() as client:
+            response = await client.post(_REFRESH_URL)
+
+    assert_problem(response, 503, 'pac.not_configured')
+    refresh.assert_not_awaited()
+
+
+_REFRESH_REFUSALS = [
+    (ErrorCode.FISCAL_DOCUMENT_NOTHING_TO_REFRESH, None),
+    (ErrorCode.LOCK_BUSY, {'resource': 'fiscal_document'}),
+    (ErrorCode.PAC_UNAVAILABLE, None),
+    (ErrorCode.PAC_TIMEOUT, {'state': 'stamping'}),
+    (ErrorCode.PAC_TIMEOUT, {'state': 'cancellation_pending'}),
+]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ('code', 'params'),
+    _REFRESH_REFUSALS,
+    ids=['nothing_to_refresh', 'busy', 'unavailable', 'timeout_stamping', 'timeout_pending'],
+)
+async def test_a_refresh_refusal_is_returned_as_its_problem(
+    code: ErrorCode, params: dict | None
+) -> None:
+    _auth()
+    _provider(ScriptedPac())
+    with (
+        patch(f'{_STAMPING}.refresh', AsyncMock(side_effect=DomainError(code, 'Refused', params))),
+        patch(f'{_SERVICE}.get_document', AsyncMock(return_value=_row())),
+    ):
+        async with await _client() as client:
+            response = await client.post(_REFRESH_URL)
+
+    body = assert_problem(response, code.status, str(code.value))
+    assert body.get('params', {}) == (params or {})
