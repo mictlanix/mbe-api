@@ -212,6 +212,7 @@ A developer or a UI tester reaches every PAC outcome through the API alone, with
   - invoice balances for payment receipts;
   - credit-note limits;
   - a payment receipt's link to its customer payment.
+- **FR-020a**: While an invoice has an open cancellation request (requested or pending), no payment receipt or credit note can be added to it or confirmed against it (`invoice_not_payable` / `invoice_not_creditable`). Otherwise a receipt or note could be confirmed against the invoice while its cancellation is with the PAC. This is the one exception to FR-020's "live everywhere": the invoice still holds its units and balances, but it takes no new receipts or notes.
 - **FR-021**: The document's state MUST follow SAT's status as the PAC reports it:
   - cancelled when SAT reports it cancelled;
   - back to issued when the cancellation is rejected, or SAT still reports it valid with no cancellation in process;

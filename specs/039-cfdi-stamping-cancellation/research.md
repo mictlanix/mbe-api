@@ -39,7 +39,7 @@ Spec: [spec.md](spec.md). Code references are to `origin/main` at ab19e5e.
 
 **Rationale.** The existing guards fall out of the status order:
 - `_require_draft` (invoice_service.py:131) refuses anything but draft;
-- reopen (:983) refuses anything but sealed. It gains a row lock and a re-check on the locked copy (R15 rule 7), so a stamp in flight cannot be undone by a concurrent reopen.
+- reopen (:983) refuses anything but sealed. It gains a row lock and a re-check on the locked copy (R15 rule 8), so a stamp in flight cannot be undone by a concurrent reopen.
 
 So a stamping document can be neither edited nor reopened, with no new guard (FR-011, FR-015).
 
@@ -185,11 +185,12 @@ All three need Update on Fiscal Documents (23), like the routes they drive (no f
    - an unknown reason → `fiscal_document.unknown_cancellation_reason`;
    - reason 01 with no substitute → `fiscal_document.substitution_required`;
    - reason 01 with a substitute that is not a stamped, live document (issued or cancellation pending) of the same issuer and recipient → `fiscal_document.substitution_invalid` (clarification 2026-11-16, option C);
+   - no certificate valid now (`_certificate(db, issuer, local_now())`) → `fiscal_document.no_valid_certificate`. The CSD is kept for the PAC call;
    - an invoice with a live payment receipt or credit note related to it → `fiscal_document.has_live_documents`, with `{documents: ["A123", …]}`. "Related" means a `fiscal_document_relation` whose `relation` is this invoice and whose `document` is of type 200 or 100.
 
    Then insert a `fiscal_document_cancellation` row with status `requested` and commit.
 2. **Call** `provider.request_cancellation(...)`, with the CSD of the issuer's certificate valid now, found with confirm's `_certificate(db, issuer, local_now())` (invoice_service.py:633). With none, it raises the existing `fiscal_document.no_valid_certificate` (422) in transaction A, before the request row is written.
-3. **Transaction B.** Re-lock the request (R15 rule 1) and apply the answer only if it is still `requested` (R15 rule 6).
+3. **Transaction B.** Re-lock the document and then the request (R15 rules 1 and 6), and apply the answer only if the request is still `requested` (R15 rule 7).
 
    | Answer | Request status | Document |
    |---|---|---|
@@ -211,7 +212,7 @@ All three need Update on Fiscal Documents (23), like the routes they drive (no f
 - **Open request:** `query_status`. The document follows SAT (FR-021):
   - SAT `cancelled` → document cancelled; the request becomes `accepted`, or `expired` when SAT says so.
   - SAT `valid` with cancellation `rejected` → request `rejected`; document issued.
-  - SAT `valid` with cancellation `none` → request `failed`; document issued. SAT never received it. For a `requested` request under 5 minutes old: unchanged (R15 rule 6).
+  - SAT `valid` with cancellation `none` → request `failed`; document issued. SAT never received it. For a `requested` request under 5 minutes old: unchanged (R15 rule 7).
   - SAT `valid` with cancellation `pending` on a `requested` request (a cancel that timed out) → request `pending`, `answered_at` set, incidence `Cancellation pending the receiver`.
   - SAT `not_found` → unchanged; `last_checked_at` updated.
   - Anything else → still pending; `last_checked_at` updated.
@@ -296,15 +297,18 @@ Requests run under MariaDB's REPEATABLE READ, and sessions keep loaded objects (
 **Rules.**
 1. **Every lock of a document or a cancellation request** uses `.with_for_update().execution_options(populate_existing=True)`, under `busy_as_conflict(db, 'The fiscal document is busy, retry', resource='fiscal_document')`.
 2. **Every read after a lock, in the same transaction,** is a locking read (`with_for_update(read=True)`), or reads a row the lock already covers. That includes the sealed XML (stamp), and the open request, the substitute and the related documents (cancel).
+   - **No subqueries inside a locking read.** InnoDB locks only the outer query's rows; an `EXISTS` subquery still reads the old snapshot. So the related documents' liveness does not use `live()`'s `EXISTS` on `fiscal_document_xml`: the related rows are read with a locking read, and their XML rows with a second locking read, `select(FiscalDocumentXml.fiscal_document_xml_id).where(… in_(ids)).with_for_update(read=True)`.
+   - **State comes from the locked row, never from `document.status`.** `status` is not a column. `get_document` sets it in memory (fiscal_document_service.py:202), so `populate_existing` does not refresh it. After a lock, the state is recomputed: `document_status(locked, has_xml=<locking read of its XML>, has_open_cancellation=<locking read of its open request>)`.
 3. **Commit, then raise.** `busy_as_conflict` rolls back on any exception, so a transaction that writes and then reports an error commits first and raises after leaving the context manager.
 4. **Stamp, transaction B.** It re-locks the document (rule 1). Then:
    - **already completed** (a refresh stored the stamp): return the document as it is;
    - **uncompleted, XML unchanged:** store the stamp;
-   - **XML changed:** record the incidence `CFDI stamp {uuid} not stored: the document changed`, leave the document as it is and raise `pac.timeout {state}` with its current state. The XML can only change after a refresh reset the document past the 5-minute grace and a user reopened it. A PAC client whose timeout is under the grace never reaches this branch (R3).
+   - **XML changed:** record the incidence `CFDI stamp {uuid} not stored: the document changed`, leave the document as it is and raise `pac.timeout {state}` with the document's current state (which can be `sealed` or `draft` here). The XML can only change after a refresh reset the document past the 5-minute grace and a user reopened it. A PAC client whose timeout is under the grace never reaches this branch (R3).
 5. **Refresh** re-locks the document, and the request when there is one (rule 1), after the PAC answers. It writes only if what it read before calling the PAC is still true. Otherwise it changes nothing and returns the document as it now is:
    - **clearing the marker:** only if `stamping_since` still equals the value read before `find_stamp`;
    - **applying a cancellation result:** only if the request's status is still the one read before `query_status`.
    Two job runs on dev and test, which share mbe_dev, can then overlap safely.
-6. **A `requested` request within the grace.** SAT `valid` with cancellation `none` on a `requested` request whose `requested_at` is under 5 minutes old leaves it unchanged, since the cancel that sent it may still be waiting on the PAC (`STAMP_LOOKUP_GRACE`, R3). Cancel's transaction B re-locks the request and applies the answer only if it is still `requested`. Otherwise a refresh has already resolved it, and the cancel returns the document as it now is.
-7. **Reopen** (invoice_service.py:983) locks the document by rule 1 and re-checks `status == 'sealed'` on the locked copy before deleting the XML. A stamping document has `stamping_since` set, so it reads `stamping` and is refused. This keeps FR-011 when requests race. The change is two lines in `reopen`.
+6. **Lock order: the document, then its request.** Transaction A, transaction B and refresh all take them in that order, matching receipt and note confirm (invoice lock, then the S-lock on request rows), so they cannot deadlock against each other.
+7. **A `requested` request within the grace.** SAT `valid` with cancellation `none` on a `requested` request whose `requested_at` is under 5 minutes old leaves it unchanged, since the cancel that sent it may still be waiting on the PAC (`STAMP_LOOKUP_GRACE`, R3). Cancel's transaction B re-locks the document and then the request (rule 6) and applies the answer only if the request is still `requested`. Otherwise a refresh has already resolved it, and the cancel returns the document as it now is.
+8. **Reopen** (invoice_service.py:983) locks the document by rule 1 and recomputes its state from the locked row (rule 2) before deleting the XML, requiring `sealed`. A stamping document has `stamping_since` set, so it reads `stamping` and is refused. This keeps FR-011 when requests race. The change is confined to the start of `reopen`: the lock, one locking read of the XML and the recomputed check.
 

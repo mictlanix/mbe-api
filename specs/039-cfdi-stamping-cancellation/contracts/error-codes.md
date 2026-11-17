@@ -21,7 +21,7 @@ These rows are added to `app/core/error_codes.py` and to `specs/036-localizable-
 |---|---|---|---|
 | `pac.not_configured` | 503 | — | No PAC provider is configured on this instance |
 | `pac.rejected` | 422 | pac_code: str, pac_message: str (display-only PAC text, the one free-text param; stated exception to 036's raw-values rule) | The PAC or SAT rejected the request |
-| `pac.timeout` | 504 | state: str (`stamping` or `cancellation_pending`) | The PAC did not answer in time. The document is left `stamping` or `cancellation_pending`; refresh it |
+| `pac.timeout` | 504 | state: enum:DocumentStatus (the document's current state; normally `stamping` or `cancellation_pending`) | The PAC did not answer in time. The document is left `stamping` or `cancellation_pending`; refresh it |
 | `pac.unavailable` | 503 | — | The PAC could not be reached. Nothing changed; retry |
 
 ## Reused codes

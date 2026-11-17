@@ -48,8 +48,8 @@ Sealed invoices, payment receipts and credit notes (specs 027 and 028) get the r
 | Principle | Status | Notes |
 |---|---|---|
 | I. Simplicity First | Pass, with justified additions | Each new piece answers a stated requirement. The Protocol is the step-3 swap (FR-001, FR-004). The simulator is FR-005 to FR-009. The cancellation table is FR-023, and its status changes are not kept as separate rows (R8). The stamping marker is a column, not a table (R2) |
-| II. Think Before Coding | Pass | The decisions and their alternatives are in research R1–R14. Open items for #160 are named: the look-up by document, the PAC timeout versus the 5-minute grace, the SAT acceptance rules |
-| III. Surgical Changes | Pass | `live()` and confirm are untouched. Reopen gains a row lock and a re-check on the locked copy (R15 rule 7), which FR-011 needs under concurrency. `_payable` and `_creditable` gain one keyword argument, loaded at their five call sites by one helper. Confirm and reopen don't get audit added (R10) |
+| II. Think Before Coding | Pass | The decisions and their alternatives are in research R1–R15. Open items for #160 are named: the look-up by document, the PAC timeout versus the 5-minute grace, the SAT acceptance rules |
+| III. Surgical Changes | Pass | `live()` and confirm are untouched. Reopen gains a row lock and a re-check on the locked copy (R15 rule 8), which FR-011 needs under concurrency. `_payable` and `_creditable` gain one keyword argument, loaded at their five call sites by one helper. Confirm and reopen don't get audit added (R10) |
 | IV. Goal-Driven Execution | Pass | quickstart.md lists every check, mapped to SC-001 to SC-007 |
 | V. Reuse Over Rebuild | Pass | Reuses `cfdi.parse`, `tfd_original_string`, the print context, `busy_as_conflict`, `incidences.record`, the job pattern, the `get_mailer`-style dependency and migration 033's virtual unique column. The new entities are justified below |
 | VI. Async-First | Pass | Provider methods are async. The simulator uses its own `AsyncSessionLocal` session |
@@ -67,7 +67,7 @@ Re-checked after Phase 1 design: no new violations.
 specs/039-cfdi-stamping-cancellation/
 ├── spec.md
 ├── plan.md              # this file
-├── research.md          # R1–R14
+├── research.md          # R1–R15
 ├── data-model.md        # migration 034, states, response fields
 ├── quickstart.md
 ├── contracts/
@@ -119,7 +119,7 @@ specs/036-localizable-error-codes/contracts/error-codes.md  # new rows; lock.bus
 
 | Addition | Why needed | Simpler alternative rejected because |
 |---|---|---|
-| `PacProvider` Protocol and types | FR-001 and FR-004: #160 implements it, and step 3 swaps it without other changes | Calling the simulator directly would make step 3 touch every caller |
+| `PacProvider` Protocol and types, with `get_pac_provider`, `require_provider` and `check_pac_settings` | FR-001 and FR-004: #160 implements it, and step 3 swaps it without other changes | Calling the simulator directly would make step 3 touch every caller |
 | `fiscal_document_cancellation` table | FR-023: a document can have several requests, each with an outcome. FR-020: "pending" must be stored | Columns on `fiscal_document` hold only one request and lose the history |
 | `fiscal_document.stamping_since` | FR-011: a durable in-flight marker | No marker means a timeout cannot be told apart from sealed, and the document could be stamped twice |
 | `pac_simulation` table | FR-007: the simulator's state must survive across 4 workers and the job process, and outlive the caller's rollback | In-memory state splits across workers and is lost on restart |
