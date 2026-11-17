@@ -36,6 +36,7 @@ Not changed: `/xml` and `/pdf` (issued, pending and cancelled documents) and `/e
 | SAT cancels at once | 200, cancelled |
 | SAT waits for the receiver | 200, cancellation_pending |
 | not issued (draft, sealed, stamping, cancelled) | 409 `fiscal_document.not_issued` |
+| row locked by another request | 409 `lock.busy {resource: "fiscal_document"}` |
 | an open request | 409 `fiscal_document.cancellation_open` |
 | live related receipts or credit notes | 409 `fiscal_document.has_live_documents {documents: ["P12", "NC3"]}` |
 | SAT: not cancellable | 409 `fiscal_document.not_cancellable`; issued |
@@ -54,6 +55,7 @@ Not changed: `/xml` and `/pdf` (issued, pending and cancelled documents) and `/e
 | stamping | 200, issued (stamp found); sealed (not found, past the 5-minute grace); stamping (not found, within the grace) |
 | cancellation_pending | 200, cancelled, issued, or still pending (a timed-out request SAT reports pending becomes `pending`) |
 | any other | 409 `fiscal_document.nothing_to_refresh` |
+| row locked by another request | 409 `lock.busy {resource: "fiscal_document"}` |
 | PAC unavailable or timeout | 503 or 504; unchanged |
 
 ## Simulated PAC controls (dev and test only)

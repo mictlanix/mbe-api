@@ -7,6 +7,7 @@ All changes are in migration **034** (`migrations/034_cfdi_stamping_cancellation
 | Column | Type | Notes |
 |---|---|---|
 | `stamping_since` | `DATETIME NULL` | Set when a stamp request is about to reach the PAC (research R3). Cleared when the stamp is stored, or when the PAC rejects or is unavailable, or when a look-up past the 5-minute grace finds no stamp. A non-null value means **stamping** |
+| `cancelling_since` | `DATETIME NULL` | Set with a cancellation request, in the same transaction (research R8). Cleared when that request closes (accepted, expired, rejected, not cancellable, failed). A non-null value on a completed, uncancelled document means **cancellation_pending**. It keeps the in-flight state on the row a lock delivers (R15) |
 
 **Existing columns this feature writes:**
 - **On stamp:** `completed`, `stamp_uuid`, `stamped`, `authority_digital_seal` (TFD `SelloSAT`), `authority_certificate_number` (TFD `NoCertificadoSAT`) and `rfc_pac` (TFD `RfcProvCertif`). `fiscal_document_xml.data` becomes the stamped XML.
@@ -19,7 +20,7 @@ These are the columns the current system fills, so its screens read documents th
 | State | Condition |
 |---|---|
 | cancelled | `cancelled = 1` |
-| cancellation_pending | `completed = 1` and an open `fiscal_document_cancellation` |
+| cancellation_pending | `completed = 1` and `cancelling_since IS NOT NULL` |
 | issued | `completed = 1` |
 | stamping | `stamping_since IS NOT NULL` |
 | sealed | an XML row exists |

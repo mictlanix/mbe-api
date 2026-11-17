@@ -20,7 +20,7 @@ Sealed invoices, payment receipts and credit notes (specs 027 and 028) get the r
 
 **Primary Dependencies**: FastAPI, SQLAlchemy 2.0 async, Pydantic v2, lxml (already used by `cfdi_invoice`). No new dependency.
 
-**Storage**: MariaDB mbe_dev (shared with the current system). Migration 034 adds one column (`fiscal_document.stamping_since`) and two tables (`fiscal_document_cancellation`, `pac_simulation`). Tests use SQLite via `Base.metadata.create_all`.
+**Storage**: MariaDB mbe_dev (shared with the current system). Migration 034 adds two columns (`fiscal_document.stamping_since`, `fiscal_document.cancelling_since`) and two tables (`fiscal_document_cancellation`, `pac_simulation`). Tests use SQLite via `Base.metadata.create_all`.
 
 **Testing**: pytest, pytest-asyncio, httpx `ASGITransport`. Existing seal fixtures: `invoicing`, `receipts`, `notes` (module-local), and the helper `seed_fiscal_document` (tests/integration/seed.py).
 
@@ -49,7 +49,7 @@ Sealed invoices, payment receipts and credit notes (specs 027 and 028) get the r
 |---|---|---|
 | I. Simplicity First | Pass, with justified additions | Each new piece answers a stated requirement. The Protocol is the step-3 swap (FR-001, FR-004). The simulator is FR-005 to FR-009. The cancellation table is FR-023, and its status changes are not kept as separate rows (R8). The stamping marker is a column, not a table (R2) |
 | II. Think Before Coding | Pass | The decisions and their alternatives are in research R1–R15. Open items for #160 are named: the look-up by document, the PAC timeout versus the 5-minute grace, the SAT acceptance rules |
-| III. Surgical Changes | Pass | `live()` and confirm are untouched. Reopen gains a row lock and a re-check on the locked copy (R15 rule 8), which FR-011 needs under concurrency. `_payable` and `_creditable` gain one keyword argument, loaded at their five call sites by one helper. Confirm and reopen don't get audit added (R10) |
+| III. Surgical Changes | Pass | `live()` is untouched. Confirm changes only at the receipt and credit-note invoice locks, which gain `populate_existing`. Reopen gains a row lock and a check of the locked row (R15 rule 8), which FR-011 needs under concurrency. `_payable` and `_creditable` gain one condition each, with no signature change. Confirm and reopen don't get audit added (R10) |
 | IV. Goal-Driven Execution | Pass | quickstart.md lists every check, mapped to SC-001 to SC-007 |
 | V. Reuse Over Rebuild | Pass | Reuses `cfdi.parse`, `tfd_original_string`, the print context, `busy_as_conflict`, `incidences.record`, the job pattern, the `get_mailer`-style dependency and migration 033's virtual unique column. The new entities are justified below |
 | VI. Async-First | Pass | Provider methods are async. The simulator uses its own `AsyncSessionLocal` session |
@@ -96,7 +96,7 @@ app/
 │   └── simulated.py                # SimulatedPac
 ├── services/fiscal_stamping.py     # stamp, cancel, refresh (two-phase flows)
 ├── services/fiscal_document_service.py  # document_status order, status filter, detail fields
-├── services/invoice_service.py     # _payable/_creditable take open_cancellation; _open_cancellations helper at 5 call sites; reopen locks (R15)
+├── services/invoice_service.py     # _payable/_creditable check cancelling_since; confirm's invoice locks get populate_existing; reopen locks (R15)
 ├── services/print_contexts.py      # simulated banner flag
 ├── rendering/templates/fiscal_document.html  # banner
 ├── api/v1/endpoints/fiscal_documents.py      # /stamp, /cancel, /refresh
@@ -105,7 +105,7 @@ app/
 tests/
 ├── fakes/pac.py                    # ScriptedPac
 ├── unit/test_pac_simulated.py, test_pac_settings.py, test_pac_provider.py, test_fiscal_stamping.py, test_resolve_fiscal_documents.py
-├── unit/ (extended) test_fiscal_document_service.py, test_invoice_service.py, test_print_contexts.py; integration/ (extended) test_print_render.py
+├── unit/ (extended) test_fiscal_document_service.py, test_invoice_service.py, test_print_contexts.py, test_fiscal_schemas.py; integration/ (extended) test_print_render.py
 ├── integration/test_stamp_flow.py, test_cancel_flow.py, test_resolve_job.py, test_fiscal_stamping_http.py
 └── api/test_fiscal_stamping.py, test_pac_simulator.py
 docs/data-dictionary.md             # stamping_since and the two new tables
@@ -121,7 +121,7 @@ specs/036-localizable-error-codes/contracts/error-codes.md  # new rows; lock.bus
 |---|---|---|
 | `PacProvider` Protocol and types, with `get_pac_provider`, `require_provider` and `check_pac_settings` | FR-001 and FR-004: #160 implements it, and step 3 swaps it without other changes | Calling the simulator directly would make step 3 touch every caller |
 | `fiscal_document_cancellation` table | FR-023: a document can have several requests, each with an outcome. FR-020: "pending" must be stored | Columns on `fiscal_document` hold only one request and lose the history |
-| `fiscal_document.stamping_since` | FR-011: a durable in-flight marker | No marker means a timeout cannot be told apart from sealed, and the document could be stamped twice |
+| `fiscal_document.stamping_since` and `cancelling_since` | FR-011 and FR-020a: durable in-flight markers on the row a lock delivers (R15) | No stamping marker means a timeout cannot be told apart from sealed, and the document could be stamped twice. Without `cancelling_since`, receipt and note confirm would have to query the request table under a lock, which takes gap locks and deadlocks with cancel (R15) |
 | `pac_simulation` table | FR-007: the simulator's state must survive across 4 workers and the job process, and outlive the caller's rollback | In-memory state splits across workers and is lost on restart |
 | Simulator routes | FR-006 / SC-001: every outcome is reachable through the API alone | A comment marker can't express receiver answers and pollutes the clerk's text (R6) |
 | `app_env` setting | FR-008: no production flag exists today | `debug` doesn't mean "not production" (R5) |
