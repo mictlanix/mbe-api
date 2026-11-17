@@ -18,7 +18,7 @@ class Stamp:                      # TFD 1.1
 class Csd:                        # the issuer's certificate, read from taxpayer_certificate
     certificate: bytes            # DER
     key: bytes                    # encrypted PKCS#8 as stored
-    password: str
+    password: bytes               # `taxpayer_certificate.key_password` as stored (LargeBinary)
 
 class CancellationRequest:
     issuer_rfc: str

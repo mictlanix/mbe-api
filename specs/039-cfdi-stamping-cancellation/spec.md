@@ -234,7 +234,7 @@ A developer or a UI tester reaches every PAC outcome through the API alone, with
 - **FR-028**: Stamping, cancelling and refreshing MUST use the existing fiscal-document privileges: Update on Fiscal Documents (23). Like the existing fiscal-document routes, they have no facility scope, since fiscal documents belong to an issuer. The periodic job runs as the system.
 - **FR-029**: Each state change MUST record an audit event like the existing fiscal-document actions do: stamped, stamp resolved, cancellation requested, cancellation accepted, cancellation rejected.
 - **FR-030**: Every error MUST follow spec 036, with a stable code and parameters. The new codes and their parameters MUST be added to spec 036's contract.
-- **FR-031**: Nothing in this feature writes to the current system or depends on it. The current system keeps stamping its own documents until the cutover (#57). The API writes only the shared fiscal tables (`fiscal_document`, `fiscal_document_xml`) and its own new tables, never calls the current system, and writes `incidence` audit rows (FR-029), as spec 028's email does, and treats documents the current system stamped like its own.
+- **FR-031**: Nothing in this feature writes to the current system or depends on it. The current system keeps stamping its own documents until the cutover (#57). The API writes only the shared fiscal tables (`fiscal_document`, `fiscal_document_xml`), its own new tables and, when a credit note is cancelled, `sales_order.paid` through spec 033's existing paid-flag update (FR-022), never calls the current system, and writes `incidence` audit rows (FR-029), as spec 028's email does, and treats documents the current system stamped like its own.
 
 ### Key Entities
 
@@ -245,7 +245,7 @@ A developer or a UI tester reaches every PAC outcome through the API alone, with
   - how the cancellation proceeds: at once, with acceptance, or not cancellable;
   - current status and final outcome.
 - **Cancellation status check** (new, or folded into the request). Each SAT status answer received for a request, with its time.
-- **Stamp attempt** (new or a marker on the document). Records that a document is stamping and since when (the audit event records who), so a timeout is resolved by look-up.
+- **Stamp attempt** (new or a marker on the document). Records that a document is stamping and since when (the audit events record who stamped it, or that the job resolved it), so a timeout is resolved by look-up.
 - **Simulated PAC record** (simulator only). What the simulator stamped and each simulated cancellation's state and chosen outcome. It never exists with a real provider.
 
 ## Success Criteria *(mandatory)*
