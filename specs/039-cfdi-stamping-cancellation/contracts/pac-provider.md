@@ -42,11 +42,11 @@ class SatStatus:
 
 ## Errors
 
-Every operation raises only these errors, or returns a result:
+All three derive from `PacError`. Every operation raises only these errors, or returns a result. The module also exports `SIMULATED_PAC_RFC = 'SIM010101SIM'`, the provider RFC only the simulator uses.
 
 | Exception | Meaning | Caller's action |
 |---|---|---|
-| `PacRejected(code: str, message: str)` | The PAC or SAT refused the request. Nothing was done | Surface `pac.rejected` with `{pac_code, pac_message}` |
+| `PacRejected(code: str, message: str)` | The PAC or SAT refused the request. Nothing was done. `code` is at most 20 characters and `message` at most 500 (the `fiscal_document_cancellation` columns); the API cuts longer values | Surface `pac.rejected` with `{pac_code, pac_message}` |
 | `PacUnavailable` | The request did not reach the PAC (connection refused, 5xx before acceptance). Nothing was done | Surface `pac.unavailable`; retry is safe |
 | `PacTimeout` | The request may or may not have been processed | Keep the in-flight state; resolve by `find_stamp` or `query_status` |
 

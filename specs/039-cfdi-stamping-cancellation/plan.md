@@ -108,6 +108,9 @@ tests/
 ├── unit/test_pac_simulated.py, test_pac_settings.py, test_pac_provider.py, test_fiscal_stamping.py, test_resolve_fiscal_documents.py
 ├── unit/ (extended) test_fiscal_document_service.py, test_invoice_service.py, test_print_contexts.py, test_fiscal_schemas.py; integration/ (extended) test_print_render.py
 ├── integration/test_stamp_flow.py, test_cancel_flow.py, test_resolve_job.py, test_fiscal_stamping_http.py
+├── unit/ (pins, migrations) test_contract_docs.py, test_migrate.py; api/test_openapi_problem.py (pin)
+├── integration/seed.py             # seed_cancellation_reasons
+├── fakes/__init__.py, fakes/pac.py
 └── api/test_fiscal_stamping.py, test_pac_simulator.py
 docs/data-dictionary.md             # stamping_since, cancelling_since and the two new tables
 docs/specs/10-fiscal-documents.md   # "New MBE: stamping and cancellation (spec 039)" section
