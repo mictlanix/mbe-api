@@ -56,7 +56,7 @@ The current system ignores the new column and table (spec FR-031).
    - Begin locked (R15 rule 1) and read the state from the locked row and its XML (rule 3).
    - Require sealed: a draft gets `fiscal_document.not_sealed`; issued, cancellation pending or cancelled return the document unchanged; stamping gets `fiscal_document.stamping`.
    - Re-check the 72-hour rule (`ISSUE_DATE_OUT_OF_RANGE`).
-   - Set `stamping_since = now`, then commit.
+   - Set `stamping_since = local_now().replace(microsecond=0)`, then commit. (`DATETIME` columns drop fractions, so a value kept with microseconds would never equal the stored one; R15 rule 11.)
 2. **Call** `provider.stamp(sealed_xml)`.
 3. **Transaction B.** Lock the row again (R15 rule 1). If it is already completed, or its XML changed, apply R15 rule 5.
    - **Stamped:** if the document is still uncompleted and its XML is still the XML that was sent:
@@ -108,7 +108,7 @@ Errors: `PacRejected(code, message)`, `PacUnavailable`, `PacTimeout`.
 
 **Decision.**
 - Add `app_env: Literal['development', 'staging', 'production'] = 'production'`.
-- `lifespan` (app/main.py:51) refuses to start when `pac_provider == 'simulated'` and `app_env == 'production'`, raising an error that names both settings.
+- `lifespan` (app/main.py:47) refuses to start when `pac_provider == 'simulated'` and `app_env == 'production'`, raising an error that names both settings.
 - The job runs the same check before it starts.
 
 **Rationale.** The default fails closed: an instance that forgets `APP_ENV` is treated as production, and the simulator cannot run there.
@@ -202,7 +202,7 @@ All three need Update on Fiscal Documents (23), like the routes they drive (no f
    | `PacUnavailable` | `failed` | issued; raise `pac.unavailable` |
    | `PacTimeout` | stays `requested` | cancellation_pending; raise `pac.timeout`. A refresh resolves it |
 
-**`_apply_cancelled`** (shared by transaction B and refresh) writes the cancellation fields, clears `cancelling_since` and records the incidence. For a credit note it also keeps spec 033 FR-011, with reopen's block (invoice_service.py:991–1002): `_credited_orders(db, note)`, `order_balances` before the write, flush, `order_balances` after, and `customer_payment_service.reopen(order, before, after)` for each order. The note is still live when `before` is computed, because `cancelled` is not yet set.
+**`_apply_cancelled`** (shared by transaction B and refresh) writes the cancellation fields, clears `cancelling_since` and records the incidence. For a credit note it also keeps spec 033 FR-011, with the update reopen uses (invoice_service.py:991–1002), applied to the orders locked per R15 rule 10 (ids read before the PAC call; `_credited_orders` is not reused): `order_balances` before the write, flush, `order_balances` after, and `customer_payment_service.reopen(order, before, after)` for each order. The note is still live when `before` is computed, because `cancelled` is not yet set.
 
 **Keeping new receipts and notes off an invoice being cancelled.** The row lock in step 1 is released before the PAC call, so a payment receipt or credit note could be confirmed against the invoice meanwhile. To stop that:
 - `_payable` (invoice_service.py:1076) and `_creditable` (:1425) each gain one condition, `invoice.cancelling_since is None`, and refuse otherwise with their existing codes `invoice_not_payable` and `invoice_not_creditable`. Their signatures and their five call sites do not change.
@@ -270,7 +270,7 @@ New members in `app/core/error_codes.py`, added to spec 036's contract (checked 
 - `Cancellation failed: PAC unavailable`;
 - `CFDI stamp {uuid} not stored: the document changed` (R15 rule 5).
 
-Each of the last four closes a request, so it is audited. On stamp, a rejection or unavailability only clears the marker the same request set, and is not audited. The job records as the system employee (`ensure_system_employee`).
+The three `Cancellation refused/failed` reasons close a request, so they are audited; the stamp-not-stored one is audited because the PAC issued a UUID the API did not keep. On stamp, a rejection or unavailability only clears the marker the same request set, and is not audited. The job records as the system employee (`ensure_system_employee`).
 
 Confirm and reopen record no audit today. This spec does not add it to them (surgical).
 
@@ -323,3 +323,4 @@ Requests run under MariaDB's REPEATABLE READ, and sessions keep loaded objects (
 10. **Cancelling a credit note: every lock before any plain read.** `_apply_cancelled` updates the paid flags of the orders on the note's invoice (R8), and those balances must be read after the order locks (customer_payment_service.py:487–491; spec 033 research R4). `_credited_orders` (invoice_service.py:1006) does a plain read of the relation before its locks, so it is not reused here. Instead:
    - the transaction before the PAC call (cancel's A, refresh's 1) reads the note's invoice id and that invoice's order ids. Both are fixed once the note is sealed: a sealed note's relation and a completed invoice's lines never change;
    - the transaction after the PAC call commits, then locks the note, its invoice and its orders by primary key, in that order and with `populate_existing`, before any plain read. Only then does it read the request status (rule 7 / rule 6) and compute `order_balances` before and after.
+11. **Reading what an earlier transaction loaded.** Sessions keep objects across commits (`expire_on_commit=False`), and `populate_existing` is set only on the statements that ask for it. So after a lock, the request status and the XML are read with a column select (`select(FiscalDocumentCancellation.status)…`, `fiscal_document_service.get_xml`), or with an entity select that sets `populate_existing`. They are never read from an object an earlier transaction loaded or inserted, which would show what that transaction saw, not what the row now holds. For the same reason every new timestamp (`stamping_since`, `cancelling_since`, `requested_at`, `answered_at`, `resolved_at`, `last_checked_at`) is written as `local_now().replace(microsecond=0)`, as confirm does (invoice_service.py:768): `DATETIME` drops fractions, and rule 6's and R3's equality checks compare the value kept in memory with the stored one.
