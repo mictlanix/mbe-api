@@ -168,7 +168,7 @@ Errors: `PacRejected(code, message)`, `PacUnavailable`, `PacTimeout`.
 
 ## R7. Choosing a simulated outcome through the API
 
-**Decision.** Dev-only routes under `/api/v1/pac-simulator`. The router is always included, and a dependency, `require_simulator()`, answers 404 on every request unless `settings.pac_provider == 'simulated'` at that moment. Checking per request, not at import, lets tests switch the setting with `monkeypatch` and keeps a plain `pytest` run independent of environment variables.
+**Decision.** Dev-only routes under `/api/v1/pac-simulator`. The router is always included, and a dependency, `require_simulator()`, answers 404 `request.route_not_found` (no params, before authentication, as an unknown route would) on every request unless `settings.pac_provider == 'simulated'` at that moment. Checking per request, not at import, lets tests switch the setting with `monkeypatch` and keeps a plain `pytest` run independent of environment variables.
 
 - `GET /pac-simulator/fiscal-documents/{id}`: the simulator's record for the document.
 - `PUT /pac-simulator/fiscal-documents/{id}`: `{stamp?, cancellation?, pac_code?, pac_message?}` sets the next outcome. The document must be sealed or later.

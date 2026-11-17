@@ -142,7 +142,7 @@ A developer or a UI tester reaches every PAC outcome through the API alone, with
 ### Edge Cases
 
 - **Two clerks stamp the same document at once.** Exactly one request reaches the PAC. The other gets the state the first one reached, or a coded "busy" error, and is never sent to the PAC.
-- **Stale issue date.** The issue date of a sealed document passes SAT's 72 hours before it is stamped. Stamping is refused with the existing 72-hour error, and the clerk must reopen and seal again. The PAC is not called.
+- **Stale issue date.** The issue date of a sealed document passes SAT's 72 hours before it is stamped. Stamping is refused with the existing 72-hour error, and the clerk must reopen, update the issue date and seal again (confirm keeps a stored issue date). The PAC is not called.
 - **Expired certificate.** The certificate that sealed the document expires before it is stamped. The PAC rejects the document, and Story 1's PAC-rejection path applies.
 - **Cancelling a document that is not issued.** A draft, sealed, stamping, pending or cancelled document is refused with a coded error. A draft or sealed document is reopened or left alone, as today.
 - **A credit note pending cancellation.** Its invoice cannot be cancelled until the note is cancelled, because a pending note is still live.

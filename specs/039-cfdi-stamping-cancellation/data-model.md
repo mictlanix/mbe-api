@@ -40,6 +40,8 @@ A timeout leaves the document stamping (on stamp) or cancellation_pending (on ca
 
 ## fiscal_document_cancellation (new)
 
+New tables use `ENGINE=InnoDB DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_unicode_ci`, as migration 032 does; `reason`'s foreign key to `sat_reason_cancellation` needs the matching collation. Every timestamp the API writes is whole seconds (`local_now().replace(microsecond=0)`, research R15 rule 11).
+
 One row per cancellation request.
 
 | Column | Type | Notes |

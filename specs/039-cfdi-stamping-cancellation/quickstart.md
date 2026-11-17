@@ -27,7 +27,7 @@ uv run ruff check app/ migrations/ tests/
 | `tests/integration/test_print_render.py` (extended) | The simulated banner on the rendered PDF |
 | `tests/unit/test_fiscal_document_service.py` (extended) | Status order for stamping and cancellation_pending |
 | `tests/unit/test_fiscal_stamping.py` | The service's branches with a mocked session: check order, each PAC outcome's effect, the 5-minute grace at 4:59 and 5:01 |
-| `tests/integration/test_stamp_flow.py` | Stamp, idempotent repeat, reject/unavailable leave sealed, timeout → refresh, 5-minute grace, a second stamp on a stamping document makes no PAC call (SC-002's rule; the concurrent run is §3) |
+| `tests/integration/test_stamp_flow.py` | Stamp, idempotent repeat, timeout → refresh, 5-minute grace, a second stamp on a stamping document makes no PAC call (SC-002's rule; the concurrent run is §3) |
 | `tests/integration/test_cancel_flow.py` | Every row of contracts/endpoints.md `/cancel`, the dependents rule, reason 01, freeing refunds and receipt balances (SC-005), receipt/note blocked during an open request |
 | `tests/integration/test_resolve_job.py` | The job resolves stamping and pending documents; one failure doesn't stop the others; SC-003 |
 | `tests/api/test_fiscal_stamping.py`, `tests/api/test_pac_simulator.py` | Routes in the patched-service style: happy path, 401, 403, 404, and each error code's mapping |

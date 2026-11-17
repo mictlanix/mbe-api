@@ -60,7 +60,7 @@ Not changed: `/xml` and `/pdf` (issued, pending and cancelled documents) and `/e
 
 ## Simulated PAC controls (dev and test only)
 
-Every simulator route answers 404 unless `PAC_PROVIDER=simulated` (checked per request). Each needs Update on 23. The document must be sealed or later, otherwise 409 `fiscal_document.not_sealed`.
+Every simulator route answers 404 `request.route_not_found` unless `PAC_PROVIDER=simulated` (checked per request, before authentication). Each needs Update on 23. The document must be sealed or later, otherwise 409 `fiscal_document.not_sealed`.
 
 | Method | Route | Body | Effect |
 |---|---|---|---|
