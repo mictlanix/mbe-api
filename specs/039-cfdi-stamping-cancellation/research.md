@@ -116,7 +116,7 @@ Errors: `PacRejected(code, message)`, `PacUnavailable`, `PacTimeout`.
 **Deployment changes** (each needs confirmation):
 - dev: `APP_ENV=development`, `PAC_PROVIDER=simulated` in `.env`;
 - test: `APP_ENV=staging`, `PAC_PROVIDER=simulated`;
-- the test suite sets `APP_ENV=development`.
+- the tests need neither: they run with the defaults and switch `pac_provider` with `monkeypatch` where a test needs the simulator routes.
 
 **Alternatives.** Key the check on `debug`. Rejected: debug is about error output, and test runs without it.
 
@@ -127,6 +127,7 @@ Errors: `PacRejected(code, message)`, `PacUnavailable`, `PacTimeout`.
 - **State.** It keeps its state in a table, `pac_simulation`, and writes it in its **own** session, committed at once.
   - It is a table because test runs 4 workers and the job is a separate process, so in-memory state would be lost or split between them.
   - It uses its own session because a timeout in which the simulator did stamp must persist even though the API's transaction never stores that stamp (FR-007).
+  - The session factory is a constructor argument, `SimulatedPac(session_factory=AsyncSessionLocal)`. The integration tests pass their per-test `sessions` fixture, so the simulator writes to the same test database as the code under test.
 - **One row per document**, keyed by issuer RFC, series and folio (all read from the sealed XML). The row holds:
   - UUID, stamped XML, stamp date;
   - SAT status (`valid` or `cancelled`), cancellation status, cancellability;
@@ -162,7 +163,7 @@ Errors: `PacRejected(code, message)`, `PacUnavailable`, `PacTimeout`.
 
 ## R7. Choosing a simulated outcome through the API
 
-**Decision.** Dev-only routes under `/api/v1/pac-simulator`, mounted only when `pac_provider == 'simulated'`. Otherwise they return 404 because the routes do not exist.
+**Decision.** Dev-only routes under `/api/v1/pac-simulator`. The router is always included, and a dependency, `require_simulator()`, answers 404 on every request unless `settings.pac_provider == 'simulated'` at that moment. Checking per request, not at import, lets tests switch the setting with `monkeypatch` and keeps a plain `pytest` run independent of environment variables.
 
 - `GET /pac-simulator/fiscal-documents/{id}`: the simulator's record for the document.
 - `PUT /pac-simulator/fiscal-documents/{id}`: `{stamp?, cancellation?, pac_code?, pac_message?}` sets the next outcome. The document must be sealed or later.
@@ -264,6 +265,7 @@ Confirm and reopen record no audit today. This spec does not add it to them (sur
 
 - It refreshes every stamping document and every open request, oldest first.
 - Each document gets its own transaction. A failure is printed and the job moves on (FR-025).
+- The work is in `async def run(provider, session_factory=AsyncSessionLocal) -> int`; `main()` builds the provider, calls `run` and exits with its result. Tests call `run` with the `sessions` fixture.
 - It exits 1 when any document failed.
 - Suggested cron: `*/10 * * * *` on dev and test. Installing it is a deployment step that needs confirmation, as with `send_scheduled_reports`.
 

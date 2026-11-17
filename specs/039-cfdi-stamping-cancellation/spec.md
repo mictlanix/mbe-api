@@ -146,7 +146,6 @@ A developer or a UI tester reaches every PAC outcome through the API alone, with
 - **Expired certificate.** The certificate that sealed the document expires before it is stamped. The PAC rejects the document, and Story 1's PAC-rejection path applies.
 - **Cancelling a document that is not issued.** A draft, sealed, stamping, pending or cancelled document is refused with a coded error. A draft or sealed document is reopened or left alone, as today.
 - **A credit note pending cancellation.** Its invoice cannot be cancelled until the note is cancelled, because a pending note is still live.
-- **The PAC reports a cancelled document as valid again.** This happens when SAT reverses a cancellation. The API follows SAT's status, records it in the history and logs the change. It is not expected, but SAT's status is the authority.
 - **A cancellation that no one answers.** When SAT's period for the receiver lapses, the outcome is whatever SAT reports for the document. Cancelled means cancelled, valid means back to issued. The API keeps no clock of its own.
 - **Documents stamped by the current system.** They are already issued. They can be read, printed, emailed and cancelled through the same flow, because cancellation needs only the UUID and the issuer's certificate.
 
@@ -221,7 +220,7 @@ A developer or a UI tester reaches every PAC outcome through the API alone, with
 - **FR-023**: Each cancellation request MUST be recorded in a cancellation history:
   - document, reason, substitute UUID;
   - requester, request time;
-  - each SAT status answer received, with its time;
+  - each change of SAT status, with its time, and the time of the last status query;
   - the final outcome (accepted, rejected, expired as SAT reports it).
   A document can have several requests. At most one is open at a time.
 - **FR-024**: The API MUST offer an on-demand refresh of a single document that is stamping or cancellation pending.
@@ -245,7 +244,7 @@ A developer or a UI tester reaches every PAC outcome through the API alone, with
   - how the cancellation proceeds: at once, with acceptance, or not cancellable;
   - current status and final outcome.
 - **Cancellation status check** (new, or folded into the request). Each SAT status answer received for a request, with its time.
-- **Stamp attempt** (new or a marker on the document). Records that a document is stamping, since when and by whom, so a timeout is resolved by look-up.
+- **Stamp attempt** (new or a marker on the document). Records that a document is stamping and since when (the audit event records who), so a timeout is resolved by look-up.
 - **Simulated PAC record** (simulator only). What the simulator stamped and each simulated cancellation's state and chosen outcome. It never exists with a real provider.
 
 ## Success Criteria *(mandatory)*
@@ -253,7 +252,7 @@ A developer or a UI tester reaches every PAC outcome through the API alone, with
 ### Measurable Outcomes
 
 - **SC-001**: Every outcome listed in User Story 5 can be reached through the API alone, on dev, by following the handoff's instructions: 8 stamp and cancellation paths, 0 code changes.
-- **SC-002**: In a concurrency test of 20 simultaneous stamp requests on one sealed document, the PAC receives exactly 1 stamp call and the document ends with 1 UUID.
+- **SC-002**: In a concurrency test of 20 simultaneous stamp requests on one sealed document, the PAC receives exactly 1 stamp call and the document ends with 1 UUID. Measured on the test deployment, whose database enforces row locks.
 - **SC-003**: Every timeout left stamping is resolved by the first periodic run in which the PAC answers. No document stays stamping after 2 runs with the PAC available.
 - **SC-004**: No document is ever stamped twice. Across the test suite and the dev scenarios, each sealed document maps to at most one UUID.
 - **SC-005**: An invoice cancelled through this flow frees its units for refunds and drops out of later receipts' previous balance in the same request that marks it cancelled.
@@ -270,4 +269,5 @@ A developer or a UI tester reaches every PAC outcome through the API alone, with
 - **Choosing a simulated outcome** uses a per-document instruction that the simulator reads, for example a marker in the document's comment or a dev-only endpoint. The plan picks the means; the handoff documents it.
 - **Retentions, payroll, transfer and global-invoice CFDIs are out of scope**, as are the CFDI package, the real PAC client, connecting them (#160, #46, #51) and the invoicing cutover (#57).
 - **The mbe-ui handoff** for #52, #54 and #56 opens after this spec merges. It lists the endpoints, states, error codes and how to drive each simulated outcome.
+- **SAT reversals are not detected.** Cancelled documents are not queried again, so a cancellation that SAT later reverses is not seen by the API.
 - **Schema changes** go through numbered migrations on mbe_dev and are additive. The current system ignores the new tables and columns.

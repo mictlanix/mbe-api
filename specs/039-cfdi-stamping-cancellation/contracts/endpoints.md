@@ -57,7 +57,7 @@ Not changed: `/xml` and `/pdf` (issued, pending and cancelled documents) and `/e
 
 ## Simulated PAC controls (dev and test only)
 
-Mounted only when `PAC_PROVIDER=simulated`; otherwise 404. Each needs Update on 23 and the document's facility in scope. The document must be sealed or later.
+Every simulator route answers 404 unless `PAC_PROVIDER=simulated` (checked per request). Each needs Update on 23 and the document's facility in scope. The document must be sealed or later.
 
 | Method | Route | Body | Effect |
 |---|---|---|---|

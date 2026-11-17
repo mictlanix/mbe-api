@@ -53,7 +53,7 @@ Sealed invoices, payment receipts and credit notes (specs 027 and 028) get the r
 | IV. Goal-Driven Execution | Pass | quickstart.md lists every check, mapped to SC-001 to SC-007 |
 | V. Reuse Over Rebuild | Pass | Reuses `cfdi.parse`, `tfd_original_string`, the print context, `busy_as_conflict`, `incidences.record`, the job pattern, the `get_mailer`-style dependency and migration 033's virtual unique column. The new entities are justified below |
 | VI. Async-First | Pass | Provider methods are async. The simulator uses its own `AsyncSessionLocal` session |
-| VII. Security by Default | Pass | Every route is authenticated, with the existing privilege and facility checks. Simulator routes exist only when `PAC_PROVIDER=simulated` and need Update on 23. Credentials and CSD material stay out of errors and logs (R14) |
+| VII. Security by Default | Pass | Every route is authenticated, with the existing privilege and facility checks. Simulator routes answer 404 unless `PAC_PROVIDER=simulated`, and need Update on 23. Credentials and CSD material stay out of errors and logs (R14) |
 | VIII. Ruff Compliance | Pass | Gate in quickstart.md |
 | Testing / Changelog | Pass | Test files are listed in quickstart.md. A CHANGELOG `Added` entry covers the endpoints, job, settings and migration 034 |
 
@@ -103,9 +103,11 @@ app/
 └── jobs/resolve_fiscal_documents.py
 tests/
 ├── fakes/pac.py                    # ScriptedPac
-├── unit/test_pac_simulated.py, test_pac_settings.py
-├── integration/test_stamp_flow.py, test_cancel_flow.py, test_resolve_job.py
-└── api/test_fiscal_stamping.py
+├── unit/test_pac_simulated.py, test_pac_settings.py, test_fiscal_stamping.py
+├── unit/ (extended) test_fiscal_document_service.py, test_invoice_service.py, test_print_contexts.py, test_rendering.py
+├── integration/test_stamp_flow.py, test_cancel_flow.py, test_resolve_job.py, test_fiscal_stamping_http.py
+└── api/test_fiscal_stamping.py, test_pac_simulator.py
+docs/data-dictionary.md             # stamping_since and the two new tables
 docs/specs/10-fiscal-documents.md   # "New MBE: stamping and cancellation (spec 039)" section
 specs/036-localizable-error-codes/contracts/error-codes.md  # new rows; lock.busy resource list gains fiscal_document
 ```

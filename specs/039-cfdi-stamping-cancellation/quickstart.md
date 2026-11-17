@@ -7,7 +7,7 @@
 
   ```bash
   export DATABASE_URL='sqlite+aiosqlite:///:memory:' JWT_SECRET_KEY=test-secret-test-secret-test-secret-0123 \
-         BUSINESS_TIMEZONE=America/Mexico_City APP_ENV=development PAC_PROVIDER=simulated
+         BUSINESS_TIMEZONE=America/Mexico_City
   ```
 
 ## 1. Automated checks
@@ -22,10 +22,12 @@ uv run ruff check app/ migrations/ tests/
 | `tests/unit/test_pac_simulated.py` | TFD shape, one-shot outcomes, timeout with and without a stamp, receiver answers, the 24-hour default |
 | `tests/unit/test_pac_settings.py` | Refuses to start with `simulated` + `production`; `none` answers `pac.not_configured` |
 | `tests/unit/test_fiscal_document_service.py` (extended) | Status order for stamping and cancellation_pending |
-| `tests/integration/test_stamp_flow.py` | Stamp, idempotent repeat, reject/unavailable leave sealed, timeout → refresh, 5-minute grace, 20 concurrent stamps → 1 PAC call (SC-002) |
+| `tests/unit/test_fiscal_stamping.py` | The service's branches with a mocked session: check order, each PAC outcome's effect, the 5-minute grace at 4:59 and 5:01 |
+| `tests/integration/test_stamp_flow.py` | Stamp, idempotent repeat, reject/unavailable leave sealed, timeout → refresh, 5-minute grace, a second stamp on a stamping document makes no PAC call (SC-002's rule; the concurrent run is §3) |
 | `tests/integration/test_cancel_flow.py` | Every row of contracts/endpoints.md `/cancel`, the dependents rule, reason 01, freeing refunds and receipt balances (SC-005), receipt/note blocked during an open request |
 | `tests/integration/test_resolve_job.py` | The job resolves stamping and pending documents; one failure doesn't stop the others; SC-003 |
-| `tests/api/test_fiscal_stamping.py` | stamp, cancel, refresh and simulator routes: happy path, 401, 404, 409, 422, privilege and facility |
+| `tests/api/test_fiscal_stamping.py`, `tests/api/test_pac_simulator.py` | Routes in the patched-service style: happy path, 401, 403, 404, facility, and each error code's mapping |
+| `tests/integration/test_fiscal_stamping_http.py` | Real database over HTTP: the status filter for all six states, the cancellation history, and every row of "Driving each scenario" (SC-001) |
 | Flow tests parametrised over `SimulatedPac` and `ScriptedPac` | SC-006 |
 | `tests/unit/test_contract_docs.py` (existing) | The new codes match spec 036's contract |
 
@@ -42,3 +44,14 @@ SC-007 credential scan: `git grep -nIiE 'pac_(user|password)|FacturacionMexico(U
 5. With `APP_ENV=production` and `PAC_PROVIDER=simulated`, the service refuses to start. Check this locally, not on dev.
 
 Clean up the dev documents you created afterwards (each deletion needs confirmation).
+
+## 3. On test (xolotl :8766, 4 workers), after merge and with confirmation
+
+SC-002 needs a database that enforces row locks, so it is measured here. With `APP_ENV=staging` and `PAC_PROVIDER=simulated` in test's `.env`, seal one invoice and send 20 stamp requests at once:
+
+```bash
+seq 20 | xargs -P20 -I{} curl -s -o /dev/null -w '%{http_code}\n' -X POST -H "Authorization: Bearer $TOKEN" \
+  https://test.api.mbe.mictlanix.com/api/v1/fiscal-documents/$ID/stamp | sort | uniq -c
+```
+
+Expect the document to end issued with one UUID, `GET /pac-simulator/fiscal-documents/$ID` to show that same UUID, and every response to be 200, 409 `fiscal_document.stamping` or 409 `lock.busy`.
