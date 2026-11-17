@@ -209,7 +209,7 @@ All three need Update on Fiscal Documents (23), like the routes they drive (no f
 - Receipt and note confirms already lock their invoices (:1352–1355, :1609–1612) and re-run those checks. The two lock statements gain `.execution_options(populate_existing=True)`, so the invoice object carries the locked row's `cancelling_since` and `cancelled` even when the request had loaded it earlier. A locking read returns the latest committed row, so a cancellation committed while the confirm waited is seen.
 
 **Refresh** (`POST /fiscal-documents/{id}/refresh`, and the job): applies to stamping documents and open requests. It runs in three steps, like stamp and cancel:
-1. **Transaction 1.** Begin locked (R15 rule 1), recompute the state (rule 3), and read `stamping_since`, the open request's status, the sealed XML and, for a credit note, the ids R15 rule 10 needs. Commit. A state with nothing to refresh answers `nothing_to_refresh` here.
+1. **Transaction 1.** Begin locked (R15 rule 1), recompute the state (rule 3), and read `stamping_since`, the open request's **id** and status, the sealed XML and, for a credit note, the ids R15 rule 10 needs. Commit. A state with nothing to refresh answers `nothing_to_refresh` here.
 2. **Call** `find_stamp` or `query_status`, with no transaction open.
 3. **Transaction 2** per R15 rules 6 and 10.
 - **Locking:** R15 rules 1 and 6 (begin locked, compare before writing).
@@ -241,7 +241,8 @@ New members in `app/core/error_codes.py`, added to spec 036's contract (checked 
 
 - **Reused:**
   - `fiscal_document.not_sealed` when stamping a draft;
-  - `fiscal_document.not_issued` when cancelling anything but an issued document;
+  - `fiscal_document.not_issued` when cancelling a draft, sealed, stamping or cancelled document;
+  - `fiscal_document.no_valid_certificate` when cancelling and the issuer has no certificate valid now;
   - `fiscal_document.issue_date_out_of_range`;
   - `invoice_not_payable` and `invoice_not_creditable`;
   - `lock.busy`.
@@ -251,7 +252,7 @@ New members in `app/core/error_codes.py`, added to spec 036's contract (checked 
 - **New `pac.*`:**
   - `rejected` 422, with `{pac_code, pac_message}`;
   - `unavailable` 503;
-  - `timeout` 504, with `{state}`: `stamping` or `cancellation_pending`;
+  - `timeout` 504, with `{state}`: the document's current state, normally `stamping` or `cancellation_pending` (contracts/error-codes.md);
   - `not_configured` 503.
 
 ## R10. Audit
@@ -315,11 +316,11 @@ Requests run under MariaDB's REPEATABLE READ, and sessions keep loaded objects (
    - **XML changed:** record the incidence `CFDI stamp {uuid} not stored: the document changed`, leave the document as it is and raise `pac.timeout {state}` with the document's current state (which can be `sealed` or `draft` here). The XML can only change after a refresh reset the document past the 5-minute grace and a user reopened it. A PAC client whose timeout is under the grace never reaches this branch (R3).
 6. **Refresh** begins locked (rule 1) after the PAC answers. It writes only if what it read before calling the PAC is still true. Otherwise it changes nothing and returns the document as it now is:
    - **clearing the stamping marker:** only if `stamping_since` still equals the value read before `find_stamp`;
-   - **applying a cancellation result:** only if the request's status is still the one read before `query_status`.
+   - **applying a cancellation result:** only to the request whose id transaction 1 kept, and only if that request's status, re-read by id with a column select, is still the one read before `query_status`. A different open request with the same status is left alone.
    Two job runs on dev and test, which share mbe_dev, can then overlap safely.
 7. **A `requested` request within the grace.** SAT `valid` with cancellation `none` on a `requested` request whose `requested_at` is under 5 minutes old leaves it unchanged, since the cancel that sent it may still be waiting on the PAC (`STAMP_LOOKUP_GRACE`, R3). Cancel's transaction B begins locked and applies the answer only if the request is still `requested`. Otherwise a refresh has already resolved it, and the cancel returns the document as it now is.
 8. **Reopen** (invoice_service.py:983) runs inside the route's open transaction, so it does not commit first. It locks the document as rule 1 does (`populate_existing`) and requires, on the locked row's columns, `completed` false, `cancelled` false and `stamping_since` NULL before deleting the XML. A locking read returns the latest committed row, so a stamp that committed its marker meanwhile is seen and the reopen is refused (`not_sealed`). This keeps FR-011 when requests race. The change is the lock and that check at the start of `reopen`.
-9. **What can still answer `lock.busy`:** a lock wait timeout (1205) on a document another request holds, or a deadlock with an unrelated flow that locks the same invoice or orders (1213). Both are retryable 409s on stamp, cancel and refresh (contracts/endpoints.md). **Known limit:** when the deadlock victim is a receipt or credit-note confirm or a reopen, which are not wrapped in `busy_as_conflict` today, that request answers 500 and can be retried. It needs two credit notes of one invoice being confirmed and cancelled at the same moment. Wrapping those existing flows is outside this spec; nothing is left half-written, because the victim's transaction is rolled back.
+9. **What can still answer `lock.busy`:** a lock wait timeout (1205) on a document another request holds, or a deadlock with an unrelated flow that locks the same invoice or orders (1213). Both are retryable 409s on stamp, cancel and refresh (contracts/endpoints.md). **Known limit:** when the deadlock victim is a receipt or credit-note confirm or a reopen, which are not wrapped in `busy_as_conflict` today, that request answers 500 and can be retried. It needs two credit notes of one invoice, one being confirmed while the other is cancelled or reopened (rule 8 locks the note before its invoice) at the same moment. Wrapping those existing flows is outside this spec; nothing is left half-written, because the victim's transaction is rolled back.
 10. **Cancelling a credit note: every lock before any plain read.** `_apply_cancelled` updates the paid flags of the orders on the note's invoice (R8), and those balances must be read after the order locks (customer_payment_service.py:487–491; spec 033 research R4). `_credited_orders` (invoice_service.py:1006) does a plain read of the relation before its locks, so it is not reused here. Instead:
    - the transaction before the PAC call (cancel's A, refresh's 1) reads the note's invoice id and that invoice's order ids. Both are fixed once the note is sealed: a sealed note's relation and a completed invoice's lines never change;
    - the transaction after the PAC call commits, then locks the note, its invoice and its orders by primary key, in that order and with `populate_existing`, before any plain read. Only then does it read the request status (rule 7 / rule 6) and compute `order_balances` before and after.

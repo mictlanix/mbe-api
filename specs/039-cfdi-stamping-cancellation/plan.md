@@ -86,6 +86,7 @@ migrations/
 app/
 ├── core/config.py                  # app_env, pac_provider (+ startup check helper)
 ├── core/error_codes.py             # 12 new codes
+├── core/errors.py                  # RESOURCE_NAMES gains the two new tables
 ├── main.py                         # lifespan refuses simulated+production
 ├── api/v1/router.py                # includes the simulator router (404 per request unless simulated)
 ├── models/fiscal.py                # stamping_since, cancelling_since, FiscalDocumentCancellation, PacSimulation

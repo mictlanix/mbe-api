@@ -58,7 +58,7 @@ One row per cancellation request.
 | `answered_at` | `DATETIME NULL` | The PAC's first answer: accepted, pending, not cancellable or rejected |
 | `resolved_at` | `DATETIME NULL` | When the status became final |
 | `last_checked_at` | `DATETIME NULL` | The last status query, whatever it answered |
-| `open_document` | `INT AS (IF(status IN ('requested','pending'), fiscal_document, NULL)) VIRTUAL` | **UNIQUE**: at most one open request per document. Same technique as migration 033 |
+| `open_document` | `` INT AS (IF(`status` IN ('requested','pending'), `fiscal_document`, NULL)) VIRTUAL `` | **UNIQUE**: at most one open request per document. Same technique as migration 033 |
 
 `status` values:
 
