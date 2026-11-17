@@ -31,7 +31,7 @@ from app.core.deps import CurrentUser, has_any_privilege
 from app.core.error_codes import ErrorCode
 from app.core.errors import DomainError, not_found, resource_name
 from app.enums import AccessRight, SystemObject, TransactionType
-from app.models.core import Warehouse
+from app.models.core import Employee, Facility, Warehouse
 from app.models.inventory import (
     InventoryCount,
     InventoryCountDetail,
@@ -47,6 +47,7 @@ from app.models.product import Product
 from app.schemas.sales_order import derive_status
 from app.services import documents, purchase_cost_service, stock_ledger, warehouse_service
 from app.services.delivery_itinerary_service import _pos_warehouse
+from app.services.fk_expansion import batch_fetch, employee_name
 
 # ── Kinds ─────────────────────────────────────────────────────────────────────
 
@@ -820,3 +821,30 @@ async def list_documents(
         .all()
     )
     return items, total
+
+
+async def attach_names(db: AsyncSession, kind: Kind, documents: Sequence[Any]) -> None:
+    """The warehouse, facility and creator names of a list page, one query per kind (#327-#329).
+
+    Written to `__dict__` under `*_name` keys: there are no such columns, and the instances may be
+    shared through the identity map. A name is null when its row is gone.
+    """
+    if not documents:
+        return
+    warehouses = await batch_fetch(
+        db,
+        Warehouse,
+        Warehouse.warehouse_id,
+        (getattr(d, attr) for d in documents for attr in kind.warehouses),
+    )
+    facilities = await batch_fetch(
+        db, Facility, Facility.facility_id, (d.facility for d in documents)
+    )
+    creators = await batch_fetch(db, Employee, Employee.employee_id, (d.creator for d in documents))
+    for document in documents:
+        for attr in kind.warehouses:
+            warehouse = warehouses.get(getattr(document, attr))
+            document.__dict__[f'{attr}_name'] = warehouse.name if warehouse else None
+        facility = facilities.get(document.facility)
+        document.__dict__['facility_name'] = facility.name if facility else None
+        document.__dict__['creator_name'] = employee_name(creators.get(document.creator))

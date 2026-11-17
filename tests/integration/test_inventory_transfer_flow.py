@@ -13,7 +13,7 @@ from sqlalchemy import select, update
 
 from app.core.deps import CurrentUser
 from app.enums import EntityStatus, TransactionType
-from app.models.core import PointSale, Warehouse
+from app.models.core import Employee, Facility, PointSale, Warehouse
 from app.models.inventory import InventoryTransfer, InventoryTransferDetail, LotSerialTracking
 from app.schemas.inventory import TransferStatus, TransferUpdate
 from app.services import inventory_documents as inv
@@ -628,11 +628,29 @@ async def test_the_routes_run_a_transfer_end_to_end(client, db, setup):
 
     in_transit = await client.get(f'{base}/in-transit', params={'facility': setup.b.facility})
     assert in_transit.json()['products'][0]['quantity'] == '2.0000'
+    origin = (await db.get(Warehouse, 1)).name
+    # #330 — both ends of each line by name.
+    line = in_transit.json()['lines'][0]
+    assert (line['warehouse_name'], line['warehouse_to_name']) == (origin, 'Almacén W2')
 
     rest = await client.post(f'{base}/{transfer_id}/receive')
     assert rest.json()['status'] == 'received'
     listed = await client.get(base, params={'status': 'received'})
     assert [t['inventory_transfer_id'] for t in listed.json()['items']] == [transfer_id]
+    # #329 — the names a list row shows.
+    row = listed.json()['items'][0]
+    creator = await db.get(Employee, 1)
+    assert (
+        row['warehouse_name'],
+        row['warehouse_to_name'],
+        row['facility_name'],
+        row['creator_name'],
+    ) == (
+        origin,
+        'Almacén W2',
+        (await db.get(Facility, 1)).name,
+        f'{creator.first_name} {creator.last_name}'.strip(),
+    )
     assert (await client.get(f'{base}/{transfer_id}')).json()['lines'][0][
         'quantity_received'
     ] == '10.0000'

@@ -52,6 +52,7 @@ async def list_inventory_receipts(
         skip=skip,
         limit=limit,
     )
+    await inv.attach_names(db, inv.RECEIPT, items)
     return ListResponse(
         items=[InventoryReceiptSummary.model_validate(inv.attach_status(r)) for r in items],
         total=total,

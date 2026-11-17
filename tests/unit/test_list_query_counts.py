@@ -14,6 +14,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from app.services import inventory_documents as inv
 from app.services.cash_session_service import attach_relations, attach_summary_amounts
 from app.services.credit_note_service import list_credit_notes
 from app.services.customer_payment_service import (
@@ -462,6 +463,50 @@ class TestPaymentLastRejections:
         assert db.execute.await_count == 1
         assert payments[0].__dict__['last_rejection']['reason'] == 'new'
         assert all(p.__dict__['last_rejection'] is None for p in payments[1:])
+
+
+class TestInventoryDocumentNames:
+    """#327-#329 — warehouse, facility and creator names: one query each for the whole page."""
+
+    @staticmethod
+    def _transfers(size: int) -> list[SimpleNamespace]:
+        return [
+            SimpleNamespace(facility=1, warehouse=1, warehouse_to=i, creator=i)
+            for i in range(1, size + 1)
+        ]
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize('size', PAGE_SIZES)
+    async def test_three_queries_regardless_of_page_size(self, size: int) -> None:
+        db = _db(_rows([]), _rows([]), _rows([]))
+
+        await inv.attach_names(db, inv.TRANSFER, self._transfers(size))
+
+        assert db.execute.await_count == 3
+
+    @pytest.mark.asyncio
+    async def test_empty_page_issues_no_queries(self) -> None:
+        db = _db()
+
+        await inv.attach_names(db, inv.TRANSFER, [])
+
+        assert db.execute.await_count == 0
+
+    @pytest.mark.asyncio
+    async def test_names_are_attached_and_a_missing_row_is_null(self) -> None:
+        documents = self._transfers(2)
+        warehouse = SimpleNamespace(warehouse_id=1, name='Almacén')
+        facility = SimpleNamespace(facility_id=1, name='Matriz')
+        employee = SimpleNamespace(employee_id=1, first_name='Ana', last_name='Ruiz')
+        db = _db(_rows([warehouse]), _rows([facility]), _rows([employee]))
+
+        await inv.attach_names(db, inv.TRANSFER, documents)
+
+        names = ('warehouse_name', 'warehouse_to_name', 'facility_name', 'creator_name')
+        assert [tuple(d.__dict__[n] for n in names) for d in documents] == [
+            ('Almacén', 'Almacén', 'Matriz', 'Ana Ruiz'),
+            ('Almacén', None, 'Matriz', None),
+        ]
 
 
 class TestDeliveryOrderNames:

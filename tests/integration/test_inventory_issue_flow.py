@@ -5,6 +5,7 @@ from decimal import Decimal
 from sqlalchemy import select
 
 from app.enums import TransactionType
+from app.models.core import Employee, Facility, Warehouse
 from app.models.inventory import InventoryIssue, InventoryIssueDetail, LotSerialTracking
 from app.models.product import Product
 from app.models.supplier import Supplier, SupplierReturn
@@ -173,3 +174,20 @@ async def test_a_legacy_supplier_return_is_shown_and_cannot_be_changed(client, d
     assert updated.status_code == 200
     assert updated.json()['supplier_return'] == supplier_return.supplier_return_id
     assert updated.json()['comment'] == 'c'
+
+
+async def test_list_rows_carry_warehouse_facility_and_creator_names(client, db, seeded):
+    """#328 — the names a list row shows, without a lookup per distinct id."""
+    setup = await seed.setup_inventory(db)
+    at_b = await _draft(client, warehouse=setup.b.warehouse)
+    at_a = await _draft(client)
+
+    items = (await client.get(URL)).json()['items']
+
+    creator = await db.get(Employee, 1)
+    name = f'{creator.first_name} {creator.last_name}'.strip()
+    home = (await db.get(Warehouse, 1)).name, (await db.get(Facility, 1)).name
+    assert [
+        (i['inventory_issue_id'], i['warehouse_name'], i['facility_name'], i['creator_name'])
+        for i in items
+    ] == [(at_a, *home, name), (at_b, 'Almacén W2', 'Sucursal', name)]

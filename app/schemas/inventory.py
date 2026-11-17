@@ -160,6 +160,10 @@ class InventoryReceiptSummary(BaseModel):
     status: DocumentStatus
     creator: int
     creation_time: LocalDateTime
+    #: Joined names for the list row, null when the row is gone (#327).
+    warehouse_name: str | None = None
+    facility_name: str | None = None
+    creator_name: str | None = None
 
 
 # ── Issues ────────────────────────────────────────────────────────────────────
@@ -203,6 +207,10 @@ class InventoryIssueSummary(BaseModel):
     status: DocumentStatus
     creator: int
     creation_time: LocalDateTime
+    #: Joined names for the list row, null when the row is gone (#328).
+    warehouse_name: str | None = None
+    facility_name: str | None = None
+    creator_name: str | None = None
 
 
 # ── Transfers ─────────────────────────────────────────────────────────────────
@@ -249,6 +257,11 @@ class InventoryTransferSummary(BaseModel):
     status: TransferStatus
     creator: int
     creation_time: LocalDateTime
+    #: Joined names for the list row, null when the row is gone (#329).
+    warehouse_name: str | None = None
+    warehouse_to_name: str | None = None
+    facility_name: str | None = None
+    creator_name: str | None = None
 
 
 class InTransitProduct(BaseModel):
@@ -262,7 +275,10 @@ class InTransitLine(BaseModel):
     inventory_transfer_id: int
     serial: int | None
     warehouse: int
+    #: Joined names of the two warehouses (#330).
+    warehouse_name: str | None = None
     warehouse_to: int
+    warehouse_to_name: str | None = None
     transfer_detail_id: int
     product: int
     product_code: str | None
