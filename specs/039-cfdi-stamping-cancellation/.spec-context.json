@@ -2,8 +2,8 @@
   "workflow": "speckit",
   "specName": "CFDI stamping and cancellation against a simulated PAC",
   "branch": "039-cfdi-stamping-cancellation",
-  "currentStep": "plan",
-  "status": "planned",
+  "currentStep": "tasks",
+  "status": "tasked",
   "history": [
     {
       "step": "specify",
@@ -32,6 +32,20 @@
       "kind": "complete",
       "by": "extension",
       "at": "2026-11-17T06:29:40.187Z"
+    },
+    {
+      "step": "tasks",
+      "substep": null,
+      "kind": "start",
+      "by": "extension",
+      "at": "2026-11-17T07:27:15.644Z"
+    },
+    {
+      "step": "tasks",
+      "substep": null,
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-11-17T07:28:59.182Z"
     }
   ]
 }
