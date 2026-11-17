@@ -33,7 +33,8 @@ from app.enums import (
     StopOutcome,
     TransactionType,
 )
-from app.models.core import Facility, Vehicle, VehicleOperator, Warehouse
+from app.models.core import Address, Facility, Vehicle, VehicleOperator, Warehouse
+from app.models.customer import Customer
 from app.models.logistics import (
     DeliveriesItinerary,
     DeliveriesItineraryDetail,
@@ -48,6 +49,7 @@ from app.services import (
     stock_ledger,
     warehouse_service,
 )
+from app.services.address_service import address_label
 
 _BUCKETS = ('earlier', 'yesterday', 'today', 'tomorrow', 'day_after', 'later')
 
@@ -85,12 +87,17 @@ async def pending_deliveries(
 
     rows = (
         await db.execute(
-            select(DeliveryOrder, DeliveryOrderDetail)
+            select(DeliveryOrder, DeliveryOrderDetail, Customer.name, Address, Warehouse.name)
             .join(
                 DeliveryOrderDetail,
                 DeliveryOrderDetail.delivery_order == DeliveryOrder.delivery_order_id,
             )
             .join(Facility, Facility.facility_id == DeliveryOrder.facility)
+            # The names a line shows (#326), joined so this stays one query. Outer joins: a
+            # missing row nulls its name instead of dropping the line.
+            .outerjoin(Customer, Customer.customer_id == DeliveryOrder.customer)
+            .outerjoin(Address, Address.address_id == DeliveryOrder.ship_to)
+            .outerjoin(Warehouse, Warehouse.warehouse_id == DeliveryOrderDetail.warehouse)
             .where(
                 DeliveryOrder.status == S.IN_PREPARATION,
                 DeliveryOrder.fulfillment_type == FulfillmentType.DELIVERY,
@@ -101,7 +108,7 @@ async def pending_deliveries(
     ).all()
 
     grouped: dict[str, list[dict[str, object]]] = {key: [] for key in _BUCKETS}
-    for order, line in rows:
+    for order, line, customer_name, ship_to, warehouse_name in rows:
         remaining = delivery_order_service.open_quantity(line)
         if remaining <= 0:
             continue
@@ -112,13 +119,16 @@ async def pending_deliveries(
                 'delivery_order_detail': line.delivery_order_detail_id,
                 'serial': order.serial,
                 'customer': order.customer,
+                'customer_display_name': customer_name,
                 'ship_to': order.ship_to,
+                'ship_to_label': address_label(ship_to) if ship_to is not None else None,
                 'date': order.date,
                 'priority': order.priority,
                 'product': line.product,
                 'product_code': line.product_code,
                 'product_name': line.product_name,
                 'warehouse': line.warehouse,
+                'warehouse_name': warehouse_name,
                 'open_quantity': remaining,
             }
         )

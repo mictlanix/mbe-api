@@ -24,7 +24,8 @@ from app.core.error_codes import ErrorCode
 from app.core.errors import DomainError, not_found
 from app.enums import DeliveryOrderStatus as S
 from app.enums import FulfillmentType, ItineraryStatus, PaymentTerms, TransactionType
-from app.models.core import Facility, Warehouse
+from app.models.core import Address, Facility, Warehouse
+from app.models.customer import Customer
 from app.models.logistics import (
     DeliveriesItinerary,
     DeliveriesItineraryDetail,
@@ -37,6 +38,7 @@ from app.models.logistics import (
 from app.models.sales import SalesOrder, SalesOrderDetail
 from app.schemas.delivery_order import DeliveryOrderLineRequest
 from app.services import delivery_events, documents, stock_ledger
+from app.services.address_service import address_label
 
 TERMINAL = delivery_events.TERMINAL
 
@@ -418,6 +420,51 @@ async def attach_sales_orders(db: AsyncSession, orders: Sequence[DeliveryOrder])
     origins = await sales_orders_of(db, [order.delivery_order_id for order in orders])
     for order in orders:
         order.__dict__['sales_orders'] = origins.get(order.delivery_order_id, [])
+
+
+async def attach_names(db: AsyncSession, orders: Sequence[DeliveryOrder]) -> None:
+    """Attach the customer, ship-to and facility names a list row shows (#324, #325).
+
+    One query per kind for the whole page, never one per row, written under `__dict__` keys for
+    the reason `attach_sales_orders` gives.
+    """
+    if not orders:
+        return
+    customers = dict(
+        (
+            await db.execute(
+                select(Customer.customer_id, Customer.name).where(
+                    Customer.customer_id.in_({order.customer for order in orders})
+                )
+            )
+        ).all()
+    )
+    ship_tos = {order.ship_to for order in orders if order.ship_to is not None}
+    addresses = (
+        {
+            address.address_id: address_label(address)
+            for address in (
+                await db.execute(select(Address).where(Address.address_id.in_(ship_tos)))
+            )
+            .scalars()
+            .all()
+        }
+        if ship_tos
+        else {}
+    )
+    facilities = dict(
+        (
+            await db.execute(
+                select(Facility.facility_id, Facility.name).where(
+                    Facility.facility_id.in_({order.facility for order in orders})
+                )
+            )
+        ).all()
+    )
+    for order in orders:
+        order.__dict__['customer_display_name'] = customers.get(order.customer)
+        order.__dict__['ship_to_label'] = addresses.get(order.ship_to)
+        order.__dict__['facility_name'] = facilities.get(order.facility)
 
 
 async def list_orders(

@@ -317,7 +317,8 @@ class TestCashSessions:
 class TestDeliveryListsAreFlat:
     """The delivery list endpoints attach nothing per row, so their cost must not track page size.
 
-    `list_orders` issues a count and a page; `pending_deliveries` issues one join. Written as a
+    `list_orders` issues a count and a page; `pending_deliveries` issues one join, which also
+    carries the names a line shows (#326). Written as a
     count assertion rather than a "does it work" test because only a count catches the day someone
     adds a per-row lookup (T101).
     """
@@ -377,6 +378,9 @@ class TestDeliveryListsAreFlat:
                     delivered_quantity=Decimal('0'),
                     returned_quantity=Decimal('0'),
                 ),
+                'Cliente',
+                None,
+                'Almacén',
             )
             for i in range(page_size)
         ]
@@ -458,3 +462,64 @@ class TestPaymentLastRejections:
         assert db.execute.await_count == 1
         assert payments[0].__dict__['last_rejection']['reason'] == 'new'
         assert all(p.__dict__['last_rejection'] is None for p in payments[1:])
+
+
+class TestDeliveryOrderNames:
+    """#324, #325 — one query per kind of name for the whole page, never one per row."""
+
+    @staticmethod
+    def _orders(size: int) -> list[SimpleNamespace]:
+        return [
+            SimpleNamespace(delivery_order_id=i, customer=i % 3, ship_to=i % 2, facility=1)
+            for i in range(size)
+        ]
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize('size', PAGE_SIZES)
+    async def test_three_queries_regardless_of_page_size(self, size: int) -> None:
+        from app.services.delivery_order_service import attach_names
+
+        orders = self._orders(size)
+        address = SimpleNamespace(
+            address_id=1,
+            street='Av. Reforma',
+            exterior_number='100',
+            interior_number=None,
+            neighborhood='Centro',
+            city=None,
+            state='CDMX',
+        )
+        db = _db(_rows([(0, 'A'), (1, 'B'), (2, 'C')]), _rows([address]), _rows([(1, 'Matriz')]))
+
+        await attach_names(db, orders)
+
+        assert db.execute.await_count == 3
+        assert [o.__dict__['customer_display_name'] for o in orders] == [
+            'ABC'[i % 3] for i in range(size)
+        ]
+        assert [o.__dict__['ship_to_label'] for o in orders] == [
+            'Av. Reforma 100, Centro, CDMX' if i % 2 else None for i in range(size)
+        ]
+        assert all(o.__dict__['facility_name'] == 'Matriz' for o in orders)
+
+    @pytest.mark.asyncio
+    async def test_a_page_of_counter_pickups_skips_the_address_query(self) -> None:
+        from app.services.delivery_order_service import attach_names
+
+        orders = [SimpleNamespace(delivery_order_id=1, customer=1, ship_to=None, facility=1)]
+        db = _db(_rows([(1, 'A')]), _rows([(1, 'Matriz')]))
+
+        await attach_names(db, orders)
+
+        assert db.execute.await_count == 2
+        assert orders[0].__dict__['ship_to_label'] is None
+
+    @pytest.mark.asyncio
+    async def test_empty_page_issues_no_queries(self) -> None:
+        from app.services.delivery_order_service import attach_names
+
+        db = _db()
+
+        await attach_names(db, [])
+
+        assert db.execute.await_count == 0
