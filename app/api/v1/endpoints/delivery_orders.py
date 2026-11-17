@@ -74,6 +74,7 @@ async def _visible_order_or_404(  # noqa: ANN202
 
 async def _with_lines(db: AsyncSession, order) -> DeliveryOrderResponse:  # noqa: ANN001
     await delivery_order_service.attach_sales_orders(db, [order])
+    await delivery_order_service.attach_names(db, [order])
     body = DeliveryOrderResponse.model_validate(order)
     body.lines = [
         DeliveryOrderLineResponse.model_validate(line)
@@ -104,6 +105,7 @@ async def list_approval_queue(
         limit=limit,
     )
     await delivery_order_service.attach_sales_orders(db, items)
+    await delivery_order_service.attach_names(db, items)
     return ListResponse(items=[DeliveryOrderSummary.model_validate(o) for o in items], total=total)
 
 
@@ -218,6 +220,7 @@ async def list_delivery_orders(
         limit=limit,
     )
     await delivery_order_service.attach_sales_orders(db, items)
+    await delivery_order_service.attach_names(db, items)
     return ListResponse(items=[DeliveryOrderSummary.model_validate(o) for o in items], total=total)
 
 

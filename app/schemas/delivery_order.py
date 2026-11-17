@@ -3,7 +3,7 @@ from decimal import Decimal
 from pydantic import BaseModel, ConfigDict, Field, computed_field
 
 from app.enums import DeliveryOrderStatus, FulfillmentType
-from app.schemas import LocalDateTime
+from app.schemas import CUSTOMER_DISPLAY_NAME_DESCRIPTION, LocalDateTime
 
 # ── Lines ─────────────────────────────────────────────────────────────────────
 
@@ -119,6 +119,10 @@ class DeliveryOrderSummary(BaseModel):
     facility: int
     serial: int | None
     customer: int
+    #: The customer's own name, joined from `customer` (#324, #325), as on `SalesOrderSummary`.
+    customer_display_name: str | None = Field(
+        default=None, description=CUSTOMER_DISPLAY_NAME_DESCRIPTION
+    )
     # The sales this delivery draws on, derived from the lines and attached by
     # `attach_sales_orders` (#147). A list, not a value: a delivery order and a sales order are
     # many-to-many — one sale splits across destinations, one shipment consolidates several of a
@@ -129,6 +133,11 @@ class DeliveryOrderSummary(BaseModel):
     # destination created empty and not yet filled.
     sales_orders: list[int] = []
     ship_to: int | None
+    #: `ship_to` as one line, the way mbe-ui formats an address (#324, #325). `null` for a counter
+    #: pickup, which has no ship-to, or if the address row is gone.
+    ship_to_label: str | None = None
+    #: The facility's name, joined from `facility` (#324, #325). `null` only if the row is gone.
+    facility_name: str | None = None
     date: LocalDateTime | None
     priority: int
     status: DeliveryOrderStatus
