@@ -49,7 +49,7 @@ Sealed invoices, payment receipts and credit notes (specs 027 and 028) get the r
 |---|---|---|
 | I. Simplicity First | Pass, with justified additions | Each new piece answers a stated requirement. The Protocol is the step-3 swap (FR-001, FR-004). The simulator is FR-005 to FR-009. The cancellation table is FR-023, and its status changes are not kept as separate rows (R8). The stamping marker is a column, not a table (R2) |
 | II. Think Before Coding | Pass | The decisions and their alternatives are in research R1–R14. Open items for #160 are named: the look-up by document, the PAC timeout versus the 5-minute grace, the SAT acceptance rules |
-| III. Surgical Changes | Pass | `live()`, confirm and reopen are untouched. `_payable` and `_creditable` gain one keyword argument, loaded at their five call sites by one helper. Confirm and reopen don't get audit added (R10) |
+| III. Surgical Changes | Pass | `live()` and confirm are untouched. Reopen gains a row lock and a re-check on the locked copy (R15 rule 7), which FR-011 needs under concurrency. `_payable` and `_creditable` gain one keyword argument, loaded at their five call sites by one helper. Confirm and reopen don't get audit added (R10) |
 | IV. Goal-Driven Execution | Pass | quickstart.md lists every check, mapped to SC-001 to SC-007 |
 | V. Reuse Over Rebuild | Pass | Reuses `cfdi.parse`, `tfd_original_string`, the print context, `busy_as_conflict`, `incidences.record`, the job pattern, the `get_mailer`-style dependency and migration 033's virtual unique column. The new entities are justified below |
 | VI. Async-First | Pass | Provider methods are async. The simulator uses its own `AsyncSessionLocal` session |
@@ -96,7 +96,7 @@ app/
 │   └── simulated.py                # SimulatedPac
 ├── services/fiscal_stamping.py     # stamp, cancel, refresh (two-phase flows)
 ├── services/fiscal_document_service.py  # document_status order, status filter, detail fields
-├── services/invoice_service.py     # _payable/_creditable take open_cancellation; _open_cancellations helper at 5 call sites
+├── services/invoice_service.py     # _payable/_creditable take open_cancellation; _open_cancellations helper at 5 call sites; reopen locks (R15)
 ├── services/print_contexts.py      # simulated banner flag
 ├── rendering/templates/fiscal_document.html  # banner
 ├── api/v1/endpoints/fiscal_documents.py      # /stamp, /cancel, /refresh
@@ -105,7 +105,7 @@ app/
 tests/
 ├── fakes/pac.py                    # ScriptedPac
 ├── unit/test_pac_simulated.py, test_pac_settings.py, test_pac_provider.py, test_fiscal_stamping.py, test_resolve_fiscal_documents.py
-├── unit/ (extended) test_fiscal_document_service.py, test_invoice_service.py, test_print_contexts.py, test_rendering.py
+├── unit/ (extended) test_fiscal_document_service.py, test_invoice_service.py, test_print_contexts.py; integration/ (extended) test_print_render.py
 ├── integration/test_stamp_flow.py, test_cancel_flow.py, test_resolve_job.py, test_fiscal_stamping_http.py
 └── api/test_fiscal_stamping.py, test_pac_simulator.py
 docs/data-dictionary.md             # stamping_since and the two new tables
@@ -128,7 +128,7 @@ specs/036-localizable-error-codes/contracts/error-codes.md  # new rows; lock.bus
 | `services/fiscal_stamping.py` (stamp, cancel, refresh) | FR-010, FR-017, FR-024: two-phase flows that commit before and after a network call | Putting them in `invoice_service` would mix PAC calls into a module whose confirm holds the series lock; receipts and notes would need the same code three times |
 | `SimulatedPac` | FR-005 to FR-007: the provider this step runs on | No existing provider exists; `ScriptedPac` is a test fake, not a dev tool |
 | `jobs/resolve_fiscal_documents.py` | FR-025: periodic resolution | No existing job refreshes fiscal documents; it reuses the job pattern of `send_scheduled_reports` |
-| Schemas: cancel request, `FiscalDocumentCancellationResponse`, `PacSimulationResponse`, `PacSimulationUpdate`, `ReceiverAnswer` | FR-017, FR-027, FR-006: request and response shapes for the new routes and fields | The existing fiscal schemas have no cancellation or simulator fields; extending `FiscalDocumentResponse` covers the stamp fields without a new schema |
+| Schemas: cancel request, `FiscalDocumentStamp` (the nested `stamp` object, in the style of `FiscalDocumentRelationResponse`), `FiscalDocumentCancellationResponse`, `PacSimulationResponse`, `PacSimulationUpdate`, `ReceiverAnswer` | FR-017, FR-027, FR-006: request and response shapes for the new routes and fields | The existing fiscal schemas have no cancellation or simulator fields; the nested `stamp` follows the file's one-class-per-nested-object style |
 
 ## Deployment notes (each needs confirmation)
 

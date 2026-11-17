@@ -103,7 +103,7 @@ The table exists on every instance, and stays empty unless `pac_provider = simul
 
 - **`FiscalDocumentSummary.status`** gains `stamping` and `cancellation_pending`.
 - **`FiscalDocumentResponse`** gains:
-  - `stamp`: `{uuid, stamped, sat_certificate, provider_rfc, simulated}`, or `null` before stamping;
+  - `stamp` (`FiscalDocumentStamp`): `{uuid, stamped, sat_certificate, provider_rfc, simulated}`, or `null` before stamping. `stamped` repeats the top-level field on purpose, so the object is complete on its own;
   - `stamping_since`;
   - `cancellation_substitution`;
   - `cancellations`: a list, newest first, of `{id, reason, substitution, status, pac_code, pac_message, requested_by, requested_at, answered_at, resolved_at, last_checked_at}`.
