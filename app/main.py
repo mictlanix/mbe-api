@@ -11,7 +11,7 @@ from starlette.staticfiles import StaticFiles
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from app.api.v1.router import api_router
-from app.core.config import settings
+from app.core.config import check_pac_settings, settings
 from app.core.error_codes import ErrorCode
 from app.core.errors import http_exception_handler, problem_body, problem_response
 
@@ -57,6 +57,7 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     misconfigure. The failure it guarded moved to the point of use, where it belongs: a dispatch
     from a facility with no in-transit location is refused by name (FR-006, FR-009).
     """
+    check_pac_settings(settings)
     await ensure_system_employee()
     yield
 

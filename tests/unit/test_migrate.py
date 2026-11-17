@@ -177,3 +177,21 @@ class TestRealCorpus:
             'ADD UNIQUE KEY IF NOT EXISTS `sales_order_payment_live_uq` '
             '(`sales_order`, `customer_payment`, `live`)'
         ) in sql
+
+    def test_034_is_discovered_and_ordered_after_033(self):
+        """Spec 039. A virtual column and a unique key over it are MariaDB's; not run on SQLite."""
+        versions = [m.version for m in discover(Path('migrations'))]
+        assert versions.index('034_cfdi_stamping_cancellation') > versions.index(
+            '033_payment_application_live_unique'
+        )
+        assert '034_cfdi_stamping_cancellation_rollback' not in versions
+
+    def test_034_keys_open_requests_only(self):
+        """At most one open request per document: `open_document` is the document while the
+        request is requested or pending, NULL once closed, and unique."""
+        sql = Path('migrations/034_cfdi_stamping_cancellation.sql').read_text()
+        assert (
+            "AS (IF(`status` IN ('requested','pending'), `fiscal_document`, NULL)) VIRTUAL" in sql
+        )
+        assert 'UNIQUE KEY' in sql
+        assert '`open_document`)' in sql

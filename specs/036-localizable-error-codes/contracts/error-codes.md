@@ -6,6 +6,7 @@ Every code the API serves, with its HTTP status, its `params` and the situation 
 - A code is never renamed or reused. A retired code stays here, marked deprecated.
 - Codes are grouped by domain, alphabetically.
 - A code with status 200 is never an error: it is a `warnings[]` item of a successful response, `{code, detail, params}`, where `detail` is the English text for logs (#322).
+- Exception: `pac.rejected`'s `pac_message` is the PAC's display-only text (spec 039 FR-014).
 
 ## analytics
 
@@ -173,10 +174,12 @@ Specs 037 and 038. Measure and dimension keys are the catalog's (`GET /analytics
 | `fiscal_document.amount_exceeds_balance` | 422 | balance: decimal | The amount paid is zero/negative or more than the invoice balance. |
 | `fiscal_document.amounts_exceed_payment` | 422 | — | The amounts paid exceed the receipt's payment amount. |
 | `fiscal_document.amounts_not_equal_payment` | 422 | — | The amounts paid do not add up to the receipt's payment amount. |
+| `fiscal_document.cancellation_open` | 409 | — | The document already has a cancellation request in process. |
 | `fiscal_document.certificate_cannot_sign` | 422 | — | The CSD could not sign the document. |
 | `fiscal_document.credit_exceeds_invoice` | 422 | invoice_id: int, remaining: decimal | The credit note total is more than what is left to credit on the invoice. |
 | `fiscal_document.credit_quantity_exceeds_line` | 422 | max: decimal | The credited quantity is more than the invoice line's quantity. |
 | `fiscal_document.field_not_for_type` | 422 | fields: list[str], type: enum:FiscalDocumentType | The request sets header fields that this document type does not take. |
+| `fiscal_document.has_live_documents` | 409 | documents: list[str] | Payment receipts or credit notes related to the invoice must be cancelled first; `documents` holds the series and folio of each live one. |
 | `fiscal_document.invoice_already_on_receipt` | 409 | invoice_id: int | The invoice is already listed on the receipt. |
 | `fiscal_document.invoice_not_creditable` | 422 | invoice_id: int | The invoice is not eligible for a credit note. |
 | `fiscal_document.invoice_not_payable` | 422 | invoice_id: int | The invoice cannot be paid by this receipt. |
@@ -186,12 +189,14 @@ Specs 037 and 038. Measure and dimension keys are the catalog's (`GET /analytics
 | `fiscal_document.line_quantity_not_positive` | 422 | line: int | A line's quantity is zero or negative. |
 | `fiscal_document.no_invoiceable_lines` | 422 | — | The sales order has no lines left to invoice. |
 | `fiscal_document.no_lines` | 422 | — | The document has no lines. |
-| `fiscal_document.no_valid_certificate` | 422 | — | The issuer has no active CSD valid at the issue date. |
+| `fiscal_document.no_valid_certificate` | 422 | — | The issuer has no active CSD valid at the issue date, or, on cancel, valid now. |
+| `fiscal_document.not_cancellable` | 409 | — | SAT reports the document cannot be cancelled. |
 | `fiscal_document.not_draft` | 409 | — | The fiscal document has been issued and can no longer be edited. |
 | `fiscal_document.not_emailable` | 409 | — | The document is not a stamped, uncancelled CFDI 4.0 with its XML, so it cannot be emailed. |
-| `fiscal_document.not_issued` | 409 | — | The fiscal document is still a draft (not issued), so its XML or PDF does not exist. |
-| `fiscal_document.not_sealed` | 409 | — | The document has not been sealed (issued) yet. |
+| `fiscal_document.not_issued` | 409 | — | The fiscal document is still a draft (not issued), so its XML or PDF does not exist, or it is not issued, so it cannot be cancelled (draft, sealed, stamping or cancelled). |
+| `fiscal_document.not_sealed` | 409 | — | The document has not been sealed (issued) yet, so it cannot be stamped; also refused when reopening a document that is being stamped. |
 | `fiscal_document.not_stamped` | 409 | — | The document has no stamp UUID, so it cannot be printed. |
+| `fiscal_document.nothing_to_refresh` | 409 | — | The document has no stamp or cancellation in process. |
 | `fiscal_document.order_not_invoiceable` | 422 | sales_order_id: int | The sales order cannot be invoiced because it is not completed or was cancelled. |
 | `fiscal_document.payment_already_receipted` | 409 | fiscal_document_id: int | A payment receipt already exists for this customer payment. |
 | `fiscal_document.payment_date_out_of_range` | 422 | — | The receipt's payment date is before an invoice's date or after today. |
@@ -208,7 +213,11 @@ Specs 037 and 038. Measure and dimension keys are the catalog's (`GET /analytics
 | `fiscal_document.series_locked` | 409 | — | The series cannot change because the invoice already has a serial number. |
 | `fiscal_document.series_missing` | 422 | batch: str | The series was removed before the document could be numbered. |
 | `fiscal_document.series_not_of_type` | 422 | batch: str, type: enum:FiscalDocumentType | The series named is not one of the issuer's series for this document type. |
+| `fiscal_document.stamping` | 409 | — | A stamp is in process; refresh the document instead. |
+| `fiscal_document.substitution_invalid` | 422 | substitution: str | The substitute is not a stamped, live document of the same issuer and recipient. |
+| `fiscal_document.substitution_required` | 422 | — | Reason 01 needs the substitute document's UUID. |
 | `fiscal_document.type_not_supported` | 409 | type: enum:FiscalDocumentType | The operation does not apply to this fiscal document type. |
+| `fiscal_document.unknown_cancellation_reason` | 422 | reason: str | The reason is not a SAT cancellation reason (01 to 04). |
 | `fiscal_document.unknown_facility` | 422 | facility_id: int | The store named for the draft does not exist. |
 | `fiscal_document.unknown_usage` | 422 | usage: str | The CFDI usage key is not in the SAT catalog. |
 | `fiscal_document.version_not_printable` | 409 | version: str | The document is not CFDI 4.0, so it cannot be printed. |
@@ -295,7 +304,18 @@ Specs 037 and 038. Measure and dimension keys are the catalog's (`GET /analytics
 
 | Code | Status | Params | Situation |
 |---|---|---|---|
-| `lock.busy` | 409 | resource: str (`warehouse`, `facility`, `sales_order` or `customer`) | Another request holds the lock; retry. |
+| `lock.busy` | 409 | resource: str (`warehouse`, `facility`, `sales_order`, `customer` or `fiscal_document`) | Another request holds the lock; retry. |
+
+## pac
+
+Spec 039. The PAC's own text is never a catalog value, with the one exception of `pac.rejected`.
+
+| Code | Status | Params | Situation |
+|---|---|---|---|
+| `pac.not_configured` | 503 | — | No PAC provider is configured on this instance. |
+| `pac.rejected` | 422 | pac_code: str, pac_message: str | The PAC or SAT rejected the request. |
+| `pac.timeout` | 504 | state: str (`draft`, `sealed`, `stamping`, `issued`, `cancellation_pending` or `cancelled`) | The PAC did not answer in time. The document is normally left `stamping` or `cancellation_pending`; refresh it. |
+| `pac.unavailable` | 503 | — | The PAC could not be reached. The document's state is unchanged (a cancel request is closed as `failed`); retry. |
 
 ## payment
 
