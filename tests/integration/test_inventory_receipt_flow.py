@@ -448,12 +448,17 @@ async def test_an_over_receipt_warns_on_save_read_and_confirm_and_still_confirms
 
     saved = await client.put(f'{URL}/{receipt}/lines/{line}', json={'quantity': '7'})
     assert saved.status_code == 200, saved.text
-    assert len(saved.json()['warnings']) == 1
-    assert 'INV' in saved.json()['warnings'][0] and 'by 3' in saved.json()['warnings'][0]
+    (warning,) = saved.json()['warnings']
+    assert warning['code'] == 'inventory_receipt.over_received'
+    assert warning['detail'] == 'Over-received INV by 3: 13 received of 10 ordered'
+    assert warning['params']['product_id'] == setup.stockable
+    assert warning['params']['product_code'] == 'INV'
+    figures = [Decimal(warning['params'][k]) for k in ('excess', 'received', 'ordered')]
+    assert figures == [3, 13, 10]
 
     # Adding the same product merges into the linked line, and warns too.
     merged = await _add(client, receipt, setup.stockable, '1')
-    assert 'by 4' in merged.json()['warnings'][0]
+    assert 'by 4' in merged.json()['warnings'][0]['detail']
 
     read = (await client.get(f'{URL}/{receipt}')).json()
     assert read['warnings'] == merged.json()['warnings']

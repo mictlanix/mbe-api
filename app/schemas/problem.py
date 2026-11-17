@@ -16,6 +16,14 @@ class ProblemPart(BaseModel):
     params: dict[str, Any] | None = None
 
 
+class WarningPart(BaseModel):
+    """A warning on a successful response: a code, its params, and the English `detail` for logs."""
+
+    code: ErrorCode
+    detail: str
+    params: dict[str, Any]
+
+
 class Problem(BaseModel):
     status: int
     code: ErrorCode

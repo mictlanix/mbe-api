@@ -26,6 +26,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.clock import local_now
 from app.core.constants import COST_PRICE_LIST_ID
 from app.core.deps import CurrentUser
+from app.core.error_codes import ErrorCode
 from app.core.errors import not_found
 from app.models.inventory import InventoryReceipt, InventoryReceiptDetail, LotSerialTracking
 from app.models.product import PriceList, Product, ProductPrice
@@ -53,7 +54,7 @@ def average(q: Decimal, c: Decimal, r: Decimal, u: Decimal) -> Decimal:
 
 def apply_lines(
     lines: Iterable[Any], *, on_hand: dict[int, Decimal], costs: dict[int, Decimal]
-) -> tuple[list[dict[str, Any]], dict[int, Decimal], list[str]]:
+) -> tuple[list[dict[str, Any]], dict[int, Decimal], list[dict[str, Any]]]:
     """Average a receipt's lines in line-id order: `(changes, final cost per product, warnings)`.
 
     Each line carries `receipt_detail_id`, `product`, `product_code`, `quantity`,
@@ -65,7 +66,7 @@ def apply_lines(
     running_c = dict(costs)
     changes: list[dict[str, Any]] = []
     final: dict[int, Decimal] = {}
-    warnings: list[str] = []
+    warnings: list[dict[str, Any]] = []
     for line in sorted(lines, key=lambda ln: ln.receipt_detail_id):
         if line.purchase_order_detail is None:
             continue
@@ -75,7 +76,13 @@ def apply_lines(
         u = unit_cost(line.price, line.discount)
         running_q[product] = q + line.quantity
         if u == 0:
-            warnings.append(f'{line.product_code} is priced at 0; its cost was not changed')
+            warnings.append(
+                {
+                    'code': ErrorCode.PURCHASE_COST_ZERO_PRICE,
+                    'detail': f'{line.product_code} is priced at 0; its cost was not changed',
+                    'params': {'product_id': product, 'product_code': line.product_code},
+                }
+            )
             continue
         new = average(q, c, line.quantity, u)
         changes.append(
@@ -200,7 +207,7 @@ async def _write_costs(
 
 async def apply(
     db: AsyncSession, receipt: InventoryReceipt, lines: Sequence[Any], *, current: CurrentUser
-) -> list[str]:
+) -> list[dict[str, Any]]:
     """Average the receipt's PO-linked lines into cost and stage their history (FR-031 to
     FR-036). Call it after `lock`, and before the receipt's ledger entries are staged."""
     linked = [line for line in lines if line.purchase_order_detail is not None]
@@ -268,7 +275,7 @@ async def apply(
 
 async def restore(
     db: AsyncSession, receipt: InventoryReceipt, *, current: CurrentUser
-) -> list[str]:
+) -> list[dict[str, Any]]:
     """Undo the receipt's cost changes where still possible, else warn (FR-037, R6). Call it
     after `lock`: the products a receipt changed are among its PO-linked lines' (R6)."""
     receipt_id = receipt.inventory_receipt_id
@@ -353,7 +360,19 @@ async def restore(
     for product, change in later:
         other = receipts[change.receipt]
         label = other.serial if other.serial is not None else other.inventory_receipt_id
-        warnings.append(f'Cost of {codes[product]} not restored: changed since by receipt {label}')
+        warnings.append(
+            {
+                'code': ErrorCode.PURCHASE_COST_NOT_RESTORED,
+                'detail': f'Cost of {codes[product]} not restored: '
+                f'changed since by receipt {label}',
+                'params': {
+                    'product_id': product,
+                    'product_code': codes[product],
+                    'receipt': label,
+                    'inventory_receipt_id': other.inventory_receipt_id,
+                },
+            }
+        )
     return warnings
 
 

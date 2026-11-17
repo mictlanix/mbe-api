@@ -5,6 +5,7 @@ Every code the API serves, with its HTTP status, its `params` and the situation 
 - `params` hold raw values only: `int`, `decimal` (a string with the stored scale, `"18450.00"`), `date` / `datetime` (ISO 8601), `enum:<Name>` (the value the API serializes for that field: IntEnums as ints, StrEnums as strings), and plain `str` only for keys the client already knows (a product code, a SAT key, a field name). A `?` marks a param that can be absent.
 - A code is never renamed or reused. A retired code stays here, marked deprecated.
 - Codes are grouped by domain, alphabetically.
+- A code with status 200 is never an error: it is a `warnings[]` item of a successful response, `{code, detail, params}`, where `detail` is the English text for logs (#322).
 
 ## analytics
 
@@ -257,6 +258,7 @@ Specs 037 and 038. Measure and dimension keys are the catalog's (`GET /analytics
 |---|---|---|---|
 | `inventory_receipt.warehouse_fixed` | 409 | — | A purchase order's receipt cannot move to another warehouse: its lines are that warehouse's order lines. |
 | `inventory_receipt.complementary_unavailable` | 409 | reason: str enum (no_purchase_order, purchase_order_cancelled, purchase_order_not_completed, purchase_order_fully_received) | No complementary receipt can be created for this receipt. |
+| `inventory_receipt.over_received` | 200 | product_id: int, product_code: str, excess: decimal, received: decimal, ordered: decimal (a `warnings[]` item) | The receipt, with the order line's other completed receipts, takes more than the order line's quantity. |
 
 ## inventory_transfer
 
@@ -342,6 +344,13 @@ Specs 037 and 038. Measure and dimension keys are the catalog's (`GET /analytics
 |---|---|---|---|
 | `product_price.duplicate_entry` | 400 | product_id: int, price_list_id: int | A bulk price write names the same (product, price list) cell twice. |
 | `product_price.references_not_found` | 404 | resource: str (product | price_list), ids: list[int] |
+
+## purchase_cost
+
+| Code | Status | Params | Situation |
+|---|---|---|---|
+| `purchase_cost.not_restored` | 200 | product_id: int, product_code: str, receipt: int (the later receipt's serial, or its id when it has none), inventory_receipt_id: int (a `warnings[]` item) | Cancelling a receipt left a product's cost as is: a later receipt changed it since. |
+| `purchase_cost.zero_price` | 200 | product_id: int, product_code: str (a `warnings[]` item) | Confirming a receipt left a product's cost as is: its order line is priced at 0. |
 
 ## purchase_order
 

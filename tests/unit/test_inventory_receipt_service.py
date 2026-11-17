@@ -7,12 +7,18 @@ complementary receipt is refused.
 from decimal import Decimal
 from types import SimpleNamespace
 
+from app.core.error_codes import ErrorCode
 from app.services import inventory_receipt_service as svc
 
 
-def _line(order_line: int | None, quantity: str, code: str = 'W-1') -> SimpleNamespace:
+def _line(
+    order_line: int | None, quantity: str, code: str = 'W-1', product: int = 7
+) -> SimpleNamespace:
     return SimpleNamespace(
-        purchase_order_detail=order_line, quantity=Decimal(quantity), product_code=code
+        purchase_order_detail=order_line,
+        quantity=Decimal(quantity),
+        product_code=code,
+        product=product,
     )
 
 
@@ -32,19 +38,30 @@ class TestOverReceiptWarnings:
         lines = [_line(1, '4')]
         assert svc.over_receipt_warnings(lines, {1: Decimal(10)}, {1: Decimal(6)}) == []
 
-    def test_over_the_ordered_quantity_names_the_code_and_the_excess(self):
-        lines = [_line(1, '5', code='W-1')]
-        warnings = svc.over_receipt_warnings(lines, {1: Decimal(10)}, {1: Decimal(6)})
-        assert len(warnings) == 1
-        assert 'W-1' in warnings[0]
-        assert 'by 1' in warnings[0]
+    def test_over_the_ordered_quantity_is_coded_with_the_product_and_the_figures(self):
+        lines = [_line(1, '5.0000', code='W-1')]
+        warnings = svc.over_receipt_warnings(lines, {1: Decimal('10.0000')}, {1: Decimal('6.0000')})
+        assert warnings == [
+            {
+                'code': ErrorCode.INVENTORY_RECEIPT_OVER_RECEIVED,
+                'detail': 'Over-received W-1 by 1: 11 received of 10 ordered',
+                'params': {
+                    'product_id': 7,
+                    'product_code': 'W-1',
+                    'excess': '1.0000',
+                    'received': '11.0000',
+                    'ordered': '10.0000',
+                },
+            }
+        ]
 
     def test_sums_this_receipts_lines_per_order_line_into_one_message(self):
         """A legacy receipt may link one order line twice."""
         lines = [_line(1, '3'), _line(1, '4')]
         warnings = svc.over_receipt_warnings(lines, {1: Decimal(5)}, {})
         assert len(warnings) == 1
-        assert 'by 2' in warnings[0]
+        assert 'by 2' in warnings[0]['detail']
+        assert warnings[0]['params']['excess'] == '2'
 
     def test_compares_against_the_order_line_not_the_stored_quantity_ordered(self):
         """A legacy complementary line stored the remaining 4 as ordered; the order said 10."""
@@ -57,7 +74,7 @@ class TestOverReceiptWarnings:
         ordered = {1: Decimal(10), 2: Decimal(10), 3: Decimal(8)}
         warnings = svc.over_receipt_warnings(lines, ordered, {})
         assert len(warnings) == 2
-        assert 'A' in warnings[0] and 'C' in warnings[1]
+        assert [w['params']['product_code'] for w in warnings] == ['A', 'C']
 
     def test_unlinked_lines_give_no_warning(self):
         assert svc.over_receipt_warnings([_line(None, '99')], {}, {}) == []

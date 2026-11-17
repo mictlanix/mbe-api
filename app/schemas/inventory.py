@@ -15,6 +15,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from pydantic_core import PydanticCustomError
 
 from app.schemas import LocalDateTime
+from app.schemas.problem import WarningPart
 from app.schemas.sales_order import DocumentStatus
 
 #: A line quantity: positive, and no finer than the columns' four decimal places.
@@ -145,7 +146,7 @@ class InventoryReceiptResponse(BaseModel):
     creation_time: LocalDateTime
     modification_time: LocalDateTime
     lines: list[InventoryReceiptLineResponse] = []
-    warnings: list[str] = []
+    warnings: list[WarningPart] = []
 
 
 class InventoryReceiptSummary(BaseModel):

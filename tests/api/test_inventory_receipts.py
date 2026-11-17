@@ -145,7 +145,12 @@ def _body(method: str, path: str) -> dict:
 @pytest.mark.asyncio
 async def test_get_returns_the_receipt_with_its_lines_and_warnings() -> None:
     _auth()
-    receipt = _receipt(lines=[_line()], warnings=['Over-received W-1 by 1'])
+    warning = {
+        'code': 'inventory_receipt.over_received',
+        'detail': 'Over-received W-1 by 1: 2 received of 1 ordered',
+        'params': {'product_id': 1, 'product_code': 'W-1'},
+    }
+    receipt = _receipt(lines=[_line()], warnings=[warning])
     with (
         patch(f'{SHARED}.get_document', AsyncMock(return_value=receipt)),
         patch(f'{SERVICE}.attach_derived', AsyncMock(return_value=receipt)),
@@ -158,7 +163,7 @@ async def test_get_returns_the_receipt_with_its_lines_and_warnings() -> None:
     assert (body['inventory_receipt_id'], body['status']) == (1, 'draft')
     assert body['lines'][0]['receipt_detail_id'] == 1
     assert body['lines'][0]['quantity_received_elsewhere'] is None
-    assert body['warnings'] == ['Over-received W-1 by 1']
+    assert body['warnings'] == [warning]
 
 
 @pytest.mark.asyncio

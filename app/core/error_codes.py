@@ -210,6 +210,8 @@ class ErrorCode(StrEnum):
     # inventory_receipt
     INVENTORY_RECEIPT_WAREHOUSE_FIXED = 'inventory_receipt.warehouse_fixed', 409
     INVENTORY_RECEIPT_COMPLEMENTARY_UNAVAILABLE = 'inventory_receipt.complementary_unavailable', 409
+    # A `warnings[]` item of a successful response, never raised: hence its 200.
+    INVENTORY_RECEIPT_OVER_RECEIVED = 'inventory_receipt.over_received', 200
 
     # inventory_transfer
     INVENTORY_TRANSFER_LINE_REPEATED = 'inventory_transfer.line_repeated', 422
@@ -268,6 +270,10 @@ class ErrorCode(StrEnum):
     # product_price
     PRODUCT_PRICE_DUPLICATE_ENTRY = 'product_price.duplicate_entry', 400
     PRODUCT_PRICE_REFERENCES_NOT_FOUND = 'product_price.references_not_found', 404
+
+    # purchase_cost (`warnings[]` items of a successful response, never raised: hence their 200)
+    PURCHASE_COST_NOT_RESTORED = 'purchase_cost.not_restored', 200
+    PURCHASE_COST_ZERO_PRICE = 'purchase_cost.zero_price', 200
 
     # purchase_order
     PURCHASE_ORDER_ALREADY_CANCELLED = 'purchase_order.already_cancelled', 409
