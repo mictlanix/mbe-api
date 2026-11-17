@@ -198,7 +198,7 @@ async def test_list_passes_the_filters_and_the_transfer_status_clause():
     listed = AsyncMock(
         return_value=([_transfer(status=None, completed=True, cancelled=False, in_transit=True)], 1)
     )
-    with patch.object(inv, 'list_documents', listed):
+    with patch.object(inv, 'list_documents', listed), patch.object(inv, 'attach_names'):
         async with _client() as client:
             response = await client.get(
                 BASE, params={'status': 'in_transit', 'warehouse': 3, 'skip': 5, 'limit': 10}

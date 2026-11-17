@@ -34,7 +34,7 @@ from app.schemas.expense_vouchers import (
 from app.schemas.sales_order import DocumentStatus, derive_status
 from app.services import cash_session_service, incidences
 from app.services import inventory_documents as inv
-from app.services.fk_expansion import batch_fetch
+from app.services.fk_expansion import batch_fetch, employee_name
 
 _SESSION_REQUIRED = 'An open cash session is required'
 
@@ -107,10 +107,6 @@ def _touch(voucher: ExpenseVoucher, current: CurrentUser) -> None:
 # ── Reads ─────────────────────────────────────────────────────────────────────
 
 
-def _name(employee: Employee | None) -> str | None:
-    return f'{employee.first_name} {employee.last_name}'.strip() if employee else None
-
-
 def _summarize(
     voucher: ExpenseVoucher, total: Decimal, count: int, creator: Employee | None
 ) -> None:
@@ -119,7 +115,7 @@ def _summarize(
         voided=is_voided(voucher),
         total=total,
         line_count=count,
-        creator_name=_name(creator),
+        creator_name=employee_name(creator),
     )
 
 

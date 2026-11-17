@@ -5,6 +5,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import InstrumentedAttribute
 
+from app.models.core import Employee
+
 
 async def batch_fetch(
     db: AsyncSession, model: type, pk_column: InstrumentedAttribute, ids: Iterable[Any]
@@ -19,3 +21,8 @@ async def batch_fetch(
         return {}
     rows = (await db.execute(select(model).where(pk_column.in_(id_set)))).scalars().all()
     return {getattr(row, pk_column.key): row for row in rows}
+
+
+def employee_name(employee: Employee | None) -> str | None:
+    """An employee's display name, as every `creator_name` reports it; null for a missing row."""
+    return f'{employee.first_name} {employee.last_name}'.strip() if employee else None

@@ -59,6 +59,7 @@ async def list_inventory_transfers(
         limit=limit,
         status_clause=inventory_transfer_service.transfer_status_clause,
     )
+    await inv.attach_names(db, inv.TRANSFER, items)
     return ListResponse(
         items=[
             InventoryTransferSummary.model_validate(inventory_transfer_service.attach_status(t))

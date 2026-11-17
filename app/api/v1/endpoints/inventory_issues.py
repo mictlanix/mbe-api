@@ -55,6 +55,7 @@ async def list_inventory_issues(
         skip=skip,
         limit=limit,
     )
+    await inv.attach_names(db, inv.ISSUE, items)
     return ListResponse(
         items=[InventoryIssueSummary.model_validate(inv.attach_status(i)) for i in items],
         total=total,

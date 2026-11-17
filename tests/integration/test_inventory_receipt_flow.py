@@ -8,7 +8,7 @@ from sqlalchemy import select
 
 from app.core.deps import CurrentUser
 from app.enums import TransactionType
-from app.models.core import Warehouse
+from app.models.core import Employee, Facility, Warehouse
 from app.models.inventory import (
     InventoryReceipt,
     InventoryReceiptDetail,
@@ -337,6 +337,16 @@ async def test_list_filters_by_status_and_warehouse(client, db, seeded):
     assert everything['total'] == 2
     assert [item['inventory_receipt_id'] for item in everything['items']] == [draft, done]
     assert [item['status'] for item in everything['items']] == ['draft', 'completed']
+    # #327 — the names ride along on each row.
+    creator = await db.get(Employee, 1)
+    home = (await db.get(Warehouse, 1)).name, (await db.get(Facility, 1)).name
+    assert [
+        (item['warehouse_name'], item['facility_name'], item['creator_name'])
+        for item in everything['items']
+    ] == [
+        ('Almacén W2', 'Sucursal', f'{creator.first_name} {creator.last_name}'.strip()),
+        (*home, f'{creator.first_name} {creator.last_name}'.strip()),
+    ]
 
     completed = (await client.get(URL, params={'status': 'completed'})).json()
     assert [item['inventory_receipt_id'] for item in completed['items']] == [done]
