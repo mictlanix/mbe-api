@@ -9,7 +9,7 @@ import pytest
 from app.core.error_codes import ErrorCode
 from app.core.errors import DomainError
 from app.services import invoice_service as svc
-from tests.unit.test_inventory_locks import COMMIT, FakeSession
+from tests.unit.test_inventory_locks import COMMIT, FakeResult, FakeSession
 
 _T0 = datetime(2026, 10, 1, 9, 0)
 
@@ -165,3 +165,93 @@ async def test_reopen_refuses_a_row_locked_as_stamping_though_read_as_sealed() -
     assert lock.get_execution_options().get('populate_existing') is True
     # It runs in the route's transaction: no commit before the lock.
     assert COMMIT not in session.log
+
+
+# ── An invoice being cancelled takes no receipt or credit note (spec 039, R8) ──
+
+
+def _stamped_invoice(**overrides: object) -> SimpleNamespace:
+    values = dict(
+        fiscal_document_id=5,
+        type=0,
+        completed=True,
+        cancelled=False,
+        stamp_uuid='U1',
+        payment_terms=1,
+        issuer='EKU9003173C9',
+        recipient='XAÑ010101AB1',
+        issued=datetime(2026, 10, 1, 9, 0),
+        cancelling_since=None,
+    )
+    values.update(overrides)
+    return SimpleNamespace(**values)
+
+
+_RECEIPT = SimpleNamespace(
+    fiscal_document_id=20,
+    issuer='EKU9003173C9',
+    recipient='XAÑ010101AB1',
+    payment_date=datetime(2026, 10, 2).date(),
+    payment_amount=Decimal('100.00'),
+    payment_method=3,
+    taxpayer_regime='601',
+    taxpayer_postal_code='06000',
+)
+_CANCELLING = datetime(2026, 11, 17, 9, 0)
+
+
+def test_an_invoice_being_cancelled_is_neither_payable_nor_creditable() -> None:
+    assert svc._payable(_RECEIPT, _stamped_invoice()) is True
+    assert svc._creditable(_stamped_invoice()) is True
+    assert svc._payable(_RECEIPT, _stamped_invoice(cancelling_since=_CANCELLING)) is False
+    assert svc._creditable(_stamped_invoice(cancelling_since=_CANCELLING)) is False
+
+
+class _Rows(FakeResult):
+    def __iter__(self):  # noqa: ANN204
+        return iter(self._rows)
+
+    def scalars(self) -> '_Rows':
+        return _Rows(super().scalars()._rows)
+
+
+class _ConfirmSession(FakeSession):
+    """Answers the confirm's reads: one paid relation, one line, and the locked invoice."""
+
+    def __init__(self, invoice: SimpleNamespace) -> None:
+        super().__init__(self._answer)
+        self.invoice = invoice
+
+    def _answer(self, sql: str) -> list:
+        if sql.rstrip().endswith('FOR UPDATE'):
+            return [self.invoice]
+        if sql.startswith('SELECT fiscal_document_relation.relation'):
+            return [(5,)]
+        if 'FROM fiscal_document_relation' in sql:
+            return [SimpleNamespace(relation=5)]
+        if 'FROM fiscal_document_detail' in sql:
+            return [SimpleNamespace(product_service='01010101', unit_of_measurement='H87')]
+        return []
+
+    async def execute(self, statement):  # noqa: ANN001, ANN201
+        return _Rows((await super().execute(statement))._rows)
+
+
+@pytest.mark.parametrize(
+    ('prepare', 'code'),
+    [
+        (svc._prepare_receipt, ErrorCode.FISCAL_DOCUMENT_INVOICE_NOT_PAYABLE),
+        (svc._prepare_credit_note, ErrorCode.FISCAL_DOCUMENT_INVOICE_NOT_CREDITABLE),
+    ],
+    ids=['receipt', 'credit_note'],
+)
+async def test_confirm_reads_the_cancellation_from_the_locked_invoice(prepare, code) -> None:  # noqa: ANN001
+    """The lock refreshes the invoice the request loaded earlier, so its flag is the row's."""
+    session = _ConfirmSession(_stamped_invoice(cancelling_since=_CANCELLING))
+
+    with pytest.raises(DomainError) as caught:
+        await prepare(session, _RECEIPT)  # type: ignore[arg-type]
+
+    assert caught.value.code == code
+    [lock] = [s for s in session.statements if s._for_update_arg is not None]
+    assert lock.get_execution_options().get('populate_existing') is True

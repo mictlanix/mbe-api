@@ -1,23 +1,30 @@
-"""The simulated PAC (spec 039, research R6): stamps, look-ups and one-shot outcomes.
+"""The simulated PAC (spec 039, research R6): stamps, look-ups, cancellations and one-shot outcomes.
 
 It keeps its state in `pac_simulation` through its own sessions, so each test gives it a private
 SQLite database holding that table.
 """
 
 from collections.abc import AsyncIterator
+from datetime import timedelta
+from decimal import Decimal
 from pathlib import Path
 
 import pytest
 from lxml import etree
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.pool import StaticPool
 
+from app.core.error_codes import ErrorCode
+from app.core.errors import DomainError
 from app.db.base import Base
 from app.models.fiscal import PacSimulation
 from app.services import cfdi
 from app.services.pac.provider import (
     SIMULATED_PAC_RFC,
+    CancellationAnswer,
+    CancellationRequest,
+    Csd,
     PacRejected,
     PacTimeout,
     PacUnavailable,
@@ -232,3 +239,191 @@ async def test_get_record_reports_the_row(pac: SimulatedPac) -> None:
         'next_stamp': None,
         'next_cancellation': None,
     }
+
+
+# ── Cancellation ──────────────────────────────────────────────────────────────
+
+_RECIPIENT = 'XAÑ010101AB1'
+_UNKNOWN = '6F3A2B1C-0D4E-4F5A-8B9C-0123456789AB'
+
+
+def _request(uuid: str, reason: str = '02') -> CancellationRequest:
+    return CancellationRequest(
+        issuer_rfc=_ISSUER,
+        recipient_rfc=_RECIPIENT,
+        uuid=uuid,
+        total=Decimal('3160.00'),
+        reason=reason,
+        substitution=None,
+        csd=Csd(certificate=b'cert', key=b'key', password=b'secret'),
+    )
+
+
+async def _status(pac: SimulatedPac, uuid: str) -> tuple[str, str]:
+    status = await pac.query_status(_ISSUER, _RECIPIENT, uuid, Decimal('3160.00'))
+    return status.state, status.cancellation
+
+
+async def _stamped_hours_ago(pac: SimulatedPac, sessions: async_sessionmaker, hours: float) -> str:
+    stamp = await pac.stamp(_sealed())
+    async with sessions() as db:
+        await db.execute(
+            update(PacSimulation)
+            .where(PacSimulation.uuid == stamp.uuid)
+            .values(stamped_at=stamp.stamped_at - timedelta(hours=hours))
+        )
+        await db.commit()
+    return stamp.uuid
+
+
+@pytest.mark.parametrize(
+    ('hours', 'answer', 'status'),
+    [
+        (0, CancellationAnswer.ACCEPTED, ('cancelled', 'accepted')),
+        (23.9, CancellationAnswer.ACCEPTED, ('cancelled', 'accepted')),
+        (24, CancellationAnswer.PENDING, ('valid', 'pending')),
+        (48, CancellationAnswer.PENDING, ('valid', 'pending')),
+    ],
+)
+async def test_the_default_rule_accepts_a_stamp_under_24_hours_old(
+    pac: SimulatedPac,
+    sessions: async_sessionmaker,
+    hours: float,
+    answer: CancellationAnswer,
+    status: tuple[str, str],
+) -> None:
+    uuid = await _stamped_hours_ago(pac, sessions, hours)
+
+    assert await pac.request_cancellation(_request(uuid)) == answer
+    assert await _status(pac, uuid) == status
+
+
+@pytest.mark.parametrize(
+    ('outcome', 'answer', 'status'),
+    [
+        ('accepted', CancellationAnswer.ACCEPTED, ('cancelled', 'accepted')),
+        ('pending', CancellationAnswer.PENDING, ('valid', 'pending')),
+        ('not_cancellable', CancellationAnswer.NOT_CANCELLABLE, ('valid', 'none')),
+    ],
+)
+async def test_a_chosen_cancellation_answer_applies_once(
+    pac: SimulatedPac,
+    outcome: str,
+    answer: CancellationAnswer,
+    status: tuple[str, str],
+) -> None:
+    uuid = (await pac.stamp(_sealed())).uuid
+    await pac.set_next(_keys(), cancellation=outcome)
+    assert (await pac.get_record(_keys()))['next_cancellation'] == outcome
+
+    assert await pac.request_cancellation(_request(uuid)) == answer
+
+    assert await _status(pac, uuid) == status
+    assert (await pac.get_record(_keys()))['next_cancellation'] is None
+
+
+async def test_a_chosen_rejection_raises_the_chosen_code(pac: SimulatedPac) -> None:
+    uuid = (await pac.stamp(_sealed())).uuid
+    await pac.set_next(
+        _keys(), cancellation='rejected', pac_code='CANC205', pac_message='UUID no encontrado'
+    )
+
+    with pytest.raises(PacRejected) as caught:
+        await pac.request_cancellation(_request(uuid))
+
+    assert (caught.value.code, caught.value.message) == ('CANC205', 'UUID no encontrado')
+    assert await _status(pac, uuid) == ('valid', 'none')
+    # One-shot: the next request follows the default rule.
+    assert await pac.request_cancellation(_request(uuid)) == CancellationAnswer.ACCEPTED
+
+
+async def test_a_rejection_without_a_chosen_code_uses_the_default(pac: SimulatedPac) -> None:
+    uuid = (await pac.stamp(_sealed())).uuid
+    await pac.set_next(_keys(), cancellation='rejected')
+
+    with pytest.raises(PacRejected) as caught:
+        await pac.request_cancellation(_request(uuid))
+
+    assert (caught.value.code, caught.value.message) == ('CFDI40999', 'Rechazo simulado')
+
+
+async def test_unavailable_raises_and_changes_nothing(pac: SimulatedPac) -> None:
+    uuid = (await pac.stamp(_sealed())).uuid
+    await pac.set_next(_keys(), cancellation='unavailable')
+
+    with pytest.raises(PacUnavailable):
+        await pac.request_cancellation(_request(uuid))
+
+    assert await _status(pac, uuid) == ('valid', 'none')
+
+
+async def test_timeout_records_the_request_as_pending_then_raises(pac: SimulatedPac) -> None:
+    uuid = (await pac.stamp(_sealed())).uuid
+    await pac.set_next(_keys(), cancellation='timeout')
+
+    with pytest.raises(PacTimeout):
+        await pac.request_cancellation(_request(uuid))
+
+    assert await _status(pac, uuid) == ('valid', 'pending')
+
+
+@pytest.mark.parametrize(
+    ('answer', 'status'),
+    [
+        ('accept', ('cancelled', 'accepted')),
+        ('reject', ('valid', 'rejected')),
+        ('expire', ('cancelled', 'expired')),
+    ],
+)
+async def test_the_receiver_answers_a_pending_cancellation(
+    pac: SimulatedPac, answer: str, status: tuple[str, str]
+) -> None:
+    uuid = (await pac.stamp(_sealed())).uuid
+    await pac.set_next(_keys(), cancellation='pending')
+    await pac.request_cancellation(_request(uuid))
+
+    await pac.answer_as_receiver(_keys(), answer)
+
+    assert await _status(pac, uuid) == status
+    record = await pac.get_record((uuid, _ISSUER, 'RH', 11405))
+    assert (record['sat_status'], record['cancellation_status']) == status
+
+
+async def test_the_receiver_needs_a_pending_cancellation(pac: SimulatedPac) -> None:
+    await pac.stamp(_sealed())
+
+    with pytest.raises(DomainError) as caught:
+        await pac.answer_as_receiver(_keys(), 'accept')
+
+    assert caught.value.code == ErrorCode.FISCAL_DOCUMENT_NOTHING_TO_REFRESH
+    assert caught.value.detail == 'No cancellation is pending'
+
+
+async def test_an_unknown_uuid_gets_a_row_and_the_default_answers_pending(
+    pac: SimulatedPac, sessions: async_sessionmaker
+) -> None:
+    """A document the current system stamped: the simulator never saw its stamp date."""
+    assert await pac.request_cancellation(_request(_UNKNOWN.lower())) == CancellationAnswer.PENDING
+
+    [row] = await _rows(sessions)
+    assert (row.issuer, row.uuid, row.batch, row.serial, row.stamped_at) == (
+        _ISSUER,
+        _UNKNOWN,
+        None,
+        None,
+        None,
+    )
+    assert await _status(pac, _UNKNOWN) == ('valid', 'pending')
+
+
+async def test_set_next_for_an_unknown_uuid_is_followed_by_its_cancellation(
+    pac: SimulatedPac, sessions: async_sessionmaker
+) -> None:
+    keys = (_UNKNOWN, _ISSUER, 'A', 77)
+    await pac.set_next(keys, cancellation='accepted')
+
+    assert await pac.request_cancellation(_request(_UNKNOWN)) == CancellationAnswer.ACCEPTED
+
+    [row] = await _rows(sessions)
+    assert (row.uuid, row.batch, row.serial) == (_UNKNOWN, 'A', 77)
+    assert (await pac.get_record(keys))['cancellation_status'] == 'accepted'

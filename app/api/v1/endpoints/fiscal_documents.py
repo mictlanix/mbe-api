@@ -16,6 +16,7 @@ from app.models.fiscal import FiscalDocument
 from app.schemas import ListResponse, LocalDateTime
 from app.schemas.fiscal import (
     CreditNoteCreate,
+    FiscalDocumentCancelRequest,
     FiscalDocumentResponse,
     FiscalDocumentSummary,
     FiscalEmailRequest,
@@ -324,6 +325,24 @@ async def stamp_fiscal_document(
     provider = require_provider(provider)
     await _document_or_404(db, fiscal_document_id)
     await fiscal_stamping.stamp(db, fiscal_document_id, provider, current.employee_id)
+    return await _response(db, fiscal_document_id)
+
+
+@router.post('/{fiscal_document_id}/cancel', response_model=FiscalDocumentResponse)
+async def cancel_fiscal_document(
+    fiscal_document_id: int,
+    data: FiscalDocumentCancelRequest,
+    current: CurrentUser = Depends(_UPDATE),
+    provider: PacProvider | None = Depends(get_pac_provider),
+    db: AsyncSession = Depends(get_db),
+) -> FiscalDocumentResponse:
+    """Ask SAT, through the PAC, to cancel an issued CFDI: it is cancelled at once, or left
+    cancellation pending while the receiver answers. After a timeout a refresh resolves it."""
+    provider = require_provider(provider)
+    await _document_or_404(db, fiscal_document_id)
+    await fiscal_stamping.cancel(
+        db, fiscal_document_id, data.reason, data.substitution, provider, current.employee_id
+    )
     return await _response(db, fiscal_document_id)
 
 

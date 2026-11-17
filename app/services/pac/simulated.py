@@ -1,4 +1,4 @@
-"""The simulated PAC (spec 039, research R6). Its cancellation operations arrive with US2.
+"""The simulated PAC (spec 039, research R6).
 
 It keeps one `pac_simulation` row per document, written in its own session and committed at once,
 so a stamp it issued survives even when the API never stores it (a timeout, FR-007). The stamps it
@@ -9,19 +9,26 @@ import base64
 import logging
 import secrets
 import uuid as uuid_lib
+from datetime import timedelta
+from decimal import Decimal
 
 from lxml import etree
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.core.clock import local_now
+from app.core.error_codes import ErrorCode
+from app.core.errors import DomainError
 from app.db.session import AsyncSessionLocal
 from app.models.fiscal import PacSimulation
 from app.services.pac.provider import (
     SIMULATED_PAC_RFC,
+    CancellationAnswer,
+    CancellationRequest,
     PacRejected,
     PacTimeout,
     PacUnavailable,
+    SatStatus,
     Stamp,
 )
 
@@ -34,6 +41,14 @@ _TFD_XSD = 'http://www.sat.gob.mx/sitio_internet/cfd/TimbreFiscalDigital/TimbreF
 SAT_CERTIFICATE = '00001000000000000000'
 DEFAULT_PAC_CODE = 'CFDI40999'
 DEFAULT_PAC_MESSAGE = 'Rechazo simulado'
+# Spec 10's rule: a stamp under 24 hours old is cancelled at once, an older one waits.
+_WITHOUT_ACCEPTANCE = timedelta(hours=24)
+# What the receiver's answer leaves: SAT status and cancellation status.
+_RECEIVER = {
+    'accept': ('cancelled', 'accepted'),
+    'reject': ('valid', 'rejected'),
+    'expire': ('cancelled', 'expired'),
+}
 
 #: How the simulator routes name a document: (stamp_uuid or None, issuer, batch or '', serial).
 Keys = tuple[str | None, str, str, int | None]
@@ -92,6 +107,11 @@ def _stamp_of(row: PacSimulation, seal: str) -> Stamp | None:
         provider_rfc=timbre.get('RfcProvCertif', ''),
         xml=row.stamped_xml,
     )
+
+
+def _recent(row: PacSimulation) -> bool:
+    """Stamped under 24 hours ago. A row without a stamp date (a UUID it never stamped) is not."""
+    return row.stamped_at is not None and local_now() - row.stamped_at < _WITHOUT_ACCEPTANCE
 
 
 class SimulatedPac:
@@ -172,6 +192,55 @@ class SimulatedPac:
             )
             row = (await db.execute(query)).scalars().first()
             return _stamp_of(row, seal) if row is not None else None
+
+    async def request_cancellation(self, request: CancellationRequest) -> CancellationAnswer:
+        async with self.session_factory() as db:
+            row = await self._row(db, (request.uuid, request.issuer_rfc, None, None))
+            outcome = row.next_cancellation or ('accepted' if _recent(row) else 'pending')
+            code = row.pac_code or DEFAULT_PAC_CODE
+            message = row.pac_message or DEFAULT_PAC_MESSAGE
+            row.next_cancellation = None
+            if outcome == 'rejected':
+                row.pac_code = row.pac_message = None
+            if outcome == 'accepted':
+                row.sat_status, row.cancellation_status = 'cancelled', 'accepted'
+            elif outcome in ('pending', 'timeout'):
+                # A timeout: SAT received the request, so a status query shows it in process.
+                row.sat_status, row.cancellation_status = 'valid', 'pending'
+            row.updated_at = local_now().replace(microsecond=0)
+            await db.commit()
+        if outcome == 'rejected':
+            raise PacRejected(code, message)
+        if outcome == 'unavailable':
+            raise PacUnavailable()
+        if outcome == 'timeout':
+            raise PacTimeout()
+        return CancellationAnswer(outcome)
+
+    async def query_status(
+        self, issuer_rfc: str, recipient_rfc: str, uuid: str, total: Decimal
+    ) -> SatStatus:
+        async with self.session_factory() as db:
+            row = await self._row(db, (uuid, issuer_rfc, None, None))
+            await db.commit()
+            return SatStatus(
+                state=row.sat_status,
+                cancellable='without_acceptance' if _recent(row) else 'with_acceptance',
+                cancellation=row.cancellation_status,
+            )
+
+    async def answer_as_receiver(self, keys: Keys, answer: str) -> None:
+        """The receiver accepts, rejects or lets expire the document's pending cancellation."""
+        async with self.session_factory() as db:
+            row = await self._row(db, keys)
+            if row.cancellation_status != 'pending':
+                await db.rollback()
+                raise DomainError(
+                    ErrorCode.FISCAL_DOCUMENT_NOTHING_TO_REFRESH, 'No cancellation is pending'
+                )
+            row.sat_status, row.cancellation_status = _RECEIVER[answer]
+            row.updated_at = local_now().replace(microsecond=0)
+            await db.commit()
 
     async def set_next(
         self,

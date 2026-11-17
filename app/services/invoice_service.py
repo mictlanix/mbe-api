@@ -1099,6 +1099,7 @@ def _payable(receipt: FiscalDocument, invoice: FiscalDocument) -> bool:
         and invoice.payment_terms == PaymentTerms.NET_D
         and invoice.issuer == receipt.issuer
         and invoice.recipient == receipt.recipient
+        and invoice.cancelling_since is None
     )
 
 
@@ -1369,6 +1370,7 @@ async def _prepare_receipt(db: AsyncSession, document: FiscalDocument) -> SealBu
                 .where(FiscalDocument.fiscal_document_id.in_(ids))
                 .order_by(FiscalDocument.fiscal_document_id)
                 .with_for_update()
+                .execution_options(populate_existing=True)
             )
         ).scalars()
     }
@@ -1444,6 +1446,7 @@ def _creditable(invoice: FiscalDocument) -> bool:
         and invoice.completed
         and not invoice.cancelled
         and bool(invoice.stamp_uuid)
+        and invoice.cancelling_since is None
     )
 
 
@@ -1626,6 +1629,7 @@ async def _prepare_credit_note(db: AsyncSession, document: FiscalDocument) -> Se
             select(FiscalDocument)
             .where(FiscalDocument.fiscal_document_id == relation)
             .with_for_update()
+            .execution_options(populate_existing=True)
         )
     ).scalar_one()
     if not _creditable(invoice):

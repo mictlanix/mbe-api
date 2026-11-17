@@ -170,3 +170,144 @@ async def test_a_service_refusal_is_returned_as_its_problem(
 
     body = assert_problem(response, expected_status, code)
     assert body.get('params', {}) == params
+
+
+# ── POST /cancel ──────────────────────────────────────────────────────────────
+
+_CANCEL_URL = '/api/v1/fiscal-documents/9/cancel'
+_SUBSTITUTE = 'ab12cd34-0000-4000-8000-0000000000ef'
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('state', ['cancelled', 'cancellation_pending'])
+async def test_cancel_returns_the_document(state: str) -> None:
+    _auth()
+    pac = _provider(ScriptedPac())
+    with (
+        patch(f'{_STAMPING}.cancel', AsyncMock()) as cancel,
+        patch(f'{_SERVICE}.get_document', AsyncMock(return_value=_row(status=state))),
+    ):
+        async with await _client() as client:
+            response = await client.post(
+                _CANCEL_URL, json={'reason': '01', 'substitution': _SUBSTITUTE}
+            )
+
+    assert response.status_code == status.HTTP_200_OK
+    assert response.json()['status'] == state
+    assert cancel.await_args.args[1:3] == (9, '01')
+    assert str(cancel.await_args.args[3]) == _SUBSTITUTE
+    assert cancel.await_args.args[4:] == (pac, 7)
+
+
+@pytest.mark.asyncio
+async def test_cancel_without_a_substitute_passes_none() -> None:
+    _auth()
+    _provider(ScriptedPac())
+    with (
+        patch(f'{_STAMPING}.cancel', AsyncMock()) as cancel,
+        patch(f'{_SERVICE}.get_document', AsyncMock(return_value=_row(status='cancelled'))),
+    ):
+        async with await _client() as client:
+            response = await client.post(_CANCEL_URL, json={'reason': '02'})
+
+    assert response.status_code == status.HTTP_200_OK
+    assert cancel.await_args.args[2:4] == ('02', None)
+
+
+@pytest.mark.asyncio
+async def test_cancel_requires_authentication() -> None:
+    async with await _client() as client:
+        response = await client.post(_CANCEL_URL, json={'reason': '02'})
+
+    assert response.status_code == status.HTTP_401_UNAUTHORIZED
+
+
+@pytest.mark.asyncio
+async def test_cancel_requires_update_on_fiscal_documents() -> None:
+    _auth(administrator=False)
+    _deny_privileges()
+    _provider(ScriptedPac())
+    with patch(f'{_STAMPING}.cancel', AsyncMock()) as cancel:
+        async with await _client() as client:
+            response = await client.post(_CANCEL_URL, json={'reason': '02'})
+
+    body = assert_problem(response, 403, 'auth.forbidden')
+    assert body['params']['required'] == [{'system_object': 23, 'right': int(AccessRight.UPDATE)}]
+    cancel.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_cancel_of_a_missing_document_is_404() -> None:
+    _auth()
+    _provider(ScriptedPac())
+    with (
+        patch(f'{_SERVICE}.get_document', AsyncMock(return_value=None)),
+        patch(f'{_STAMPING}.cancel', AsyncMock()) as cancel,
+    ):
+        async with await _client() as client:
+            response = await client.post(_CANCEL_URL, json={'reason': '02'})
+
+    assert_problem(response, 404, 'resource.not_found')
+    cancel.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_cancel_without_a_provider_is_503() -> None:
+    _auth()
+    _provider(None)
+    with patch(f'{_STAMPING}.cancel', AsyncMock()) as cancel:
+        async with await _client() as client:
+            response = await client.post(_CANCEL_URL, json={'reason': '02'})
+
+    assert_problem(response, 503, 'pac.not_configured')
+    cancel.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_a_substitution_that_is_not_a_uuid_is_422() -> None:
+    _auth()
+    _provider(ScriptedPac())
+    with patch(f'{_STAMPING}.cancel', AsyncMock()) as cancel:
+        async with await _client() as client:
+            response = await client.post(
+                _CANCEL_URL, json={'reason': '01', 'substitution': 'not-a-uuid'}
+            )
+
+    assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
+    cancel.assert_not_awaited()
+
+
+_CANCEL_REFUSALS = [
+    (ErrorCode.FISCAL_DOCUMENT_NOT_ISSUED, None),
+    (ErrorCode.FISCAL_DOCUMENT_CANCELLATION_OPEN, None),
+    (ErrorCode.FISCAL_DOCUMENT_HAS_LIVE_DOCUMENTS, {'documents': ['P12', 'NC3']}),
+    (ErrorCode.FISCAL_DOCUMENT_NOT_CANCELLABLE, None),
+    (ErrorCode.LOCK_BUSY, {'resource': 'fiscal_document'}),
+    (ErrorCode.FISCAL_DOCUMENT_UNKNOWN_CANCELLATION_REASON, {'reason': '09'}),
+    (ErrorCode.FISCAL_DOCUMENT_SUBSTITUTION_REQUIRED, None),
+    (ErrorCode.FISCAL_DOCUMENT_SUBSTITUTION_INVALID, {'substitution': _SUBSTITUTE}),
+    (ErrorCode.FISCAL_DOCUMENT_NO_VALID_CERTIFICATE, None),
+    (ErrorCode.PAC_REJECTED, {'pac_code': 'CANC205', 'pac_message': 'UUID no encontrado'}),
+    (ErrorCode.PAC_UNAVAILABLE, None),
+    (ErrorCode.PAC_TIMEOUT, {'state': 'cancellation_pending'}),
+]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ('code', 'params'), _CANCEL_REFUSALS, ids=[str(c.value) for c, _ in _CANCEL_REFUSALS]
+)
+async def test_a_cancel_refusal_is_returned_as_its_problem(
+    code: ErrorCode, params: dict | None
+) -> None:
+    _auth()
+    _provider(ScriptedPac())
+    with (
+        patch(f'{_STAMPING}.cancel', AsyncMock(side_effect=DomainError(code, 'Refused', params))),
+        patch(f'{_SERVICE}.get_document', AsyncMock(return_value=_row())),
+    ):
+        async with await _client() as client:
+            response = await client.post(_CANCEL_URL, json={'reason': '02'})
+
+    body = assert_problem(response, code.status, str(code.value))
+    assert body.get('params', {}) == (params or {})

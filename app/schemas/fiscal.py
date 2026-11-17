@@ -1,6 +1,7 @@
 from datetime import date
 from decimal import Decimal
 from typing import Literal
+from uuid import UUID
 
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator
 from pydantic_core import PydanticCustomError
@@ -361,6 +362,13 @@ class InvoiceLineCopy(BaseModel):
 
     line: int
     quantity: Decimal | None = Field(None, gt=0, max_digits=18, decimal_places=4)
+
+
+class FiscalDocumentCancelRequest(BaseModel):
+    """SAT's cancellation reason, 01–04, and for 01 the substitute document's UUID."""
+
+    reason: str
+    substitution: UUID | None = None
 
 
 class FiscalEmailRequest(QuoteEmailRequest):
