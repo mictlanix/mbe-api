@@ -13,7 +13,7 @@
 
 ## Requirement Completeness
 
-- [ ] No [NEEDS CLARIFICATION] markers remain
+- [x] No [NEEDS CLARIFICATION] markers remain
 - [x] Requirements are testable and unambiguous
 - [x] Success criteria are measurable
 - [x] Success criteria are technology-agnostic (no implementation details)
@@ -31,5 +31,5 @@
 
 ## Notes
 
-- One marker remains: what the API requires of a reason-01 substitute (User Story 2, scenario 9; FR-017).
+- Reason-01 substitute resolved 2026-11-16 (option C).
 - The spec names existing tables and fields (`sat_reason_cancellation`, the stamp and cancellation columns) because the feature extends them, and the readers are this API's developers. It names no technology.

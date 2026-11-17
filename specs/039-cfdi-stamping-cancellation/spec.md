@@ -41,6 +41,12 @@ The API talks to the PAC only through a **PAC provider contract** that mbe-api o
   Businesses cancel first and then reissue: the 2 substitution relations (04) since 2024 both relate an invoice that was already cancelled.
 - **Volume.** Since 2024 the current system stamped 14,722 invoices, 67 payment receipts, 5 credit notes and 48 type-101 documents.
 
+## Clarifications
+
+### Session 2026-11-16
+
+- Q: What does the API require of the substitute for reason 01? → A: The substitute must be a stamped, live document with the same issuer and recipient. The API does not require the 04 relation, and spec 027 is unchanged. If SAT rejects the substitute, the PAC's rejection is returned.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Stamp a sealed document (Priority: P1)
@@ -81,7 +87,7 @@ An authorised user cancels a stamped document with a SAT reason. Depending on wh
 6. **Given** an invoice with a live payment receipt or credit note related to it, **When** a user cancels it, **Then** the request is refused with a coded error naming those documents. Live means sealed, stamping, issued or cancellation pending.
 7. **Given** an invoice that becomes cancelled, **Then** its units can be refunded (spec 028's refund rule) and it no longer counts in the previous balance that later payment receipts compute.
 8. **Given** a payment receipt that becomes cancelled, **Then** its customer payment can back a new receipt (spec 028).
-9. **Given** reason 01, **When** a user cancels, **Then** a substitute UUID is required. [NEEDS CLARIFICATION: what the API requires of the substitute — see Question 1 in the report]
+9. **Given** reason 01, **When** a user cancels, **Then** a substitute UUID is required, and it must be a stamped, live document (issued or cancellation pending) of the same issuer and recipient. Otherwise the request is refused with a coded error before the PAC is called. The API does not require the substitute to relate this document with 04, and spec 027's relation and remaining-quantity rules are unchanged. If SAT refuses the substitute, the PAC's rejection is returned (FR-014's rejection error) and the document stays issued.
 
 ---
 
@@ -194,7 +200,7 @@ A developer or a UI tester reaches every PAC outcome through the API alone, with
 
 **Cancellation**
 
-- **FR-017**: The API MUST accept a cancellation request for an issued document with a SAT reason from the `sat_reason_cancellation` catalogue (01–04). For 01 a substitute UUID is required (see Question 1).
+- **FR-017**: The API MUST accept a cancellation request for an issued document with a SAT reason from the `sat_reason_cancellation` catalogue (01–04). For 01 a substitute UUID is required. It must be a stamped, live document (issued or cancellation pending) with the same issuer and recipient; the API does not check for a 04 relation, and a refusal by SAT comes back as the PAC's rejection.
 - **FR-018**: Before requesting cancellation, the API MUST refuse it with a coded error when:
   - the document is not issued;
   - for an invoice, any payment receipt or credit note related to it is live (sealed, stamping, issued or cancellation pending). The error lists those documents.
