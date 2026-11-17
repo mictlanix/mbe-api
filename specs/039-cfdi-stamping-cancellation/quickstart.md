@@ -58,4 +58,4 @@ seq 20 | xargs -P20 -I{} curl -s -o /dev/null -w '%{http_code}\n' -X POST -H "Au
   https://test.api.mbe.mictlanix.com/api/v1/fiscal-documents/$ID/stamp | sort | uniq -c
 ```
 
-Expect the document to end issued with one UUID, `GET /pac-simulator/fiscal-documents/$ID` to show that same UUID, and every response to be 200, 409 `fiscal_document.stamping` or 409 `lock.busy`.
+Count the simulator's stamp calls for the document in the service journal (`journalctl -u <test unit> | grep -c 'pac simulator: stamp call <issuer> <batch><serial>'`): expect exactly 1, which is SC-002's measure. Expect the document to end issued with one UUID, `GET /pac-simulator/fiscal-documents/$ID` to show that same UUID, and every response to be 200, 409 `fiscal_document.stamping` or 409 `lock.busy`.
