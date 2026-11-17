@@ -217,7 +217,7 @@ A developer or a UI tester reaches every PAC outcome through the API alone, with
   - cancelled when SAT reports it cancelled;
   - back to issued when the cancellation is rejected, or SAT still reports it valid with no cancellation in process;
   - pending otherwise.
-- **FR-022**: When a document becomes cancelled, the API MUST set its existing cancellation fields (`cancelled`, cancellation date, reason, substitute UUID). From that moment it stops counting as live, so spec 028's refund rule and the previous balance of later payment receipts no longer include it.
+- **FR-022**: When a document becomes cancelled, the API MUST set its existing cancellation fields (`cancelled`, cancellation date, reason, substitute UUID). From that moment it stops counting as live, so spec 028's refund rule and the previous balance of later payment receipts no longer include it. When the cancelled document is a credit note, the orders on its invoice owe again, and their `paid` flag is updated as spec 033 FR-011 requires for a credit note's cancellation, in the same transaction, exactly as reopening a credit note already does.
 - **FR-023**: Each cancellation request MUST be recorded in a cancellation history:
   - document, reason, substitute UUID;
   - requester, request time;

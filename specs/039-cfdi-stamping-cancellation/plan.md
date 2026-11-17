@@ -88,7 +88,7 @@ app/
 ├── core/error_codes.py             # 12 new codes
 ├── main.py                         # lifespan refuses simulated+production
 ├── api/v1/router.py                # includes the simulator router (404 per request unless simulated)
-├── models/fiscal.py                # stamping_since, FiscalDocumentCancellation, PacSimulation
+├── models/fiscal.py                # stamping_since, cancelling_since, FiscalDocumentCancellation, PacSimulation
 ├── schemas/fiscal.py               # status values, stamp, cancellations[], request bodies
 ├── services/pac/
 │   ├── __init__.py                 # get_pac_provider()
@@ -108,7 +108,7 @@ tests/
 ├── unit/ (extended) test_fiscal_document_service.py, test_invoice_service.py, test_print_contexts.py, test_fiscal_schemas.py; integration/ (extended) test_print_render.py
 ├── integration/test_stamp_flow.py, test_cancel_flow.py, test_resolve_job.py, test_fiscal_stamping_http.py
 └── api/test_fiscal_stamping.py, test_pac_simulator.py
-docs/data-dictionary.md             # stamping_since and the two new tables
+docs/data-dictionary.md             # stamping_since, cancelling_since and the two new tables
 docs/specs/10-fiscal-documents.md   # "New MBE: stamping and cancellation (spec 039)" section
 specs/036-localizable-error-codes/contracts/error-codes.md  # new rows; lock.busy resource list gains fiscal_document
 ```

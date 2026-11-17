@@ -2,7 +2,7 @@
 
 All changes are in migration **034** (`migrations/034_cfdi_stamping_cancellation.sql`, with its rollback). They are additive, and the current system ignores them. Applying the migration to mbe_dev needs confirmation.
 
-## fiscal_document (existing, one new column)
+## fiscal_document (existing, two new columns)
 
 | Column | Type | Notes |
 |---|---|---|
@@ -47,7 +47,7 @@ One row per cancellation request.
 | `fiscal_document_cancellation_id` | `INT AUTO_INCREMENT PK` | |
 | `fiscal_document` | `INT NOT NULL` FK → `fiscal_document` | |
 | `reason` | `VARCHAR(2) NOT NULL` FK → `sat_reason_cancellation` | `01`–`04` |
-| `substitution` | `VARCHAR(36) NULL` | Required for 01; must be a stamped, live document of the same issuer and recipient |
+| `substitution` | `VARCHAR(36) NULL` | Required for 01; must be a stamped, live document of the same issuer and recipient. NULL for 02–04, where a substitute sent is ignored |
 | `status` | `VARCHAR(20) NOT NULL` | One of the values below |
 | `pac_code` | `VARCHAR(20) NULL` | When the PAC rejected the request |
 | `pac_message` | `VARCHAR(500) NULL` | Same |
