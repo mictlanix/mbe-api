@@ -128,6 +128,17 @@ class FiscalDocumentRelationResponse(BaseModel):
         return relation_code(value)
 
 
+class FiscalDocumentStamp(BaseModel):
+    """The PAC's stamp (spec 039). `stamped` repeats the top-level field, so this is complete on
+    its own; `simulated` is true when the simulated PAC stamped it."""
+
+    uuid: str
+    stamped: LocalDateTime | None
+    sat_certificate: str | None
+    provider_rfc: str | None
+    simulated: bool
+
+
 class FiscalDocumentResponse(FiscalDocumentSummary):
     issuer_regime: str | None
     issuer_regime_name: str | None
@@ -153,6 +164,9 @@ class FiscalDocumentResponse(FiscalDocumentSummary):
     lines: list[FiscalDocumentLine]
     relations: list[FiscalDocumentRelationResponse] = []
     paid_invoices: list['PaidInvoiceResponse'] = []
+    # Spec 039: null until stamped, and set while a stamp is with the PAC.
+    stamp: FiscalDocumentStamp | None = None
+    stamping_since: LocalDateTime | None = None
 
 
 def relation_code(stored: object) -> str | None:

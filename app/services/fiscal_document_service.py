@@ -17,6 +17,7 @@ from app.models.fiscal import (
     FiscalDocumentRelation,
     FiscalDocumentXml,
 )
+from app.services.pac.provider import SIMULATED_PAC_RFC
 
 DocumentStatus = Literal[
     'draft', 'sealed', 'stamping', 'issued', 'cancellation_pending', 'cancelled'
@@ -192,8 +193,8 @@ async def get_paid_invoices(
 
 
 async def get_document(db: AsyncSession, fiscal_document_id: int) -> FiscalDocument | None:
-    """The document with `lines`, `relations`, `status` and `total` attached, and a payment
-    receipt's `paid_invoices`."""
+    """The document with `lines`, `relations`, `status`, `total` and `stamp` attached, and a
+    payment receipt's `paid_invoices`."""
     document = await db.get(FiscalDocument, fiscal_document_id)
     if document is None:
         return None
@@ -207,6 +208,17 @@ async def get_document(db: AsyncSession, fiscal_document_id: int) -> FiscalDocum
     xml = await get_xml(db, fiscal_document_id)
     document.status = document_status(document, has_xml=xml is not None)
     document.total = xml_total(xml)
+    document.stamp = (
+        {
+            'uuid': document.stamp_uuid,
+            'stamped': document.stamped,
+            'sat_certificate': document.authority_certificate_number,
+            'provider_rfc': document.rfc_pac,
+            'simulated': document.rfc_pac == SIMULATED_PAC_RFC,
+        }
+        if document.stamp_uuid
+        else None
+    )
     document.paid_invoices = (
         await get_paid_invoices(db, document, live_values=document.status == 'draft')
         if document.type == PAYMENT_RECEIPT

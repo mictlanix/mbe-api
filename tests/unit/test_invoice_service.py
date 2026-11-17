@@ -6,7 +6,10 @@ from types import SimpleNamespace
 
 import pytest
 
+from app.core.error_codes import ErrorCode
+from app.core.errors import DomainError
 from app.services import invoice_service as svc
+from tests.unit.test_inventory_locks import COMMIT, FakeSession
 
 _T0 = datetime(2026, 10, 1, 9, 0)
 
@@ -136,3 +139,29 @@ def test_default_amount_is_the_smaller_of_balance_and_unassigned(
 ) -> None:
     left = Decimal(unassigned) if unassigned is not None else None
     assert svc.default_amount(Decimal(balance), left) == Decimal(expected)
+
+
+# ── Reopen and a stamp in flight (spec 039, research R15 rule 8) ──────────────
+
+
+async def test_reopen_refuses_a_row_locked_as_stamping_though_read_as_sealed() -> None:
+    """A stamp committed its marker after the route read the document as sealed."""
+    locked = SimpleNamespace(
+        fiscal_document_id=9,
+        type=0,
+        completed=False,
+        cancelled=False,
+        stamping_since=datetime(2026, 11, 17, 10, 0),
+    )
+    session = FakeSession(lambda sql: [locked] if sql.rstrip().endswith('FOR UPDATE') else [])
+    route_copy = SimpleNamespace(fiscal_document_id=9, type=0, status='sealed')
+
+    with pytest.raises(DomainError) as caught:
+        await svc.reopen(session, SimpleNamespace(employee_id=1), route_copy)  # type: ignore[arg-type]
+
+    assert caught.value.code == ErrorCode.FISCAL_DOCUMENT_NOT_SEALED
+    [lock] = session.statements
+    assert lock._for_update_arg is not None
+    assert lock.get_execution_options().get('populate_existing') is True
+    # It runs in the route's transaction: no commit before the lock.
+    assert COMMIT not in session.log
