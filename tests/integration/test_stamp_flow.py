@@ -19,7 +19,7 @@ from app.schemas.fiscal import FiscalDocumentResponse, InvoiceLineUpdate
 from app.services import fiscal_document_service as fds
 from app.services import fiscal_stamping
 from app.services import invoice_service as svc
-from app.services.pac.provider import SIMULATED_PAC_RFC, PacProvider, PacTimeout
+from app.services.pac.provider import SIMULATED_PAC_RFC, PacProvider, PacRejected, PacTimeout
 from app.services.pac.simulated import SimulatedPac
 from tests.fakes.pac import SCRIPTED_PAC_RFC, ScriptedPac
 from tests.integration.test_credit_note_flow import (  # noqa: F401
@@ -210,6 +210,46 @@ async def test_after_a_timeout_the_document_is_stamping_and_never_stamped_twice(
         409,
         'fiscal_document.not_draft',
     )
+
+
+async def test_a_rejected_document_stays_sealed_and_can_be_fixed_and_stamped(
+    invoicing: Invoicing,  # noqa: F811
+    pac: PacProvider,
+) -> None:
+    """US1 scenario 4: the PAC's code and message come back, the document stays sealed, and the
+    clerk reopens it, fixes it, seals it again and stamps it (T051)."""
+    db, current = invoicing.db, invoicing.current
+    sealed = await invoicing.confirm(await _ready(invoicing))
+    document_id = sealed.fiscal_document_id
+    if isinstance(pac, SimulatedPac):
+        keys = (None, sealed.issuer, sealed.batch or '', sealed.serial)
+        await pac.set_next(keys, stamp='rejected', pac_code='CFDI40102', pac_message='Sello')
+    else:
+        pac.queue('stamp', PacRejected('CFDI40102', 'Sello'))
+
+    with pytest.raises(HTTPException) as caught:
+        await _stamp(db, current, document_id, pac)
+    assert (caught.value.status_code, caught.value.code) == (422, 'pac.rejected')
+    assert caught.value.params == {'pac_code': 'CFDI40102', 'pac_message': 'Sello'}
+
+    document = await invoicing.load(document_id)
+    assert (document.status, document.stamping_since) == ('sealed', None)
+    await svc.reopen(db, current, document)
+    document = await invoicing.load(document_id)
+    assert document.status == 'draft'
+    await svc.update_line(
+        db,
+        current,
+        document,
+        document.lines[0].fiscal_document_detail_id,
+        InvoiceLineUpdate(quantity=1),
+    )
+    await invoicing.confirm(await invoicing.load(document_id))
+    await _stamp(db, current, document_id, pac)
+
+    document = await invoicing.load(document_id)
+    assert document.status == 'issued'
+    assert document.lines[0].quantity == 1
 
 
 # ── Refresh (US3, SC-004), T033 ───────────────────────────────────────────────

@@ -303,7 +303,7 @@ Each returns the document.
 
 ### New MBE: payment receipts, credit notes and email (spec 028, #53, #55, #50)
 
-**Stamping and cancellation are still pending** (#46, #51). Receipts and credit notes stop at a sealed document, as invoices do. Spec 027's states, serial lock, 72-hour rule, certificate choice and reopen apply to both.
+**Stamping and cancellation now exist against a simulated PAC** (spec 039, below); #46 and #51 connect the real one. Receipts and credit notes are sealed as invoices are, then stamped by the same action. Spec 027's states, serial lock, 72-hour rule, certificate choice and reopen apply to both.
 
 **Payment receipts** (type 200, Pagos 2.0):
 
@@ -353,6 +353,41 @@ Each returns the document.
 - **Recording:** each send the server accepts is recorded as an incidence (source 13).
 - **Errors:** 409 for anything not stamped, 502 when the server refuses, 503 when mail is not configured.
 - **QR:** spec 020's PDF already prints the SAT verification QR.
+
+### New MBE: stamping and cancellation (spec 039, mictlanix/mbe-roadmap#159)
+
+The API stamps and cancels invoices, payment receipts and credit notes through a PAC provider contract it owns (`app/services/pac/provider.py`). In this step a **simulated PAC** fulfils it; #160 builds the real client and #46/#51 connect it behind the same contract. The current system keeps stamping its own documents until the cutover (#57); the API treats the documents it stamped like its own.
+
+**States** (`status` on list and detail, and the list's `status` filter):
+
+| State | Means |
+|---|---|
+| `draft` | No sealed XML |
+| `sealed` | Sealed XML, not stamped (spec 027) |
+| `stamping` | A stamp request reached the PAC and its outcome is not known yet (`fiscal_document.stamping_since`) |
+| `issued` | Stamped, with no cancellation in process |
+| `cancellation_pending` | Stamped, with a cancellation request open (`fiscal_document.cancelling_since`) |
+| `cancelled` | Cancelled before SAT |
+
+`issued` keeps its name but no longer includes documents with a cancellation in process. A `cancellation_pending` document is still live everywhere specs 027 and 028 count live documents (units held, refunds, receipt balances, credit-note limits), except that its invoice takes no new receipt or credit note while the request is open.
+
+**Routes** (Update on 23, no facility scope):
+
+| Route | Does |
+|---|---|
+| `POST /fiscal-documents/{id}/stamp` | Records `stamping`, sends the sealed XML to the PAC with no transaction open, and stores the stamp (UUID, date, SAT seal, SAT certificate, provider RFC) and the stamped XML. Re-checks the 72-hour issue date first. A rejection or an unavailable PAC leaves it sealed; a timeout leaves it `stamping`. A stamped document comes back unchanged; a `stamping` one is refused and never sent again |
+| `POST /fiscal-documents/{id}/cancel` | Reason 01–04; 01 needs a substitute UUID that is a stamped, live document of the same issuer and recipient. An invoice with live related receipts or credit notes is refused, naming them. SAT's answer leaves it `cancelled` or `cancellation_pending`; whether acceptance is needed comes from the PAC, never from the API |
+| `POST /fiscal-documents/{id}/refresh` | Resolves a `stamping` document by looking up the stamp (issued if found; sealed again if not, but only 5 minutes after the request was sent) or an open cancellation by SAT's status (cancelled, back to issued, or still pending) |
+
+Every cancellation request is kept in `fiscal_document_cancellation` and returned as the detail's `cancellations[]`: reason, substitute, requester, request, answer and resolution times, the last status check, the PAC's code and message on a rejection, and the outcome (`accepted`, `expired`, `rejected`, `not_cancellable`, `failed`). At most one is open per document. A credit note that becomes cancelled reopens the `paid` flag of its invoice's orders, as reopening it does (spec 033 FR-011). Each state change is an incidence (source 13). No PAC credential is stored by or passed to the API's callers.
+
+**The simulator** (`PAC_PROVIDER=simulated`). It stamps a TFD 1.1 with a random UUID and provider RFC `SIM010101SIM`; the PDF of such a document carries "DOCUMENTO SIMULADO — SIN VALIDEZ FISCAL" and the detail's `stamp.simulated` is true. Its state lives in `pac_simulation`. Testers choose the next outcome per document through `/api/v1/pac-simulator/fiscal-documents/{id}` (`PUT` for the next stamp or cancellation, `POST …/receiver` to accept, reject or let expire a pending cancellation); with nothing chosen a stamp succeeds and a cancellation is accepted at once under 24 hours from the stamp and pending after. The routes answer 404 unless the simulator is configured. `specs/039-cfdi-stamping-cancellation/contracts/endpoints.md` lists how to reach each outcome.
+
+**The job.** `uv run python -m app.jobs.resolve_fiscal_documents` refreshes every `stamping` document and open cancellation, oldest first, as the system employee; a failure is printed and the run moves on. Cron on dev and test: `*/10 * * * * cd <instance> && uv run python -m app.jobs.resolve_fiscal_documents`.
+
+**Settings.** `PAC_PROVIDER` is `none` (the default: stamp, cancel and refresh answer 503 `pac.not_configured`) or `simulated`. `APP_ENV` is `development`, `staging` or `production` (the default); the application and the job refuse to start with the simulator in production.
+
+**Migration 034** adds `fiscal_document.stamping_since` and `cancelling_since` and creates `fiscal_document_cancellation` and `pac_simulation`, with its rollback. The current system ignores them.
 
 ### Document Type Views
 Different view templates per document type:

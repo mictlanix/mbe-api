@@ -38,7 +38,7 @@ Not changed: `/xml` and `/pdf` (issued, pending and cancelled documents) and `/e
 | not issued (draft, sealed, stamping, cancelled) | 409 `fiscal_document.not_issued` |
 | row locked by another request | 409 `lock.busy {resource: "fiscal_document"}` |
 | an open request | 409 `fiscal_document.cancellation_open` |
-| live related receipts or credit notes | 409 `fiscal_document.has_live_documents {documents: ["P12", "NC3"]}` |
+| an invoice with live related receipts or credit notes (invoices only) | 409 `fiscal_document.has_live_documents {documents: ["P12", "NC3"]}` |
 | SAT: not cancellable | 409 `fiscal_document.not_cancellable`; issued |
 | unknown reason | 422 `fiscal_document.unknown_cancellation_reason {reason}` |
 | 01 without substitution | 422 `fiscal_document.substitution_required` |
@@ -47,7 +47,7 @@ Not changed: `/xml` and `/pdf` (issued, pending and cancelled documents) and `/e
 | issuer has no certificate valid now | 422 `fiscal_document.no_valid_certificate`; the PAC is not called |
 | no provider | 503 `pac.not_configured` |
 | PAC unavailable | 503 `pac.unavailable`; issued |
-| PAC timeout | 504 `pac.timeout {state: "cancellation_pending"}`; cancellation_pending |
+| PAC timeout | 504 `pac.timeout {state: "cancellation_pending"}`; cancellation_pending, its request still `requested` (a refresh moves it to `pending` once SAT reports it in process) |
 
 ### `POST /refresh`
 
@@ -59,6 +59,7 @@ Not changed: `/xml` and `/pdf` (issued, pending and cancelled documents) and `/e
 | row locked by another request | 409 `lock.busy {resource: "fiscal_document"}` |
 | no provider | 503 `pac.not_configured` |
 | PAC unavailable or timeout | 503 or 504; unchanged |
+| PAC rejects the look-up or status query | 422 `pac.rejected {pac_code, pac_message}`; unchanged |
 
 ## Simulated PAC controls (dev and test only)
 
@@ -67,8 +68,8 @@ Every simulator route answers 404 `request.route_not_found` unless `PAC_PROVIDER
 | Method | Route | Body | Effect |
 |---|---|---|---|
 | GET | `/pac-simulator/fiscal-documents/{id}` | – | The simulator's record: `uuid`, `sat_status`, `cancellation_status`, `next_stamp`, `next_cancellation` |
-| PUT | `/pac-simulator/fiscal-documents/{id}` | `{stamp?, cancellation?, pac_code?, pac_message?}` | Sets the outcome of the **next** stamp or cancellation call only |
-| POST | `/pac-simulator/fiscal-documents/{id}/receiver` | `{answer: "accept" \| "reject" \| "expire"}` | Answers a pending cancellation as the receiver. 409 `fiscal_document.nothing_to_refresh` if none is pending |
+| PUT | `/pac-simulator/fiscal-documents/{id}` | `{stamp?, cancellation?, pac_code?, pac_message?}` | Sets the outcome of the **next** stamp or cancellation call only. Returns the simulator's record, as GET |
+| POST | `/pac-simulator/fiscal-documents/{id}/receiver` | `{answer: "accept" \| "reject" \| "expire"}` | Answers a pending cancellation as the receiver and returns the simulator's record, as GET. 409 `fiscal_document.nothing_to_refresh` if none is pending |
 
 `stamp`: `stamped`, `rejected`, `unavailable`, `timeout_stamped`, `timeout_not_stamped`.
 
