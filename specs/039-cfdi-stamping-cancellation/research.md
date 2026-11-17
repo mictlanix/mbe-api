@@ -293,7 +293,7 @@ Confirm and reopen record no audit today. This spec does not add it to them (sur
 
 ## R13. Proving the provider can be swapped (SC-006)
 
-**Decision.** `tests/fakes/pac.py` holds `ScriptedPac`, an in-memory implementation of the Protocol that is not the simulator. The flow tests run against both the simulator and the fake, through `app.dependency_overrides[get_pac_provider]`. Nothing outside `app/services/pac/` imports the simulator, except the settings switch and the simulator routes.
+**Decision.** `tests/fakes/pac.py` holds `ScriptedPac`, an in-memory implementation of the Protocol that is not the simulator. The flow tests call the service with each provider directly; only the HTTP test (`test_fiscal_stamping_http.py`) overrides `get_pac_provider`. Nothing outside `app/services/pac/` imports the simulator, except the settings switch and the simulator routes.
 
 ## R14. Credentials (FR-003, SC-007)
 
