@@ -196,7 +196,7 @@ A developer or a UI tester reaches every PAC outcome through the API alone, with
 - **FR-013**: Stamping MUST re-check the 72-hour issue-date rule from spec 027 before calling the PAC.
 - **FR-014**: When the PAC rejects or is unavailable, the document MUST stay sealed. The error MUST follow spec 036, and a rejection includes the PAC's code and message as parameters.
 - **FR-015**: An issued document MUST NOT be reopened or edited.
-- **FR-016**: The XML download, the PDF and the email (spec 028) MUST be available for issued, cancellation-pending and cancelled documents, and MUST use the stored stamp: UUID, TFD original string, SAT seal and the SAT verification QR. A cancelled document's PDF MUST say it is cancelled.
+- **FR-016**: The XML download and the PDF MUST be available for issued, cancellation-pending and cancelled documents. The email (spec 028) MUST be available for issued and cancellation-pending documents. All three MUST use the stored stamp: UUID, TFD original string, SAT seal and the SAT verification QR. A cancelled document's PDF MUST say it is cancelled.
 
 **Cancellation**
 
