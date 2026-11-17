@@ -44,6 +44,17 @@ def _no_origin_lookup() -> Generator[AsyncMock, None, None]:
         yield origins
 
 
+@pytest.fixture(autouse=True)
+def _no_name_lookup() -> Generator[AsyncMock, None, None]:
+    """Stub `attach_names` (#324, #325) for the same reason: the database here is `None`.
+
+    Its queries and their count are covered in tests/unit/test_list_query_counts.py and the names
+    themselves in tests/integration/test_delivery_list_names.py.
+    """
+    with patch(f'{SERVICE}.attach_names', AsyncMock()) as names:
+        yield names
+
+
 def _auth(*, employee_id: int = 7) -> None:
     app.dependency_overrides[get_current_user] = lambda: CurrentUser(
         user_id='tester',

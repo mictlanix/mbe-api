@@ -4,7 +4,7 @@ from decimal import Decimal
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.enums import ItineraryStatus, ShortfallReason, StopOutcome
-from app.schemas import LocalDateTime
+from app.schemas import CUSTOMER_DISPLAY_NAME_DESCRIPTION, LocalDateTime
 
 # ── Pending deliveries ────────────────────────────────────────────────────────
 
@@ -14,13 +14,21 @@ class PendingDeliveryLine(BaseModel):
     delivery_order_detail: int
     serial: int | None
     customer: int
+    #: The customer's own name, joined from `customer` (#326), as on `SalesOrderSummary`.
+    customer_display_name: str | None = Field(
+        default=None, description=CUSTOMER_DISPLAY_NAME_DESCRIPTION
+    )
     ship_to: int | None
+    #: `ship_to` as one line, the way mbe-ui formats an address (#326). `null` if the row is gone.
+    ship_to_label: str | None = None
     date: LocalDateTime | None
     priority: int
     product: int
     product_code: str
     product_name: str
     warehouse: int
+    #: The warehouse's name, joined from `warehouse` (#326). `null` only if the row is gone.
+    warehouse_name: str | None = None
     open_quantity: Decimal
 
 

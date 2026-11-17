@@ -9,6 +9,23 @@ from app.schemas.core import AddressCreate, AddressUpdate
 from app.services.references import assert_not_referenced
 
 
+def address_label(address: Address) -> str:
+    """One line for an address, exactly as mbe-ui renders it today (#324, #326).
+
+    Mirrors `formatAddress` in mbe-ui's lib/features/catalog/domain/address_formatting.dart, so a
+    list row reads the same whether the client formats it or the server does: street and number
+    (`"45 Int. 3"` when there is an interior number), neighbourhood, then the city or, failing
+    that, the state.
+    """
+    number = (
+        f'{address.exterior_number} Int. {address.interior_number}'
+        if address.interior_number
+        else address.exterior_number
+    )
+    city_or_state = address.city or address.state
+    return f'{address.street} {number}, {address.neighborhood}, {city_or_state}'
+
+
 async def list_addresses(
     db: AsyncSession,
     *,
