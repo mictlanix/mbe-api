@@ -87,7 +87,7 @@ class FiscalDocumentSummary(BaseModel):
     recipient_name: str | None
     issued: LocalDateTime | None
     stamp_uuid: str | None
-    status: Literal['draft', 'sealed', 'issued', 'cancelled']
+    status: Literal['draft', 'sealed', 'stamping', 'issued', 'cancellation_pending', 'cancelled']
     total: Decimal | None
 
 

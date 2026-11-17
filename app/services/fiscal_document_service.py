@@ -18,7 +18,9 @@ from app.models.fiscal import (
     FiscalDocumentXml,
 )
 
-DocumentStatus = Literal['draft', 'sealed', 'issued', 'cancelled']
+DocumentStatus = Literal[
+    'draft', 'sealed', 'stamping', 'issued', 'cancellation_pending', 'cancelled'
+]
 
 _BATCH_SERIAL = re.compile(r'([A-Za-z]+)\s*(\d+)')
 _UUID = re.compile(r'[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}', re.IGNORECASE)
@@ -28,12 +30,16 @@ def document_status(document: FiscalDocument, *, has_xml: bool = False) -> Docum
     """Legacy's own rule: `completed` decides whether a document was issued (research R10).
 
     An uncompleted document with its XML stored has been sealed and waits to be stamped
-    (spec 027, research R1); legacy never stores XML before completing a document.
+    (spec 027, research R1); legacy never stores XML before completing a document. Spec 039 adds
+    two in-flight states, read from the document's own markers: stamping (a stamp is with the PAC)
+    and cancellation pending (a cancellation request is open).
     """
     if document.cancelled:
         return 'cancelled'
     if document.completed:
-        return 'issued'
+        return 'cancellation_pending' if document.cancelling_since is not None else 'issued'
+    if document.stamping_since is not None:
+        return 'stamping'
     return 'sealed' if has_xml else 'draft'
 
 
@@ -238,12 +244,22 @@ async def list_documents(
         both(FiscalDocument.cancelled.is_(True))
     elif status is not None:
         both(FiscalDocument.cancelled.is_(False))
-        both(FiscalDocument.completed.is_(status == 'issued'))
-        if status != 'issued':
-            sealed = exists().where(
-                FiscalDocumentXml.fiscal_document_xml_id == FiscalDocument.fiscal_document_id
-            )
-            both(sealed if status == 'sealed' else ~sealed)
+        has_xml = exists().where(
+            FiscalDocumentXml.fiscal_document_xml_id == FiscalDocument.fiscal_document_id
+        )
+        if status == 'cancellation_pending':
+            both(FiscalDocument.completed.is_(True))
+            both(FiscalDocument.cancelling_since.is_not(None))
+        elif status == 'issued':
+            both(FiscalDocument.completed.is_(True))
+            both(FiscalDocument.cancelling_since.is_(None))
+        else:
+            both(FiscalDocument.completed.is_(False))
+            if status == 'stamping':
+                both(FiscalDocument.stamping_since.is_not(None))
+            else:
+                both(FiscalDocument.stamping_since.is_(None))
+                both(has_xml if status == 'sealed' else ~has_xml)
     if date_from is not None:
         both(FiscalDocument.issued >= date_from)
     if date_to is not None:
