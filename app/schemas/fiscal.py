@@ -391,6 +391,39 @@ class FiscalDocumentCancelRequest(BaseModel):
     substitution: UUID | None = None
 
 
+# ── Simulated PAC controls (spec 039, research R7; dev and test only) ────────
+
+
+class PacSimulationResponse(BaseModel):
+    """What the simulator holds for a document."""
+
+    uuid: str | None
+    sat_status: str
+    cancellation_status: str
+    next_stamp: str | None
+    next_cancellation: str | None
+
+
+class PacSimulationUpdate(BaseModel):
+    """The outcome of the document's next stamp or cancellation call only. `pac_code` and
+    `pac_message` are a `rejected` outcome's, as the `pac_simulation` columns hold them."""
+
+    stamp: (
+        Literal['stamped', 'rejected', 'unavailable', 'timeout_stamped', 'timeout_not_stamped']
+        | None
+    ) = None
+    cancellation: (
+        Literal['accepted', 'pending', 'not_cancellable', 'rejected', 'unavailable', 'timeout']
+        | None
+    ) = None
+    pac_code: str | None = Field(None, max_length=20)
+    pac_message: str | None = Field(None, max_length=500)
+
+
+class ReceiverAnswer(BaseModel):
+    answer: Literal['accept', 'reject', 'expire']
+
+
 class FiscalEmailRequest(QuoteEmailRequest):
     """1–10 addresses, validated and deduplicated as spec 024's quote email does."""
 

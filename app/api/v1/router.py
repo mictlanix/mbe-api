@@ -31,6 +31,7 @@ from app.api.v1.endpoints import (
     inventory_transfers,
     kardex,
     labels,
+    pac_simulator,
     payment_method_options,
     points_of_sale,
     price_lists,
@@ -160,3 +161,4 @@ api_router.include_router(
 api_router.include_router(
     accounts_payable.router, prefix='/accounts-payable', tags=['accounts-payable']
 )
+api_router.include_router(pac_simulator.router, prefix='/pac-simulator', tags=['pac-simulator'])
