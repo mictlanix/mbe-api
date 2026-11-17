@@ -204,7 +204,7 @@ A developer or a UI tester reaches every PAC outcome through the API alone, with
   - the document is not issued;
   - for an invoice, any payment receipt or credit note related to it is live (sealed, stamping, issued or cancellation pending). The error lists those documents.
 - **FR-019**: Whether a cancellation needs the receiver's acceptance MUST come from the PAC's answer (FR-001's status query and the request's result), never from a rule computed by the API.
-  - **Simulator default.** With no outcome chosen, the simulated provider applies the rule in `docs/specs/10-fiscal-documents.md` §2: no acceptance within 24 hours of the stamp, acceptance after that.
+  - **Simulator default.** With no outcome chosen, the simulated provider applies the rule in `docs/specs/10-fiscal-documents.md` §2: no acceptance within 24 hours, acceptance after that. §2 counts from issuance; the simulator counts from its own stamp date (`stamped_at`), the only date it records, which is at most 72 hours after issuance.
   - **Real rules.** SAT's full list of exceptions (for example by amount, document type or the public-in-general RFC) belongs to SAT and the real PAC. It is not reproduced in the API.
 - **FR-020**: A cancellation that needs acceptance MUST leave the document **cancellation pending**. A pending document still counts as live everywhere spec 027 and 028 count live documents:
   - the units it holds on order lines;
@@ -221,7 +221,7 @@ A developer or a UI tester reaches every PAC outcome through the API alone, with
   - document, reason, substitute UUID;
   - requester, request time;
   - each change of SAT status, with its time, and the time of the last status query;
-  - the final outcome (accepted, rejected, expired as SAT reports it).
+  - the final outcome: accepted, expired, rejected, not cancellable, or failed (the PAC was unavailable, or SAT never received it).
   A document can have several requests. At most one is open at a time.
 - **FR-024**: The API MUST offer an on-demand refresh of a single document that is stamping or cancellation pending. A stamping document for which the PAC has no stamp returns to sealed only 5 minutes after the stamp request was sent.
 - **FR-025**: A periodic job MUST refresh every stamping and cancellation-pending document. A PAC that is unavailable or times out leaves the document unchanged for the next run. One document's failure MUST NOT stop the others.
@@ -233,7 +233,7 @@ A developer or a UI tester reaches every PAC outcome through the API alone, with
 - **FR-028**: Stamping, cancelling and refreshing MUST use the existing fiscal-document privileges: Update on Fiscal Documents (23). Like the existing fiscal-document routes, they have no facility scope, since fiscal documents belong to an issuer. The periodic job runs as the system.
 - **FR-029**: Each state change MUST record an audit event like the existing fiscal-document actions do: stamped, stamp resolved, cancellation requested, cancellation accepted, cancellation rejected.
 - **FR-030**: Every error MUST follow spec 036, with a stable code and parameters. The new codes and their parameters MUST be added to spec 036's contract.
-- **FR-031**: Nothing in this feature writes to the current system or depends on it. The current system keeps stamping its own documents until the cutover (#57). The API writes only the shared fiscal tables (`fiscal_document`, `fiscal_document_xml`) and its own new tables, never calls the current system, and treats documents the current system stamped like its own.
+- **FR-031**: Nothing in this feature writes to the current system or depends on it. The current system keeps stamping its own documents until the cutover (#57). The API writes only the shared fiscal tables (`fiscal_document`, `fiscal_document_xml`) and its own new tables, never calls the current system, and writes `incidence` audit rows (FR-029), as spec 028's email does, and treats documents the current system stamped like its own.
 
 ### Key Entities
 
@@ -251,7 +251,7 @@ A developer or a UI tester reaches every PAC outcome through the API alone, with
 
 ### Measurable Outcomes
 
-- **SC-001**: Every outcome listed in User Story 5 can be reached through the API alone, on dev, by following the handoff's instructions: the 10 paths listed in contracts/endpoints.md "Driving each scenario", 0 code changes.
+- **SC-001**: Every outcome listed in User Story 5 can be reached through the API alone, on dev, by following the handoff's instructions: the 13 paths listed in contracts/endpoints.md "Driving each scenario", 0 code changes.
 - **SC-002**: In a concurrency test of 20 simultaneous stamp requests on one sealed document, the PAC receives exactly 1 stamp call and the document ends with 1 UUID. Measured on the test deployment, whose database enforces row locks.
 - **SC-003**: Every timeout left stamping is resolved by the first periodic run, after the 5-minute grace, in which the PAC answers. No document stays stamping after 2 such runs with the PAC available.
 - **SC-004**: No document is ever stamped twice. Across the test suite and the dev scenarios, each sealed document maps to at most one UUID.

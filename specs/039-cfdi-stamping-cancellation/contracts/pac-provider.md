@@ -67,7 +67,7 @@ class PacProvider(Protocol):
 ### `stamp(sealed_xml)`
 - **Input:** a CFDI 4.0 that is sealed but not stamped.
 - **Returns:** the `Stamp`.
-- **Duplicates:** if the PAC reports the same document as already stamped (SAT 307), the implementation SHOULD return that existing stamp rather than raise.
+- **Duplicates:** if the PAC reports the same document as already stamped (SAT 307), the implementation SHOULD return that existing stamp rather than raise. `SimulatedPac` does so when its row already holds a stamp for the same `Sello`.
 
 ### `find_stamp(sealed_xml)`
 - **Purpose:** resolves a `stamp` that timed out.

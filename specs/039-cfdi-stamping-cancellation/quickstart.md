@@ -21,6 +21,10 @@ uv run ruff check app/ migrations/ tests/
 |---|---|
 | `tests/unit/test_pac_simulated.py` | TFD shape, one-shot outcomes, timeout with and without a stamp, receiver answers, the 24-hour default |
 | `tests/unit/test_pac_settings.py` | Refuses to start with `simulated` + `production`; `none` answers `pac.not_configured` |
+| `tests/unit/test_pac_provider.py` | `repr(Csd)` hides the key and password |
+| `tests/unit/test_resolve_fiscal_documents.py` | The job's branches: no provider, refused in production, a failure doesn't stop the others |
+| `tests/unit/test_invoice_service.py`, `test_print_contexts.py` (extended) | `_payable`/`_creditable` with an open cancellation; the simulated flag |
+| `tests/integration/test_print_render.py` (extended) | The simulated banner on the rendered PDF |
 | `tests/unit/test_fiscal_document_service.py` (extended) | Status order for stamping and cancellation_pending |
 | `tests/unit/test_fiscal_stamping.py` | The service's branches with a mocked session: check order, each PAC outcome's effect, the 5-minute grace at 4:59 and 5:01 |
 | `tests/integration/test_stamp_flow.py` | Stamp, idempotent repeat, reject/unavailable leave sealed, timeout → refresh, 5-minute grace, a second stamp on a stamping document makes no PAC call (SC-002's rule; the concurrent run is §3) |

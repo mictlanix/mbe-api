@@ -22,7 +22,7 @@ Sealed invoices, payment receipts and credit notes (specs 027 and 028) get the r
 
 **Storage**: MariaDB mbe_dev (shared with the current system). Migration 034 adds one column (`fiscal_document.stamping_since`) and two tables (`fiscal_document_cancellation`, `pac_simulation`). Tests use SQLite via `Base.metadata.create_all`.
 
-**Testing**: pytest, pytest-asyncio, httpx `ASGITransport`. Existing seal fixtures: `invoicing`, `receipts`, `notes`, `seed_fiscal_document`.
+**Testing**: pytest, pytest-asyncio, httpx `ASGITransport`. Existing seal fixtures: `invoicing`, `receipts`, `notes` (module-local), and the helper `seed_fiscal_document` (tests/integration/seed.py).
 
 **Target Platform**: Linux server (xolotl): dev on :8765 in tmux, test on :8766 under systemd with 4 workers.
 
@@ -125,6 +125,10 @@ specs/036-localizable-error-codes/contracts/error-codes.md  # new rows; lock.bus
 | `pac_simulation` table | FR-007: the simulator's state must survive across 4 workers and the job process, and outlive the caller's rollback | In-memory state splits across workers and is lost on restart |
 | Simulator routes | FR-006 / SC-001: every outcome is reachable through the API alone | A comment marker can't express receiver answers and pollutes the clerk's text (R6) |
 | `app_env` setting | FR-008: no production flag exists today | `debug` doesn't mean "not production" (R5) |
+| `services/fiscal_stamping.py` (stamp, cancel, refresh) | FR-010, FR-017, FR-024: two-phase flows that commit before and after a network call | Putting them in `invoice_service` would mix PAC calls into a module whose confirm holds the series lock; receipts and notes would need the same code three times |
+| `SimulatedPac` | FR-005 to FR-007: the provider this step runs on | No existing provider exists; `ScriptedPac` is a test fake, not a dev tool |
+| `jobs/resolve_fiscal_documents.py` | FR-025: periodic resolution | No existing job refreshes fiscal documents; it reuses the job pattern of `send_scheduled_reports` |
+| Schemas: cancel request, `FiscalDocumentCancellationResponse`, `PacSimulationResponse`, `PacSimulationUpdate`, `ReceiverAnswer` | FR-017, FR-027, FR-006: request and response shapes for the new routes and fields | The existing fiscal schemas have no cancellation or simulator fields; extending `FiscalDocumentResponse` covers the stamp fields without a new schema |
 
 ## Deployment notes (each needs confirmation)
 

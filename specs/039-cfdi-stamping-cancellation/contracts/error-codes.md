@@ -20,7 +20,7 @@ These rows are added to `app/core/error_codes.py` and to `specs/036-localizable-
 | Code | HTTP | Params | Meaning |
 |---|---|---|---|
 | `pac.not_configured` | 503 | — | No PAC provider is configured on this instance |
-| `pac.rejected` | 422 | pac_code: str, pac_message: str | The PAC or SAT rejected the request |
+| `pac.rejected` | 422 | pac_code: str, pac_message: str (display-only PAC text, the one free-text param; stated exception to 036's raw-values rule) | The PAC or SAT rejected the request |
 | `pac.timeout` | 504 | state: str (`stamping` or `cancellation_pending`) | The PAC did not answer in time. The document is left `stamping` or `cancellation_pending`; refresh it |
 | `pac.unavailable` | 503 | — | The PAC could not be reached. Nothing changed; retry |
 
@@ -30,7 +30,7 @@ These rows are added to `app/core/error_codes.py` and to `specs/036-localizable-
 |---|---|
 | `fiscal_document.not_sealed` | Stamping a draft; the simulator routes on a draft |
 | `fiscal_document.not_issued` | Cancelling a document that is not issued (draft, sealed, stamping or cancelled). Its spec 036 Situation text is widened to cover cancel as well as XML/PDF |
-| `fiscal_document.no_valid_certificate` | Cancelling when the issuer has no certificate valid now |
+| `fiscal_document.no_valid_certificate` | Cancelling when the issuer has no certificate valid now. Its 036 Situation text (valid at the issue date) is widened to cover cancel |
 | `fiscal_document.issue_date_out_of_range` | Stamping after the 72-hour window |
 | `fiscal_document.invoice_not_payable` | Adding a receipt to, or confirming one against, an invoice with an open cancellation |
 | `fiscal_document.invoice_not_creditable` | Same, for credit notes |

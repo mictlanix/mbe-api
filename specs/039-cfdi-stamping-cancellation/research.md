@@ -179,7 +179,7 @@ All three need Update on Fiscal Documents (23), like the routes they drive (no f
 
 **Request** (`POST /fiscal-documents/{id}/cancel`, `{reason, substitution?}`):
 
-1. **Transaction A.** Lock the document row and refuse in this order:
+1. **Transaction A.** Lock the document row first, before any other read, so every check reads committed state (the REPEATABLE READ trap documented at invoice_service.py:659). The live-related-documents check is a locking read (`with_for_update(read=True)`). Then refuse in this order:
    - not issued (draft, sealed, stamping, cancelled) → `fiscal_document.not_issued`;
    - an open request → `fiscal_document.cancellation_open`;
    - an unknown reason → `fiscal_document.unknown_cancellation_reason`;
@@ -202,7 +202,7 @@ All three need Update on Fiscal Documents (23), like the routes they drive (no f
 
 **Keeping new receipts and notes off an invoice being cancelled.** The row lock in step 1 is released before the PAC call, so a payment receipt or credit note could be confirmed against the invoice meanwhile. To stop that:
 - `_payable` (invoice_service.py:1076) and `_creditable` (:1425) are synchronous predicates without a session. They gain a keyword argument, `open_cancellation: bool`, and refuse when it is true, with their existing codes `invoice_not_payable` and `invoice_not_creditable`.
-- A new async helper, `_open_cancellations(db, invoice_ids) -> set[int]`, loads the flag in one query. Each of the five call sites (:1134, :1246, :1363, :1451, :1615) calls it once and passes the flag.
+- A new async helper, `_open_cancellations(db, invoice_ids) -> set[int]`, loads the flag in one query. Each of the five call sites (:1134, :1246, :1363, :1451, :1615) calls it once and passes the flag. At the two confirm sites (:1363, :1615), which wait on the invoice lock, it is a locking read (`with_for_update(read=True)`), as `_next_serial` reads after its lock: a plain SELECT would read the snapshot taken before the wait and miss a cancellation committed meanwhile.
 - Receipt and note confirms already lock their invoices (:1355, :1612) and re-run those checks.
 
 **Refresh** (`POST /fiscal-documents/{id}/refresh`, and the job): applies to stamping documents and open requests.

@@ -90,3 +90,6 @@ With nothing chosen:
 | Pending, then rejected | same, with `{reject}` → `refresh` → issued; history shows `rejected` |
 | Pending, then expired | same, with `{expire}` → `refresh` → cancelled; history shows `expired` |
 | Not cancellable | `PUT …{cancellation:"not_cancellable"}` → `cancel` → 409; issued |
+| Cancellation rejected by the PAC | `PUT …{cancellation:"rejected"}` → `cancel` → 422 `pac.rejected`; issued; history shows `rejected` |
+| PAC unavailable on cancel | `PUT …{cancellation:"unavailable"}` → `cancel` → 503; issued; history shows `failed` |
+| Timeout on cancel | `PUT …{cancellation:"timeout"}` → `cancel` → 504, cancellation_pending → `refresh` → pending (SAT has it) |
