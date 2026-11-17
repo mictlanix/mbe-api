@@ -314,7 +314,7 @@ Requests run under MariaDB's REPEATABLE READ, and sessions keep loaded objects (
    - **already completed** (a refresh stored the stamp): return the document as it is;
    - **uncompleted, XML unchanged:** store the stamp;
    - **XML changed:** record the incidence `CFDI stamp {uuid} not stored: the document changed`, leave the document as it is and raise `pac.timeout {state}` with the document's current state (which can be `sealed` or `draft` here). The XML can only change after a refresh reset the document past the 5-minute grace and a user reopened it. A PAC client whose timeout is under the grace never reaches this branch (R3).
-6. **Refresh** begins locked (rule 1) after the PAC answers. It writes only if what it read before calling the PAC is still true. Otherwise it changes nothing and returns the document as it now is:
+6. **Refresh** begins locked (rule 1) after the PAC answers. It writes only if what it read before calling the PAC is still true. Otherwise it changes nothing except the kept request's `last_checked_at` (R8: every status answer sets it) and returns the document as it now is:
    - **clearing the stamping marker:** only if `stamping_since` still equals the value read before `find_stamp`;
    - **applying a cancellation result:** only to the request whose id transaction 1 kept, and only if that request's status, re-read by id with a column select, is still the one read before `query_status`. A different open request with the same status is left alone.
    Two job runs on dev and test, which share mbe_dev, can then overlap safely.

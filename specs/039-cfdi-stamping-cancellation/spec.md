@@ -188,7 +188,7 @@ A developer or a UI tester reaches every PAC outcome through the API alone, with
 - **FR-011**: Before calling the PAC, the API MUST durably record that the document is **stamping**. A stamping document:
   - cannot be stamped, reopened, edited or cancelled;
   - is resolved only through the look-up operation (FR-001), on demand or by the periodic job.
-- **FR-012**: A document MUST never be sent to the PAC for stamping more than once per seal:
+- **FR-012**: A document MUST never be stamped more than once per seal, and is sent to the PAC again only after the look-up reports it not stamped past the 5-minute grace (FR-024):
   - concurrent stamp requests on the same document are serialised;
   - a repeated request on an issued document returns it unchanged;
   - a repeated request on a stamping document is refused with a coded error and does not call the PAC.
