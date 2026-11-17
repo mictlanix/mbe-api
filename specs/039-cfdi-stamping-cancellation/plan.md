@@ -49,11 +49,11 @@ Sealed invoices, payment receipts and credit notes (specs 027 and 028) get the r
 |---|---|---|
 | I. Simplicity First | Pass, with justified additions | Each new piece answers a stated requirement. The Protocol is the step-3 swap (FR-001, FR-004). The simulator is FR-005 to FR-009. The cancellation table is FR-023, and its status changes are not kept as separate rows (R8). The stamping marker is a column, not a table (R2) |
 | II. Think Before Coding | Pass | The decisions and their alternatives are in research R1–R14. Open items for #160 are named: the look-up by document, the PAC timeout versus the 5-minute grace, the SAT acceptance rules |
-| III. Surgical Changes | Pass | `live()`, confirm and reopen are untouched. `_payable` and `_creditable` gain one condition. Confirm and reopen don't get audit added (R10) |
+| III. Surgical Changes | Pass | `live()`, confirm and reopen are untouched. `_payable` and `_creditable` gain one keyword argument, loaded at their five call sites by one helper. Confirm and reopen don't get audit added (R10) |
 | IV. Goal-Driven Execution | Pass | quickstart.md lists every check, mapped to SC-001 to SC-007 |
 | V. Reuse Over Rebuild | Pass | Reuses `cfdi.parse`, `tfd_original_string`, the print context, `busy_as_conflict`, `incidences.record`, the job pattern, the `get_mailer`-style dependency and migration 033's virtual unique column. The new entities are justified below |
 | VI. Async-First | Pass | Provider methods are async. The simulator uses its own `AsyncSessionLocal` session |
-| VII. Security by Default | Pass | Every route is authenticated, with the existing privilege and facility checks. Simulator routes answer 404 unless `PAC_PROVIDER=simulated`, and need Update on 23. Credentials and CSD material stay out of errors and logs (R14) |
+| VII. Security by Default | Pass | Every route is authenticated, with the existing fiscal-document privilege (no facility scope, as today). Simulator routes answer 404 unless `PAC_PROVIDER=simulated`, and need Update on 23. Credentials and CSD material stay out of errors and logs (R14) |
 | VIII. Ruff Compliance | Pass | Gate in quickstart.md |
 | Testing / Changelog | Pass | Test files are listed in quickstart.md. A CHANGELOG `Added` entry covers the endpoints, job, settings and migration 034 |
 
@@ -86,7 +86,8 @@ migrations/
 app/
 ├── core/config.py                  # app_env, pac_provider (+ startup check helper)
 ├── core/error_codes.py             # 12 new codes
-├── main.py                         # lifespan refuses simulated+production; mounts simulator router
+├── main.py                         # lifespan refuses simulated+production
+├── api/v1/router.py                # includes the simulator router (404 per request unless simulated)
 ├── models/fiscal.py                # stamping_since, FiscalDocumentCancellation, PacSimulation
 ├── schemas/fiscal.py               # status values, stamp, cancellations[], request bodies
 ├── services/pac/
@@ -95,7 +96,7 @@ app/
 │   └── simulated.py                # SimulatedPac
 ├── services/fiscal_stamping.py     # stamp, cancel, refresh (two-phase flows)
 ├── services/fiscal_document_service.py  # document_status order, status filter, detail fields
-├── services/invoice_service.py     # _payable/_creditable: open cancellation blocks
+├── services/invoice_service.py     # _payable/_creditable take open_cancellation; _open_cancellations helper at 5 call sites
 ├── services/print_contexts.py      # simulated banner flag
 ├── rendering/templates/fiscal_document.html  # banner
 ├── api/v1/endpoints/fiscal_documents.py      # /stamp, /cancel, /refresh
@@ -103,7 +104,7 @@ app/
 └── jobs/resolve_fiscal_documents.py
 tests/
 ├── fakes/pac.py                    # ScriptedPac
-├── unit/test_pac_simulated.py, test_pac_settings.py, test_fiscal_stamping.py
+├── unit/test_pac_simulated.py, test_pac_settings.py, test_pac_provider.py, test_fiscal_stamping.py, test_resolve_fiscal_documents.py
 ├── unit/ (extended) test_fiscal_document_service.py, test_invoice_service.py, test_print_contexts.py, test_rendering.py
 ├── integration/test_stamp_flow.py, test_cancel_flow.py, test_resolve_job.py, test_fiscal_stamping_http.py
 └── api/test_fiscal_stamping.py, test_pac_simulator.py

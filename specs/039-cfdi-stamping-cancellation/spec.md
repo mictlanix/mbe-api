@@ -102,7 +102,7 @@ Some documents are left waiting: a stamp that timed out, or a cancellation that 
 **Acceptance Scenarios**:
 
 1. **Given** a stamping document that the PAC did stamp, **When** it is refreshed, **Then** it becomes issued with the PAC's UUID and stamped XML. It is never stamped a second time.
-2. **Given** a stamping document that the PAC did not stamp, **When** it is refreshed, **Then** it returns to sealed and can be stamped again.
+2. **Given** a stamping document that the PAC did not stamp, **When** it is refreshed, **Then**, once 5 minutes have passed since the stamp request was sent, it returns to sealed and can be stamped again. Within those 5 minutes it stays stamping, so a request still waiting on the PAC is not undone.
 3. **Given** the PAC is unavailable during a refresh, **Then** the document keeps its state and the next refresh tries again.
 4. **Given** a pending cancellation, **When** the job runs, **Then** the document follows SAT's status: cancelled, back to issued, or still pending.
 
@@ -118,7 +118,7 @@ The UI lists fiscal documents and shows each one's fiscal state: draft, sealed, 
 
 **Acceptance Scenarios**:
 
-1. **Given** documents in every state, **When** the list is filtered by one state, **Then** only documents in that state are returned, with the same paging and facility scope as today.
+1. **Given** documents in every state, **When** the list is filtered by one state, **Then** only documents in that state are returned, with the same paging as today.
 2. **Given** a document with two cancellation requests, **When** it is read, **Then** both appear with reason, substitute UUID, who requested it, when, SAT's answers and the final outcome.
 
 ---
@@ -159,7 +159,7 @@ A developer or a UI tester reaches every PAC outcome through the API alone, with
   - **stamp** a sealed CFDI. Returns the stamped XML and the fiscal stamp (TFD 1.1): UUID, stamp date, SAT seal, SAT certificate number and certifying provider RFC.
   - **request cancellation** of a UUID with a SAT reason (01–04) and, for 01, the substitute UUID.
   - **query the SAT status** of a UUID. Returns:
-    - valid or cancelled;
+    - valid, cancelled, or not found;
     - whether it can be cancelled: without acceptance, with acceptance, or not at all;
     - the cancellation status: none, requested, pending the receiver, accepted, rejected or expired.
   - **look up a stamp** of a given sealed CFDI (issuer, series, folio and seal). Returns the fiscal stamp and stamped XML if the PAC stamped it, or "not stamped". This is how a timeout is resolved without stamping again.
@@ -223,17 +223,17 @@ A developer or a UI tester reaches every PAC outcome through the API alone, with
   - each change of SAT status, with its time, and the time of the last status query;
   - the final outcome (accepted, rejected, expired as SAT reports it).
   A document can have several requests. At most one is open at a time.
-- **FR-024**: The API MUST offer an on-demand refresh of a single document that is stamping or cancellation pending.
+- **FR-024**: The API MUST offer an on-demand refresh of a single document that is stamping or cancellation pending. A stamping document for which the PAC has no stamp returns to sealed only 5 minutes after the stamp request was sent.
 - **FR-025**: A periodic job MUST refresh every stamping and cancellation-pending document. A PAC that is unavailable or times out leaves the document unchanged for the next run. One document's failure MUST NOT stop the others.
 
 **Reads, lists and rules**
 
 - **FR-026**: List and detail reads MUST report each document's fiscal state: draft, sealed, stamping, issued, cancellation pending, cancelled. The list MUST filter by any of them. The existing values and their meaning are unchanged: issued is the stamped state.
 - **FR-027**: The detail read MUST include the fiscal stamp fields (UUID, stamp date, SAT certificate number, provider RFC, a simulated flag) and the cancellation history.
-- **FR-028**: Stamping, cancelling and refreshing MUST use the existing fiscal-document privileges and facility checks: Update on Fiscal Documents (23) and the document's facility within the caller's scope. The periodic job runs as the system.
+- **FR-028**: Stamping, cancelling and refreshing MUST use the existing fiscal-document privileges: Update on Fiscal Documents (23). Like the existing fiscal-document routes, they have no facility scope, since fiscal documents belong to an issuer. The periodic job runs as the system.
 - **FR-029**: Each state change MUST record an audit event like the existing fiscal-document actions do: stamped, stamp resolved, cancellation requested, cancellation accepted, cancellation rejected.
 - **FR-030**: Every error MUST follow spec 036, with a stable code and parameters. The new codes and their parameters MUST be added to spec 036's contract.
-- **FR-031**: Nothing in this feature writes to the current system or depends on it. The current system keeps stamping its own documents until the cutover (#57). The API only reads documents it stamped, or that the current system stamped, from the shared tables.
+- **FR-031**: Nothing in this feature writes to the current system or depends on it. The current system keeps stamping its own documents until the cutover (#57). The API writes only the shared fiscal tables (`fiscal_document`, `fiscal_document_xml`) and its own new tables, never calls the current system, and treats documents the current system stamped like its own.
 
 ### Key Entities
 
@@ -251,9 +251,9 @@ A developer or a UI tester reaches every PAC outcome through the API alone, with
 
 ### Measurable Outcomes
 
-- **SC-001**: Every outcome listed in User Story 5 can be reached through the API alone, on dev, by following the handoff's instructions: 8 stamp and cancellation paths, 0 code changes.
+- **SC-001**: Every outcome listed in User Story 5 can be reached through the API alone, on dev, by following the handoff's instructions: the 10 paths listed in contracts/endpoints.md "Driving each scenario", 0 code changes.
 - **SC-002**: In a concurrency test of 20 simultaneous stamp requests on one sealed document, the PAC receives exactly 1 stamp call and the document ends with 1 UUID. Measured on the test deployment, whose database enforces row locks.
-- **SC-003**: Every timeout left stamping is resolved by the first periodic run in which the PAC answers. No document stays stamping after 2 runs with the PAC available.
+- **SC-003**: Every timeout left stamping is resolved by the first periodic run, after the 5-minute grace, in which the PAC answers. No document stays stamping after 2 such runs with the PAC available.
 - **SC-004**: No document is ever stamped twice. Across the test suite and the dev scenarios, each sealed document maps to at most one UUID.
 - **SC-005**: An invoice cancelled through this flow frees its units for refunds and drops out of later receipts' previous balance in the same request that marks it cancelled.
 - **SC-006**: Replacing the simulated provider with another implementation of the contract changes only configuration and the provider itself. This is checked by a second test double of the contract running the same flows.

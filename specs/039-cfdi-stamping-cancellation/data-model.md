@@ -50,7 +50,7 @@ One row per cancellation request.
 | `status` | `VARCHAR(20) NOT NULL` | One of the values below |
 | `pac_code` | `VARCHAR(20) NULL` | When the PAC rejected the request |
 | `pac_message` | `VARCHAR(500) NULL` | Same |
-| `requested_by` | `INT NOT NULL` FK → `employee` | The system employee when the job made the change |
+| `requested_by` | `INT NOT NULL` FK → `employee` | The user who requested the cancellation |
 | `requested_at` | `DATETIME NOT NULL` | |
 | `answered_at` | `DATETIME NULL` | The PAC's first answer: accepted, pending, not cancellable or rejected |
 | `resolved_at` | `DATETIME NULL` | When the status became final |
@@ -77,10 +77,10 @@ Index: `(status, requested_at)`, which the job uses.
 |---|---|---|
 | `pac_simulation_id` | `INT AUTO_INCREMENT PK` | |
 | `issuer` | `VARCHAR(13) NOT NULL` | From the sealed XML |
-| `batch` | `VARCHAR(10) NOT NULL` | Same |
-| `serial` | `INT NOT NULL` | Same. **UNIQUE** (`issuer`, `batch`, `serial`) |
+| `batch` | `VARCHAR(10) NULL` | Same; `''` when the CFDI has no series. NULL for a row created from a UUID it never stamped |
+| `serial` | `INT NULL` | Same. **UNIQUE** (`issuer`, `batch`, `serial`); rows with NULLs don't collide |
 | `uuid` | `CHAR(36) NULL UNIQUE` | Set once stamped |
-| `stamped_at` | `DATETIME NULL` | |
+| `stamped_at` | `DATETIME NULL` | NULL for a row created from a UUID it never stamped; the default cancellation rule then answers `pending` |
 | `stamped_xml` | `MEDIUMTEXT NULL` | |
 | `sat_status` | `VARCHAR(10) NOT NULL DEFAULT 'valid'` | `valid` or `cancelled` |
 | `cancellation_status` | `VARCHAR(10) NOT NULL DEFAULT 'none'` | `none`, `requested`, `pending`, `accepted`, `rejected`, `expired` |
@@ -116,4 +116,5 @@ The table exists on every instance, and stays empty unless `pac_provider = simul
   - 01 needs a valid substitute.
   - An invoice must have no live related receipt or credit note.
 - A payment receipt or credit note cannot add or confirm against an invoice with an open request.
+- `open_document` is not mapped in the model, as `sales_order_payment.live` (migration 033) is not. The SQLite tests build the schema from the models, so there the at-most-one rule rests on the `cancellation_open` check; MariaDB also enforces it with the unique index.
 - Refresh: stamping, or an open request.

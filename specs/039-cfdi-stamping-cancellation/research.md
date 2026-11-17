@@ -89,7 +89,7 @@ If the PAC's answer arrives after a reset, step 3 still applies the stamp, becau
 | `stamp` | sealed XML | `Stamp` (UUID, stamp date, SAT seal, SAT certificate number, provider RFC, stamped XML) |
 | `find_stamp` | sealed XML | `Stamp` or `None` |
 | `request_cancellation` | `CancellationRequest`: issuer and recipient RFC, UUID, total, reason, substitute, the issuer's CSD | `CancellationAnswer`: `accepted`, `pending` or `not_cancellable` |
-| `query_status` | issuer and recipient RFC, UUID, total | `SatStatus`: valid or cancelled, cancellability, cancellation status |
+| `query_status` | issuer and recipient RFC, UUID, total | `SatStatus`: valid, cancelled or not found; cancellability; cancellation status |
 
 Errors: `PacRejected(code, message)`, `PacUnavailable`, `PacTimeout`.
 
@@ -128,9 +128,13 @@ Errors: `PacRejected(code, message)`, `PacUnavailable`, `PacTimeout`.
   - It is a table because test runs 4 workers and the job is a separate process, so in-memory state would be lost or split between them.
   - It uses its own session because a timeout in which the simulator did stamp must persist even though the API's transaction never stores that stamp (FR-007).
   - The session factory is a constructor argument, `SimulatedPac(session_factory=AsyncSessionLocal)`. The integration tests pass their per-test `sessions` fixture, so the simulator writes to the same test database as the code under test.
-- **One row per document**, keyed by issuer RFC, series and folio (all read from the sealed XML). The row holds:
+- **One row per document.**
+  - `stamp` and `find_stamp` key it by issuer RFC, series (`''` when the CFDI has none) and folio, read from the sealed XML.
+  - `request_cancellation` and `query_status` find it by UUID. A UUID the simulator never stamped, such as a document the current system stamped, gets a row created with the issuer and UUID only and no stamp date. With no stamp date, the default cancellation rule treats it as stamped over 24 hours ago, so `pending`.
+  - The simulator routes find the row by the document's `stamp_uuid` when it has one, otherwise by issuer, series and folio, and create it when missing.
+- The row holds:
   - UUID, stamped XML, stamp date;
-  - SAT status (`valid` or `cancelled`), cancellation status, cancellability;
+  - SAT status (`valid` or `cancelled`) and cancellation status;
   - the next chosen stamp outcome and the next chosen cancellation outcome, with an optional PAC code and message.
 - **TFD 1.1.**
   - `Version` 1.1, a fresh `uuid4` in upper case, `FechaTimbrado` now in Mexico City time;
@@ -169,7 +173,7 @@ Errors: `PacRejected(code, message)`, `PacUnavailable`, `PacTimeout`.
 - `PUT /pac-simulator/fiscal-documents/{id}`: `{stamp?, cancellation?, pac_code?, pac_message?}` sets the next outcome. The document must be sealed or later.
 - `POST /pac-simulator/fiscal-documents/{id}/receiver`: `{answer: accept | reject | expire}` answers a pending cancellation.
 
-All three need Update on Fiscal Documents (23) and the document's facility in scope, like the routes they drive. They take the document id, which the UI knows, and the simulator maps it to issuer, series and folio. The routes are listed in [contracts/endpoints.md](contracts/endpoints.md); the handoff for mbe-ui repeats them.
+All three need Update on Fiscal Documents (23), like the routes they drive (no facility scope, as for every fiscal-document route). They take the document id, which the UI knows, and the simulator maps it to issuer, series and folio. The routes are listed in [contracts/endpoints.md](contracts/endpoints.md); the handoff for mbe-ui repeats them.
 
 ## R8. Cancellation
 
@@ -184,7 +188,7 @@ All three need Update on Fiscal Documents (23) and the document's facility in sc
    - an invoice with a live payment receipt or credit note related to it → `fiscal_document.has_live_documents`, with `{documents: ["A123", …]}`. "Related" means a `fiscal_document_relation` whose `relation` is this invoice and whose `document` is of type 200 or 100.
 
    Then insert a `fiscal_document_cancellation` row with status `requested` and commit.
-2. **Call** `provider.request_cancellation(...)`, with the CSD of the issuer's latest active certificate, as confirm chooses it.
+2. **Call** `provider.request_cancellation(...)`, with the CSD of the issuer's certificate valid now, found with confirm's `_certificate(db, issuer, local_now())` (invoice_service.py:633). With none, it raises the existing `fiscal_document.no_valid_certificate` (422) in transaction A, before the request row is written.
 3. **Transaction B.**
 
    | Answer | Request status | Document |
@@ -197,7 +201,8 @@ All three need Update on Fiscal Documents (23) and the document's facility in sc
    | `PacTimeout` | stays `requested` | cancellation_pending; raise `pac.timeout`. A refresh resolves it |
 
 **Keeping new receipts and notes off an invoice being cancelled.** The row lock in step 1 is released before the PAC call, so a payment receipt or credit note could be confirmed against the invoice meanwhile. To stop that:
-- `_payable` (invoice_service.py:1076) and `_creditable` (:1425) also refuse an invoice with an open cancellation request, using their existing codes `invoice_not_payable` and `invoice_not_creditable`.
+- `_payable` (invoice_service.py:1076) and `_creditable` (:1425) are synchronous predicates without a session. They gain a keyword argument, `open_cancellation: bool`, and refuse when it is true, with their existing codes `invoice_not_payable` and `invoice_not_creditable`.
+- A new async helper, `_open_cancellations(db, invoice_ids) -> set[int]`, loads the flag in one query. Each of the five call sites (:1134, :1246, :1363, :1451, :1615) calls it once and passes the flag.
 - Receipt and note confirms already lock their invoices (:1355, :1612) and re-run those checks.
 
 **Refresh** (`POST /fiscal-documents/{id}/refresh`, and the job): applies to stamping documents and open requests.
@@ -206,6 +211,8 @@ All three need Update on Fiscal Documents (23) and the document's facility in sc
   - SAT `cancelled` → document cancelled; the request becomes `accepted`, or `expired` when SAT says so.
   - SAT `valid` with cancellation `rejected` → request `rejected`; document issued.
   - SAT `valid` with cancellation `none` → request `failed`; document issued. SAT never received it.
+  - SAT `valid` with cancellation `pending` on a `requested` request (a cancel that timed out) → request `pending`, `answered_at` set, incidence `Cancellation pending the receiver`.
+  - SAT `not_found` → unchanged; `last_checked_at` updated.
   - Anything else → still pending; `last_checked_at` updated.
 - **Errors:** unavailable or timeout leave the document as it was; the on-demand refresh then raises the error.
 - **Refused:** any other state → `fiscal_document.nothing_to_refresh` (409).

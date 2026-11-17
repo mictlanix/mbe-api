@@ -1,6 +1,6 @@
 # Contract: endpoints
 
-All routes are under `/api/v1`. Every route needs a bearer token. "Facility" means the document's facility must be within the caller's scope, as the existing fiscal-document routes require. Every error body follows spec 036 (`code`, `params`, `detail`).
+All routes are under `/api/v1`. Every route needs a bearer token. Like the existing fiscal-document routes, none has a facility scope: fiscal documents belong to an issuer. Every error body follows spec 036 (`code`, `params`, `detail`).
 
 ## Fiscal documents
 
@@ -43,6 +43,7 @@ Not changed: `/xml` and `/pdf` (issued, pending and cancelled documents) and `/e
 | 01 without substitution | 422 `fiscal_document.substitution_required` |
 | substitution not a stamped, live document of the same issuer and recipient | 422 `fiscal_document.substitution_invalid {substitution}` |
 | PAC rejects | 422 `pac.rejected {pac_code, pac_message}`; issued |
+| issuer has no certificate valid now | 422 `fiscal_document.no_valid_certificate`; the PAC is not called |
 | PAC unavailable | 503 `pac.unavailable`; issued |
 | PAC timeout | 504 `pac.timeout {state: "cancellation_pending"}`; cancellation_pending |
 
@@ -51,13 +52,13 @@ Not changed: `/xml` and `/pdf` (issued, pending and cancelled documents) and `/e
 | State | Result |
 |---|---|
 | stamping | 200, issued (stamp found); sealed (not found, past the 5-minute grace); stamping (not found, within the grace) |
-| cancellation_pending | 200, cancelled, issued, or still pending |
+| cancellation_pending | 200, cancelled, issued, or still pending (a timed-out request SAT reports pending becomes `pending`) |
 | any other | 409 `fiscal_document.nothing_to_refresh` |
 | PAC unavailable or timeout | 503 or 504; unchanged |
 
 ## Simulated PAC controls (dev and test only)
 
-Every simulator route answers 404 unless `PAC_PROVIDER=simulated` (checked per request). Each needs Update on 23 and the document's facility in scope. The document must be sealed or later.
+Every simulator route answers 404 unless `PAC_PROVIDER=simulated` (checked per request). Each needs Update on 23. The document must be sealed or later, otherwise 409 `fiscal_document.not_sealed`.
 
 | Method | Route | Body | Effect |
 |---|---|---|---|

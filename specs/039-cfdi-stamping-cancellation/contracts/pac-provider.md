@@ -35,7 +35,7 @@ class CancellationAnswer(StrEnum):
     NOT_CANCELLABLE = 'not_cancellable'
 
 class SatStatus:
-    state: Literal['valid', 'cancelled', 'not_found']
+    state: Literal['valid', 'cancelled', 'not_found']   # not_found: SAT doesn't know the UUID; the API leaves the document unchanged
     cancellable: Literal['without_acceptance', 'with_acceptance', 'not_cancellable']
     cancellation: Literal['none', 'requested', 'pending', 'accepted', 'rejected', 'expired']
 ```

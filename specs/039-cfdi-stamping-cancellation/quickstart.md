@@ -26,7 +26,7 @@ uv run ruff check app/ migrations/ tests/
 | `tests/integration/test_stamp_flow.py` | Stamp, idempotent repeat, reject/unavailable leave sealed, timeout → refresh, 5-minute grace, a second stamp on a stamping document makes no PAC call (SC-002's rule; the concurrent run is §3) |
 | `tests/integration/test_cancel_flow.py` | Every row of contracts/endpoints.md `/cancel`, the dependents rule, reason 01, freeing refunds and receipt balances (SC-005), receipt/note blocked during an open request |
 | `tests/integration/test_resolve_job.py` | The job resolves stamping and pending documents; one failure doesn't stop the others; SC-003 |
-| `tests/api/test_fiscal_stamping.py`, `tests/api/test_pac_simulator.py` | Routes in the patched-service style: happy path, 401, 403, 404, facility, and each error code's mapping |
+| `tests/api/test_fiscal_stamping.py`, `tests/api/test_pac_simulator.py` | Routes in the patched-service style: happy path, 401, 403, 404, and each error code's mapping |
 | `tests/integration/test_fiscal_stamping_http.py` | Real database over HTTP: the status filter for all six states, the cancellation history, and every row of "Driving each scenario" (SC-001) |
 | Flow tests parametrised over `SimulatedPac` and `ScriptedPac` | SC-006 |
 | `tests/unit/test_contract_docs.py` (existing) | The new codes match spec 036's contract |
