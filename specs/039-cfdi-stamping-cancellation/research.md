@@ -138,7 +138,7 @@ Errors: `PacRejected(code, message)`, `PacUnavailable`, `PacTimeout`.
   - SAT status (`valid` or `cancelled`) and cancellation status;
   - the next chosen stamp outcome and the next chosen cancellation outcome, with an optional PAC code and message.
 - **TFD 1.1.**
-  - `Version` 1.1, a fresh `uuid4` in upper case, `FechaTimbrado` now in Mexico City time;
+  - `Version` 1.1, a fresh `uuid4` in upper case, `FechaTimbrado` now in Mexico City time, from `local_now()`;
   - `SelloCFD` copied from the sealed document;
   - `SelloSAT` 344 random base64 characters, the size of an RSA-2048 seal;
   - `NoCertificadoSAT` `00001000000000000000`;

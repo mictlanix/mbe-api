@@ -110,7 +110,8 @@ tests/
 ├── integration/test_stamp_flow.py, test_cancel_flow.py, test_resolve_job.py, test_fiscal_stamping_http.py
 ├── unit/ (pins, migrations) test_contract_docs.py, test_migrate.py; api/test_openapi_problem.py (pin)
 ├── integration/seed.py             # seed_cancellation_reasons
-├── fakes/__init__.py, fakes/pac.py
+├── fakes/__init__.py
+├── integration/test_not_found.py    # SKIP gains the dev-only simulator GET route
 └── api/test_fiscal_stamping.py, test_pac_simulator.py
 docs/data-dictionary.md             # stamping_since, cancelling_since and the two new tables
 docs/specs/10-fiscal-documents.md   # "New MBE: stamping and cancellation (spec 039)" section
@@ -132,7 +133,7 @@ specs/036-localizable-error-codes/contracts/error-codes.md  # new rows; lock.bus
 | `services/fiscal_stamping.py` (stamp, cancel, refresh) | FR-010, FR-017, FR-024: two-phase flows that commit before and after a network call | Putting them in `invoice_service` would mix PAC calls into a module whose confirm holds the series lock; receipts and notes would need the same code three times |
 | `SimulatedPac` | FR-005 to FR-007: the provider this step runs on | No existing provider exists; `ScriptedPac` is a test fake, not a dev tool |
 | `jobs/resolve_fiscal_documents.py` | FR-025: periodic resolution | No existing job refreshes fiscal documents; it reuses the job pattern of `send_scheduled_reports` |
-| Schemas: cancel request, `FiscalDocumentStamp` (the nested `stamp` object, in the style of `FiscalDocumentRelationResponse`), `FiscalDocumentCancellationResponse`, `PacSimulationResponse`, `PacSimulationUpdate`, `ReceiverAnswer` | FR-017, FR-027, FR-006: request and response shapes for the new routes and fields | The existing fiscal schemas have no cancellation or simulator fields; the nested `stamp` follows the file's one-class-per-nested-object style |
+| Schemas: `FiscalDocumentCancelRequest`, `FiscalDocumentStamp` (the nested `stamp` object, in the style of `FiscalDocumentRelationResponse`), `FiscalDocumentCancellationResponse`, `PacSimulationResponse`, `PacSimulationUpdate`, `ReceiverAnswer` | FR-017, FR-027, FR-006: request and response shapes for the new routes and fields | The existing fiscal schemas have no cancellation or simulator fields; the nested `stamp` follows the file's one-class-per-nested-object style |
 
 ## Deployment notes (each needs confirmation)
 

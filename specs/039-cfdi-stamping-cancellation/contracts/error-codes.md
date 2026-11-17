@@ -28,7 +28,7 @@ These rows are added to `app/core/error_codes.py` and to `specs/036-localizable-
 
 | Code | Where |
 |---|---|
-| `fiscal_document.not_sealed` | Stamping a draft; the simulator routes on a draft |
+| `fiscal_document.not_sealed` | Stamping a draft; the simulator routes on a draft; reopening a stamping document (R15 rule 8). Its 036 Situation text is widened to cover these |
 | `fiscal_document.not_issued` | Cancelling a document that is not issued (draft, sealed, stamping or cancelled). Its spec 036 Situation text is widened to cover cancel as well as XML/PDF |
 | `fiscal_document.no_valid_certificate` | Cancelling when the issuer has no certificate valid now. Its 036 Situation text (valid at the issue date) is widened to cover cancel |
 | `fiscal_document.issue_date_out_of_range` | Stamping after the 72-hour window |
