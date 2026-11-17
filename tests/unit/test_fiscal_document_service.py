@@ -8,6 +8,7 @@ from types import SimpleNamespace
 import pytest
 
 from app.db.base import Base
+from app.models.fiscal import FiscalDocumentCancellation
 from app.schemas.fiscal import FiscalDocumentSummary
 from app.services import fiscal_document_service as svc
 
@@ -238,3 +239,34 @@ def test_xml_total_reads_the_lowercase_total_of_older_versions() -> None:
 @pytest.mark.parametrize('data', [None, '', 'not xml', '<Comprobante/>'])
 def test_xml_total_is_none_without_a_readable_total(data: str | None) -> None:
     assert svc.xml_total(data) is None
+
+
+class _CancellationSession(_DetailSession):
+    """`get_document` with cancellation rows; it keeps the statement that read them."""
+
+    def __init__(self, document: SimpleNamespace, cancellations: list) -> None:
+        super().__init__(document)
+        self.cancellations = cancellations
+        self.statement = None
+
+    async def execute(self, statement) -> _DetailRows:  # noqa: ANN001
+        if statement.column_descriptions[0]['entity'] is FiscalDocumentCancellation:
+            self.statement = statement
+            return _DetailRows(self.cancellations)
+        return _DetailRows()
+
+
+@pytest.mark.asyncio
+async def test_the_detail_lists_cancellations_newest_first_from_the_current_rows() -> None:
+    newest, oldest = (
+        SimpleNamespace(fiscal_document_cancellation_id=2),
+        SimpleNamespace(fiscal_document_cancellation_id=1),
+    )
+    session = _CancellationSession(_stored(completed=True), [newest, oldest])
+
+    document = await svc.get_document(session, 1)  # type: ignore[arg-type]
+
+    assert document.cancellations == [newest, oldest]
+    assert session.statement.get_execution_options()['populate_existing'] is True
+    order = [str(clause) for clause in session.statement._order_by_clauses]
+    assert order == ['fiscal_document_cancellation.fiscal_document_cancellation_id DESC']

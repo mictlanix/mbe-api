@@ -13,6 +13,7 @@ from sqlalchemy.orm import aliased
 
 from app.models.fiscal import (
     FiscalDocument,
+    FiscalDocumentCancellation,
     FiscalDocumentDetail,
     FiscalDocumentRelation,
     FiscalDocumentXml,
@@ -193,8 +194,8 @@ async def get_paid_invoices(
 
 
 async def get_document(db: AsyncSession, fiscal_document_id: int) -> FiscalDocument | None:
-    """The document with `lines`, `relations`, `status`, `total` and `stamp` attached, and a
-    payment receipt's `paid_invoices`."""
+    """The document with `lines`, `relations`, `status`, `total`, `stamp` and its
+    `cancellations` (newest first) attached, and a payment receipt's `paid_invoices`."""
     document = await db.get(FiscalDocument, fiscal_document_id)
     if document is None:
         return None
@@ -205,6 +206,14 @@ async def get_document(db: AsyncSession, fiscal_document_id: int) -> FiscalDocum
     )
     document.lines = list(lines.scalars())
     document.relations = await get_relations(db, fiscal_document_id)
+    # Requests are updated by statements; populate_existing shows their current row (R15 rule 11).
+    cancellations = await db.execute(
+        select(FiscalDocumentCancellation)
+        .where(FiscalDocumentCancellation.fiscal_document == fiscal_document_id)
+        .order_by(FiscalDocumentCancellation.fiscal_document_cancellation_id.desc())
+        .execution_options(populate_existing=True)
+    )
+    document.cancellations = list(cancellations.scalars())
     xml = await get_xml(db, fiscal_document_id)
     document.status = document_status(document, has_xml=xml is not None)
     document.total = xml_total(xml)

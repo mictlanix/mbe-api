@@ -140,6 +140,24 @@ class FiscalDocumentStamp(BaseModel):
     simulated: bool
 
 
+class FiscalDocumentCancellationResponse(BaseModel):
+    """One cancellation request (spec 039), newest first in the detail."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    fiscal_document_cancellation_id: int
+    reason: str
+    substitution: str | None
+    status: str
+    pac_code: str | None
+    pac_message: str | None
+    requested_by: int
+    requested_at: LocalDateTime
+    answered_at: LocalDateTime | None
+    resolved_at: LocalDateTime | None
+    last_checked_at: LocalDateTime | None
+
+
 class FiscalDocumentResponse(FiscalDocumentSummary):
     issuer_regime: str | None
     issuer_regime_name: str | None
@@ -168,6 +186,8 @@ class FiscalDocumentResponse(FiscalDocumentSummary):
     # Spec 039: null until stamped, and set while a stamp is with the PAC.
     stamp: FiscalDocumentStamp | None = None
     stamping_since: LocalDateTime | None = None
+    cancellation_substitution: str | None = None
+    cancellations: list[FiscalDocumentCancellationResponse] = []
 
 
 def relation_code(stored: object) -> str | None:
