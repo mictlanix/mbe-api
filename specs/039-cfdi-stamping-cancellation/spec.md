@@ -85,7 +85,7 @@ An authorised user cancels a stamped document with a SAT reason. Depending on wh
 4. **Given** a pending cancellation that the receiver rejects, **When** its status is refreshed, **Then** the document goes back to issued and the rejection is kept in its history. A new cancellation can be requested.
 5. **Given** a document that SAT reports as not cancellable, **When** a user cancels it, **Then** the request is refused with a coded error, and the document stays issued.
 6. **Given** an invoice with a live payment receipt or credit note related to it, **When** a user cancels it, **Then** the request is refused with a coded error naming those documents. Live means sealed, stamping, issued or cancellation pending.
-7. **Given** an invoice that becomes cancelled, **Then** its units can be refunded (spec 028's refund rule) and it no longer counts in the previous balance that later payment receipts compute.
+7. **Given** an invoice that becomes cancelled, **Then** its units can be refunded (spec 028's refund rule). **Given** a payment receipt or credit note on an invoice that becomes cancelled, **Then** it no longer counts in the previous balance that later payment receipts on that invoice compute, nor in that invoice's credit-note limit.
 8. **Given** a payment receipt that becomes cancelled, **Then** its customer payment can back a new receipt (spec 028).
 9. **Given** reason 01, **When** a user cancels, **Then** a substitute UUID is required, and it must be a stamped, live document (issued or cancellation pending) of the same issuer and recipient. Otherwise the request is refused with a coded error before the PAC is called. The API does not require the substitute to relate this document with 04, and spec 027's relation and remaining-quantity rules are unchanged. If SAT refuses the substitute, the PAC's rejection is returned (FR-014's rejection error) and the document stays issued.
 
@@ -229,7 +229,7 @@ A developer or a UI tester reaches every PAC outcome through the API alone, with
 
 **Reads, lists and rules**
 
-- **FR-026**: List and detail reads MUST report each document's fiscal state: draft, sealed, stamping, issued, cancellation pending, cancelled. The list MUST filter by any of them. The existing values and their meaning are unchanged: issued is the stamped state.
+- **FR-026**: List and detail reads MUST report each document's fiscal state: draft, sealed, stamping, issued, cancellation pending, cancelled. The list MUST filter by any of them. `issued` keeps its name and is the stamped state; it now excludes documents with a cancellation in process, which read `cancellation_pending`. The other existing values are unchanged.
 - **FR-027**: The detail read MUST include the fiscal stamp fields (UUID, stamp date, SAT certificate number, provider RFC, a simulated flag) and the cancellation history.
 - **FR-028**: Stamping, cancelling and refreshing MUST use the existing fiscal-document privileges: Update on Fiscal Documents (23). Like the existing fiscal-document routes, they have no facility scope, since fiscal documents belong to an issuer. The periodic job runs as the system.
 - **FR-029**: Each of these state changes MUST record an audit event like the existing fiscal-document actions do: stamped, stamp resolved (found, or sealed again), cancellation requested, and each way a cancellation request ends (pending, accepted, rejected, refused, failed). A stamp attempt that ends sealed or stamping in the same request is not audited (research R10), except a stamp the PAC issued that was not stored, which is (R15 rule 5).
@@ -256,7 +256,7 @@ A developer or a UI tester reaches every PAC outcome through the API alone, with
 - **SC-002**: In a concurrency test of 20 simultaneous stamp requests on one sealed document, the PAC receives exactly 1 stamp call and the document ends with 1 UUID. Measured on the test deployment, whose database enforces row locks.
 - **SC-003**: Every timeout left stamping is resolved by the first periodic run, after the 5-minute grace, in which the PAC answers. No document stays stamping after 2 such runs with the PAC available.
 - **SC-004**: No document is ever stamped twice. Across the test suite and the dev scenarios, each sealed document maps to at most one UUID.
-- **SC-005**: An invoice cancelled through this flow frees its units for refunds and drops out of later receipts' previous balance in the same request that marks it cancelled.
+- **SC-005**: In the same request that marks it cancelled, an invoice cancelled through this flow frees its units for refunds, and a payment receipt or credit note cancelled through this flow drops out of later receipts' previous balance on its invoice.
 - **SC-006**: Replacing the simulated provider with another implementation of the contract changes only configuration and the provider itself. This is checked by a second test double of the contract running the same flows.
 - **SC-007**: A credential scan of the repository, test fixtures and logs from a full test run finds no PAC credentials.
 
