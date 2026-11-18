@@ -17,12 +17,15 @@ jobs:
       DATABASE_URL: 'sqlite+aiosqlite:///:memory:'
       JWT_SECRET_KEY: test-secret-test-secret-test-secret-0123
       BUSINESS_TIMEZONE: America/Mexico_City
+      # Some tests compare against date.today(); the servers run on Mexico City time.
+      TZ: America/Mexico_City
     steps:
       - uses: actions/checkout@v4
 
-      # WeasyPrint renders the PDFs the print tests check; it needs Pango.
+      # WeasyPrint renders the PDFs the print tests check; it needs Pango, and HarfBuzz-Subset
+      # so it doesn't fall back to fontTools (which warns and changes the bytes).
       - name: Install system libraries
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libpango-1.0-0 libpangoft2-1.0-0
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libpango-1.0-0 libpangoft2-1.0-0 libharfbuzz-subset0
 
       - uses: astral-sh/setup-uv@v6
         with:
