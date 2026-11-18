@@ -137,6 +137,7 @@ class ErrorCode(StrEnum):
     FISCAL_DOCUMENT_AMOUNT_EXCEEDS_BALANCE = 'fiscal_document.amount_exceeds_balance', 422
     FISCAL_DOCUMENT_AMOUNTS_EXCEED_PAYMENT = 'fiscal_document.amounts_exceed_payment', 422
     FISCAL_DOCUMENT_AMOUNTS_NOT_EQUAL_PAYMENT = 'fiscal_document.amounts_not_equal_payment', 422
+    FISCAL_DOCUMENT_CANCELLATION_OPEN = 'fiscal_document.cancellation_open', 409
     FISCAL_DOCUMENT_CERTIFICATE_CANNOT_SIGN = 'fiscal_document.certificate_cannot_sign', 422
     FISCAL_DOCUMENT_CREDIT_EXCEEDS_INVOICE = 'fiscal_document.credit_exceeds_invoice', 422
     FISCAL_DOCUMENT_CREDIT_QUANTITY_EXCEEDS_LINE = (
@@ -144,6 +145,7 @@ class ErrorCode(StrEnum):
         422,
     )
     FISCAL_DOCUMENT_FIELD_NOT_FOR_TYPE = 'fiscal_document.field_not_for_type', 422
+    FISCAL_DOCUMENT_HAS_LIVE_DOCUMENTS = 'fiscal_document.has_live_documents', 409
     FISCAL_DOCUMENT_INVOICE_ALREADY_ON_RECEIPT = 'fiscal_document.invoice_already_on_receipt', 409
     FISCAL_DOCUMENT_INVOICE_NOT_CREDITABLE = 'fiscal_document.invoice_not_creditable', 422
     FISCAL_DOCUMENT_INVOICE_NOT_PAYABLE = 'fiscal_document.invoice_not_payable', 422
@@ -154,11 +156,13 @@ class ErrorCode(StrEnum):
     FISCAL_DOCUMENT_NO_INVOICEABLE_LINES = 'fiscal_document.no_invoiceable_lines', 422
     FISCAL_DOCUMENT_NO_LINES = 'fiscal_document.no_lines', 422
     FISCAL_DOCUMENT_NO_VALID_CERTIFICATE = 'fiscal_document.no_valid_certificate', 422
+    FISCAL_DOCUMENT_NOT_CANCELLABLE = 'fiscal_document.not_cancellable', 409
     FISCAL_DOCUMENT_NOT_DRAFT = 'fiscal_document.not_draft', 409
     FISCAL_DOCUMENT_NOT_EMAILABLE = 'fiscal_document.not_emailable', 409
     FISCAL_DOCUMENT_NOT_ISSUED = 'fiscal_document.not_issued', 409
     FISCAL_DOCUMENT_NOT_SEALED = 'fiscal_document.not_sealed', 409
     FISCAL_DOCUMENT_NOT_STAMPED = 'fiscal_document.not_stamped', 409
+    FISCAL_DOCUMENT_NOTHING_TO_REFRESH = 'fiscal_document.nothing_to_refresh', 409
     FISCAL_DOCUMENT_ORDER_NOT_INVOICEABLE = 'fiscal_document.order_not_invoiceable', 422
     FISCAL_DOCUMENT_PAYMENT_ALREADY_RECEIPTED = 'fiscal_document.payment_already_receipted', 409
     FISCAL_DOCUMENT_PAYMENT_DATE_OUT_OF_RANGE = 'fiscal_document.payment_date_out_of_range', 422
@@ -178,7 +182,11 @@ class ErrorCode(StrEnum):
     FISCAL_DOCUMENT_SERIES_LOCKED = 'fiscal_document.series_locked', 409
     FISCAL_DOCUMENT_SERIES_MISSING = 'fiscal_document.series_missing', 422
     FISCAL_DOCUMENT_SERIES_NOT_OF_TYPE = 'fiscal_document.series_not_of_type', 422
+    FISCAL_DOCUMENT_STAMPING = 'fiscal_document.stamping', 409
+    FISCAL_DOCUMENT_SUBSTITUTION_INVALID = 'fiscal_document.substitution_invalid', 422
+    FISCAL_DOCUMENT_SUBSTITUTION_REQUIRED = 'fiscal_document.substitution_required', 422
     FISCAL_DOCUMENT_TYPE_NOT_SUPPORTED = 'fiscal_document.type_not_supported', 409
+    FISCAL_DOCUMENT_UNKNOWN_CANCELLATION_REASON = 'fiscal_document.unknown_cancellation_reason', 422
     FISCAL_DOCUMENT_UNKNOWN_FACILITY = 'fiscal_document.unknown_facility', 422
     FISCAL_DOCUMENT_UNKNOWN_USAGE = 'fiscal_document.unknown_usage', 422
     FISCAL_DOCUMENT_VERSION_NOT_PRINTABLE = 'fiscal_document.version_not_printable', 409
@@ -237,6 +245,12 @@ class ErrorCode(StrEnum):
 
     # lock
     LOCK_BUSY = 'lock.busy', 409
+
+    # pac
+    PAC_NOT_CONFIGURED = 'pac.not_configured', 503
+    PAC_REJECTED = 'pac.rejected', 422
+    PAC_TIMEOUT = 'pac.timeout', 504
+    PAC_UNAVAILABLE = 'pac.unavailable', 503
 
     # payment
     PAYMENT_ALREADY_APPLIED = 'payment.already_applied', 409

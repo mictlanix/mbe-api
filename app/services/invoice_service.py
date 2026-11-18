@@ -985,8 +985,24 @@ async def reopen(db: AsyncSession, current: CurrentUser, document: FiscalDocumen
 
     A credit note stops counting once its XML goes, so the orders on its invoice owe again, and one
     it had settled is flagged unpaid (spec 033, FR-011).
+
+    The row is locked first and checked as it is now, so a stamp that committed its marker after
+    the route read the document is seen and the reopen refused (spec 039, research R15 rule 8).
     """
-    if document.status != 'sealed':
+    locked = (
+        await db.execute(
+            select(FiscalDocument)
+            .where(FiscalDocument.fiscal_document_id == document.fiscal_document_id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+    ).scalar_one()
+    if (
+        document.status != 'sealed'
+        or locked.completed
+        or locked.cancelled
+        or locked.stamping_since is not None
+    ):
         raise _error(ErrorCode.FISCAL_DOCUMENT_NOT_SEALED, 'Fiscal document is not sealed')
     credit_note = document.type == FiscalDocumentType.CREDIT_NOTE
     orders = await _credited_orders(db, document) if credit_note else []
@@ -1083,6 +1099,7 @@ def _payable(receipt: FiscalDocument, invoice: FiscalDocument) -> bool:
         and invoice.payment_terms == PaymentTerms.NET_D
         and invoice.issuer == receipt.issuer
         and invoice.recipient == receipt.recipient
+        and invoice.cancelling_since is None
     )
 
 
@@ -1353,6 +1370,7 @@ async def _prepare_receipt(db: AsyncSession, document: FiscalDocument) -> SealBu
                 .where(FiscalDocument.fiscal_document_id.in_(ids))
                 .order_by(FiscalDocument.fiscal_document_id)
                 .with_for_update()
+                .execution_options(populate_existing=True)
             )
         ).scalars()
     }
@@ -1428,6 +1446,7 @@ def _creditable(invoice: FiscalDocument) -> bool:
         and invoice.completed
         and not invoice.cancelled
         and bool(invoice.stamp_uuid)
+        and invoice.cancelling_since is None
     )
 
 
@@ -1610,6 +1629,7 @@ async def _prepare_credit_note(db: AsyncSession, document: FiscalDocument) -> Se
             select(FiscalDocument)
             .where(FiscalDocument.fiscal_document_id == relation)
             .with_for_update()
+            .execution_options(populate_existing=True)
         )
     ).scalar_one()
     if not _creditable(invoice):

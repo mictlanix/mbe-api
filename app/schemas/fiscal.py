@@ -1,6 +1,7 @@
 from datetime import date
 from decimal import Decimal
 from typing import Literal
+from uuid import UUID
 
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator
 from pydantic_core import PydanticCustomError
@@ -87,7 +88,7 @@ class FiscalDocumentSummary(BaseModel):
     recipient_name: str | None
     issued: LocalDateTime | None
     stamp_uuid: str | None
-    status: Literal['draft', 'sealed', 'issued', 'cancelled']
+    status: Literal['draft', 'sealed', 'stamping', 'issued', 'cancellation_pending', 'cancelled']
     total: Decimal | None
 
 
@@ -128,6 +129,35 @@ class FiscalDocumentRelationResponse(BaseModel):
         return relation_code(value)
 
 
+class FiscalDocumentStamp(BaseModel):
+    """The PAC's stamp (spec 039). `stamped` repeats the top-level field, so this is complete on
+    its own; `simulated` is true when the simulated PAC stamped it."""
+
+    uuid: str
+    stamped: LocalDateTime | None
+    sat_certificate: str | None
+    provider_rfc: str | None
+    simulated: bool
+
+
+class FiscalDocumentCancellationResponse(BaseModel):
+    """One cancellation request (spec 039), newest first in the detail."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    fiscal_document_cancellation_id: int
+    reason: str
+    substitution: str | None
+    status: str
+    pac_code: str | None
+    pac_message: str | None
+    requested_by: int
+    requested_at: LocalDateTime
+    answered_at: LocalDateTime | None
+    resolved_at: LocalDateTime | None
+    last_checked_at: LocalDateTime | None
+
+
 class FiscalDocumentResponse(FiscalDocumentSummary):
     issuer_regime: str | None
     issuer_regime_name: str | None
@@ -153,6 +183,11 @@ class FiscalDocumentResponse(FiscalDocumentSummary):
     lines: list[FiscalDocumentLine]
     relations: list[FiscalDocumentRelationResponse] = []
     paid_invoices: list['PaidInvoiceResponse'] = []
+    # Spec 039: null until stamped, and set while a stamp is with the PAC.
+    stamp: FiscalDocumentStamp | None = None
+    stamping_since: LocalDateTime | None = None
+    cancellation_substitution: str | None = None
+    cancellations: list[FiscalDocumentCancellationResponse] = []
 
 
 def relation_code(stored: object) -> str | None:
@@ -347,6 +382,46 @@ class InvoiceLineCopy(BaseModel):
 
     line: int
     quantity: Decimal | None = Field(None, gt=0, max_digits=18, decimal_places=4)
+
+
+class FiscalDocumentCancelRequest(BaseModel):
+    """SAT's cancellation reason, 01–04, and for 01 the substitute document's UUID."""
+
+    reason: str
+    substitution: UUID | None = None
+
+
+# ── Simulated PAC controls (spec 039, research R7; dev and test only) ────────
+
+
+class PacSimulationResponse(BaseModel):
+    """What the simulator holds for a document."""
+
+    uuid: str | None
+    sat_status: str
+    cancellation_status: str
+    next_stamp: str | None
+    next_cancellation: str | None
+
+
+class PacSimulationUpdate(BaseModel):
+    """The outcome of the document's next stamp or cancellation call only. `pac_code` and
+    `pac_message` are a `rejected` outcome's, as the `pac_simulation` columns hold them."""
+
+    stamp: (
+        Literal['stamped', 'rejected', 'unavailable', 'timeout_stamped', 'timeout_not_stamped']
+        | None
+    ) = None
+    cancellation: (
+        Literal['accepted', 'pending', 'not_cancellable', 'rejected', 'unavailable', 'timeout']
+        | None
+    ) = None
+    pac_code: str | None = Field(None, max_length=20)
+    pac_message: str | None = Field(None, max_length=500)
+
+
+class ReceiverAnswer(BaseModel):
+    answer: Literal['accept', 'reject', 'expire']
 
 
 class FiscalEmailRequest(QuoteEmailRequest):

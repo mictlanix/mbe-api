@@ -13,9 +13,11 @@ from app.schemas.fiscal import (
     InvoiceLineUpdate,
     InvoiceRelationAdd,
     InvoiceUpdate,
+    PacSimulationUpdate,
     PaidInvoiceAdd,
     PaidInvoiceUpdate,
     PaymentReceiptCreate,
+    ReceiverAnswer,
     TaxpayerBatchCreate,
     relation_code,
 )
@@ -164,3 +166,48 @@ def test_optional_amounts_and_quantities_default_to_none() -> None:
     assert PaidInvoiceAdd.model_validate({'invoice': 7}).amount is None
     assert InvoiceLineCopy.model_validate({'line': 3}).quantity is None
     assert FiscalEmailRequest.model_validate({'to': [' A@x.mx', 'a@X.mx']}).to == ['A@x.mx']
+
+
+# ── Simulated PAC controls (spec 039, contracts/endpoints.md) ─────────────────
+
+
+@pytest.mark.parametrize(
+    'body',
+    [
+        {'stamp': 'accepted'},
+        {'cancellation': 'stamped'},
+        {'pac_code': 'C' * 21},
+        {'pac_message': 'm' * 501},
+    ],
+)
+def test_simulation_update_rejects(body: dict) -> None:
+    with pytest.raises(ValidationError):
+        PacSimulationUpdate.model_validate(body)
+
+
+def test_simulation_update_takes_each_outcome() -> None:
+    for stamp in ('stamped', 'rejected', 'unavailable', 'timeout_stamped', 'timeout_not_stamped'):
+        assert PacSimulationUpdate.model_validate({'stamp': stamp}).stamp == stamp
+    for cancellation in (
+        'accepted',
+        'pending',
+        'not_cancellable',
+        'rejected',
+        'unavailable',
+        'timeout',
+    ):
+        body = PacSimulationUpdate.model_validate({'cancellation': cancellation})
+        assert body.cancellation == cancellation
+    body = PacSimulationUpdate.model_validate({'pac_code': 'C' * 20, 'pac_message': 'm' * 500})
+    assert (body.stamp, body.cancellation) == (None, None)
+
+
+@pytest.mark.parametrize('answer', ['accept', 'reject', 'expire'])
+def test_receiver_answer_accepts(answer: str) -> None:
+    assert ReceiverAnswer.model_validate({'answer': answer}).answer == answer
+
+
+@pytest.mark.parametrize('body', [{'answer': 'accepted'}, {'answer': ''}, {}])
+def test_receiver_answer_rejects(body: dict) -> None:
+    with pytest.raises(ValidationError):
+        ReceiverAnswer.model_validate(body)

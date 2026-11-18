@@ -14,7 +14,11 @@ from tests.problem import assert_problem
 MISSING = 999999
 
 #: Routes that answer 404 for something other than the id in their path, with the reason.
-SKIP: dict[str, str] = {}
+SKIP: dict[str, str] = {
+    '/api/v1/pac-simulator/fiscal-documents/{fiscal_document_id}': (
+        'Dev-only: request.route_not_found unless PAC_PROVIDER=simulated (spec 039 R7)'
+    ),
+}
 #: The required query parameters of routes that have them besides the id.
 QUERY: dict[str, dict[str, str]] = {
     '/api/v1/analytics/customers/{customer_id}': {'start': '2026-05-01', 'end': '2026-05-31'},

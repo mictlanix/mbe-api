@@ -49,6 +49,7 @@ from app.models.sat_catalog import (
     SatCfdiUsage,
     SatPostalCode,
     SatProductService,
+    SatReasonCancellation,
     SatTaxRegime,
     SatUnitOfMeasurement,
 )
@@ -222,6 +223,20 @@ async def seed_baseline(db: AsyncSession) -> None:
         ProductPrice(
             product=1, price_list=1, price=Decimal('100'), low_profit=Decimal('0.1'),
             high_profit=Decimal('0.5'),
+        )
+    )
+    await db.commit()
+
+
+async def seed_cancellation_reasons(db: AsyncSession) -> None:
+    """SAT's cancellation reasons 01–04, which a cancellation request's `reason` references."""
+    db.add_all(
+        SatReasonCancellation(sat_reason_cancellation_id=code, description=description)
+        for code, description in (
+            ('01', 'Comprobante emitido con errores con relación'),
+            ('02', 'Comprobante emitido con errores sin relación'),
+            ('03', 'No se llevó a cabo la operación'),
+            ('04', 'Operación nominativa relacionada en una factura global'),
         )
     )
     await db.commit()

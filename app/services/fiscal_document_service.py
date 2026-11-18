@@ -13,12 +13,16 @@ from sqlalchemy.orm import aliased
 
 from app.models.fiscal import (
     FiscalDocument,
+    FiscalDocumentCancellation,
     FiscalDocumentDetail,
     FiscalDocumentRelation,
     FiscalDocumentXml,
 )
+from app.services.pac.provider import SIMULATED_PAC_RFC
 
-DocumentStatus = Literal['draft', 'sealed', 'issued', 'cancelled']
+DocumentStatus = Literal[
+    'draft', 'sealed', 'stamping', 'issued', 'cancellation_pending', 'cancelled'
+]
 
 _BATCH_SERIAL = re.compile(r'([A-Za-z]+)\s*(\d+)')
 _UUID = re.compile(r'[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}', re.IGNORECASE)
@@ -28,12 +32,16 @@ def document_status(document: FiscalDocument, *, has_xml: bool = False) -> Docum
     """Legacy's own rule: `completed` decides whether a document was issued (research R10).
 
     An uncompleted document with its XML stored has been sealed and waits to be stamped
-    (spec 027, research R1); legacy never stores XML before completing a document.
+    (spec 027, research R1); legacy never stores XML before completing a document. Spec 039 adds
+    two in-flight states, read from the document's own markers: stamping (a stamp is with the PAC)
+    and cancellation pending (a cancellation request is open).
     """
     if document.cancelled:
         return 'cancelled'
     if document.completed:
-        return 'issued'
+        return 'cancellation_pending' if document.cancelling_since is not None else 'issued'
+    if document.stamping_since is not None:
+        return 'stamping'
     return 'sealed' if has_xml else 'draft'
 
 
@@ -186,8 +194,8 @@ async def get_paid_invoices(
 
 
 async def get_document(db: AsyncSession, fiscal_document_id: int) -> FiscalDocument | None:
-    """The document with `lines`, `relations`, `status` and `total` attached, and a payment
-    receipt's `paid_invoices`."""
+    """The document with `lines`, `relations`, `status`, `total`, `stamp` and its
+    `cancellations` (newest first) attached, and a payment receipt's `paid_invoices`."""
     document = await db.get(FiscalDocument, fiscal_document_id)
     if document is None:
         return None
@@ -198,9 +206,28 @@ async def get_document(db: AsyncSession, fiscal_document_id: int) -> FiscalDocum
     )
     document.lines = list(lines.scalars())
     document.relations = await get_relations(db, fiscal_document_id)
+    # Requests are updated by statements; populate_existing shows their current row (R15 rule 11).
+    cancellations = await db.execute(
+        select(FiscalDocumentCancellation)
+        .where(FiscalDocumentCancellation.fiscal_document == fiscal_document_id)
+        .order_by(FiscalDocumentCancellation.fiscal_document_cancellation_id.desc())
+        .execution_options(populate_existing=True)
+    )
+    document.cancellations = list(cancellations.scalars())
     xml = await get_xml(db, fiscal_document_id)
     document.status = document_status(document, has_xml=xml is not None)
     document.total = xml_total(xml)
+    document.stamp = (
+        {
+            'uuid': document.stamp_uuid,
+            'stamped': document.stamped,
+            'sat_certificate': document.authority_certificate_number,
+            'provider_rfc': document.rfc_pac,
+            'simulated': document.rfc_pac == SIMULATED_PAC_RFC,
+        }
+        if document.stamp_uuid
+        else None
+    )
     document.paid_invoices = (
         await get_paid_invoices(db, document, live_values=document.status == 'draft')
         if document.type == PAYMENT_RECEIPT
@@ -238,12 +265,22 @@ async def list_documents(
         both(FiscalDocument.cancelled.is_(True))
     elif status is not None:
         both(FiscalDocument.cancelled.is_(False))
-        both(FiscalDocument.completed.is_(status == 'issued'))
-        if status != 'issued':
-            sealed = exists().where(
-                FiscalDocumentXml.fiscal_document_xml_id == FiscalDocument.fiscal_document_id
-            )
-            both(sealed if status == 'sealed' else ~sealed)
+        has_xml = exists().where(
+            FiscalDocumentXml.fiscal_document_xml_id == FiscalDocument.fiscal_document_id
+        )
+        if status == 'cancellation_pending':
+            both(FiscalDocument.completed.is_(True))
+            both(FiscalDocument.cancelling_since.is_not(None))
+        elif status == 'issued':
+            both(FiscalDocument.completed.is_(True))
+            both(FiscalDocument.cancelling_since.is_(None))
+        else:
+            both(FiscalDocument.completed.is_(False))
+            if status == 'stamping':
+                both(FiscalDocument.stamping_since.is_not(None))
+            else:
+                both(FiscalDocument.stamping_since.is_(None))
+                both(has_xml if status == 'sealed' else ~has_xml)
     if date_from is not None:
         both(FiscalDocument.issued >= date_from)
     if date_to is not None:

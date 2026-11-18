@@ -1105,6 +1105,21 @@ class TestFiscalDocument:
 
         assert context['cancelled'] == expected
 
+    @pytest.mark.parametrize(
+        ('provider', 'expected'), [('SIM010101SIM', True), ('LSO1306189R5', False)]
+    )
+    async def test_simulated_only_when_the_simulator_stamped_it(
+        self, provider: str, expected: bool
+    ) -> None:
+        """Spec 039, FR-009: read from the stamped XML's TFD, as every other stamp value."""
+        xml = _cfdi_xml('invoice').replace(
+            'RfcProvCertif="LSO1306189R5"', f'RfcProvCertif="{provider}"'
+        )
+
+        _, context = await fiscal_document_context(_fiscal_db(), _fiscal_document(), xml)
+
+        assert context['is_simulated'] is expected
+
 
 class TestFiscalDocumentRelated:
     async def test_credit_note_relations(self) -> None:

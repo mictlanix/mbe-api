@@ -1432,6 +1432,47 @@ CFDI electronic invoice header.
 | `approval_number` | int(11) | YES | **Legacy** — SAT *número de aprobación* from the printed-folio era, before CFDI. Populated on 10,399 older documents and never written since |
 | `approval_year` | int(11) | YES | **Legacy** — SAT *año de aprobación*, the companion of `approval_number`, with the same 10,399 rows |
 | `taxpayer_regime_name` | varchar(250) | YES | **Never written** — 0 of 62,592 rows populated in `mbe_dev`. `issuer_regime_name` above is the column that actually carries a regime description; this one is a drop candidate, and reaching for it by name would return `NULL` every time |
+| `stamping_since` | datetime | YES | **API-only**, added by migration 034 (spec 039). Set when a stamp request is about to reach the PAC; cleared when the stamp is stored or the PAC refuses. A value means the document is being stamped |
+| `cancelling_since` | datetime | YES | **API-only**, added by migration 034 (spec 039). Set with a cancellation request, cleared when that request closes. On a completed, uncancelled document a value means the cancellation is pending |
+
+### `fiscal_document_cancellation`
+One cancellation request for a stamped fiscal document (spec 039). **API-only**, added by migration 034.
+
+| Column | Type | Null | Description |
+|--------|------|------|-------------|
+| `fiscal_document_cancellation_id` | int(11) | NO | PK |
+| `fiscal_document` | int(11) | NO | FK → `fiscal_document` |
+| `reason` | varchar(2) | NO | FK → `sat_reason_cancellation` (01 to 04) |
+| `substitution` | varchar(36) | YES | UUID of the substitute document; required for reason 01 |
+| `status` | varchar(20) | NO | `requested`, `pending`, `accepted`, `expired`, `rejected`, `not_cancellable` or `failed` |
+| `pac_code` | varchar(20) | YES | The PAC's code when it rejected the request |
+| `pac_message` | varchar(500) | YES | The PAC's message when it rejected the request |
+| `requested_by` | int(11) | NO | FK → `employee` |
+| `requested_at` | datetime | NO | When the request was made |
+| `answered_at` | datetime | YES | The PAC's first answer |
+| `resolved_at` | datetime | YES | When the status became final |
+| `last_checked_at` | datetime | YES | The last status query |
+| `open_document` | int(11) | YES | Virtual: the document while `status` is `requested` or `pending`, NULL once closed. Unique, so a document has at most one open request. Not mapped by the model |
+
+### `pac_simulation`
+State of the simulated PAC (spec 039). Empty unless `PAC_PROVIDER=simulated`. **API-only**, added by migration 034.
+
+| Column | Type | Null | Description |
+|--------|------|------|-------------|
+| `pac_simulation_id` | int(11) | NO | PK |
+| `issuer` | varchar(13) | NO | Issuer RFC, from the sealed XML |
+| `batch` | varchar(10) | YES | Series; empty when the CFDI has none; NULL for a row made from a UUID it never stamped |
+| `serial` | int(11) | YES | Folio. Unique with `issuer` and `batch` |
+| `uuid` | char(36) | YES | Unique. Set once stamped |
+| `stamped_at` | datetime | YES | NULL for a row made from a UUID it never stamped |
+| `stamped_xml` | mediumtext | YES | The stamped CFDI |
+| `sat_status` | varchar(10) | NO | `valid` or `cancelled` |
+| `cancellation_status` | varchar(10) | NO | `none`, `requested`, `pending`, `accepted`, `rejected` or `expired` |
+| `next_stamp` | varchar(20) | YES | One-shot outcome of the next stamp |
+| `next_cancellation` | varchar(20) | YES | One-shot outcome of the next cancellation |
+| `pac_code` | varchar(20) | YES | Code for a chosen `rejected` outcome |
+| `pac_message` | varchar(500) | YES | Message for a chosen `rejected` outcome |
+| `updated_at` | datetime | NO | |
 
 ### `fiscal_document_detail`
 Line items of a fiscal document.

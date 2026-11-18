@@ -122,5 +122,20 @@ class Settings(BaseSettings):
     # Where customer replies go, e.g. a sales inbox; `mail_from` is usually a no-reply address.
     mail_reply_to: str = ''
 
+    # CFDI stamping and cancellation (spec 039). `app_env` fails closed: an instance that forgets it
+    # is treated as production, where the simulated PAC must never run (R5). `pac_provider` `none`
+    # answers stamp, cancel and refresh with `pac.not_configured`; step 3 adds the real provider.
+    app_env: Literal['development', 'staging', 'production'] = 'production'
+    pac_provider: Literal['none', 'simulated'] = 'none'
+
+
+def check_pac_settings(config: Settings) -> None:
+    """Refuse the simulated PAC in production, naming both settings (spec 039, R5)."""
+    if config.pac_provider == 'simulated' and config.app_env == 'production':
+        raise RuntimeError(
+            'pac_provider=simulated is not allowed with app_env=production: '
+            'set APP_ENV to development or staging, or PAC_PROVIDER to none'
+        )
+
 
 settings = Settings()

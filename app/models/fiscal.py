@@ -11,6 +11,7 @@ from sqlalchemy import (
     Numeric,
     String,
     Text,
+    UniqueConstraint,
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -121,6 +122,10 @@ class FiscalDocument(Base):
     taxpayer_regime: Mapped[str | None] = mapped_column(String(3))
     taxpayer_postal_code: Mapped[str | None] = mapped_column(String(5))
     rfc_pac: Mapped[str | None] = mapped_column(String(13))
+    # In-flight markers (migration 034, API-only, spec 039): a stamp or a cancellation request is
+    # with the PAC. They keep the state on the row a lock delivers.
+    stamping_since: Mapped[datetime | None] = mapped_column(DateTime)
+    cancelling_since: Mapped[datetime | None] = mapped_column(DateTime)
 
 
 class FiscalDocumentDetail(Base):
@@ -173,3 +178,54 @@ class FiscalDocumentXml(Base):
         Integer, ForeignKey('fiscal_document.fiscal_document_id'), primary_key=True
     )
     data: Mapped[str] = mapped_column(Text)
+
+
+class FiscalDocumentCancellation(Base):
+    """One cancellation request (migration 034, API-only, spec 039).
+
+    `open_document`, the virtual column that makes at most one open request per document a unique
+    key, is not mapped, as `sales_order_payment.live` is not.
+    """
+
+    __tablename__ = 'fiscal_document_cancellation'
+
+    fiscal_document_cancellation_id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    fiscal_document: Mapped[int] = mapped_column(
+        Integer, ForeignKey('fiscal_document.fiscal_document_id')
+    )
+    reason: Mapped[str] = mapped_column(
+        String(2), ForeignKey('sat_reason_cancellation.sat_reason_cancellation_id')
+    )
+    substitution: Mapped[str | None] = mapped_column(String(36))
+    status: Mapped[str] = mapped_column(String(20))
+    pac_code: Mapped[str | None] = mapped_column(String(20))
+    pac_message: Mapped[str | None] = mapped_column(String(500))
+    requested_by: Mapped[int] = mapped_column(Integer, ForeignKey('employee.employee_id'))
+    requested_at: Mapped[datetime] = mapped_column(DateTime)
+    answered_at: Mapped[datetime | None] = mapped_column(DateTime)
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime)
+    last_checked_at: Mapped[datetime | None] = mapped_column(DateTime)
+
+
+class PacSimulation(Base):
+    """The simulated PAC's state (migration 034, API-only, spec 039). Empty unless it is on."""
+
+    __tablename__ = 'pac_simulation'
+    __table_args__ = (
+        UniqueConstraint('issuer', 'batch', 'serial', name='pac_simulation_document_uq'),
+    )
+
+    pac_simulation_id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    issuer: Mapped[str] = mapped_column(String(13))
+    batch: Mapped[str | None] = mapped_column(String(10))
+    serial: Mapped[int | None] = mapped_column(Integer)
+    uuid: Mapped[str | None] = mapped_column(String(36), unique=True)
+    stamped_at: Mapped[datetime | None] = mapped_column(DateTime)
+    stamped_xml: Mapped[str | None] = mapped_column(Text)
+    sat_status: Mapped[str] = mapped_column(String(10), default='valid')
+    cancellation_status: Mapped[str] = mapped_column(String(10), default='none')
+    next_stamp: Mapped[str | None] = mapped_column(String(20))
+    next_cancellation: Mapped[str | None] = mapped_column(String(20))
+    pac_code: Mapped[str | None] = mapped_column(String(20))
+    pac_message: Mapped[str | None] = mapped_column(String(500))
+    updated_at: Mapped[datetime] = mapped_column(DateTime)

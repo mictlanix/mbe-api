@@ -1,5 +1,5 @@
-"""Fiscal documents: list, detail, the stored XML and the PDF (#230, spec 020), and the invoice
-editor up to a sealed CFDI (#47, spec 027)."""
+"""Fiscal documents: list, detail, the stored XML and the PDF (#230, spec 020), the invoice
+editor up to a sealed CFDI (#47, spec 027), and stamping through the PAC (spec 039)."""
 
 from decimal import Decimal
 
@@ -16,6 +16,7 @@ from app.models.fiscal import FiscalDocument
 from app.schemas import ListResponse, LocalDateTime
 from app.schemas.fiscal import (
     CreditNoteCreate,
+    FiscalDocumentCancelRequest,
     FiscalDocumentResponse,
     FiscalDocumentSummary,
     FiscalEmailRequest,
@@ -34,12 +35,15 @@ from app.schemas.fiscal import (
 from app.services import (
     fiscal_document_service,
     fiscal_email,
+    fiscal_stamping,
     invoice_service,
     mail,
     print_contexts,
 )
 from app.services.cfdi import CfdiError
 from app.services.fiscal_document_service import DocumentStatus
+from app.services.pac import get_pac_provider, require_provider
+from app.services.pac.provider import PacProvider
 
 router = APIRouter()
 
@@ -303,6 +307,57 @@ async def reopen_invoice(
     discarded and the next confirm seals it again."""
     document = await _document_or_404(db, fiscal_document_id)
     await invoice_service.reopen(db, current, document)
+    return await _response(db, fiscal_document_id)
+
+
+# ── Stamping (spec 039) ───────────────────────────────────────────────────────
+
+
+@router.post('/{fiscal_document_id}/stamp', response_model=FiscalDocumentResponse)
+async def stamp_fiscal_document(
+    fiscal_document_id: int,
+    current: CurrentUser = Depends(_UPDATE),
+    provider: PacProvider | None = Depends(get_pac_provider),
+    db: AsyncSession = Depends(get_db),
+) -> FiscalDocumentResponse:
+    """Send a sealed CFDI to the PAC and store its stamp: the document is issued. A stamped one
+    is returned unchanged; after a timeout it stays stamping until a refresh resolves it."""
+    provider = require_provider(provider)
+    await _document_or_404(db, fiscal_document_id)
+    await fiscal_stamping.stamp(db, fiscal_document_id, provider, current.employee_id)
+    return await _response(db, fiscal_document_id)
+
+
+@router.post('/{fiscal_document_id}/cancel', response_model=FiscalDocumentResponse)
+async def cancel_fiscal_document(
+    fiscal_document_id: int,
+    data: FiscalDocumentCancelRequest,
+    current: CurrentUser = Depends(_UPDATE),
+    provider: PacProvider | None = Depends(get_pac_provider),
+    db: AsyncSession = Depends(get_db),
+) -> FiscalDocumentResponse:
+    """Ask SAT, through the PAC, to cancel an issued CFDI: it is cancelled at once, or left
+    cancellation pending while the receiver answers. After a timeout a refresh resolves it."""
+    provider = require_provider(provider)
+    await _document_or_404(db, fiscal_document_id)
+    await fiscal_stamping.cancel(
+        db, fiscal_document_id, data.reason, data.substitution, provider, current.employee_id
+    )
+    return await _response(db, fiscal_document_id)
+
+
+@router.post('/{fiscal_document_id}/refresh', response_model=FiscalDocumentResponse)
+async def refresh_fiscal_document(
+    fiscal_document_id: int,
+    current: CurrentUser = Depends(_UPDATE),
+    provider: PacProvider | None = Depends(get_pac_provider),
+    db: AsyncSession = Depends(get_db),
+) -> FiscalDocumentResponse:
+    """Ask the PAC what became of a stamp or a cancellation in process, and apply its answer:
+    the document is returned resolved, or unchanged while it is still in process."""
+    provider = require_provider(provider)
+    await _document_or_404(db, fiscal_document_id)
+    await fiscal_stamping.refresh(db, fiscal_document_id, provider, current.employee_id)
     return await _response(db, fiscal_document_id)
 
 

@@ -17,6 +17,9 @@ margin, and the page counter a margin box, so both repeat on every page (researc
 	{% if cancelled %}
 	<div class="cfdi-cancelled">CANCELADO{% if cancelled.date %}<br><span>{{ cancelled.date }}</span>{% endif %}</div>
 	{% endif %}
+	{% if is_simulated %}
+	<div class="cfdi-simulated">DOCUMENTO SIMULADO — SIN VALIDEZ FISCAL</div>
+	{% endif %}
 
 	<div class="cfdi-footer">
 		<p class="cfdi-accounts">

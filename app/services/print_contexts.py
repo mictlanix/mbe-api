@@ -67,6 +67,7 @@ from app.services import (
     sales_order_service,
     totals,
 )
+from app.services.pac.provider import SIMULATED_PAC_RFC
 
 _CARD_METHODS = {PaymentMethod.CREDIT_CARD, PaymentMethod.DEBIT_CARD}
 
@@ -948,6 +949,8 @@ async def fiscal_document_context(
             if document.cancelled
             else None
         ),
+        # Stamped by the simulated PAC: no fiscal validity (spec 039, FR-009).
+        'is_simulated': timbre.get('RfcProvCertif') == SIMULATED_PAC_RFC,
     }
     return 'fiscal_document.html', context
 

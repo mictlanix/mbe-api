@@ -754,6 +754,24 @@ async def test_cfdi_cancelled_is_marked_on_every_page(
         assert '2026-09-29' in page
 
 
+_SIMULATED = 'DOCUMENTO SIMULADO — SIN VALIDEZ FISCAL'
+
+
+@pytest.mark.usefixtures('seeded')
+@pytest.mark.parametrize(('provider', 'marked'), [('SIM010101SIM', True), ('LSO1306189R5', False)])
+async def test_cfdi_simulated_is_marked_only_when_simulated(
+    client: AsyncClient, db: AsyncSession, provider: str, marked: bool
+) -> None:
+    """Spec 039, FR-009: a document the simulated PAC stamped says it has no fiscal validity."""
+    xml = (CFDI_FIXTURES / 'invoice.xml').read_text(encoding='utf-8')
+    xml = xml.replace('RfcProvCertif="LSO1306189R5"', f'RfcProvCertif="{provider}"')
+    document_id = await seed_fiscal_document(db, 'invoice', xml=xml)
+
+    text = ' '.join(await _cfdi_pages(client, document_id))
+
+    assert (_SIMULATED in text) is marked
+
+
 @pytest.mark.usefixtures('seeded')
 @pytest.mark.parametrize(
     ('fixture', 'title', 'label', 'related'),

@@ -221,3 +221,13 @@ body.cfdi {
 .cfdi-cancelled span {
 	font-size: 24pt;
 }
+.cfdi-simulated {
+	position: fixed;
+	top: 165mm;
+	left: 0;
+	width: 100%;
+	text-align: center;
+	color: rgba(200, 0, 0, .35);
+	font: bold 20pt 'Roboto', sans-serif;
+	transform: rotate(-30deg);
+}
