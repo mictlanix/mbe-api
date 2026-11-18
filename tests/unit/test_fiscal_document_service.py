@@ -217,6 +217,13 @@ async def test_the_detail_stamp_is_filled_and_flags_the_simulator(
         ('bdcad3dc-5428-5e2d-89ae-588872e59495', ('uuid', 'BDCAD3DC-5428-5E2D-89AE-588872E59495')),
         ('TOMAS', ('text', 'TOMAS')),
         ('  CLIENTE DEMO ', ('text', 'CLIENTE DEMO')),
+        ('A 5241', ('batch_serial', ('A', 5241))),
+        ('A5241', ('batch_serial', ('A', 5241))),
+        # An RFC is text, even one whose homoclave is all digits (#337).
+        ('XAXX010101000', ('text', 'XAXX010101000')),
+        (' xaxx010101000 ', ('text', 'xaxx010101000')),
+        ('CAG190523ES5', ('text', 'CAG190523ES5')),
+        ('XAÑ010101AB1', ('text', 'XAÑ010101AB1')),
     ],
 )
 def test_classify_search(search: str, expected: tuple) -> None:

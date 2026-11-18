@@ -4,6 +4,7 @@ from datetime import datetime
 from decimal import Decimal
 
 import pytest
+from httpx import AsyncClient
 from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -61,6 +62,20 @@ async def test_list_search(db: AsyncSession) -> None:
     assert await _ids(db, search='43cd16d8-ea9e-5adf-97b2-9846fc4ba8a4') == [credit]
     assert await _ids(db, search='XAÑ010101') == [invoice]
     assert await _ids(db, search='cliente demo') == [credit, invoice]
+
+
+@pytest.mark.usefixtures('seeded')
+async def test_search_by_an_rfc_ending_in_digits(client: AsyncClient, db: AsyncSession) -> None:
+    """#337: the generic public RFC was read as series XAXX, folio 10101000."""
+    public = await seed_fiscal_document(db, 'invoice', recipient='XAXX010101000')
+    await seed_fiscal_document(db, 'credit_note')
+
+    for search in ('XAXX010101000', 'xaxx010101000'):
+        response = await client.get('/api/v1/fiscal-documents', params={'search': search})
+        assert response.status_code == 200, response.text
+        body = response.json()
+        assert [d['fiscal_document_id'] for d in body['items']] == [public]
+        assert body['total'] == 1
 
 
 @pytest.mark.usefixtures('seeded')
