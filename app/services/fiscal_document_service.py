@@ -25,6 +25,8 @@ DocumentStatus = Literal[
 ]
 
 _BATCH_SERIAL = re.compile(r'([A-Za-z]+)\s*(\d+)')
+# An RFC whose homoclave is all digits (XAXX010101000) also reads as series+folio (#337).
+_RFC = re.compile(r'[A-ZÑ&]{3,4}\d{6}[A-Z\d]{3}', re.IGNORECASE)
 _UUID = re.compile(r'[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}', re.IGNORECASE)
 
 
@@ -47,6 +49,8 @@ def document_status(document: FiscalDocument, *, has_xml: bool = False) -> Docum
 
 def classify_search(search: str) -> tuple[str, object]:
     text = search.strip()
+    if _RFC.fullmatch(text):
+        return 'text', text
     if match := _BATCH_SERIAL.fullmatch(text):
         return 'batch_serial', (match.group(1).upper(), int(match.group(2)))
     if text.isdigit():
