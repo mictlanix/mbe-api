@@ -100,6 +100,9 @@ ROUTES = [
     ('put', '/1/lines', AccessRight.UPDATE),
     ('put', '/1/lines/1', AccessRight.UPDATE),
     ('delete', '/1/lines/1', AccessRight.UPDATE),
+    ('put', '/1/line-changes', AccessRight.UPDATE),
+    ('put', '/1/line-changes/1', AccessRight.UPDATE),
+    ('delete', '/1/line-changes/1', AccessRight.UPDATE),
     ('post', '/1/confirm', AccessRight.UPDATE),
     ('post', '/1/cancel', AccessRight.DELETE),
 ]
@@ -108,6 +111,8 @@ BODIES = {
     ('put', '/1'): {'comment': 'x'},
     ('put', '/1/lines'): {'lines': [{'product': 3, 'quantity': '1'}]},
     ('put', '/1/lines/1'): {'quantity': '1'},
+    ('put', '/1/line-changes'): {'lines': [{'product': 3, 'quantity': '1'}]},
+    ('put', '/1/line-changes/1'): {'quantity': '1'},
     ('post', '/1/confirm'): {'include_uncounted': False},
 }
 
