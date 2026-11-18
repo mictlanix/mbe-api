@@ -14,7 +14,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     env:
-      DATABASE_URL: sqlite+aiosqlite:///:memory:
+      DATABASE_URL: 'sqlite+aiosqlite:///:memory:'
       JWT_SECRET_KEY: test-secret-test-secret-test-secret-0123
       BUSINESS_TIMEZONE: America/Mexico_City
     steps:
