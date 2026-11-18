@@ -274,7 +274,6 @@ async def test_single_line_edit_replaces_and_remove_deletes(client, db, seeded):
 
 # ── Changed-lines answers (#333) ──────────────────────────────────────────────
 
-CHANGED = {'return': 'changed'}
 HEADER = {'inventory_count_id', 'status', 'updater', 'modification_time', 'line_count'}
 
 
@@ -293,8 +292,7 @@ async def test_a_changed_batch_answers_only_its_lines_with_ids(client, db, seede
 
     with _no_full_load():
         response = await client.put(
-            f'{URL}/{count}/lines',
-            params=CHANGED,
+            f'{URL}/{count}/line-changes',
             json={
                 'lines': [
                     {'product': products[3], 'quantity': '7'},
@@ -340,10 +338,8 @@ async def test_a_changed_line_edit_and_removal(client, db, seeded):
     line_id = _by_product(body)[setup.stockable]['count_detail_id']
 
     with _no_full_load():
-        edited = await client.put(
-            f'{URL}/{count}/lines/{line_id}', params=CHANGED, json={'quantity': '3'}
-        )
-        removed = await client.delete(f'{URL}/{count}/lines/{line_id}', params=CHANGED)
+        edited = await client.put(f'{URL}/{count}/line-changes/{line_id}', json={'quantity': '3'})
+        removed = await client.delete(f'{URL}/{count}/line-changes/{line_id}')
 
     assert edited.status_code == 200, edited.text
     body = edited.json()
@@ -357,31 +353,24 @@ async def test_a_changed_line_edit_and_removal(client, db, seeded):
     assert HEADER <= body.keys()
     assert (body['line_count'], body['lines'], body['removed_line_id']) == (1, [], line_id)
 
-    # Errors are the same as without the flag.
-    gone = await client.delete(f'{URL}/{count}/lines/{line_id}', params=CHANGED)
+    # Errors are the same as on `/lines`.
+    gone = await client.delete(f'{URL}/{count}/line-changes/{line_id}')
     assert gone.status_code == 404
     bad = await client.put(
-        f'{URL}/{count}/lines', params=CHANGED, json={'lines': [{'product': 9999, 'quantity': 1}]}
+        f'{URL}/{count}/line-changes', json={'lines': [{'product': 9999, 'quantity': 1}]}
     )
     assert bad.status_code == 422
     assert bad.json()['code'] == 'inventory_count.batch_invalid'
 
 
-async def test_line_writes_answer_the_whole_count_by_default(client, db, seeded):
+async def test_lines_routes_still_answer_the_whole_count(client, db, seeded):
     setup = await seed.setup_inventory(db)
     b = await seed.product(db, code='B')
     count = await _draft(client)
 
-    for params in ({}, {'return': 'full'}):
-        body = (
-            await client.put(
-                f'{URL}/{count}/lines',
-                params=params,
-                json={'lines': [{'product': setup.stockable, 'quantity': '5'}]},
-            )
-        ).json()
-        assert 'line_count' not in body and 'removed_line_id' not in body
-        assert {'facility', 'warehouse', 'creation_time'} <= body.keys()
+    body = (await _set(client, count, [{'product': setup.stockable, 'quantity': '5'}])).json()
+    assert 'line_count' not in body and 'removed_line_id' not in body
+    assert {'facility', 'warehouse', 'creation_time'} <= body.keys()
 
     body = (await _set(client, count, [{'product': b, 'quantity': '1'}])).json()
     assert len(body['lines']) == 2
@@ -391,9 +380,22 @@ async def test_line_writes_answer_the_whole_count_by_default(client, db, seeded)
     body = (await client.delete(f'{URL}/{count}/lines/{line_id}')).json()
     assert len(body['lines']) == 1 and 'removed_line_id' not in body
 
-    assert (
-        await client.put(f'{URL}/{count}/lines', params={'return': 'x'}, json={})
-    ).status_code == 422
+
+async def test_each_line_route_has_one_response_schema(client):
+    paths = (await client.get('/openapi.json')).json()['paths']
+    expected = {
+        ('/lines', 'put'): 'InventoryCountResponse',
+        ('/lines/{line_id}', 'put'): 'InventoryCountResponse',
+        ('/lines/{line_id}', 'delete'): 'InventoryCountResponse',
+        ('/line-changes', 'put'): 'InventoryCountLinesChanged',
+        ('/line-changes/{line_id}', 'put'): 'InventoryCountLinesChanged',
+        ('/line-changes/{line_id}', 'delete'): 'InventoryCountLinesChanged',
+    }
+    for (suffix, method), model in expected.items():
+        operation = paths[f'{URL}/{{count_id}}{suffix}'][method]
+        schema = operation['responses']['200']['content']['application/json']['schema']
+        assert schema == {'$ref': f'#/components/schemas/{model}'}, (suffix, method)
+        assert not any(p['in'] == 'query' for p in operation.get('parameters', []))
 
 
 # ── Uncounted as zero (FR-005) ────────────────────────────────────────────────
