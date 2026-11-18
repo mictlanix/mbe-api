@@ -272,6 +272,132 @@ async def test_single_line_edit_replaces_and_remove_deletes(client, db, seeded):
     assert (await client.delete(f'{URL}/{count}/lines/{line_id}')).status_code == 404
 
 
+# ── Changed-lines answers (#333) ──────────────────────────────────────────────
+
+HEADER = {'inventory_count_id', 'status', 'updater', 'modification_time', 'line_count'}
+
+
+def _no_full_load():
+    """Fails the request if anything loads every line of the count."""
+    return patch(
+        'app.services.inventory_documents._lines', side_effect=AssertionError('loaded every line')
+    )
+
+
+async def test_a_changed_batch_answers_only_its_lines_with_ids(client, db, seeded):
+    setup = await seed.setup_inventory(db)
+    products = await _many_products(db, 30)
+    count = await _draft(client)
+    await _set(client, count, [{'product': p, 'quantity': '1'} for p in products])
+
+    with _no_full_load():
+        response = await client.put(
+            f'{URL}/{count}/line-changes',
+            json={
+                'lines': [
+                    {'product': products[3], 'quantity': '7'},
+                    {'product_code': 'INV', 'quantity': '2'},
+                ]
+            },
+        )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert HEADER <= body.keys()
+    assert (body['inventory_count_id'], body['status'], body['line_count']) == (count, 'draft', 31)
+    assert body['removed_line_id'] is None
+    header = await _header(db, count)
+    assert body['updater'] == header.updater
+    assert body['modification_time'].startswith(header.modification_time.isoformat()[:19])
+    lines = _by_product(body)
+    assert lines.keys() == {products[3], setup.stockable}
+    assert Decimal(lines[products[3]]['quantity']) == 7
+    new = lines[setup.stockable]
+    assert (new['product_code'], Decimal(new['quantity'])) == ('INV', 2)
+    assert new['product_name']
+    assert new['quantity_on_hand'] is None and new['difference'] is None
+    assert [line['count_detail_id'] for line in body['lines']] == sorted(
+        line['count_detail_id'] for line in body['lines']
+    )
+    # The new line's id is the one the full count holds.
+    full = _by_product((await client.get(f'{URL}/{count}')).json())
+    assert new['count_detail_id'] == full[setup.stockable]['count_detail_id']
+
+
+async def test_a_changed_line_edit_and_removal(client, db, seeded):
+    setup = await seed.setup_inventory(db)
+    b = await seed.product(db, code='B')
+    count = await _draft(client)
+    body = (
+        await _set(
+            client,
+            count,
+            [{'product': setup.stockable, 'quantity': '5'}, {'product': b, 'quantity': '1'}],
+        )
+    ).json()
+    line_id = _by_product(body)[setup.stockable]['count_detail_id']
+
+    with _no_full_load():
+        edited = await client.put(f'{URL}/{count}/line-changes/{line_id}', json={'quantity': '3'})
+        removed = await client.delete(f'{URL}/{count}/line-changes/{line_id}')
+
+    assert edited.status_code == 200, edited.text
+    body = edited.json()
+    assert HEADER <= body.keys()
+    assert (body['status'], body['line_count'], body['removed_line_id']) == ('draft', 2, None)
+    [line] = body['lines']
+    assert (line['count_detail_id'], Decimal(line['quantity'])) == (line_id, 3)
+
+    assert removed.status_code == 200, removed.text
+    body = removed.json()
+    assert HEADER <= body.keys()
+    assert (body['line_count'], body['lines'], body['removed_line_id']) == (1, [], line_id)
+
+    # Errors are the same as on `/lines`.
+    gone = await client.delete(f'{URL}/{count}/line-changes/{line_id}')
+    assert gone.status_code == 404
+    bad = await client.put(
+        f'{URL}/{count}/line-changes', json={'lines': [{'product': 9999, 'quantity': 1}]}
+    )
+    assert bad.status_code == 422
+    assert bad.json()['code'] == 'inventory_count.batch_invalid'
+
+
+async def test_lines_routes_still_answer_the_whole_count(client, db, seeded):
+    setup = await seed.setup_inventory(db)
+    b = await seed.product(db, code='B')
+    count = await _draft(client)
+
+    body = (await _set(client, count, [{'product': setup.stockable, 'quantity': '5'}])).json()
+    assert 'line_count' not in body and 'removed_line_id' not in body
+    assert {'facility', 'warehouse', 'creation_time'} <= body.keys()
+
+    body = (await _set(client, count, [{'product': b, 'quantity': '1'}])).json()
+    assert len(body['lines']) == 2
+    line_id = body['lines'][0]['count_detail_id']
+    body = (await client.put(f'{URL}/{count}/lines/{line_id}', json={'quantity': '2'})).json()
+    assert len(body['lines']) == 2 and 'line_count' not in body
+    body = (await client.delete(f'{URL}/{count}/lines/{line_id}')).json()
+    assert len(body['lines']) == 1 and 'removed_line_id' not in body
+
+
+async def test_each_line_route_has_one_response_schema(client):
+    paths = (await client.get('/openapi.json')).json()['paths']
+    expected = {
+        ('/lines', 'put'): 'InventoryCountResponse',
+        ('/lines/{line_id}', 'put'): 'InventoryCountResponse',
+        ('/lines/{line_id}', 'delete'): 'InventoryCountResponse',
+        ('/line-changes', 'put'): 'InventoryCountLinesChanged',
+        ('/line-changes/{line_id}', 'put'): 'InventoryCountLinesChanged',
+        ('/line-changes/{line_id}', 'delete'): 'InventoryCountLinesChanged',
+    }
+    for (suffix, method), model in expected.items():
+        operation = paths[f'{URL}/{{count_id}}{suffix}'][method]
+        schema = operation['responses']['200']['content']['application/json']['schema']
+        assert schema == {'$ref': f'#/components/schemas/{model}'}, (suffix, method)
+        assert not any(p['in'] == 'query' for p in operation.get('parameters', []))
+
+
 # ── Uncounted as zero (FR-005) ────────────────────────────────────────────────
 
 

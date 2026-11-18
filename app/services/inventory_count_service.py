@@ -266,6 +266,24 @@ async def attach_derived(db: AsyncSession, count: InventoryCount) -> InventoryCo
     return count
 
 
+async def attach_changed(
+    db: AsyncSession, count: InventoryCount, lines: Sequence[InventoryCountDetail]
+) -> InventoryCount:
+    """Status, only the lines a write set, and the count's line total by `COUNT`, without loading
+    the other lines (#333). Only a draft takes line writes, so the lines are blind (R4)."""
+    inv.attach_status(count)
+    for line in lines:
+        set_committed_value(line, 'quantity_on_hand', None)
+        set_committed_value(line, 'difference', None)
+    count.__dict__['lines'] = sorted(lines, key=lambda line: line.count_detail_id)
+    count.__dict__['line_count'] = await db.scalar(
+        select(func.count())
+        .select_from(InventoryCountDetail)
+        .where(InventoryCountDetail.count_id == count.inventory_count_id)
+    )
+    return count
+
+
 # ── Drafts, header, list, cancel (shared, R1) ─────────────────────────────────
 
 
@@ -357,9 +375,15 @@ async def _insert_lines(db: AsyncSession, count_id: int, values: Sequence[dict])
 
 
 async def set_lines(
-    db: AsyncSession, count_id: int, items: Sequence[CountLineSet], *, current: CurrentUser
+    db: AsyncSession,
+    count_id: int,
+    items: Sequence[CountLineSet],
+    *,
+    current: CurrentUser,
+    changed: bool = False,
 ) -> InventoryCount:
-    """Apply a batch whole, or nothing of it (R3)."""
+    """Apply a batch whole, or nothing of it (R3). `changed`: answer with the batch's lines only
+    (#333)."""
     async with inv.busy_as_conflict(db):
         count = await inv.begin_locked(db, inv.COUNT, count_id)
         documents.assert_editable(count)
@@ -376,23 +400,40 @@ async def set_lines(
         inv._touch(count, current)
         await db.commit()
     await db.refresh(count)
+    if changed:
+        products = [product.product_id for product, _ in resolved]
+        return await attach_changed(db, count, await _lines_of(db, count_id, products))
     return await attach_derived(db, count)
 
 
 async def update_line(
-    db: AsyncSession, count_id: int, line_id: int, quantity: Decimal, *, current: CurrentUser
+    db: AsyncSession,
+    count_id: int,
+    line_id: int,
+    quantity: Decimal,
+    *,
+    current: CurrentUser,
+    changed: bool = False,
 ) -> InventoryCount:
-    """Replace one line's counted quantity."""
+    """Replace one line's counted quantity. `changed`: answer with that line only (#333)."""
     count = await inv.update_line(
         db, inv.COUNT, count_id, line_id, quantity=quantity, current=current
     )
+    if changed:
+        line = await db.get(InventoryCountDetail, line_id, populate_existing=True)
+        return await attach_changed(db, count, [line])
     return await attach_derived(db, count)
 
 
 async def remove_line(
-    db: AsyncSession, count_id: int, line_id: int, *, current: CurrentUser
+    db: AsyncSession, count_id: int, line_id: int, *, current: CurrentUser, changed: bool = False
 ) -> InventoryCount:
+    """`changed`: answer with no lines and the removed line's id (#333)."""
     count = await inv.remove_line(db, inv.COUNT, count_id, line_id, current=current)
+    if changed:
+        await attach_changed(db, count, [])
+        count.__dict__['removed_line_id'] = line_id
+        return count
     return await attach_derived(db, count)
 
 

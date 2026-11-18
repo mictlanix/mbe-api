@@ -11,6 +11,14 @@ from app.services.pac import get_pac_provider, require_provider
 from app.services.pac.simulated import SimulatedPac
 
 
+@pytest.fixture(autouse=True)
+def _isolated_settings_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`Settings(_env_file=None)` reads the process environment, so pin what these tests rely on."""
+    monkeypatch.setenv('BUSINESS_TIMEZONE', 'America/Mexico_City')
+    monkeypatch.delenv('APP_ENV', raising=False)
+    monkeypatch.delenv('PAC_PROVIDER', raising=False)
+
+
 class TestDefaults:
     def test_a_missing_environment_is_production_without_a_provider(self) -> None:
         """`_env_file=None`, so a developer's own `.env` cannot change the result."""

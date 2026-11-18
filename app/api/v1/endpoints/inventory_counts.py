@@ -15,6 +15,7 @@ from app.schemas.inventory import (
     CountLineUpdate,
     CountUpdate,
     InventoryCountConfirmResponse,
+    InventoryCountLinesChanged,
     InventoryCountResponse,
     InventoryCountSummary,
 )
@@ -88,11 +89,50 @@ async def update_inventory_count(
     return InventoryCountResponse.model_validate(count)
 
 
-@router.put(
-    '/{count_id}/lines',
-    response_model=InventoryCountResponse,
-    responses={status.HTTP_422_UNPROCESSABLE_CONTENT: {'description': 'Bad entries, by index'}},
-)
+# ── Lines: `/lines` answers the whole count; `/line-changes` only what the write set (#333) ──
+
+_BATCH_REFUSED = {status.HTTP_422_UNPROCESSABLE_CONTENT: {'description': 'Bad entries, by index'}}
+
+
+async def _set_lines(
+    db: AsyncSession, count_id: int, data: CountLinesSet, current: CurrentUser, *, changed: bool
+) -> InventoryCount:
+    await _count_or_404(db, count_id)
+    try:
+        return await inventory_count_service.set_lines(
+            db, count_id, data.lines, current=current, changed=changed
+        )
+    except inventory_count_service.BatchRefused as refusal:
+        raise DomainError(
+            ErrorCode.INVENTORY_COUNT_BATCH_INVALID, str(refusal), errors=refusal.errors
+        ) from refusal
+
+
+async def _update_line(
+    db: AsyncSession,
+    count_id: int,
+    line_id: int,
+    data: CountLineUpdate,
+    current: CurrentUser,
+    *,
+    changed: bool,
+) -> InventoryCount:
+    await _count_or_404(db, count_id)
+    return await inventory_count_service.update_line(
+        db, count_id, line_id, data.quantity, current=current, changed=changed
+    )
+
+
+async def _remove_line(
+    db: AsyncSession, count_id: int, line_id: int, current: CurrentUser, *, changed: bool
+) -> InventoryCount:
+    await _count_or_404(db, count_id)
+    return await inventory_count_service.remove_line(
+        db, count_id, line_id, current=current, changed=changed
+    )
+
+
+@router.put('/{count_id}/lines', response_model=InventoryCountResponse, responses=_BATCH_REFUSED)
 async def set_inventory_count_lines(
     count_id: int,
     data: CountLinesSet,
@@ -100,13 +140,7 @@ async def set_inventory_count_lines(
     db: AsyncSession = Depends(get_db),
 ) -> InventoryCountResponse:
     """Set many counted quantities at once; the batch applies whole or not at all (R3)."""
-    await _count_or_404(db, count_id)
-    try:
-        count = await inventory_count_service.set_lines(db, count_id, data.lines, current=current)
-    except inventory_count_service.BatchRefused as refusal:
-        raise DomainError(
-            ErrorCode.INVENTORY_COUNT_BATCH_INVALID, str(refusal), errors=refusal.errors
-        ) from refusal
+    count = await _set_lines(db, count_id, data, current, changed=False)
     return InventoryCountResponse.model_validate(count)
 
 
@@ -118,10 +152,7 @@ async def update_inventory_count_line(
     current: CurrentUser = Depends(_UPDATE),
     db: AsyncSession = Depends(get_db),
 ) -> InventoryCountResponse:
-    await _count_or_404(db, count_id)
-    count = await inventory_count_service.update_line(
-        db, count_id, line_id, data.quantity, current=current
-    )
+    count = await _update_line(db, count_id, line_id, data, current, changed=False)
     return InventoryCountResponse.model_validate(count)
 
 
@@ -132,9 +163,49 @@ async def remove_inventory_count_line(
     current: CurrentUser = Depends(_UPDATE),
     db: AsyncSession = Depends(get_db),
 ) -> InventoryCountResponse:
-    await _count_or_404(db, count_id)
-    count = await inventory_count_service.remove_line(db, count_id, line_id, current=current)
+    count = await _remove_line(db, count_id, line_id, current, changed=False)
     return InventoryCountResponse.model_validate(count)
+
+
+@router.put(
+    '/{count_id}/line-changes',
+    response_model=InventoryCountLinesChanged,
+    responses=_BATCH_REFUSED,
+)
+async def set_inventory_count_line_changes(
+    count_id: int,
+    data: CountLinesSet,
+    current: CurrentUser = Depends(_UPDATE),
+    db: AsyncSession = Depends(get_db),
+) -> InventoryCountLinesChanged:
+    """`PUT /lines`, answering only the batch's lines, the header's state and the line total."""
+    count = await _set_lines(db, count_id, data, current, changed=True)
+    return InventoryCountLinesChanged.model_validate(count)
+
+
+@router.put('/{count_id}/line-changes/{line_id}', response_model=InventoryCountLinesChanged)
+async def update_inventory_count_line_change(
+    count_id: int,
+    line_id: int,
+    data: CountLineUpdate,
+    current: CurrentUser = Depends(_UPDATE),
+    db: AsyncSession = Depends(get_db),
+) -> InventoryCountLinesChanged:
+    """`PUT /lines/{line_id}`, answering only that line, the header's state and the line total."""
+    count = await _update_line(db, count_id, line_id, data, current, changed=True)
+    return InventoryCountLinesChanged.model_validate(count)
+
+
+@router.delete('/{count_id}/line-changes/{line_id}', response_model=InventoryCountLinesChanged)
+async def remove_inventory_count_line_change(
+    count_id: int,
+    line_id: int,
+    current: CurrentUser = Depends(_UPDATE),
+    db: AsyncSession = Depends(get_db),
+) -> InventoryCountLinesChanged:
+    """`DELETE /lines/{line_id}`, answering no lines, `removed_line_id` and the line total."""
+    count = await _remove_line(db, count_id, line_id, current, changed=True)
+    return InventoryCountLinesChanged.model_validate(count)
 
 
 @router.post('/{count_id}/confirm', response_model=InventoryCountConfirmResponse)
