@@ -364,7 +364,7 @@ class InventoryCountResponse(BaseModel):
 
 
 class InventoryCountLinesChanged(BaseModel):
-    """A line write with `return=changed`: the header's state and only what the request set (#333).
+    """A `/line-changes` write: the header's state and only what the request set (#333).
 
     The header fields keep `InventoryCountResponse`'s names.
     """
