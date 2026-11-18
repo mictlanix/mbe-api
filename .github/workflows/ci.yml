@@ -1,0 +1,38 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      DATABASE_URL: sqlite+aiosqlite:///:memory:
+      JWT_SECRET_KEY: test-secret-test-secret-test-secret-0123
+      BUSINESS_TIMEZONE: America/Mexico_City
+    steps:
+      - uses: actions/checkout@v4
+
+      # WeasyPrint renders the PDFs the print tests check; it needs Pango.
+      - name: Install system libraries
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libpango-1.0-0 libpangoft2-1.0-0
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv sync --frozen
+
+      - name: Lint
+        run: uv run ruff check app/ migrations/ tests/
+
+      - name: Test
+        run: uv run pytest -q
