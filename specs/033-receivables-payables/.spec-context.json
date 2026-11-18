@@ -630,5 +630,6 @@
       "note": "Statement email (quickstart step 9) not run: the user chose on 2026-10-27 not to send email. Covered by tests with a fake mailer.",
       "kind": "skipped"
     }
-  ]
+  ],
+  "telemetryInstanceId": "5b126993-92bc-40a3-9908-e0986ed31ac5"
 }

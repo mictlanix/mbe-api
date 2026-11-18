@@ -374,5 +374,6 @@
     {
       "note": "Email send not run live at the user's request; covered by integration tests"
     }
-  ]
+  ],
+  "telemetryInstanceId": "572bf6fc-aa2a-4ce5-ac55-606fa1e07814"
 }

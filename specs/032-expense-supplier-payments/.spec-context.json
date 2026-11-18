@@ -524,5 +524,6 @@
       "what": "live-check cleanup",
       "result": "test vouchers, supplier payments, applications, incidences 14/15 and sessions 10440-10442 deleted; cutoff reset to NULL; session 10439 left closed (approved)"
     }
-  ]
+  ],
+  "telemetryInstanceId": "241850e8-ccd7-4ffe-818c-2ad7f7e9bea2"
 }
