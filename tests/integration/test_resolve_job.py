@@ -4,6 +4,8 @@
 cancellation in its own session, as the system employee.
 """
 
+import datetime
+
 import pytest
 from fastapi import HTTPException
 from sqlalchemy import select, update
@@ -15,8 +17,8 @@ from app.jobs import resolve_fiscal_documents as job
 from app.models.fiscal import FiscalDocument
 from app.models.incidence import Incidence
 from app.models.product import Product
+from app.services import employee_service, fiscal_stamping
 from app.services import fiscal_document_service as fds
-from app.services import fiscal_stamping
 from app.services.pac.provider import (
     CancellationAnswer,
     PacProvider,
@@ -75,6 +77,25 @@ async def _status(db: AsyncSession, document_id: int) -> str:
     return (await fds.get_document(db, document_id)).status
 
 
+_LONG_AGO = datetime.datetime(2020, 1, 1)
+
+
+async def _backdate(db: AsyncSession, updater: int, *document_ids: int) -> None:
+    """Set the audit columns to values no flow writes, so a touch shows."""
+    await db.execute(
+        update(FiscalDocument)
+        .where(FiscalDocument.fiscal_document_id.in_(document_ids))
+        .values(updater=updater, modification_time=_LONG_AGO)
+    )
+    await db.commit()
+
+
+async def _audit(db: AsyncSession, document_id: int) -> tuple[int, datetime.datetime]:
+    db.expire_all()
+    document = await db.get(FiscalDocument, document_id)
+    return document.updater, document.modification_time
+
+
 async def _updaters(db: AsyncSession, document_id: int, comment: str) -> list[int]:
     query = select(Incidence.updater).where(
         Incidence.instance_id == document_id, Incidence.comment.startswith(comment)
@@ -107,10 +128,14 @@ async def test_one_run_resolves_a_stamping_and_a_pending_document(
         'stamping',
         'cancellation_pending',
     )
+    await _backdate(db, current_user.employee_id, stamping, pending)
 
     assert await job.run(pac, session_factory=sessions) == 0
 
     assert (await _status(db, stamping), await _status(db, pending)) == ('issued', 'cancelled')
+    # The job is no one's edit: the documents keep their last updater and modification time.
+    for document_id in (stamping, pending):
+        assert await _audit(db, document_id) == (current_user.employee_id, _LONG_AGO)
     assert await _updaters(db, stamping, 'CFDI stamp found') == [SYSTEM_EMPLOYEE_ID]
     assert await _updaters(db, pending, 'CFDI cancelled') == [SYSTEM_EMPLOYEE_ID]
     # The requests the user made stay theirs.
@@ -144,3 +169,41 @@ def test_main_refuses_the_simulator_in_production(monkeypatch: pytest.MonkeyPatc
 
     with pytest.raises(RuntimeError, match='app_env=production'):
         job.main()
+
+
+async def test_user_actions_touch_the_document(
+    receipts: Receipts,  # noqa: F811
+    current_user: CurrentUser,
+) -> None:
+    """Stamp, cancel and refresh by a user set the updater and modification time (the job's
+    counterpart is above)."""
+    await _ready(receipts)
+    db = receipts.db
+    other = (await employee_service.ensure_system_employee(db)).employee_id
+    pac = ScriptedPac()
+    stamping = await _stamping(receipts, pac)
+    await _backdate(db, other, stamping)
+    await fiscal_stamping.refresh(db, stamping, pac, current_user.employee_id)
+    updater, touched = await _audit(db, stamping)
+    assert (await _status(db, stamping), updater) == ('issued', current_user.employee_id)
+    assert touched > _LONG_AGO
+
+    pac.queue('request_cancellation', CancellationAnswer.PENDING)
+    await _backdate(db, other, stamping)
+    await fiscal_stamping.cancel(db, stamping, '02', None, pac, current_user.employee_id)
+    updater, touched = await _audit(db, stamping)
+    assert (await _status(db, stamping), updater) == (
+        'cancellation_pending',
+        current_user.employee_id,
+    )
+    assert touched > _LONG_AGO
+
+    pac.queue(
+        'query_status',
+        SatStatus(state='cancelled', cancellable='with_acceptance', cancellation='accepted'),
+    )
+    await _backdate(db, other, stamping)
+    await fiscal_stamping.refresh(db, stamping, pac, current_user.employee_id)
+    updater, touched = await _audit(db, stamping)
+    assert (await _status(db, stamping), updater) == ('cancelled', current_user.employee_id)
+    assert touched > _LONG_AGO

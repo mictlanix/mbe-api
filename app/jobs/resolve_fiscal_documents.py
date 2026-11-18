@@ -55,7 +55,7 @@ async def run(
     for document_id, _since in in_flight:
         async with session_factory() as db:
             try:
-                await fiscal_stamping.refresh(db, document_id, provider, employee_id)
+                await fiscal_stamping.refresh(db, document_id, provider, employee_id, touch=False)
             except DomainError as error:
                 if error.code == ErrorCode.FISCAL_DOCUMENT_NOTHING_TO_REFRESH:
                     continue  # an overlapping run resolved it

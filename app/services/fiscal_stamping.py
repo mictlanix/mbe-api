@@ -147,6 +147,7 @@ async def _store_stamp(
     employee_id: int,
     *,
     reason: str,
+    touch: bool = True,
 ) -> FiscalDocument:
     """Transaction B (R15 rule 5): store `issued` if the document still holds `sealed_xml`.
 
@@ -178,13 +179,7 @@ async def _store_stamp(
                 .where(FiscalDocumentXml.fiscal_document_xml_id == document_id)
                 .values(data=issued.xml)
             )
-        incidences.record(
-            db,
-            source=SourceType.FISCAL_DOCUMENT,
-            instance_id=document_id,
-            updater=employee_id,
-            reason=reason,
-        )
+        _record(db, document, employee_id, reason, touch=touch)
         await db.commit()
     if changed_state is not None:
         raise _pac_timeout(changed_state)
@@ -199,11 +194,18 @@ def _now() -> datetime:
     return local_now().replace(microsecond=0)
 
 
-def _record(db: AsyncSession, document_id: int, employee_id: int, reason: str) -> None:
+def _record(
+    db: AsyncSession, document: FiscalDocument, employee_id: int, reason: str, *, touch: bool = True
+) -> None:
+    """Record the incidence and, for a user's action (`touch`), the document's updater and
+    modification time. The resolve job doesn't touch them: it isn't an edit by anyone."""
+    if touch:
+        document.updater = employee_id
+        document.modification_time = _now()
     incidences.record(
         db,
         source=SourceType.FISCAL_DOCUMENT,
-        instance_id=document_id,
+        instance_id=document.fiscal_document_id,
         updater=employee_id,
         reason=reason,
     )
@@ -285,6 +287,8 @@ async def _apply_cancelled(
     substitution: str | None,
     orders: Sequence[SalesOrder],
     employee_id: int,
+    *,
+    touch: bool = True,
 ) -> None:
     """The document becomes cancelled; shared by cancel and refresh.
 
@@ -304,7 +308,7 @@ async def _apply_cancelled(
         for order in orders:
             oid = order.sales_order_id
             customer_payment_service.reopen(order, before[oid].balance, after[oid].balance)
-    _record(db, document.fiscal_document_id, employee_id, 'CFDI cancelled')
+    _record(db, document, employee_id, 'CFDI cancelled', touch=touch)
 
 
 async def cancel(
@@ -392,7 +396,7 @@ async def cancel(
         )
         db.add(request)
         document.cancelling_since = requested_at
-        _record(db, document_id, employee_id, f'Cancellation requested ({reason})')
+        _record(db, document, employee_id, f'Cancellation requested ({reason})')
         await db.commit()
         request_id = request.fiscal_document_cancellation_id
         cancellation = CancellationRequest(
@@ -462,9 +466,9 @@ async def _apply_answer(
             if answer == CancellationAnswer.ACCEPTED:
                 await _apply_cancelled(db, document, reason, substitution, orders, employee_id)
             elif answer == CancellationAnswer.PENDING:
-                _record(db, document_id, employee_id, 'Cancellation pending the receiver')
+                _record(db, document, employee_id, 'Cancellation pending the receiver')
             elif answer == CancellationAnswer.NOT_CANCELLABLE:
-                _record(db, document_id, employee_id, 'Cancellation refused: not cancellable')
+                _record(db, document, employee_id, 'Cancellation refused: not cancellable')
                 error = DomainError(
                     ErrorCode.FISCAL_DOCUMENT_NOT_CANCELLABLE,
                     'SAT reports the document cannot be cancelled',
@@ -473,7 +477,7 @@ async def _apply_answer(
                 code = rejected.code[:PAC_CODE_LENGTH]
                 message = rejected.message[:PAC_MESSAGE_LENGTH]
                 values.update(pac_code=code, pac_message=message)
-                _record(db, document_id, employee_id, f'Cancellation refused by the PAC ({code})')
+                _record(db, document, employee_id, f'Cancellation refused by the PAC ({code})')
                 error = DomainError(
                     ErrorCode.PAC_REJECTED,
                     'The PAC rejected the cancellation',
@@ -481,7 +485,7 @@ async def _apply_answer(
                 )
             else:  # failed: the request never reached the PAC
                 del values['answered_at']
-                _record(db, document_id, employee_id, 'Cancellation failed: PAC unavailable')
+                _record(db, document, employee_id, 'Cancellation failed: PAC unavailable')
                 error = DomainError(ErrorCode.PAC_UNAVAILABLE, 'The PAC could not be reached')
             if answer != CancellationAnswer.PENDING:
                 values['resolved_at'] = now
@@ -506,12 +510,18 @@ _OPEN = ('requested', 'pending')
 
 
 async def refresh(
-    db: AsyncSession, document_id: int, provider: PacProvider, employee_id: int
+    db: AsyncSession,
+    document_id: int,
+    provider: PacProvider,
+    employee_id: int,
+    *,
+    touch: bool = True,
 ) -> FiscalDocument:
     """Resolve a stamping document or an open cancellation request from the PAC's answer (R8).
 
     Transaction 1 reads what to ask and commits; the PAC answers with no transaction open;
-    transaction 2 writes only if what transaction 1 read is still true (R15 rule 6).
+    transaction 2 writes only if what transaction 1 read is still true (R15 rule 6). `touch` is
+    False for the resolve job, which leaves the document's updater and modification time alone.
     """
     async with busy_as_conflict(db, BUSY, resource=RESOURCE):
         document = await _begin_locked(db, document_id)
@@ -570,21 +580,27 @@ async def refresh(
     if request is None:
         if found is not None:
             return await _store_stamp(
-                db, document_id, xml, found, employee_id, reason=f'CFDI stamp found {found.uuid}'
+                db,
+                document_id,
+                xml,
+                found,
+                employee_id,
+                reason=f'CFDI stamp found {found.uuid}',
+                touch=touch,
             )
-        return await _not_stamped(db, document_id, marker, employee_id)
-    return await _apply_status(db, document_id, request, sat, credited, employee_id)
+        return await _not_stamped(db, document_id, marker, employee_id, touch=touch)
+    return await _apply_status(db, document_id, request, sat, credited, employee_id, touch=touch)
 
 
 async def _not_stamped(
-    db: AsyncSession, document_id: int, marker: datetime, employee_id: int
+    db: AsyncSession, document_id: int, marker: datetime, employee_id: int, *, touch: bool
 ) -> FiscalDocument:
     """Sealed again past the grace, if the marker is still the one read before `find_stamp`."""
     async with busy_as_conflict(db, BUSY, resource=RESOURCE):
         document = await _begin_locked(db, document_id)
         if document.stamping_since == marker and _now() - marker > STAMP_LOOKUP_GRACE:
             document.stamping_since = None
-            _record(db, document_id, employee_id, 'CFDI stamp not found, sealed again')
+            _record(db, document, employee_id, 'CFDI stamp not found, sealed again', touch=touch)
         await db.commit()
     return document
 
@@ -596,6 +612,8 @@ async def _apply_status(
     sat: SatStatus,
     credited: tuple[int | None, list[int]] | None,
     employee_id: int,
+    *,
+    touch: bool,
 ) -> FiscalDocument:
     """Transaction 2 for an open request: the document follows SAT (FR-021), applied only to the
     request transaction 1 kept and only while its status is unchanged (rule 6)."""
@@ -619,18 +637,22 @@ async def _apply_status(
             closed = None
             if sat.state == 'cancelled':
                 closed = 'expired' if sat.cancellation == 'expired' else 'accepted'
-                await _apply_cancelled(db, document, reason, substitution, orders, employee_id)
+                await _apply_cancelled(
+                    db, document, reason, substitution, orders, employee_id, touch=touch
+                )
             elif sat.state == 'valid' and sat.cancellation == 'rejected':
                 closed = 'rejected'
-                _record(db, document_id, employee_id, 'Cancellation rejected')
+                _record(db, document, employee_id, 'Cancellation rejected', touch=touch)
             elif sat.state == 'valid' and sat.cancellation == 'none':
                 # Rule 7: a cancel within the grace may still be waiting on the PAC.
                 if kept != 'requested' or now - requested_at >= STAMP_LOOKUP_GRACE:
                     closed = 'failed'
-                    _record(db, document_id, employee_id, 'Cancellation not received by SAT')
+                    _record(
+                        db, document, employee_id, 'Cancellation not received by SAT', touch=touch
+                    )
             elif sat.state == 'valid' and sat.cancellation == 'pending' and kept == 'requested':
                 values.update(status='pending', answered_at=now)
-                _record(db, document_id, employee_id, 'Cancellation pending the receiver')
+                _record(db, document, employee_id, 'Cancellation pending the receiver', touch=touch)
             if closed is not None:
                 values.update(status=closed, resolved_at=now)
                 document.cancelling_since = None
