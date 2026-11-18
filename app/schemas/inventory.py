@@ -363,6 +363,26 @@ class InventoryCountResponse(BaseModel):
     lines: list[InventoryCountLineResponse] = []
 
 
+class InventoryCountLinesChanged(BaseModel):
+    """A line write with `return=changed`: the header's state and only what the request set (#333).
+
+    The header fields keep `InventoryCountResponse`'s names.
+    """
+
+    model_config = ConfigDict(from_attributes=True)
+
+    inventory_count_id: int
+    status: DocumentStatus
+    updater: int
+    modification_time: LocalDateTime
+    #: Lines on the count after the write, counted, not loaded (#333).
+    line_count: int
+    #: The lines this request set, oldest first; empty for a removal (#333).
+    lines: list[InventoryCountLineResponse] = []
+    #: The line a `DELETE` removed; null for the `PUT`s (#333).
+    removed_line_id: int | None = None
+
+
 class NegativeAvailable(BaseModel):
     product: int
     product_code: str | None
