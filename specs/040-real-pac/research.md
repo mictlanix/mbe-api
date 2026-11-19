@@ -151,6 +151,10 @@ CfdiPacProvider(pac: PacClient, sat: SatStatusClient, *, name: str, resolves_by_
 - `MULTIFACTURAS_PRODUCTION=true` with `APP_ENV` not production;
 - `MULTIFACTURAS_PRODUCTION=false` with `APP_ENV=production` and `PAC_PROVIDER=multifacturas`.
 
+**Keeping what spec 039's tests rely on:**
+- the simulator refusal's text stays verbatim (`pac_provider=simulated is not allowed with app_env=production: …`), which `tests/unit/test_resolve_fiscal_documents.py:136` and `tests/integration/test_resolve_job.py:170` match;
+- the check reads the `multifacturas_*` fields only when `pac_provider == 'multifacturas'`, because those tests pass settings as a `SimpleNamespace` with only `pac_provider` and `app_env`.
+
 **Bad endpoint or timeouts.** `check_pac_settings` builds `MultifacturasSettings` once, so a non-HTTPS URL or a non-positive timeout refuses the start too, naming the variable.
 
 **SAT's status client** keeps the library's defaults (SAT's public URL, 10 s connect, 60 s read), because the spec asks for settings for the PAC only.
@@ -243,7 +247,7 @@ CfdiPacProvider(pac: PacClient, sat: SatStatusClient, *, name: str, resolves_by_
 2. **`refresh()` never stamps with the simulator.** It calls `find_stamp` (`resolves_by_resubmitting=False`), which only reads.
 3. **A document returns to sealed only through `_clear_marker` or `_not_stamped`.** Both condition on the marker. A new stamp then needs a new request, which goes through point 1 again.
 
-So at most one `stamp` call per document is in flight at any time, whatever the number of instances. Two instances of the library's simulator never stamp the same seal concurrently.
+So at most one `stamp` call per document is in flight at any time, whatever the number of instances. Two instances of the library's simulator never stamp the same seal concurrently. The one other writer of a seal record, the `PUT {stamp}` route, refuses while the document is `stamping` (R12).
 
 **Proof by test (SC-009)**: `tests/integration/test_stamp_flow.py` gains a test that:
 - builds two `CfdiPacProvider`s over two `SimulatedPac` instances, which share one `DatabaseSimulatorStore` on the test database;
@@ -254,12 +258,14 @@ So at most one `stamp` call per document is in flight at any time, whatever the 
 
 ## R12. The simulator routes over the library (FR-025)
 
-The routes in `app/api/v1/endpoints/pac_simulator.py` keep their paths, privileges, the per-request 404 when `PAC_PROVIDER` is not `simulated`, and the 409 `fiscal_document.not_sealed` for a draft. Each builds `SimulatedPac(DatabaseSimulatorStore())` and `SimulatedSatStatusClient(pac)`, the same state as the provider's.
+The routes in `app/api/v1/endpoints/pac_simulator.py` keep their paths, privileges, the per-request 404 when `PAC_PROVIDER` is not `simulated`, and the 409 `fiscal_document.not_sealed` for a draft.
+- **Getting the simulator:** the routes take it from a new FastAPI dependency, `get_pac_simulator()`, which returns `SimulatedPac(DatabaseSimulatorStore())`. They build `SimulatedSatStatusClient(pac)` from it, over the same state as the provider's.
+- **Why a dependency:** a route that built the store itself would always use the real database's session factory, and tests could not point it at theirs. Today the routes take the simulator from `get_pac_provider`, which `tests/integration/test_fiscal_stamping_http.py` overrides; the new dependency keeps that pattern.
 
 | Route | The library call | Notes |
 |---|---|---|
 | `GET` | `SimulatedSatStatusClient.query_status(document.issuer, document.recipient, document.stamp_uuid, xml_total)` | For a stamped document: `uuid`, `sat_status` (`state`) and `cancellation_status` (`cancellation`). For one not yet stamped: `uuid` null, `sat_status` `not_found`, `cancellation_status` `none`, with no call. |
-| `PUT {stamp}` | `SimulatedPac.configure_stamp(sealed_xml.encode(), outcome, code=, message=)` | The stored XML of the document. For a document already stamped by the library, the outcome is accepted and has no effect, because the next stamp returns the existing stamp. For one stamped by the old simulator, the library answers 307. |
+| `PUT {stamp}` | `SimulatedPac.configure_stamp(sealed_xml.encode(), outcome, code=, message=)` | 409 `fiscal_document.stamping` while the document is `stamping`, writing nothing. The library's instances don't lock each other, so writing the seal record while another process stores a stamp there could erase it (last write wins). Otherwise the stored XML of the document. For a document already stamped by the library, the outcome is accepted and has no effect, because the next stamp returns the existing stamp. For one stamped by the old simulator, the library answers 307. |
 | `PUT {cancellation}` | `SimulatedPac.configure_cancellation(uuid, outcome, code=, message=)` | 409 `fiscal_document.not_stamped` when the document has no UUID |
 | `PUT {stamp, cancellation}` | both | The stamp outcome is applied first. `pac_code` and `pac_message` go to whichever outcome is `rejected`. |
 | `POST …/receiver` | `SimulatedPac.answer_as_receiver(uuid, answer)` | The library's `SIM01` ("no cancellation is pending") → 409 `fiscal_document.nothing_to_refresh`; no UUID → the same 409 |

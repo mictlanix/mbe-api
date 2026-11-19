@@ -32,7 +32,8 @@
   - developers need GitHub SSH access;
   - each server needs its user's public key as a **read-only deploy key** on mictlanix/cfdi (xolotl: `mictlanix`'s `~/.ssh/id_ed25519.pub`), checked with `ssh -T git@github.com`;
   - to move the pin, change `rev` and run `uv lock`.
-  (FR-002)
+
+  Also add to the README's "Environment variables" subsection that `PAC_PROVIDER` is required in every `.env`, a developer's included (`none` or `simulated` locally), or the server refuses to start. (FR-002, FR-016)
 
 ---
 
@@ -176,7 +177,8 @@
   - a non-HTTPS URL or a timeout of 0 refuses, naming the variable.
 - [ ] T018 [US4] Extend `check_pac_settings` in `app/core/config.py`:
   - refuse `pac_provider is None` with a message naming `PAC_PROVIDER`;
-  - keep the simulator's refusal in production;
+  - keep the simulator's refusal in production, with its message verbatim (`tests/unit/test_resolve_fiscal_documents.py:136` and `tests/integration/test_resolve_job.py:170` match it);
+  - read the `multifacturas_*` fields only when `pac_provider == 'multifacturas'`, because those tests pass settings as a `SimpleNamespace` with only `pac_provider` and `app_env`;
   - add the Multifacturas refusals;
   - when `pac_provider == 'multifacturas'`, construct `MultifacturasSettings(...)` once (lazy import) and re-raise its `ValueError` as a message naming `MULTIFACTURAS_URL`, `MULTIFACTURAS_CONNECT_TIMEOUT` or `MULTIFACTURAS_READ_TIMEOUT`, without the value.
 
@@ -209,7 +211,7 @@
 
 ### Provider and routes
 
-- [ ] T023 [US5] In `app/services/pac/__init__.py`, make `simulated` build `pac = SimulatedPac(DatabaseSimulatorStore())` and `CfdiPacProvider(pac, SimulatedSatStatusClient(pac), name='simulator', resolves_by_resubmitting=False)`. Then:
+- [ ] T023 [US5] In `app/services/pac/__init__.py`, add the dependency `get_pac_simulator()` returning `SimulatedPac(DatabaseSimulatorStore())` (contracts/pac-provider.md §5). Make `simulated` build `pac = get_pac_simulator()` and `CfdiPacProvider(pac, SimulatedSatStatusClient(pac), name='simulator', resolves_by_resubmitting=False)`. Then:
   - delete `app/services/pac/simulated.py` and `tests/unit/test_pac_simulated.py`;
   - in `tests/unit/test_pac_settings.py:64`, assert a `CfdiPacProvider` with `resolves_by_resubmitting` False;
   - change `tests/unit/test_pac_provider.py:18` to `SIMULATED_PAC_RFC == 'SIM010101SI0'`.
@@ -220,12 +222,13 @@
   - `tests/integration/test_fiscal_stamping_http.py`, whose fixture `pac` and `simulated` drive outcomes through the routes or the library's `configure_*`.
 
   Change the RFC literals in `tests/unit/test_fiscal_document_service.py:187`, `tests/unit/test_print_contexts.py:1109` and `tests/integration/test_print_render.py:761` to `SIM010101SI0`. Then run `grep -rn "SIM010101SIM\|PacSimulation\b\|pac\.simulated" app tests`; it must find only the migration.
-- [ ] T025 [US5] Rewrite `tests/api/test_pac_simulator.py` per contracts/simulator-controls.md, with `PAC_PROVIDER=simulated` and the library's simulator on the test database (no `MagicMock(spec=SimulatedPac)`). Cover:
+- [ ] T025 [US5] Rewrite `tests/api/test_pac_simulator.py` per contracts/simulator-controls.md, with `PAC_PROVIDER=simulated` and the library's simulator on the test database: override `get_pac_simulator` (and `get_pac_provider`) with a `SimulatedPac` over `DatabaseSimulatorStore(sessions)`, with no `MagicMock(spec=SimulatedPac)`. Cover:
   - the 404 when not simulated;
   - the privilege;
   - 409 `not_sealed` for a draft;
   - GET on an unstamped document (`uuid` null, `not_found`, `none`) and on a stamped one;
   - PUT `stamp` for each outcome, applied once;
+  - PUT `stamp` on a `stamping` document → 409 `fiscal_document.stamping`, with nothing written to the store;
   - PUT `cancellation` before the stamp → 409 `fiscal_document.not_stamped`, and after it for each outcome, applied once;
   - `pac_code` and `pac_message` on `rejected`;
   - `receiver` accept, reject and expire, then refresh;
@@ -236,7 +239,8 @@
   Update `tests/unit/test_fiscal_schemas.py` for the response without them.
 - [ ] T026 [US5] Rewrite `app/api/v1/endpoints/pac_simulator.py` per research R12:
   - keep `require_simulator`, `_UPDATE` and the draft check;
-  - build `SimulatedPac(DatabaseSimulatorStore())` and `SimulatedSatStatusClient`;
+  - take the simulator from `Depends(get_pac_simulator)` instead of `get_pac_provider`, and build `SimulatedSatStatusClient(pac)` from it;
+  - refuse a stamp outcome while the document is `stamping` (409 `fiscal_document.stamping`), before calling the library;
   - GET calls `query_status` with the document's issuer, recipient, UUID and `fiscal_document_service.xml_total(get_xml(...))`;
   - PUT calls `configure_stamp` with the stored XML's bytes and/or `configure_cancellation` with the UUID (409 `fiscal_document.not_stamped` without one);
   - POST calls `answer_as_receiver`, mapping the library's `PacRejected` code `SIM01`, or no UUID, to 409 `fiscal_document.nothing_to_refresh`;
@@ -285,7 +289,7 @@
   2. Run migration 036 on mbe_dev. Afterwards, check read-only that no `fiscal_document` or `fiscal_document_xml` row carries `SIM010101SIM`, that `pac_simulator_store` exists, and that `pac_simulation` is gone.
   3. In the same step, deploy the branch to dev :8765 (pre-authorized) and test :8766. Both run `uv sync`.
   4. Check on dev that an old simulated document still reads `stamp.simulated` true.
-  5. Before the deploy, check read-only that dev's and test's `.env` already name `PAC_PROVIDER`; otherwise they would refuse to start. Both did on 2026-11-18. Any other instance that will run this code, including production when it comes, needs `PAC_PROVIDER` written in its `.env` first: `none` for production.
+  5. Before the deploy, check read-only that dev's and test's `.env` already name `PAC_PROVIDER`. Before merging, tell the user that their local `.env` (the main checkout) has no `PAC_PROVIDER` line and needs one, without editing it; otherwise they would refuse to start. Both did on 2026-11-18. Any other instance that will run this code, including production when it comes, needs `PAC_PROVIDER` written in its `.env` first: `none` for production.
 - [ ] T032 **Test configuration (needs the user's confirmation)**:
   - in test's `.env`, set `PAC_PROVIDER=multifacturas`, `MULTIFACTURAS_USER`, `MULTIFACTURAS_PASSWORD` (from the user) and `MULTIFACTURAS_PRODUCTION=false`, keeping `APP_ENV=staging`, then restart;
   - check that a start with `MULTIFACTURAS_PRODUCTION=true` is refused;

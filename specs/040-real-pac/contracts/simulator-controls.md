@@ -7,7 +7,7 @@ Spec 039's section "Simulated PAC controls" in `contracts/endpoints.md` still ho
 - the 409 `fiscal_document.not_sealed` for a draft;
 - the request body.
 
-This spec changes what the routes return and when an outcome can be set. The library's simulated PAC now answers behind them (research R12).
+This spec changes what the routes return and when an outcome can be set. The library's simulated PAC now answers behind them (research R12). The routes get it through the FastAPI dependency `get_pac_simulator()` (contracts/pac-provider.md §5), which tests override.
 
 | Method | Route | Body | Effect |
 |---|---|---|---|
@@ -31,6 +31,7 @@ This spec changes what the routes return and when an outcome can be set. The lib
   - **Keyed by the sealed document.** The outcome belongs to the document as sealed now; reopening and sealing again discards it.
   - **On a document the simulator already stamped,** the outcome is accepted but has no effect: the next stamp returns the existing stamp.
   - **On a document the old simulator stamped,** the library answers 307, and the route answers 422 `pac.rejected` with `pac_code` `307`.
+  - **On a document that is `stamping`,** the route answers 409 `fiscal_document.stamping` and writes nothing. Another process may be storing that document's stamp in the simulator, and the simulator's instances don't lock each other.
 - **`cancellation`** (`accepted`, `pending`, `not_cancellable`, `rejected`, `unavailable`, `timeout`):
   - **Keyed by the UUID.** On a document not yet stamped, the route answers 409 `fiscal_document.not_stamped`.
   - **`not_cancellable` is permanent** for that UUID.

@@ -80,6 +80,7 @@ The values are given on the command line and never committed.
 | Timeout on cancel | `stamp` → `PUT …{cancellation:"timeout"}` → `cancel` → 504, cancellation_pending → `refresh` → pending (SAT has it) | The same |
 
 - **No scenario is dropped**, and none needs a change in mictlanix/cfdi.
+- **A stamp outcome while the document is `stamping`** answers 409 `fiscal_document.stamping`. Set it before the stamp, or after the refresh.
 - **`GET …` and every `PUT` or `POST` response** now return only `uuid`, `sat_status` and `cancellation_status`, without `next_stamp` and `next_cancellation`.
 
 ## 6. Confirm at the cutover (#57)

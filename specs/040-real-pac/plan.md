@@ -86,7 +86,7 @@ app/core/config.py                       # PAC_PROVIDER multifacturas, MULTIFACT
 app/models/fiscal.py                     # PacSimulatorStore replaces PacSimulation
 app/schemas/fiscal.py                    # PacSimulationResponse without next_stamp, next_cancellation
 app/services/pac/
-├── __init__.py                          # get_pac_provider builds CfdiPacProvider per provider
+├── __init__.py                          # get_pac_provider builds CfdiPacProvider per provider; get_pac_simulator for the routes
 ├── provider.py                          # resolves_by_resubmitting; SIMULATED_PAC_RFC from the library
 ├── adapter.py                           # NEW: CfdiPacProvider
 ├── simulator_store.py                   # NEW: DatabaseSimulatorStore

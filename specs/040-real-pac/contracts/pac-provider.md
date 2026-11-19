@@ -86,4 +86,18 @@ class DatabaseSimulatorStore:
 
 The table is `pac_simulator_store` (data-model.md). The store keeps the values without reading them.
 
+## 5. The simulator for the routes: `get_pac_simulator()`
+
+In `app/services/pac/__init__.py`, a FastAPI dependency beside `get_pac_provider()`:
+
+```python
+def get_pac_simulator() -> SimulatedPac:
+    """The library's simulated PAC over the database store, for the /pac-simulator routes."""
+    return SimulatedPac(DatabaseSimulatorStore())
+```
+
+- **The routes** take the simulator from this dependency, and build `SimulatedSatStatusClient(pac)` from it.
+- **Tests** override it with a `SimulatedPac` over `DatabaseSimulatorStore(sessions)`, as they override `get_pac_provider` today.
+- **`get_pac_provider()`** uses it too, so the provider and the routes share one way of building the simulator.
+
 Endpoints (spec 039's `contracts/endpoints.md`) and error codes (spec 039's `contracts/error-codes.md`) do not change, except the simulator routes in [simulator-controls.md](simulator-controls.md).
