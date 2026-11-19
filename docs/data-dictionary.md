@@ -1287,6 +1287,7 @@ lines hang off the stop rather than off the itinerary directly.
 | `outcome` | smallint(6) | NO | How the stop ended — delivered, partially delivered, or failed |
 | `proof_of_delivery` | int(11) | YES | FK → `proof_of_delivery` |
 | `comment` | varchar(500) | YES | Notes |
+| `delivery_order` | int(11) | YES | FK → `delivery_order` — the order the stop was added for; added by migration 036 (#343). `NULL` on the synthetic stops 008 created, which mix orders and customers. Lines of other orders may still sit on the stop |
 
 ### `deliveries_itinerary_detail`
 Items loaded onto a delivery itinerary. Restructured by migration 008: the row now hangs off a

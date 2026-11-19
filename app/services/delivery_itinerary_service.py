@@ -33,7 +33,7 @@ from app.enums import (
     StopOutcome,
     TransactionType,
 )
-from app.models.core import Address, Facility, Vehicle, VehicleOperator, Warehouse
+from app.models.core import Address, Employee, Facility, Vehicle, VehicleOperator, Warehouse
 from app.models.customer import Customer
 from app.models.logistics import (
     DeliveriesItinerary,
@@ -50,6 +50,7 @@ from app.services import (
     warehouse_service,
 )
 from app.services.address_service import address_label
+from app.services.fk_expansion import employee_name
 
 _BUCKETS = ('earlier', 'yesterday', 'today', 'tomorrow', 'day_after', 'later')
 
@@ -317,6 +318,137 @@ async def lines_of_stop(db: AsyncSession, stop_id: int) -> Sequence[DeliveriesIt
     )
 
 
+async def attach_names(db: AsyncSession, itineraries: Sequence[DeliveriesItinerary]) -> None:
+    """Attach the vehicle, operator and warehouse names a row shows (#343).
+
+    One query per kind for the whole page, never one per row, written under `__dict__` keys for
+    the reason `sales_order_service.attach_derived` gives. The vehicle reads as the printed
+    itinerary shows it, and the operator as every `creator_name` does.
+    """
+    vehicle_ids = {i.vehicle for i in itineraries if i.vehicle is not None}
+    operator_ids = {i.vehicle_operator for i in itineraries if i.vehicle_operator is not None}
+    warehouse_ids = {i.warehouse for i in itineraries if i.warehouse is not None}
+    vehicles = (
+        {
+            vehicle.vehicle_id: f'{vehicle.nickname} · {vehicle.license_plate}'
+            for vehicle in (
+                await db.execute(select(Vehicle).where(Vehicle.vehicle_id.in_(vehicle_ids)))
+            )
+            .scalars()
+            .all()
+        }
+        if vehicle_ids
+        else {}
+    )
+    operators = (
+        {
+            operator_id: employee_name(driver)
+            for operator_id, driver in (
+                await db.execute(
+                    select(VehicleOperator.vehicle_operator_id, Employee)
+                    .join(Employee, Employee.employee_id == VehicleOperator.driver)
+                    .where(VehicleOperator.vehicle_operator_id.in_(operator_ids))
+                )
+            ).all()
+        }
+        if operator_ids
+        else {}
+    )
+    warehouses = (
+        dict(
+            (
+                await db.execute(
+                    select(Warehouse.warehouse_id, Warehouse.name).where(
+                        Warehouse.warehouse_id.in_(warehouse_ids)
+                    )
+                )
+            ).all()
+        )
+        if warehouse_ids
+        else {}
+    )
+    for itinerary in itineraries:
+        itinerary.__dict__['vehicle_name'] = vehicles.get(itinerary.vehicle)
+        itinerary.__dict__['vehicle_operator_name'] = operators.get(itinerary.vehicle_operator)
+        itinerary.__dict__['warehouse_name'] = warehouses.get(itinerary.warehouse)
+
+
+async def stops_with_lines(
+    db: AsyncSession, itinerary_id: int
+) -> Sequence[DeliveriesItineraryStop]:
+    """The itinerary's stops, each with its lines and what they show (#343).
+
+    At most four queries however many stops and lines: the stops, every line joined to its order
+    line, the units of their products, and the stops' stored orders joined to customer and ship-to.
+    Attached under `__dict__` keys, as `attach_names` does.
+    """
+    # Here, not at the top: sales_order_service imports this module through inventory_documents.
+    from app.services.sales_order_service import units_by_product
+
+    stops = await stops_of(db, itinerary_id)
+    if not stops:
+        return stops
+    rows = (
+        await db.execute(
+            select(
+                DeliveriesItineraryDetail,
+                DeliveryOrderDetail.delivery_order,
+                DeliveryOrderDetail.product_code,
+                DeliveryOrderDetail.product_name,
+                DeliveryOrderDetail.product,
+            )
+            .join(
+                DeliveryOrderDetail,
+                DeliveryOrderDetail.delivery_order_detail_id
+                == DeliveriesItineraryDetail.delivery_order_detail,
+            )
+            .where(
+                DeliveriesItineraryDetail.deliveries_itinerary_stop.in_(
+                    {stop.deliveries_itinerary_stop_id for stop in stops}
+                )
+            )
+            .order_by(DeliveriesItineraryDetail.deliveries_itinerary_detail_id)
+        )
+    ).all()
+    units = await units_by_product(db, {product for *_, product in rows})
+
+    stored = {stop.delivery_order for stop in stops if stop.delivery_order is not None}
+    orders = (
+        {
+            order_id: (customer_name, address_label(ship_to) if ship_to is not None else None)
+            for order_id, customer_name, ship_to in (
+                await db.execute(
+                    select(DeliveryOrder.delivery_order_id, Customer.name, Address)
+                    .outerjoin(Customer, Customer.customer_id == DeliveryOrder.customer)
+                    .outerjoin(Address, Address.address_id == DeliveryOrder.ship_to)
+                    .where(DeliveryOrder.delivery_order_id.in_(stored))
+                )
+            ).all()
+        }
+        if stored
+        else {}
+    )
+
+    lines: dict[int, list[DeliveriesItineraryDetail]] = {}
+    for line, order_id, product_code, product_name, product in rows:
+        line.__dict__['delivery_order'] = order_id
+        line.__dict__['product_code'] = product_code
+        line.__dict__['product_name'] = product_name
+        line.__dict__['unit_of_measurement'] = units.get(product)
+        lines.setdefault(line.deliveries_itinerary_stop, []).append(line)
+    for stop in stops:
+        stop_lines = lines.get(stop.deliveries_itinerary_stop_id, [])
+        customer_name, ship_to_label = orders.get(stop.delivery_order, (None, None))
+        stop.__dict__['lines'] = stop_lines
+        stop.__dict__['delivery_orders'] = sorted(
+            {line.__dict__['delivery_order'] for line in stop_lines}
+            | ({stop.delivery_order} if stop.delivery_order is not None else set())
+        )
+        stop.__dict__['customer_display_name'] = customer_name
+        stop.__dict__['ship_to_label'] = ship_to_label
+    return stops
+
+
 async def update_itinerary(
     db: AsyncSession, itinerary: DeliveriesItinerary, data: object, *, current: CurrentUser
 ) -> DeliveriesItinerary:
@@ -394,6 +526,7 @@ async def add_stop(
         sequence=(highest or 0) + 1,
         outcome=StopOutcome.PENDING,
         comment=comment,
+        delivery_order=order.delivery_order_id,
     )
     db.add(stop)
     await db.commit()
