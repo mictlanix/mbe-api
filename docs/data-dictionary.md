@@ -1407,7 +1407,7 @@ CFDI electronic invoice header.
 | `exchange_rate` | decimal(8,4) | NO | FX rate |
 | `currency` | int(11) | NO | Currency |
 | `payment_terms` | tinyint(4) | NO | PUE (single) or PPD (installment) |
-| `usage` | varchar(3) | YES | FK → `sat_cfdi_usage` |
+| `usage` | varchar(4) | YES | FK → `sat_cfdi_usage`; varchar(3) until migration 035 (#341), too short for `CP01` |
 | `comment` | varchar(1000) | YES | Notes |
 | `stamped` | datetime | YES | PAC stamping timestamp |
 | `stamp_uuid` | varchar(36) | YES | SAT UUID (folio fiscal) |

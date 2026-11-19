@@ -104,8 +104,9 @@ class FiscalDocument(Base):
     exchange_rate: Mapped[Decimal] = mapped_column(Numeric(8, 4))
     currency: Mapped[CurrencyCode] = mapped_column(Integer)
     payment_terms: Mapped[int] = mapped_column(Integer)
+    # Four characters since migration 035: a payment receipt's usage is `CP01` (#341).
     usage: Mapped[str | None] = mapped_column(
-        String(3), ForeignKey('sat_cfdi_usage.sat_cfdi_usage_id')
+        String(4), ForeignKey('sat_cfdi_usage.sat_cfdi_usage_id')
     )
     comment: Mapped[str | None] = mapped_column(String(1000))
     stamped: Mapped[datetime | None] = mapped_column(DateTime)
