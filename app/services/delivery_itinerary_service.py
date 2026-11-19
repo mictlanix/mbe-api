@@ -168,6 +168,36 @@ async def _operator_warnings(db: AsyncSession, operator_id: int | None) -> list[
     return []
 
 
+async def _assert_vehicle_free(
+    db: AsyncSession, vehicle: int, *, excluding: int | None = None
+) -> None:
+    """One open itinerary per vehicle, checked under a lock on the vehicle row (research R9).
+
+    `excluding` is the itinerary being changed, which must not count against itself.
+    """
+    locked = (
+        await db.execute(
+            select(Vehicle.vehicle_id).where(Vehicle.vehicle_id == vehicle).with_for_update()
+        )
+    ).scalar_one_or_none()
+    if locked is None:
+        raise not_found(Vehicle, vehicle)
+
+    query = select(DeliveriesItinerary.deliveries_itinerary_id).where(
+        DeliveriesItinerary.vehicle == vehicle,
+        DeliveriesItinerary.status == ItineraryStatus.OPEN,
+    )
+    if excluding is not None:
+        query = query.where(DeliveriesItinerary.deliveries_itinerary_id != excluding)
+    existing = (await db.execute(query)).first()
+    if existing is not None:
+        raise DomainError(
+            ErrorCode.VEHICLE_OPEN_ITINERARY_EXISTS,
+            f'Vehicle {vehicle} already has an open itinerary ({existing[0]})',
+            {'vehicle_id': vehicle, 'itinerary_id': existing[0]},
+        )
+
+
 async def create_itinerary(
     db: AsyncSession,
     *,
@@ -187,28 +217,7 @@ async def create_itinerary(
     employee = current.employee_id
 
     if vehicle is not None:
-        locked = (
-            await db.execute(
-                select(Vehicle.vehicle_id).where(Vehicle.vehicle_id == vehicle).with_for_update()
-            )
-        ).scalar_one_or_none()
-        if locked is None:
-            raise not_found(Vehicle, vehicle)
-
-        existing = (
-            await db.execute(
-                select(DeliveriesItinerary.deliveries_itinerary_id).where(
-                    DeliveriesItinerary.vehicle == vehicle,
-                    DeliveriesItinerary.status == ItineraryStatus.OPEN,
-                )
-            )
-        ).first()
-        if existing is not None:
-            raise DomainError(
-                ErrorCode.VEHICLE_OPEN_ITINERARY_EXISTS,
-                f'Vehicle {vehicle} already has an open itinerary ({existing[0]})',
-                {'vehicle_id': vehicle, 'itinerary_id': existing[0]},
-            )
+        await _assert_vehicle_free(db, vehicle)
 
     now = local_now()
     itinerary = DeliveriesItinerary(
@@ -453,6 +462,9 @@ async def update_itinerary(
     db: AsyncSession, itinerary: DeliveriesItinerary, data: object, *, current: CurrentUser
 ) -> DeliveriesItinerary:
     assert_open(itinerary)
+    vehicle = getattr(data, 'vehicle', None)
+    if vehicle is not None and vehicle != itinerary.vehicle:
+        await _assert_vehicle_free(db, vehicle, excluding=itinerary.deliveries_itinerary_id)
     for field in ('date', 'vehicle', 'vehicle_operator', 'comment'):
         value = getattr(data, field, None)
         if value is not None:
@@ -729,9 +741,13 @@ async def depart(
     stops = await stops_of(db, itinerary.deliveries_itinerary_id)
     entries: list[tuple[DeliveriesItineraryDetail, DeliveryOrderDetail]] = []
     orders: dict[int, DeliveryOrder] = {}
+    empty_stops: list[DeliveriesItineraryStop] = []
 
     for stop in stops:
-        for entry in await lines_of_stop(db, stop.deliveries_itinerary_stop_id):
+        stop_lines = await lines_of_stop(db, stop.deliveries_itinerary_stop_id)
+        if not stop_lines:
+            empty_stops.append(stop)
+        for entry in stop_lines:
             order_line = await db.get(DeliveryOrderDetail, entry.delivery_order_detail)
             if order_line is None:
                 continue
@@ -745,6 +761,19 @@ async def depart(
         raise DomainError(
             ErrorCode.ITINERARY_NOTHING_COMMITTED,
             'Nothing is committed to this itinerary',
+        )
+
+    # A stop with no lines would ride along as PENDING and need a receiver, an ID and an image to
+    # close for nothing, holding the trip open until it did (follow-up to #343).
+    if empty_stops:
+        sequences = [stop.sequence for stop in empty_stops]
+        raise DomainError(
+            ErrorCode.ITINERARY_EMPTY_STOPS,
+            f'Stops with nothing loaded: {", ".join(str(n) for n in sequences)}',
+            {
+                'stop_ids': [stop.deliveries_itinerary_stop_id for stop in empty_stops],
+                'sequences': sequences,
+            },
         )
 
     overcommitted = [

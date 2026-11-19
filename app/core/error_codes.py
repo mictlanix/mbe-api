@@ -229,6 +229,7 @@ class ErrorCode(StrEnum):
 
     # itinerary
     ITINERARY_CANCELLED = 'itinerary.cancelled', 409
+    ITINERARY_EMPTY_STOPS = 'itinerary.empty_stops', 409
     ITINERARY_LINES_OVERCOMMITTED = 'itinerary.lines_overcommitted', 422
     ITINERARY_NOT_DEPARTED = 'itinerary.not_departed', 409
     ITINERARY_NOT_OPEN = 'itinerary.not_open', 409
