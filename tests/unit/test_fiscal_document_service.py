@@ -70,7 +70,8 @@ def test_document_status_with_stamping_and_cancellation(
 
 def test_the_new_tables_are_mapped() -> None:
     assert 'fiscal_document_cancellation' in Base.metadata.tables
-    assert 'pac_simulation' in Base.metadata.tables
+    assert 'pac_simulator_store' in Base.metadata.tables
+    assert 'pac_simulation' not in Base.metadata.tables
 
 
 class _Rows:
@@ -184,7 +185,7 @@ async def test_the_detail_has_no_stamp_without_a_uuid() -> None:
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    ('rfc_pac', 'simulated'), [('SIM010101SIM', True), ('AAA010101AAA', False), (None, False)]
+    ('rfc_pac', 'simulated'), [('SIM010101SI0', True), ('AAA010101AAA', False), (None, False)]
 )
 async def test_the_detail_stamp_is_filled_and_flags_the_simulator(
     rfc_pac: str | None, simulated: bool

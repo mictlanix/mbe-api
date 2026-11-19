@@ -4,24 +4,34 @@
 one of them.
 """
 
+import asyncio
 import logging
 from datetime import timedelta
 
 import pytest
 from fastapi import HTTPException
+from mictlanix.cfdi import pac as lib
+from mictlanix.cfdi.sat import SimulatedSatStatusClient
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.core.deps import CurrentUser
-from app.models.fiscal import FiscalDocument, PacSimulation
+from app.models.fiscal import FiscalDocument, PacSimulatorStore
 from app.models.incidence import Incidence
 from app.schemas.fiscal import FiscalDocumentResponse, InvoiceLineUpdate
 from app.services import fiscal_document_service as fds
 from app.services import fiscal_stamping
 from app.services import invoice_service as svc
+from app.services.pac.adapter import CfdiPacProvider
 from app.services.pac.provider import SIMULATED_PAC_RFC, PacProvider, PacRejected, PacTimeout
-from app.services.pac.simulated import SimulatedPac
-from tests.fakes.pac import SCRIPTED_PAC_RFC, ScriptedPac
+from app.services.pac.simulator_store import DatabaseSimulatorStore
+from tests.fakes.pac import (
+    MULTIFACTURAS_RFC,
+    SCRIPTED_PAC_RFC,
+    ScriptedPac,
+    scripted_multifacturas,
+)
+from tests.fakes.simulator import is_simulated, set_stamp, simulated_provider
 from tests.integration.test_credit_note_flow import (  # noqa: F401
     CreditNotes,
     _invoice,
@@ -39,7 +49,7 @@ _STAMP_CALL = 'pac simulator: stamp call'
 @pytest.fixture(params=['simulated', 'scripted'])
 def pac(request: pytest.FixtureRequest, sessions: async_sessionmaker) -> PacProvider:
     if request.param == 'simulated':
-        return SimulatedPac(session_factory=sessions)
+        return simulated_provider(sessions)
     return ScriptedPac()
 
 
@@ -78,7 +88,7 @@ async def _assert_issued(
     assert document.stamped == found.stamped_at
     assert document.authority_digital_seal == found.sat_seal
     assert document.authority_certificate_number == found.sat_certificate
-    simulated = isinstance(pac, SimulatedPac)
+    simulated = is_simulated(pac)
     assert document.rfc_pac == (SIMULATED_PAC_RFC if simulated else SCRIPTED_PAC_RFC)
     assert await fds.get_xml(db, document_id) == found.xml
     assert document.stamping_since is None
@@ -175,9 +185,8 @@ async def test_after_a_timeout_the_document_is_stamping_and_never_stamped_twice(
     db, current = invoicing.db, invoicing.current
     sealed = await invoicing.confirm(await _ready(invoicing))
     document_id = sealed.fiscal_document_id
-    if isinstance(pac, SimulatedPac):
-        keys = (None, sealed.issuer, sealed.batch or '', sealed.serial)
-        await pac.set_next(keys, stamp='timeout_stamped')
+    if is_simulated(pac):
+        await set_stamp(pac, db, document_id, 'timeout_stamped')
     else:
         pac.queue('stamp', PacTimeout())
 
@@ -190,9 +199,9 @@ async def test_after_a_timeout_the_document_is_stamping_and_never_stamped_twice(
     assert document.stamping_since is not None
     await _code(_stamp(db, current, document_id, pac), 409, 'fiscal_document.stamping')
     assert _stamp_calls(pac, caplog) == 1
-    if isinstance(pac, SimulatedPac):
+    if is_simulated(pac):
         async with sessions() as other:
-            stamped = select(func.count()).where(PacSimulation.uuid.is_not(None))
+            stamped = select(func.count()).where(PacSimulatorStore.store_key.like('uuid:%'))
             assert (await other.execute(stamped)).scalar_one() == 1
 
     # Stamping: it can be neither reopened nor edited.
@@ -221,9 +230,8 @@ async def test_a_rejected_document_stays_sealed_and_can_be_fixed_and_stamped(
     db, current = invoicing.db, invoicing.current
     sealed = await invoicing.confirm(await _ready(invoicing))
     document_id = sealed.fiscal_document_id
-    if isinstance(pac, SimulatedPac):
-        keys = (None, sealed.issuer, sealed.batch or '', sealed.serial)
-        await pac.set_next(keys, stamp='rejected', pac_code='CFDI40102', pac_message='Sello')
+    if is_simulated(pac):
+        await set_stamp(pac, db, document_id, 'rejected', code='CFDI40102', message='Sello')
     else:
         pac.queue('stamp', PacRejected('CFDI40102', 'Sello'))
 
@@ -261,9 +269,8 @@ async def _timed_out(invoicing: Invoicing, pac: PacProvider, outcome: str) -> tu
     sealed = await invoicing.confirm(await _ready(invoicing))
     document_id = sealed.fiscal_document_id
     sealed_xml = await fds.get_xml(db, document_id)
-    if isinstance(pac, SimulatedPac):
-        keys = (None, sealed.issuer, sealed.batch or '', sealed.serial)
-        await pac.set_next(keys, stamp=outcome)
+    if is_simulated(pac):
+        await set_stamp(pac, db, document_id, outcome)
     else:
         pac.queue('stamp', PacTimeout())
         if outcome == 'timeout_stamped':
@@ -298,7 +305,7 @@ async def test_refresh_finds_a_stamp_that_timed_out(
     caplog.set_level(logging.WARNING)
     db, current = invoicing.db, invoicing.current
     document_id, sealed_xml = await _timed_out(invoicing, pac, 'timeout_stamped')
-    if isinstance(pac, SimulatedPac):
+    if is_simulated(pac):
         found = await pac.find_stamp(sealed_xml)
     else:
         found = pac.queues['find_stamp'][0]
@@ -356,3 +363,252 @@ async def test_a_stamp_answer_after_the_reset_is_still_stored(
     document = await fds.get_document(db, document_id)
     assert (document.status, document.stamp_uuid) == ('issued', late.uuid)
     assert await fds.get_xml(db, document_id) == late.xml
+
+
+# ── Multifacturas through the adapter (spec 040, US1), T010 ───────────────────
+
+
+async def _assert_issued_by_multifacturas(db: AsyncSession, document_id: int, client) -> None:  # noqa: ANN001
+    db.expire_all()
+    document = await fds.get_document(db, document_id)
+    assert document.status == 'issued'
+    assert document.stamping_since is None
+    assert document.rfc_pac == MULTIFACTURAS_RFC
+    detail = FiscalDocumentResponse.model_validate(document)
+    assert (detail.stamp.uuid, detail.stamp.simulated) == (document.stamp_uuid, False)
+    stored = await fds.get_xml(db, document_id)
+    assert f'UUID="{document.stamp_uuid}"' in stored
+    assert f'RfcProvCertif="{MULTIFACTURAS_RFC}"' in stored
+    assert client.calls['stamp'] == 1
+
+
+async def test_multifacturas_issues_an_invoice(invoicing: Invoicing) -> None:  # noqa: F811
+    provider, client = scripted_multifacturas()
+    db, current = invoicing.db, invoicing.current
+    sealed = await invoicing.confirm(await _ready(invoicing))
+
+    await _stamp(db, current, sealed.fiscal_document_id, provider)
+
+    await _assert_issued_by_multifacturas(db, sealed.fiscal_document_id, client)
+
+
+async def test_multifacturas_issues_a_payment_receipt(receipts: Receipts) -> None:  # noqa: F811
+    provider, client = scripted_multifacturas()
+    db, current = receipts.db, receipts.current
+    invoice = await _ppd_invoice(db)
+    sealed = await receipts.confirm(await receipts.ready(invoice, '1000.00'))
+
+    await _stamp(db, current, sealed.fiscal_document_id, provider)
+
+    await _assert_issued_by_multifacturas(db, sealed.fiscal_document_id, client)
+
+
+async def test_multifacturas_issues_a_credit_note(notes: CreditNotes) -> None:  # noqa: F811
+    provider, client = scripted_multifacturas()
+    db, current = notes.db, notes.current
+    invoice = await _invoice(db)
+    source = (await _lines(db, invoice))[0]
+    draft = await notes.copy(await notes.create(invoice), source.fiscal_document_detail_id)
+    sealed = await notes.confirm(draft)
+
+    await _stamp(db, current, sealed.fiscal_document_id, provider)
+
+    await _assert_issued_by_multifacturas(db, sealed.fiscal_document_id, client)
+
+
+@pytest.mark.parametrize(
+    ('error', 'status', 'code', 'params', 'state'),
+    [
+        (
+            lib.PacRejected('CFDI40102', 'Sello'),
+            422,
+            'pac.rejected',
+            {'pac_code': 'CFDI40102', 'pac_message': 'Sello'},
+            'sealed',
+        ),
+        (lib.PacUnavailable(), 503, 'pac.unavailable', None, 'sealed'),
+        (lib.PacTimeout(), 504, 'pac.timeout', {'state': 'stamping'}, 'stamping'),
+    ],
+    ids=['rejected', 'unavailable', 'timeout'],
+)
+async def test_multifacturas_failures_answer_with_their_codes(
+    invoicing: Invoicing,  # noqa: F811
+    error: Exception,
+    status: int,
+    code: str,
+    params: dict | None,
+    state: str,
+) -> None:
+    """US1 scenarios 2 to 4."""
+    provider, client = scripted_multifacturas()
+    client.queue('stamp', error)
+    db, current = invoicing.db, invoicing.current
+    sealed = await invoicing.confirm(await _ready(invoicing))
+
+    with pytest.raises(HTTPException) as caught:
+        await _stamp(db, current, sealed.fiscal_document_id, provider)
+
+    assert (caught.value.status_code, caught.value.code) == (status, code)
+    if params is not None:
+        assert caught.value.params == params
+    assert (await invoicing.load(sealed.fiscal_document_id)).status == state
+
+
+# ── Resolving a timed-out stamp by resubmission (spec 040, US2, SC-003), T013 ─
+
+
+async def _timed_out_with_multifacturas(invoicing: Invoicing, outcome: object):  # noqa: ANN202, F811
+    provider, client = scripted_multifacturas()
+    client.queue('stamp', outcome)
+    db, current = invoicing.db, invoicing.current
+    sealed = await invoicing.confirm(await _ready(invoicing))
+    document_id = sealed.fiscal_document_id
+    with pytest.raises(HTTPException) as caught:
+        await _stamp(db, current, document_id, provider)
+    assert caught.value.code == 'pac.timeout'
+    return provider, client, document_id
+
+
+@pytest.mark.parametrize('outcome', ['timeout_stamped', lib.PacTimeout()], ids=['did', 'did_not'])
+async def test_a_timed_out_stamp_is_resolved_by_resubmission_with_one_uuid(
+    invoicing: Invoicing,  # noqa: F811
+    outcome: object,
+) -> None:
+    db, current = invoicing.db, invoicing.current
+    provider, client, document_id = await _timed_out_with_multifacturas(invoicing, outcome)
+    sealed_xml = await fds.get_xml(db, document_id)
+
+    # Within the grace nothing is sent.
+    await fiscal_stamping.refresh(db, document_id, provider, current.employee_id)
+    assert client.calls['stamp'] == 1
+    await _set_marker_back(db, document_id, 6)
+    await fiscal_stamping.refresh(db, document_id, provider, current.employee_id)
+
+    db.expire_all()
+    document = await fds.get_document(db, document_id)
+    assert (document.status, document.stamping_since) == ('issued', None)
+    assert client.calls['stamp'] == 2 and client.calls['find_stamp'] == 0
+    again = await client.stamp(sealed_xml.encode('utf-8'))
+    assert document.stamp_uuid == again.timbre.UUID
+    assert f'CFDI stamp resolved {document.stamp_uuid}' in await _comments(db, document_id)
+
+
+async def test_two_resolutions_at_once_store_one_uuid(
+    invoicing: Invoicing,  # noqa: F811
+    sessions: async_sessionmaker,
+) -> None:
+    db, current = invoicing.db, invoicing.current
+    provider, client, document_id = await _timed_out_with_multifacturas(
+        invoicing, 'timeout_stamped'
+    )
+    await _set_marker_back(db, document_id, 6)
+
+    async def resolve() -> None:
+        async with sessions() as session:
+            await fiscal_stamping.refresh(session, document_id, provider, current.employee_id)
+
+    await asyncio.gather(resolve(), resolve(), return_exceptions=True)
+
+    db.expire_all()
+    document = await fds.get_document(db, document_id)
+    assert document.status == 'issued'
+    uuids = {
+        line.split()[-1]
+        for line in await _comments(db, document_id)
+        if line.startswith('CFDI stamp resolved ')
+    }
+    assert uuids == {document.stamp_uuid}
+
+
+async def test_a_rejected_resubmission_seals_the_document_again(
+    invoicing: Invoicing,  # noqa: F811
+) -> None:
+    db, current = invoicing.db, invoicing.current
+    provider, client, document_id = await _timed_out_with_multifacturas(invoicing, lib.PacTimeout())
+    await _set_marker_back(db, document_id, 6)
+    client.queue('stamp', lib.PacRejected('CFDI40102', 'Sello'))
+
+    await _code(
+        fiscal_stamping.refresh(db, document_id, provider, current.employee_id),
+        422,
+        'pac.rejected',
+    )
+
+    document = await invoicing.load(document_id)
+    assert (document.status, document.stamping_since) == ('sealed', None)
+
+
+# ── Two simulator instances on one store (spec 040, FR-024, SC-009), T027 ─────
+
+
+class _HeldStore(DatabaseSimulatorStore):
+    """The store, holding its first write of a `seal:` key until `release` is set: a stamp held
+    inside the simulator, after it recorded the UUID and before it recorded the seal."""
+
+    def __init__(self, sessions: async_sessionmaker) -> None:
+        super().__init__(sessions)
+        self.held, self.release = asyncio.Event(), asyncio.Event()
+        self._first = True
+
+    async def set(self, key: str, value: str) -> None:
+        if key.startswith('seal:') and self._first:
+            self._first = False
+            self.held.set()
+            await self.release.wait()
+        await super().set(key, value)
+
+
+async def test_a_second_simulator_instance_never_stamps_a_document_being_stamped(
+    invoicing: Invoicing,  # noqa: F811
+    sessions: async_sessionmaker,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The library serializes calls within one instance only; spec 039's marker keeps a second
+    process from stamping (research R11, part 1). SQLite holds no row locks, so the first stamp is
+    held in place rather than raced; the live run on dev proves it under real locks (part 2)."""
+    caplog.set_level(logging.WARNING)
+    db, current = invoicing.db, invoicing.current
+    store = _HeldStore(sessions)
+
+    def provider_over(simulator: lib.SimulatedPac) -> CfdiPacProvider:
+        return CfdiPacProvider(
+            simulator,
+            SimulatedSatStatusClient(simulator),
+            name='simulator',
+            resolves_by_resubmitting=False,
+        )
+
+    first, second = lib.SimulatedPac(store), lib.SimulatedPac(store)
+    second_calls = 0
+    second_stamp = second.stamp
+
+    async def counted(sealed_xml: bytes) -> lib.Stamp:
+        nonlocal second_calls
+        second_calls += 1
+        return await second_stamp(sealed_xml)
+
+    second.stamp = counted  # type: ignore[method-assign]
+    document_id = (await invoicing.confirm(await _ready(invoicing))).fiscal_document_id
+
+    async def stamp_in_its_own_session(provider: CfdiPacProvider) -> object:
+        async with sessions() as session:
+            return await fiscal_stamping.stamp(session, document_id, provider, current.employee_id)
+
+    held = asyncio.create_task(stamp_in_its_own_session(provider_over(first)))
+    await asyncio.wait_for(store.held.wait(), timeout=10)
+    assert (await invoicing.load(document_id)).status == 'stamping'
+
+    await _code(stamp_in_its_own_session(provider_over(second)), 409, 'fiscal_document.stamping')
+    assert second_calls == 0
+
+    store.release.set()
+    await asyncio.wait_for(held, timeout=10)
+
+    db.expire_all()
+    document = await fds.get_document(db, document_id)
+    assert document.status == 'issued' and document.stamp_uuid
+    async with sessions() as other:
+        keys = list((await other.execute(select(PacSimulatorStore.store_key))).scalars())
+    assert sorted(key.split(':')[0] for key in keys) == ['seal', 'uuid']
+    assert f'uuid:{document.stamp_uuid}' in keys
+    assert sum(_STAMP_CALL in record.getMessage() for record in caplog.records) == 1

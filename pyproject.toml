@@ -22,7 +22,11 @@ dependencies = [
     "segno>=1.6.6",
     "lxml>=5.3",
     "xlsxwriter>=3.2",
+    "mictlanix-cfdi",
 ]
+
+[tool.uv.sources]
+mictlanix-cfdi = { git = "https://github.com/mictlanix/cfdi.git", rev = "4b41821b7947adc71a32a535ed5bb87dbd325b77" }
 
 [dependency-groups]
 dev = [

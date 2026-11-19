@@ -3,6 +3,7 @@ from decimal import Decimal
 from typing import Literal
 from zoneinfo import ZoneInfo
 
+from pydantic import SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from app.enums import CurrencyCode
@@ -122,20 +123,77 @@ class Settings(BaseSettings):
     # Where customer replies go, e.g. a sales inbox; `mail_from` is usually a no-reply address.
     mail_reply_to: str = ''
 
-    # CFDI stamping and cancellation (spec 039). `app_env` fails closed: an instance that forgets it
-    # is treated as production, where the simulated PAC must never run (R5). `pac_provider` `none`
-    # answers stamp, cancel and refresh with `pac.not_configured`; step 3 adds the real provider.
+    # CFDI stamping and cancellation (specs 039, 040). `app_env` fails closed: an instance that
+    # forgets it is treated as production, where the simulated PAC must never run (R5). The PAC in
+    # use is set explicitly in each `.env` and has no default: None means not configured, and
+    # `check_pac_settings` refuses it at startup. `none` answers stamp, cancel and refresh with
+    # `pac.not_configured`.
     app_env: Literal['development', 'staging', 'production'] = 'production'
-    pac_provider: Literal['none', 'simulated'] = 'none'
+    pac_provider: Literal['none', 'simulated', 'multifacturas'] | None = None
+    # The Multifacturas account and connection (spec 040, research R6). Never logged.
+    multifacturas_user: str | None = None
+    multifacturas_password: SecretStr | None = None
+    multifacturas_production: bool = False
+    multifacturas_url: str = 'https://ws.multifacturas.com'
+    multifacturas_connect_timeout: float = 10.0
+    multifacturas_read_timeout: float = 60.0
 
 
 def check_pac_settings(config: Settings) -> None:
-    """Refuse the simulated PAC in production, naming both settings (spec 039, R5)."""
+    """Refuse a PAC configuration that is missing or unsafe, naming the settings and never their
+    values (spec 039 R5, spec 040 R6). The API's startup and the resolve job call it."""
+    if config.pac_provider is None:
+        raise RuntimeError(
+            'PAC_PROVIDER is not set: name the PAC in use (none, simulated or multifacturas) '
+            "in this instance's .env"
+        )
     if config.pac_provider == 'simulated' and config.app_env == 'production':
         raise RuntimeError(
             'pac_provider=simulated is not allowed with app_env=production: '
             'set APP_ENV to development or staging, or PAC_PROVIDER to none'
         )
+    if config.pac_provider == 'multifacturas':
+        _check_multifacturas(config)
+
+
+def _check_multifacturas(config: Settings) -> None:
+    missing = [
+        name
+        for name, value in (
+            ('MULTIFACTURAS_USER', config.multifacturas_user),
+            ('MULTIFACTURAS_PASSWORD', config.multifacturas_password),
+        )
+        if not value
+    ]
+    if missing:
+        raise RuntimeError(f'PAC_PROVIDER=multifacturas needs {" and ".join(missing)}')
+    production = config.app_env == 'production'
+    if config.multifacturas_production != production:
+        mode = 'production' if config.multifacturas_production else 'test'
+        raise RuntimeError(
+            f'MULTIFACTURAS_PRODUCTION={str(config.multifacturas_production).lower()} '
+            f'(Multifacturas {mode} mode) is not allowed with APP_ENV={config.app_env}: '
+            'production mode goes only with APP_ENV=production, and test mode with any other'
+        )
+    from mictlanix.cfdi.pac import MultifacturasSettings
+
+    try:
+        MultifacturasSettings(
+            user='',
+            password='',
+            production=config.multifacturas_production,
+            base_url=config.multifacturas_url,
+            connect_timeout=config.multifacturas_connect_timeout,
+            read_timeout=config.multifacturas_read_timeout,
+        )
+    except ValueError as error:
+        names = {
+            'base_url': 'MULTIFACTURAS_URL (it must be https://)',
+            'connect_timeout': 'MULTIFACTURAS_CONNECT_TIMEOUT (it must be positive)',
+            'read_timeout': 'MULTIFACTURAS_READ_TIMEOUT (it must be positive)',
+        }
+        named = next((text for key, text in names.items() if key in str(error)), str(error))
+        raise RuntimeError(f'Invalid {named}') from None
 
 
 settings = Settings()

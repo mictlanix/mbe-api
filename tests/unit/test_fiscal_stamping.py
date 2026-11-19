@@ -903,8 +903,16 @@ class RefreshSession(CancelSession):
         return super()._respond(sql)
 
 
-def _open(status: str = 'pending', age: timedelta = timedelta(hours=1), reason: str = '02'):  # noqa: ANN202
-    return (_REQUEST_ID, status, _NOW - age, reason, None)
+def _open(
+    status: str = 'pending',
+    age: timedelta = timedelta(hours=1),
+    reason: str = '02',
+    answered_age: timedelta | None = None,
+):  # noqa: ANN202
+    """The open request as refresh reads it: id, status, requested_at, reason, substitution and
+    answered_at. A `pending` request was answered when it was made, unless `answered_age` says."""
+    answered = None if status == 'requested' else _NOW - (answered_age or age)
+    return (_REQUEST_ID, status, _NOW - age, reason, None, answered)
 
 
 def _sat(state: str, cancellation: str) -> SatStatus:
@@ -1053,6 +1061,121 @@ async def test_a_stamping_marker_that_changed_is_left_alone() -> None:
     assert not _incidences(session)
 
 
+# ── Resolving by resubmission (spec 040, R4, FR-008 to FR-010), T011 ──────────
+
+
+def _resubmitting() -> ScriptedPac:
+    pac = ScriptedPac()
+    pac.resolves_by_resubmitting = True
+    return pac
+
+
+async def test_within_the_grace_a_resubmitting_pac_is_not_called() -> None:
+    pac = _resubmitting()
+    row = _stamping(timedelta(minutes=4, seconds=59))
+    session = RefreshSession([row])
+
+    document = await _refresh(session, pac)
+
+    assert document is row
+    assert fiscal_stamping.fds.document_status(row, has_xml=True) == 'stamping'
+    assert pac.calls['stamp'] == pac.calls['find_stamp'] == 0
+    assert not _incidences(session) and not _xml_writes(session)
+
+
+async def test_past_the_grace_the_stored_xml_is_resubmitted_and_its_stamp_stored() -> None:
+    pac = _resubmitting()
+    row = _stamping(timedelta(minutes=5, seconds=1))
+    session = RefreshSession([row])
+
+    document = await _refresh(session, pac)
+
+    stamp = pac.stamped['SELLO-EMISOR']
+    assert document is row
+    assert (row.completed, row.stamp_uuid, row.stamping_since) == (True, stamp.uuid, None)
+    assert pac.calls['stamp'] == 1 and pac.calls['find_stamp'] == 0
+    assert _incidences(session) == [f'CFDI stamp resolved {stamp.uuid}']
+    [write] = _xml_writes(session)
+    assert stamp.uuid in write
+
+
+async def test_the_resubmission_is_the_stored_sealed_xml_byte_for_byte() -> None:
+    pac = _resubmitting()
+    sent: list[str] = []
+    original = pac.stamp
+
+    async def recording(sealed_xml: str):  # noqa: ANN202
+        sent.append(sealed_xml)
+        return await original(sealed_xml)
+
+    pac.stamp = recording  # type: ignore[method-assign]
+    session = RefreshSession([_stamping(timedelta(minutes=6))])
+
+    await _refresh(session, pac)
+
+    assert sent == [_SEALED]
+
+
+async def test_a_rejected_resubmission_seals_the_document_again() -> None:
+    pac = _resubmitting()
+    pac.queue('stamp', PacRejected('CFDI40102', 'El sello no corresponde'))
+    row = _stamping(timedelta(minutes=6))
+    session = RefreshSession([row])
+
+    error = await _refresh_refused(session, pac)
+
+    assert error.code == ErrorCode.PAC_REJECTED
+    assert error.params == {'pac_code': 'CFDI40102', 'pac_message': 'El sello no corresponde'}
+    assert row.stamping_since is None
+    assert session.log[-1] == COMMIT
+
+
+async def test_a_rejected_resubmission_leaves_a_newer_marker_alone() -> None:
+    pac = _resubmitting()
+    pac.queue('stamp', PacRejected('X', 'Y'))
+    newer = _NOW - timedelta(seconds=10)
+    later = _row(stamping_since=newer)
+    session = RefreshSession([_stamping(timedelta(minutes=6)), later])
+
+    await _refresh_refused(session, pac)
+
+    assert later.stamping_since == newer
+
+
+@pytest.mark.parametrize(
+    ('failure', 'code'),
+    [(PacUnavailable(), ErrorCode.PAC_UNAVAILABLE), (PacTimeout(), ErrorCode.PAC_TIMEOUT)],
+)
+async def test_an_unanswered_resubmission_keeps_the_document_stamping(
+    failure: Exception, code: ErrorCode
+) -> None:
+    pac = _resubmitting()
+    pac.queue('stamp', failure)
+    row = _stamping(timedelta(minutes=6))
+    marker = row.stamping_since
+    session = RefreshSession([row])
+
+    error = await _refresh_refused(session, pac)
+
+    assert error.code == code
+    assert row.stamping_since == marker
+    assert not _incidences(session)
+
+
+async def test_the_job_resolving_a_stamp_leaves_the_audit_columns_alone() -> None:
+    pac = _resubmitting()
+    row = _stamping(timedelta(minutes=6))
+    row.updater, row.modification_time = 3, datetime(2020, 1, 1)
+    before = (row.updater, row.modification_time)
+    session = RefreshSession([row])
+
+    with patch('app.services.fiscal_stamping.local_now', return_value=_NOW):
+        await fiscal_stamping.refresh(session, 9, pac, 7, touch=False)  # type: ignore[arg-type]
+
+    assert row.completed is True
+    assert (row.updater, row.modification_time) == before
+
+
 @pytest.mark.parametrize(
     ('status', 'sat', 'closed_as', 'state', 'reason'),
     [
@@ -1060,15 +1183,8 @@ async def test_a_stamping_marker_that_changed_is_left_alone() -> None:
         ('pending', _sat('cancelled', 'expired'), 'expired', 'cancelled', 'CFDI cancelled'),
         ('requested', _sat('cancelled', 'accepted'), 'accepted', 'cancelled', 'CFDI cancelled'),
         ('pending', _sat('valid', 'rejected'), 'rejected', 'issued', 'Cancellation rejected'),
-        (
-            'pending',
-            _sat('valid', 'none'),
-            'failed',
-            'issued',
-            'Cancellation not received by SAT',
-        ),
     ],
-    ids=['accepted', 'expired', 'requested_accepted', 'rejected', 'not_received'],
+    ids=['accepted', 'expired', 'requested_accepted', 'rejected'],
 )
 async def test_a_result_that_closes_the_request(
     status: str, sat: SatStatus, closed_as: str, state: str, reason: str
@@ -1135,6 +1251,46 @@ async def test_not_received_past_the_grace_of_a_requested_request_fails_it() -> 
 
     assert row.cancelling_since is None
     assert _request_writes(session)[0]['status'] == 'failed'
+    assert _incidences(session) == ['Cancellation not received by SAT']
+
+
+@pytest.mark.parametrize(
+    'answered_age', [timedelta(hours=1), timedelta(hours=71, minutes=59, seconds=59)]
+)
+async def test_not_received_within_72_hours_of_a_pending_answer_is_unchanged(
+    answered_age: timedelta,
+) -> None:
+    """Spec 040, FR-014: after the PAC's 201, SAT may take a while to show the cancellation."""
+    pac = ScriptedPac()
+    pac.queue('query_status', _sat('valid', 'none'))
+    row = _pending()
+    request = _open('pending', age=answered_age)
+    session = _status_session(row, 'pending', request=request)
+
+    await _refresh(session, pac)
+
+    assert row.cancelling_since is not None
+    [write] = _request_writes(session)
+    assert write == {'last_checked_at': _NOW, 'fiscal_document_cancellation_id_1': _REQUEST_ID}
+    assert not _incidences(session)
+
+
+@pytest.mark.parametrize('answered_age', [timedelta(hours=72), timedelta(days=5)])
+async def test_not_received_72_hours_after_a_pending_answer_fails_it(
+    answered_age: timedelta,
+) -> None:
+    pac = ScriptedPac()
+    pac.queue('query_status', _sat('valid', 'none'))
+    row = _pending()
+    request = _open('pending', age=answered_age)
+    session = _status_session(row, 'pending', request=request)
+
+    await _refresh(session, pac)
+
+    assert fiscal_stamping.fds.document_status(row, has_xml=True) == 'issued'
+    assert row.cancelling_since is None
+    [write] = _request_writes(session)
+    assert (write['status'], write['resolved_at']) == ('failed', _NOW)
     assert _incidences(session) == ['Cancellation not received by SAT']
 
 

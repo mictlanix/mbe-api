@@ -15,4 +15,4 @@ def test_the_csd_repr_hides_the_key_and_the_password() -> None:
 
 
 def test_the_simulator_has_its_own_provider_rfc() -> None:
-    assert SIMULATED_PAC_RFC == 'SIM010101SIM'
+    assert SIMULATED_PAC_RFC == 'SIM010101SI0'
