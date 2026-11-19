@@ -396,7 +396,7 @@ Each answers the simulated SAT's view, `uuid`, `sat_status` and `cancellation_st
 
 ### New MBE: the real PAC (spec 040, mictlanix/mbe-roadmap#46, #51)
 
-The CFDI library (private repository mictlanix/cfdi, pinned by commit) is the API's only PAC implementation. One adapter, `CfdiPacProvider` (`app/services/pac/adapter.py`), implements spec 039's contract over its clients: with `PAC_PROVIDER=multifacturas`, the client for Facturación México (the PAC the current system uses) and SAT's CFDI status service; with `simulated`, the library's simulated PAC and simulated SAT status. Every value and every error the library documents is translated there (`pac.rejected` with the PAC's or SAT's code and message, `pac.unavailable`, `pac.timeout`), and no credential, CSD material or raw payload reaches a log or an error.
+The CFDI library (public repository mictlanix/cfdi, pinned by commit) is the API's only PAC implementation. One adapter, `CfdiPacProvider` (`app/services/pac/adapter.py`), implements spec 039's contract over its clients: with `PAC_PROVIDER=multifacturas`, the client for Facturación México (the PAC the current system uses) and SAT's CFDI status service; with `simulated`, the library's simulated PAC and simulated SAT status. Every value and every error the library documents is translated there (`pac.rejected` with the PAC's or SAT's code and message, `pac.unavailable`, `pac.timeout`), and no credential, CSD material or raw payload reaches a log or an error.
 
 **Configuration** (each instance's `.env`): one PAC account for every issuer, as the current system has it; each request uses the issuer's own CSD.
 

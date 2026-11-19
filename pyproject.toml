@@ -26,7 +26,7 @@ dependencies = [
 ]
 
 [tool.uv.sources]
-mictlanix-cfdi = { git = "ssh://git@github.com/mictlanix/cfdi.git", rev = "4b41821b7947adc71a32a535ed5bb87dbd325b77" }
+mictlanix-cfdi = { git = "https://github.com/mictlanix/cfdi.git", rev = "4b41821b7947adc71a32a535ed5bb87dbd325b77" }
 
 [dependency-groups]
 dev = [

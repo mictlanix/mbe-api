@@ -12,16 +12,16 @@ Sources read for this research:
 ## R1. The dependency and how the servers reach it
 
 **Decision**
-- **The dependency:** declare `mictlanix-cfdi` in `pyproject.toml`, with a `[tool.uv.sources]` entry `{ git = "ssh://git@github.com/mictlanix/cfdi.git", rev = "4b41821b7947adc71a32a535ed5bb87dbd325b77" }`. `uv.lock` records the commit.
-- **Server access:** the servers read the repository with a **read-only deploy key** on mictlanix/cfdi. On xolotl that key is the `mictlanix` user's existing `~/.ssh/id_ed25519.pub`, which today has no GitHub access (`ssh -T git@github.com` answers "Permission denied (publickey)", measured 2026-11-18).
-- **Documentation:** the README records how to add the deploy key and how to move the pin (change `rev`, then `uv lock`).
+- **The dependency:** declare `mictlanix-cfdi` in `pyproject.toml`, with a `[tool.uv.sources]` entry `{ git = "https://github.com/mictlanix/cfdi.git", rev = "4b41821b7947adc71a32a535ed5bb87dbd325b77" }`. `uv.lock` records the commit.
+- **Access:** none needed. The user made mictlanix/cfdi public on 2026-11-19, so `uv sync` clones it over anonymous HTTPS on developers' machines and on the servers alike (checked: an anonymous `git-upload-pack` answers 200).
+- **Documentation:** the README records where the library comes from and how to move the pin (change `rev`, then `uv lock`).
 
 **Rationale**
-- **No PyPI, no tags.** The repository is private and not on PyPI, and it has no tags yet. A full commit SHA is the only pin that cannot move.
-- **SSH for developers.** Developers already reach GitHub over SSH; the local check authenticates.
-- **Least privilege.** A deploy key grants read access to this one repository and nothing else, with no token in the URL, in `uv.lock` or in `.env`.
+- **No PyPI, no tags.** The repository is not on PyPI and has no tags yet. A full commit SHA is the only pin that cannot move.
+- **Nothing to provision.** A public repository over HTTPS needs no key, token or deploy key on any machine.
 
 **Alternatives considered**
+- **SSH with a read-only deploy key** (the plan while the repository was private): a key to provision on each server. Dropped once the repository became public.
 - **HTTPS with a token:** rejected, because the token ends up in the lock file or in the environment.
 - **Vendoring the built wheel:** rejected. The wheel loses its provenance, and every library fix would need a copied file.
 - **A tag (`v0.1.0`):** better than a SHA once it exists. If the user tags the library first, the plan uses the tag; nothing else changes.
@@ -206,9 +206,8 @@ CfdiPacProvider(pac: PacClient, sat: SatStatusClient, *, name: str, resolves_by_
 ## R9. The walk on test (SC-001, SC-002)
 
 **Prerequisites**, each confirmed with the user:
-1. The deploy key on mictlanix/cfdi.
-2. Migration 037 and the deploy of dev and test.
-3. Test's `.env`: `PAC_PROVIDER=multifacturas`, the credentials and `MULTIFACTURAS_PRODUCTION=false`, keeping `APP_ENV=staging` (user's decision, 2026-11-18).
+1. Migration 037 and the deploy of dev and test.
+2. Test's `.env`: `PAC_PROVIDER=multifacturas`, the credentials and `MULTIFACTURAS_PRODUCTION=false`, keeping `APP_ENV=staging` (user's decision, 2026-11-18).
 
 **Steps**
 1. Stamp one invoice, one payment receipt and one credit note for a real issuer.

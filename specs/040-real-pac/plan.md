@@ -6,7 +6,7 @@
 
 ## Summary
 
-The library from mictlanix/cfdi becomes the API's only PAC implementation. It is pinned to a commit and read over SSH.
+The library from mictlanix/cfdi becomes the API's only PAC implementation. It is pinned to a commit and read over HTTPS from its public repository.
 - **One adapter,** `CfdiPacProvider` in `app/services/pac/`, implements spec 039's contract over the library's clients (research R2, R3):
   - `PAC_PROVIDER=multifacturas`: `MultifacturasPac` and `SatConsultaClient`;
   - `PAC_PROVIDER=simulated`: the library's `SimulatedPac` and `SimulatedSatStatusClient`, with their state in a new database store (R10).
@@ -24,7 +24,7 @@ Settings select the provider and refuse unsafe combinations at startup (R6). Pro
 - **Language/Version:** Python 3.12, which the library requires (≥3.12).
 - **Primary Dependencies:**
   - FastAPI, SQLAlchemy 2.0 async, Pydantic v2;
-  - **new:** `mictlanix-cfdi` (git, SSH, commit `4b41821b7947adc71a32a535ed5bb87dbd325b77`), which brings `cryptography` from 49.0.0 to ≥50.0.2.
+  - **new:** `mictlanix-cfdi` (git over HTTPS, public repository, commit `4b41821b7947adc71a32a535ed5bb87dbd325b77`), which brings `cryptography` from 49.0.0 to ≥50.0.2.
 - **Storage:** MariaDB `mbe_dev`. Migration 037 adds `pac_simulator_store`, drops `pac_simulation`, and rewrites stored values.
 - **Testing:**
   - pytest and pytest-asyncio, offline;

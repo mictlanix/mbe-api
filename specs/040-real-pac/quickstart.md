@@ -33,14 +33,13 @@ The values are given on the command line and never committed. SAT's public test 
 
 ## 3. Deploy (each step confirmed with the user)
 
-1. **Deploy key:** add xolotl's `mictlanix` public key as a read-only deploy key on mictlanix/cfdi. Check it with `ssh -T git@github.com` on xolotl.
-2. **Migration 037** on mbe_dev, then restart dev and test on the new code at once (they share mbe_dev, and the old code reads the dropped `pac_simulation`). Afterwards:
+1. **Migration 037** on mbe_dev, then restart dev and test on the new code at once (they share mbe_dev, and the old code reads the dropped `pac_simulation`). Afterwards:
    - no `fiscal_document` or `fiscal_document_xml` row carries `SIM010101SIM`;
    - `pac_simulator_store` exists;
    - `pac_simulation` is gone.
-3. **Dev** keeps `PAC_PROVIDER=simulated` and `APP_ENV=development` in its `.env`. Every instance's `.env` must name `PAC_PROVIDER`, since there is no default. Check that a simulated document's detail still says `stamp.simulated` true.
-4. **Test's `.env`:** set `PAC_PROVIDER=multifacturas`, `MULTIFACTURAS_USER`, `MULTIFACTURAS_PASSWORD` and `MULTIFACTURAS_PRODUCTION=false`, keep `APP_ENV=staging`, then restart.
-5. **Check:**
+2. **Dev** keeps `PAC_PROVIDER=simulated` and `APP_ENV=development` in its `.env`. Every instance's `.env` must name `PAC_PROVIDER`, since there is no default. Check that a simulated document's detail still says `stamp.simulated` true.
+3. **Test's `.env`:** set `PAC_PROVIDER=multifacturas`, `MULTIFACTURAS_USER`, `MULTIFACTURAS_PASSWORD` and `MULTIFACTURAS_PRODUCTION=false`, keep `APP_ENV=staging`, then restart.
+4. **Check:**
    - test starts;
    - a start with `MULTIFACTURAS_PRODUCTION=true` is refused;
    - the journal shows no credential;

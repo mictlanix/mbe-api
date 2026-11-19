@@ -44,12 +44,10 @@ cp .env.example .env   # edit credentials and DATABASE_URL
 DATABASE_URL=mysql+aiomysql://user:password@/dbname?unix_socket=/tmp/mysql.sock
 ```
 
-### CFDI library (private)
+### CFDI library
 
-Stamping, cancellation and the simulated PAC come from the library in the private repository [mictlanix/cfdi](https://github.com/mictlanix/cfdi), installed by `uv sync` over SSH and pinned to a commit in `[tool.uv.sources]` of `pyproject.toml`.
+Stamping, cancellation and the simulated PAC come from the library in the public repository [mictlanix/cfdi](https://github.com/mictlanix/cfdi), installed by `uv sync` over HTTPS and pinned to a commit in `[tool.uv.sources]` of `pyproject.toml`. No credential or key is needed, on developers' machines or on the servers.
 
-- **Developers:** you need SSH access to GitHub with an account that can read mictlanix/cfdi. Check it with `ssh -T git@github.com`.
-- **Servers:** each server user that runs `uv sync` needs its public key added as a **read-only deploy key** on mictlanix/cfdi (Settings → Deploy keys). On xolotl that is the `mictlanix` user's `~/.ssh/id_ed25519.pub`. Check it with `ssh -T git@github.com` as that user.
 - **Moving the pin:** change `rev` in `[tool.uv.sources]` to the new commit (or tag), run `uv lock`, and commit `pyproject.toml` and `uv.lock` together.
 
 ## Run

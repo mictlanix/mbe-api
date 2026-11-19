@@ -935,7 +935,7 @@ requires-dist = [
     { name = "fastapi", specifier = ">=0.136.3" },
     { name = "jinja2", specifier = ">=3.1" },
     { name = "lxml", specifier = ">=5.3" },
-    { name = "mictlanix-cfdi", git = "ssh://git@github.com/mictlanix/cfdi.git?rev=4b41821b7947adc71a32a535ed5bb87dbd325b77" },
+    { name = "mictlanix-cfdi", git = "https://github.com/mictlanix/cfdi.git?rev=4b41821b7947adc71a32a535ed5bb87dbd325b77" },
     { name = "passlib", extras = ["bcrypt"], specifier = ">=1.7.4" },
     { name = "pillow", specifier = ">=11.0.0" },
     { name = "pydantic-settings", specifier = ">=2.14.1" },
@@ -965,7 +965,7 @@ dev = [
 [[package]]
 name = "mictlanix-cfdi"
 version = "0.1.0"
-source = { git = "ssh://git@github.com/mictlanix/cfdi.git?rev=4b41821b7947adc71a32a535ed5bb87dbd325b77#4b41821b7947adc71a32a535ed5bb87dbd325b77" }
+source = { git = "https://github.com/mictlanix/cfdi.git?rev=4b41821b7947adc71a32a535ed5bb87dbd325b77#4b41821b7947adc71a32a535ed5bb87dbd325b77" }
 dependencies = [
     { name = "cryptography" },
     { name = "lxml" },

@@ -7,7 +7,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
-- **CFDI stamping and cancellation with the real PAC** (mictlanix/mbe-roadmap#46, #51, spec 040). The CFDI library (private repository mictlanix/cfdi, installed over SSH and pinned to a commit; servers need a read-only deploy key) is the API's only PAC implementation, behind spec 039's contract and routes, which do not change:
+- **CFDI stamping and cancellation with the real PAC** (mictlanix/mbe-roadmap#46, #51, spec 040). The CFDI library (public repository mictlanix/cfdi, installed over HTTPS and pinned to a commit) is the API's only PAC implementation, behind spec 039's contract and routes, which do not change:
   - **`PAC_PROVIDER=multifacturas`** stamps and cancels with Facturación México, the PAC the current system uses, and reads SAT's CFDI status service. The library's errors become `pac.rejected` (with the PAC's or SAT's code and message), `pac.unavailable` or `pac.timeout`; no credential, CSD material or raw payload reaches a log or an error.
   - **Settings:** `MULTIFACTURAS_USER`, `MULTIFACTURAS_PASSWORD`, `MULTIFACTURAS_PRODUCTION`, `MULTIFACTURAS_URL`, `MULTIFACTURAS_CONNECT_TIMEOUT`, `MULTIFACTURAS_READ_TIMEOUT`. One account serves every issuer; each request uses the issuer's own CSD.
   - **Startup refuses** a missing user or password, Multifacturas' production mode outside `APP_ENV=production`, and its test mode in production, naming the settings and never their values. Production keeps `PAC_PROVIDER=none` until the invoicing cutover (#57).

@@ -21,16 +21,14 @@
 
 **Purpose**: Bring in the library and prove the new lock is safe.
 
-- [X] T001 Add `mictlanix-cfdi` to `dependencies` in `pyproject.toml`, with `[tool.uv.sources] mictlanix-cfdi = { git = "ssh://git@github.com/mictlanix/cfdi.git", rev = "4b41821b7947adc71a32a535ed5bb87dbd325b77" }`. Run `uv lock` and check:
+- [X] T001 Add `mictlanix-cfdi` to `dependencies` in `pyproject.toml`, with `[tool.uv.sources] mictlanix-cfdi = { git = "https://github.com/mictlanix/cfdi.git", rev = "4b41821b7947adc71a32a535ed5bb87dbd325b77" }`. Run `uv lock` and check:
   - `uv.lock` pins that commit;
   - `cryptography` resolved to ≥50.0.2;
   - `lxml` stayed on 6.1.3.
   (research R1)
 - [X] T002 Run the full offline suite and ruff on the new lock, before any other change. It is the gate for `cryptography` 49 → 50: python-jose, CSD sealing and the print tests must all pass. If anything fails, stop and report; don't patch around it. (research R1)
-- [X] T003 [P] Add a subsection "CFDI library (private)" to `README.md` under `## Setup`. It says:
-  - the library comes from mictlanix/cfdi over SSH;
-  - developers need GitHub SSH access;
-  - each server needs its user's public key as a **read-only deploy key** on mictlanix/cfdi (xolotl: `mictlanix`'s `~/.ssh/id_ed25519.pub`), checked with `ssh -T git@github.com`;
+- [X] T003 [P] Add a subsection "CFDI library" to `README.md` under `## Setup`. It says (revised 2026-11-19, when the user made the repository public):
+  - the library comes from the public repository mictlanix/cfdi over HTTPS, with no key or token needed anywhere;
   - to move the pin, change `rev` and run `uv lock`.
 
   Also add to the README's "Environment variables" subsection that `PAC_PROVIDER` is required in every `.env`, a developer's included (`none` or `simulated` locally), or the server refuses to start. (FR-002, FR-016)
@@ -289,7 +287,7 @@
 
   Commit on the spec branch.
 - [ ] T031 **Deploy (each step needs the user's confirmation)**:
-  1. Add xolotl `mictlanix`'s `~/.ssh/id_ed25519.pub` as a read-only deploy key on mictlanix/cfdi, and check `ssh -T git@github.com` from xolotl.
+  1. ~~Deploy key~~: not needed since 2026-11-19; mictlanix/cfdi is public and `uv sync` reads it over HTTPS.
   2. Run migration 037 on mbe_dev. Afterwards, check read-only that no `fiscal_document` or `fiscal_document_xml` row carries `SIM010101SIM`, that `pac_simulator_store` exists, and that `pac_simulation` is gone.
   3. In the same step, deploy the branch to dev :8765 (pre-authorized) and test :8766. Both run `uv sync`.
   4. Check on dev that an old simulated document still reads `stamp.simulated` true.
@@ -381,5 +379,5 @@
 ### Notes
 
 - **Commits:** commit after each phase on `040-real-pac`; spec-branch commits are pre-authorized.
-- **Confirmation:** only deploying the branch to dev runs without confirmation. Migration 037, the test deploy, test's `.env`, the deploy key and the mbe-ui comment each need it.
+- **Confirmation:** only deploying the branch to dev runs without confirmation. Migration 037, the test deploy, test's `.env` and the mbe-ui comment each need it.
 - **Credentials:** never write credentials, CSD passwords or live UUIDs into files.

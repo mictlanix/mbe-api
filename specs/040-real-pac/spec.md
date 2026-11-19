@@ -184,7 +184,7 @@ A tester on dev drives every simulated scenario through the same `/pac-simulator
 **Dependency**
 
 - **FR-001**: The API MUST depend on the CFDI library from mictlanix/cfdi, pinned to a fixed tag or commit, so every install resolves the same version.
-- **FR-002**: The repository MUST document how the servers (dev, test, and later production) get read access to the private library repository, and how to move the pin.
+- **FR-002**: The repository MUST document where the library comes from and how to move the pin. The library's repository is public (since 2026-11-19), so no machine needs a credential to install it.
 
 **Provider**
 
