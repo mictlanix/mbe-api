@@ -45,6 +45,13 @@ The values are given on the command line and never committed. SAT's public test 
    - the journal shows no credential;
    - the simulator routes answer 404 on test.
 
+**Done 2026-11-19** (commit 4903bd0 on dev and test):
+- **Migration 037:** applied from test's checkout, 4 statements.
+- **Before it:** no document stamping, no open request, nothing queued in `pac_simulation` (21 rows).
+- **After it:** the 19 simulated documents carry `SIM010101SI0` in `rfc_pac` and in their XML, none carry `SIM010101SIM`, `pac_simulator_store` exists, and `pac_simulation` is gone.
+- **Restarts:** dev (tmux) and test (systemd) restarted, both active.
+- **Old simulated documents:** invoice 63907 reads `stamp.simulated` true on both. Its simulator view reads `valid`/`none`, because the old simulator's state was dropped, as accepted.
+
 ## 4. Walk on test (SC-001, SC-002)
 
 | Document | Stamp: UUID / provider RFC / PDF mark | Substitute stamped | Cancel 02: answer | Cancel 01 + substitute: answer |

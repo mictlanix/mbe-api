@@ -286,7 +286,7 @@
   - search `git diff origin/main` for credentials and CSD material (SC-005).
 
   Commit on the spec branch.
-- [ ] T031 **Deploy (each step needs the user's confirmation)**:
+- [X] T031 **Deploy (each step needs the user's confirmation)**:
   1. ~~Deploy key~~: not needed since 2026-11-19; mictlanix/cfdi is public and `uv sync` reads it over HTTPS.
   2. Run migration 037 on mbe_dev. Afterwards, check read-only that no `fiscal_document` or `fiscal_document_xml` row carries `SIM010101SIM`, that `pac_simulator_store` exists, and that `pac_simulation` is gone.
   3. In the same step, deploy the branch to dev :8765 (pre-authorized) and test :8766. Both run `uv sync`.
