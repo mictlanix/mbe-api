@@ -35,11 +35,22 @@ cp .env.example .env   # edit credentials and DATABASE_URL
 | `JWT_ACCESS_TOKEN_EXPIRE_MINUTES` | Access token TTL in minutes | `480` |
 | `JWT_RECOVERY_TOKEN_EXPIRE_HOURS` | Password-recovery token TTL in hours | `24` |
 | `DEBUG` | Enable SQLAlchemy query logging | `false` |
+| `PAC_PROVIDER` | The PAC in use: `none`, `simulated` or `multifacturas`. **Required in every `.env`**, a developer's included (`none` or `simulated` locally); an instance without it refuses to start | — |
+| `MULTIFACTURAS_USER`, `MULTIFACTURAS_PASSWORD` | The Multifacturas account, required with `PAC_PROVIDER=multifacturas` | — |
+| `MULTIFACTURAS_PRODUCTION` | `true` only with `APP_ENV=production`; any other pairing refuses to start | `false` |
 
 **Unix socket example:**
 ```
 DATABASE_URL=mysql+aiomysql://user:password@/dbname?unix_socket=/tmp/mysql.sock
 ```
+
+### CFDI library (private)
+
+Stamping, cancellation and the simulated PAC come from the library in the private repository [mictlanix/cfdi](https://github.com/mictlanix/cfdi), installed by `uv sync` over SSH and pinned to a commit in `[tool.uv.sources]` of `pyproject.toml`.
+
+- **Developers:** you need SSH access to GitHub with an account that can read mictlanix/cfdi. Check it with `ssh -T git@github.com`.
+- **Servers:** each server user that runs `uv sync` needs its public key added as a **read-only deploy key** on mictlanix/cfdi (Settings → Deploy keys). On xolotl that is the `mictlanix` user's `~/.ssh/id_ed25519.pub`. Check it with `ssh -T git@github.com` as that user.
+- **Moving the pin:** change `rev` in `[tool.uv.sources]` to the new commit (or tag), run `uv lock`, and commit `pyproject.toml` and `uv.lock` together.
 
 ## Run
 

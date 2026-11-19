@@ -21,13 +21,13 @@
 
 **Purpose**: Bring in the library and prove the new lock is safe.
 
-- [ ] T001 Add `mictlanix-cfdi` to `dependencies` in `pyproject.toml`, with `[tool.uv.sources] mictlanix-cfdi = { git = "ssh://git@github.com/mictlanix/cfdi.git", rev = "4b41821b7947adc71a32a535ed5bb87dbd325b77" }`. Run `uv lock` and check:
+- [X] T001 Add `mictlanix-cfdi` to `dependencies` in `pyproject.toml`, with `[tool.uv.sources] mictlanix-cfdi = { git = "ssh://git@github.com/mictlanix/cfdi.git", rev = "4b41821b7947adc71a32a535ed5bb87dbd325b77" }`. Run `uv lock` and check:
   - `uv.lock` pins that commit;
   - `cryptography` resolved to ≥50.0.2;
   - `lxml` stayed on 6.1.3.
   (research R1)
-- [ ] T002 Run the full offline suite and ruff on the new lock, before any other change. It is the gate for `cryptography` 49 → 50: python-jose, CSD sealing and the print tests must all pass. If anything fails, stop and report; don't patch around it. (research R1)
-- [ ] T003 [P] Add a subsection "CFDI library (private)" to `README.md` under `## Setup`. It says:
+- [X] T002 Run the full offline suite and ruff on the new lock, before any other change. It is the gate for `cryptography` 49 → 50: python-jose, CSD sealing and the print tests must all pass. If anything fails, stop and report; don't patch around it. (research R1)
+- [X] T003 [P] Add a subsection "CFDI library (private)" to `README.md` under `## Setup`. It says:
   - the library comes from mictlanix/cfdi over SSH;
   - developers need GitHub SSH access;
   - each server needs its user's public key as a **read-only deploy key** on mictlanix/cfdi (xolotl: `mictlanix`'s `~/.ssh/id_ed25519.pub`), checked with `ssh -T git@github.com`;

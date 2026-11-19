@@ -2,8 +2,8 @@
   "workflow": "speckit",
   "specName": "Connect stamping and cancellation to the real PAC",
   "branch": "040-real-pac",
-  "currentStep": "tasks",
-  "status": "ready-to-implement",
+  "currentStep": "implement",
+  "status": "implementing",
   "history": [
     {
       "step": "specify",
@@ -46,6 +46,13 @@
       "kind": "complete",
       "by": "extension",
       "at": "2026-11-19T01:44:44.294Z"
+    },
+    {
+      "step": "implement",
+      "substep": null,
+      "kind": "start",
+      "by": "extension",
+      "at": "2026-11-19T04:19:23.685Z"
     }
   ]
 }
