@@ -315,7 +315,7 @@
 
   If test mode refuses a real issuer's CSD, record it and ask the user about research R9's fallback before any write.
 - [ ] T035 Run the live tests (T029) with the user's credentials and two UUIDs of the current system, chosen read-only from mbe_dev. Record the outcome in quickstart.md §2 without the values (SC-004).
-- [ ] T036 Update the UI handoff, mictlanix/mbe-ui#274 (FR-026), with a comment that lists:
+- [X] T036 Update the UI handoff, mictlanix/mbe-ui#274 (FR-026), with a comment that lists (done 2026-11-19 as a new issue, mictlanix/mbe-ui#288, since #274 is closed):
   - the simulator routes' new response, without `next_stamp` and `next_cancellation`;
   - cancellation outcomes only after the stamp (409 `fiscal_document.not_stamped`);
   - stamp outcomes after the last seal;
