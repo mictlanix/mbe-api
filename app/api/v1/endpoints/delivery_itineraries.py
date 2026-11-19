@@ -27,7 +27,6 @@ from app.schemas.delivery_itinerary import (
     CommitLineUpdate,
     CommitOrderRequest,
     ItineraryCreate,
-    ItineraryLineResponse,
     ItineraryResponse,
     ItineraryStopResponse,
     ItinerarySummary,
@@ -73,18 +72,15 @@ async def _stop_or_404(db: AsyncSession, itinerary, stop_id: int):  # noqa: ANN0
 async def _full(  # noqa: ANN001
     db: AsyncSession, itinerary, warnings: list[str] | None = None
 ) -> ItineraryResponse:
+    await delivery_itinerary_service.attach_names(db, [itinerary])
     body = ItineraryResponse.model_validate(itinerary)
     body.warnings = warnings or []
-    body.stops = []
-    for stop in await delivery_itinerary_service.stops_of(db, itinerary.deliveries_itinerary_id):
-        rendered = ItineraryStopResponse.model_validate(stop)
-        rendered.lines = [
-            ItineraryLineResponse.model_validate(line)
-            for line in await delivery_itinerary_service.lines_of_stop(
-                db, stop.deliveries_itinerary_stop_id
-            )
-        ]
-        body.stops.append(rendered)
+    body.stops = [
+        ItineraryStopResponse.model_validate(stop)
+        for stop in await delivery_itinerary_service.stops_with_lines(
+            db, itinerary.deliveries_itinerary_id
+        )
+    ]
     return body
 
 
@@ -147,6 +143,7 @@ async def list_itineraries(
         skip=skip,
         limit=limit,
     )
+    await delivery_itinerary_service.attach_names(db, items)
     return ListResponse(items=[ItinerarySummary.model_validate(i) for i in items], total=total)
 
 

@@ -195,6 +195,11 @@ class DeliveriesItineraryStop(Base):
         Integer, ForeignKey('proof_of_delivery.proof_of_delivery_id')
     )
     comment: Mapped[str | None] = mapped_column(String(500))
+    # The order the stop was added for (#343). NULL on the synthetic stops 008 created, which mix
+    # orders and customers. Not a rule: a stop may still carry lines of other orders (06a §4).
+    delivery_order: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey('delivery_order.delivery_order_id')
+    )
 
 
 class DeliveriesItineraryDetail(Base):

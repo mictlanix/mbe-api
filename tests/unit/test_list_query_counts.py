@@ -568,3 +568,77 @@ class TestDeliveryOrderNames:
         await attach_names(db, [])
 
         assert db.execute.await_count == 0
+
+
+class TestItineraryNames:
+    """#343 — vehicle, operator and warehouse names: one query each for the whole page."""
+
+    @staticmethod
+    def _itineraries(size: int) -> list[SimpleNamespace]:
+        return [
+            SimpleNamespace(vehicle=i % 2 or None, vehicle_operator=1, warehouse=1)
+            for i in range(size)
+        ]
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize('size', [2, 5, 50])
+    async def test_three_queries_regardless_of_page_size(self, size: int) -> None:
+        from app.services.delivery_itinerary_service import attach_names
+
+        itineraries = self._itineraries(size)
+        vehicle = SimpleNamespace(vehicle_id=1, nickname='Torton', license_plate='ABC-123')
+        driver = SimpleNamespace(first_name='Chofer', last_name='Gomez')
+        db = _db(_rows([vehicle]), _rows([(1, driver)]), _rows([(1, 'Almacén')]))
+
+        await attach_names(db, itineraries)
+
+        assert db.execute.await_count == 3
+        assert [i.__dict__['vehicle_name'] for i in itineraries] == [
+            'Torton · ABC-123' if n % 2 else None for n in range(size)
+        ]
+        assert all(i.__dict__['vehicle_operator_name'] == 'Chofer Gomez' for i in itineraries)
+        assert all(i.__dict__['warehouse_name'] == 'Almacén' for i in itineraries)
+
+    @pytest.mark.asyncio
+    async def test_empty_page_issues_no_queries(self) -> None:
+        from app.services.delivery_itinerary_service import attach_names
+
+        db = _db()
+
+        await attach_names(db, [])
+
+        assert db.execute.await_count == 0
+
+
+class TestItineraryStops:
+    """#343 — an itinerary's stops and lines cost four queries, never one per stop or line."""
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize('size', PAGE_SIZES)
+    async def test_four_queries_regardless_of_stop_count(self, size: int) -> None:
+        from app.services.delivery_itinerary_service import stops_with_lines
+
+        stops = [
+            SimpleNamespace(deliveries_itinerary_stop_id=i, delivery_order=i) for i in range(size)
+        ]
+        lines = [
+            (SimpleNamespace(deliveries_itinerary_stop=i), 100 + i, 'P1', 'Producto Uno', 1)
+            for i in range(size)
+            for _ in range(2)
+        ]
+        unit = SimpleNamespace(
+            sat_unit_of_measurement_id='H87', name='Pieza', description=None, symbol='pz'
+        )
+        db = _db(
+            _rows(stops),
+            _rows(lines),
+            _rows([(1, unit)]),
+            _rows([(i, 'Cliente', None) for i in range(size)]),
+        )
+
+        await stops_with_lines(db, 1)
+
+        assert db.execute.await_count == 4
+        assert [s.__dict__['delivery_orders'] for s in stops] == [[i, 100 + i] for i in range(size)]
+        assert all(len(s.__dict__['lines']) == 2 for s in stops)
+        assert all(s.__dict__['customer_display_name'] == 'Cliente' for s in stops)

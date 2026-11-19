@@ -76,6 +76,11 @@ def _no_stops():
     return patch(f'{SERVICE}.stops_of', AsyncMock(return_value=[]))
 
 
+def _no_names():
+    """The vehicle, operator and warehouse names a full itinerary carries (#343) read the db."""
+    return patch(f'{SERVICE}.attach_names', AsyncMock())
+
+
 # ── Authentication ────────────────────────────────────────────────────────────
 
 
@@ -168,7 +173,7 @@ async def test_create_returns_the_open_itinerary() -> None:
     _auth()
     with patch(
         f'{SERVICE}.create_itinerary', AsyncMock(return_value=(_itinerary(), []))
-    ), _no_stops():
+    ), _no_stops(), _no_names():
         async with _client() as client:
             response = await client.post('/api/v1/delivery-itineraries', json={'vehicle': 4})
 
@@ -183,7 +188,7 @@ async def test_expired_operator_licence_warns_but_does_not_refuse() -> None:
     warning = ['Operator licence A123 expired on 2020-01-01']
     with patch(
         f'{SERVICE}.create_itinerary', AsyncMock(return_value=(_itinerary(), warning))
-    ), _no_stops():
+    ), _no_stops(), _no_names():
         async with _client() as client:
             response = await client.post(
                 '/api/v1/delivery-itineraries', json={'vehicle': 4, 'vehicle_operator': 5}
