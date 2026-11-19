@@ -145,7 +145,7 @@ def check_pac_settings(config: Settings) -> None:
     if config.pac_provider is None:
         raise RuntimeError(
             'PAC_PROVIDER is not set: name the PAC in use (none, simulated or multifacturas) '
-            'in this instance\'s .env'
+            "in this instance's .env"
         )
     if config.pac_provider == 'simulated' and config.app_env == 'production':
         raise RuntimeError(
