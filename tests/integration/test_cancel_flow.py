@@ -8,13 +8,15 @@ a second, equivalent document whose cancellation is accepted at once.
 import io
 import logging
 from collections.abc import Iterator
-from datetime import datetime
+from datetime import datetime, timedelta
 from decimal import Decimal
 from uuid import uuid4
 
 import pytest
 from fastapi import HTTPException
 from httpx import AsyncClient
+from mictlanix.cfdi import pac as lib
+from mictlanix.cfdi import sat as libsat
 from pypdf import PdfReader
 from sqlalchemy import inspect, select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -37,7 +39,7 @@ from app.services.pac.provider import (
     SatStatus,
 )
 from app.services.pac.simulated import SimulatedPac
-from tests.fakes.pac import ScriptedPac
+from tests.fakes.pac import ScriptedPac, scripted_multifacturas
 from tests.integration.seed import (
     ISSUER_RFC,
     seed_cancellation_reasons,
@@ -695,6 +697,22 @@ async def test_refresh_closes_a_request_sat_never_received(
         SatStatus(state='valid', cancellable='with_acceptance', cancellation='none'),
     )
 
+    # Within 72 hours of the PAC's answer SAT may still be processing it (spec 040, FR-014).
+    await _refresh(db, current, invoice, pac)
+    assert (await _load(db, invoice)).status == 'cancellation_pending'
+    [request] = await _requests(db, invoice)
+    assert (request.status, request.resolved_at) == ('pending', None)
+
+    await db.execute(
+        update(FiscalDocumentCancellation)
+        .where(FiscalDocumentCancellation.fiscal_document == invoice)
+        .values(answered_at=request.answered_at - timedelta(hours=72))
+    )
+    await db.commit()
+    pac.queue(
+        'query_status',
+        SatStatus(state='valid', cancellable='with_acceptance', cancellation='none'),
+    )
     await _refresh(db, current, invoice, pac)
 
     document = await _load(db, invoice)
@@ -730,3 +748,158 @@ async def test_refresh_of_a_timed_out_cancel_reports_it_pending(
     assert request.status == 'pending'
     assert request.answered_at is not None and request.last_checked_at is not None
     assert (await _reasons(db, invoice))[-1] == 'Cancellation pending the receiver'
+
+
+# ── Multifacturas through the adapter (spec 040, US3), T016 ───────────────────
+
+
+def _sat_says(state: str, cancellation: str) -> libsat.SatStatus:
+    return libsat.SatStatus(
+        state=libsat.SatState(state),
+        cancellability=libsat.Cancellability.WITH_ACCEPTANCE,
+        cancellation=libsat.CancellationStatus(cancellation),
+    )
+
+
+@pytest.mark.parametrize(
+    ('sat', 'status', 'closed_as', 'last_reason'),
+    [
+        (('cancelled', 'accepted'), 'cancelled', 'accepted', 'CFDI cancelled'),
+        (('cancelled', 'expired'), 'cancelled', 'expired', 'CFDI cancelled'),
+        (('valid', 'rejected'), 'issued', 'rejected', 'Cancellation rejected'),
+    ],
+    ids=['cancelled', 'expired', 'receiver_rejected'],
+)
+async def test_multifacturas_201_waits_for_sat_then_follows_it(
+    receipts: Receipts,  # noqa: F811
+    sat: tuple[str, str],
+    status: str,
+    closed_as: str,
+    last_reason: str,
+) -> None:
+    """US3 scenarios 1, 3 and 5: the PAC's 201 leaves the request open; SAT's status settles it."""
+    await _receipts_ready(receipts)
+    db, current = receipts.db, receipts.current
+    provider, client = scripted_multifacturas()
+    invoice = await _ppd_invoice(db, stamp_uuid=_new_uuid())
+
+    await _cancel(db, current, invoice, provider)
+
+    assert (await _load(db, invoice)).status == 'cancellation_pending'
+    # SAT still shows it pending the receiver: nothing changes.
+    client.queue('query_status', _sat_says('valid', 'pending'))
+    await _refresh(db, current, invoice, provider)
+    assert (await _load(db, invoice)).status == 'cancellation_pending'
+
+    client.queue('query_status', _sat_says(*sat))
+    await _refresh(db, current, invoice, provider)
+
+    document = await _load(db, invoice)
+    assert (document.status, document.cancelling_since) == (status, None)
+    [request] = await _requests(db, invoice)
+    assert request.status == closed_as
+    assert (await _reasons(db, invoice))[-1] == last_reason
+
+
+async def test_multifacturas_202_cancels_at_once(
+    receipts: Receipts,  # noqa: F811
+) -> None:
+    """US3 scenario 2."""
+    await _receipts_ready(receipts)
+    db, current = receipts.db, receipts.current
+    provider, client = scripted_multifacturas()
+    client.queue('request_cancellation', lib.CancellationAnswer.ACCEPTED)
+    invoice = await _ppd_invoice(db, stamp_uuid=_new_uuid())
+
+    await _cancel(db, current, invoice, provider)
+
+    assert (await _load(db, invoice)).status == 'cancelled'
+    [request] = await _requests(db, invoice)
+    assert request.status == 'accepted'
+
+
+async def test_a_multifacturas_refusal_leaves_the_document_issued(
+    receipts: Receipts,  # noqa: F811
+) -> None:
+    """US3 scenario 7: the code and message are stored and returned; no "not cancellable" is
+    inferred from them (FR-015)."""
+    await _receipts_ready(receipts)
+    db, current = receipts.db, receipts.current
+    provider, client = scripted_multifacturas()
+    client.queue('request_cancellation', lib.PacRejected('CSF101', 'El CFDI no es cancelable'))
+    invoice = await _ppd_invoice(db, stamp_uuid=_new_uuid())
+
+    await _refused(
+        _cancel(db, current, invoice, provider),
+        'pac.rejected',
+        {'pac_code': 'CSF101', 'pac_message': 'El CFDI no es cancelable'},
+    )
+
+    assert (await _load(db, invoice)).status == 'issued'
+    [request] = await _requests(db, invoice)
+    assert (request.status, request.pac_code, request.pac_message) == (
+        'rejected',
+        'CSF101',
+        'El CFDI no es cancelable',
+    )
+
+
+async def test_multifacturas_receives_reason_01_with_its_substitute(
+    receipts: Receipts,  # noqa: F811
+) -> None:
+    await _receipts_ready(receipts)
+    db, current = receipts.db, receipts.current
+    provider, client = scripted_multifacturas()
+    invoice = await _ppd_invoice(db, stamp_uuid=_new_uuid())
+    substitute = _new_uuid()
+    await _ppd_invoice(db, stamp_uuid=substitute, serial=11406)
+
+    await _cancel(db, current, invoice, provider, '01', substitute)
+
+    [sent] = client.requests
+    assert (sent.reason, sent.substitute_uuid) == ('01', substitute)
+    assert sent.csd.password == _PASSWORD.decode()
+
+
+async def test_a_multifacturas_receipt_cancelled_frees_the_invoices_balance(
+    receipts: Receipts,  # noqa: F811
+) -> None:
+    """Spec 028's hold is released once SAT cancels the receipt (US3 scenario 3)."""
+    await _receipts_ready(receipts)
+    db, current = receipts.db, receipts.current
+    provider, client = scripted_multifacturas()
+    invoice = await _ppd_invoice(db, stamp_uuid=_new_uuid())
+    payment = await _payment_applied_to(db, invoice)
+    receipt = await receipts.confirm(await receipts.create(customer_payment=payment))
+    receipt_id = await _stamped(db, current, receipt, provider)
+
+    await _cancel(db, current, receipt_id, provider)
+    later = await receipts.ready(invoice, '100.00')
+    assert _relation(later, invoice)['previous_balance'] == Decimal('2000.00')
+    client.queue('query_status', _sat_says('cancelled', 'accepted'))
+    await _refresh(db, current, receipt_id, provider)
+
+    assert (await _load(db, receipt_id)).status == 'cancelled'
+    later = await receipts.ready(invoice, '100.00')
+    assert _relation(later, invoice)['previous_balance'] == Decimal('3160.00')
+
+
+async def test_a_multifacturas_credit_note_cancelled_reopens_its_order(
+    notes: CreditNotes,  # noqa: F811
+) -> None:
+    db, current = notes.db, notes.current
+    await seed_cancellation_reasons(db)
+    provider, client = scripted_multifacturas()
+    first, _second, invoice, lines = await _invoiced_orders(notes)
+    note = await notes.confirm(
+        await notes.copy(await notes.create(invoice), lines[0].fiscal_document_detail_id)
+    )
+    note_id = await _stamped(db, current, note, provider)
+
+    await _cancel(db, current, note_id, provider)
+    assert await _paid(db, first) is True
+    client.queue('query_status', _sat_says('cancelled', 'accepted'))
+    await _refresh(db, current, note_id, provider)
+
+    assert (await _load(db, note_id)).status == 'cancelled'
+    assert await _paid(db, first) is False

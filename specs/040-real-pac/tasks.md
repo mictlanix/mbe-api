@@ -101,7 +101,7 @@
 
 **Independent Test**: A stamp times out. A refresh within 5 minutes sends nothing; a refresh after resubmits byte-identical XML and stores one UUID. Every failure lands in FR-010's state, and concurrent refreshes leave one UUID.
 
-- [ ] T011 [US2] In `tests/unit/test_fiscal_stamping.py`, using `ScriptedPac` with `resolves_by_resubmitting = True` and the file's existing session fakes (see `test_a_stamping_marker_that_changed_is_left_alone`), add tests for a document left `stamping`:
+- [X] T011 [US2] In `tests/unit/test_fiscal_stamping.py`, using `ScriptedPac` with `resolves_by_resubmitting = True` and the file's existing session fakes (see `test_a_stamping_marker_that_changed_is_left_alone`), add tests for a document left `stamping`:
   1. **Within `STAMP_LOOKUP_GRACE`:** no PAC call, and the document comes back unchanged.
   2. **After it:** `stamp` is called once with exactly the stored XML, and `find_stamp` never.
   3. **A stamp:** stored with the incidence `CFDI stamp resolved {uuid}`.
@@ -110,7 +110,7 @@
   6. **`touch=False`:** the updater and modification time stay as they were.
 
   The existing look-up tests (`resolves_by_resubmitting = False`) pass unchanged. (FR-008–FR-011)
-- [ ] T012 [US2] In `app/services/fiscal_stamping.py` `refresh`, change the stamping branch (`request is None`) per research R4:
+- [X] T012 [US2] In `app/services/fiscal_stamping.py` `refresh`, change the stamping branch (`request is None`) per research R4:
   - **If `provider.resolves_by_resubmitting`:** when `_now() - marker < STAMP_LOOKUP_GRACE`, return the document without calling the PAC. Otherwise call `provider.stamp(xml)`:
     - on success, `_store_stamp(..., reason=f'CFDI stamp resolved {issued.uuid}', touch=touch)`;
     - on `PacRejected`, `_clear_marker(db, document_id, marker)`, then raise the same `pac.rejected` DomainError that `stamp()` raises;
@@ -118,7 +118,7 @@
   - **Otherwise:** the `find_stamp` path is untouched.
 
   Make T011 pass.
-- [ ] T013 [US2] In `tests/integration/test_stamp_flow.py`, test the recovery end to end with `CfdiPacProvider(..., resolves_by_resubmitting=True)` over T010's scripted client, configured to time out on the first call and to deduplicate by sealed XML afterwards:
+- [X] T013 [US2] In `tests/integration/test_stamp_flow.py`, test the recovery end to end with `CfdiPacProvider(..., resolves_by_resubmitting=True)` over T010's scripted client, configured to time out on the first call and to deduplicate by sealed XML afterwards:
   - **The sequence:** stamp → `pac.timeout` → age `stamping_since` past 5 min (as the file does near line 280) → refresh → issued with one UUID.
   - **Concurrent refreshes:** two concurrent refreshes leave one UUID, and the second finds the document issued.
   - **A rejection on resubmission:** the document is sealed again.
@@ -135,19 +135,19 @@
 
 **Independent Test**: Every PAC answer and SAT status reaches spec 039's final states, and the 72-hour rule holds on both sides of the boundary.
 
-- [ ] T014 [US3] In `tests/unit/test_fiscal_stamping.py`, after T011 (same file):
+- [X] T014 [US3] In `tests/unit/test_fiscal_stamping.py`, after T011 (same file):
   - change the `not_received` case of `test_a_result_that_closes_the_request`;
   - **a `pending` request with SAT valid/`none`:** within 72 hours of `answered_at`, only `last_checked_at` is written, with no status change and no incidence; at or after 72 hours, `failed` with "Cancellation not received by SAT";
   - **a `requested` request:** the 5-minute rule is unchanged on both sides.
 
   The status-session fake supplies `answered_at` in the request row. (FR-014, research R5)
-- [ ] T015 [US3] In `app/services/fiscal_stamping.py`:
+- [X] T015 [US3] In `app/services/fiscal_stamping.py`:
   - add `CANCELLATION_SAT_WAIT = timedelta(hours=72)` next to `STAMP_LOOKUP_GRACE`;
   - add `FiscalDocumentCancellation.answered_at` to transaction 1's request select in `refresh`, and unpack it in `_apply_status`;
   - close as `failed` on SAT valid/`none` only when `kept == 'requested'` and `now - requested_at >= STAMP_LOOKUP_GRACE`, or when `kept == 'pending'` and `now - answered_at >= CANCELLATION_SAT_WAIT`.
 
   Make T014 pass.
-- [ ] T016 [US3] In `tests/integration/test_cancel_flow.py`:
+- [X] T016 [US3] In `tests/integration/test_cancel_flow.py`:
   1. **Update the test near line 685** ("Only the fake can answer `valid`/`none`…"). A refresh right after the pending answer leaves the request `pending`. After moving `answered_at` back 72 hours, it closes `failed` with the same three incidence reasons.
   2. **Add the flow through `CfdiPacProvider(..., resolves_by_resubmitting=True)`** over a scripted library client and a scripted SAT client, for an invoice, a payment receipt and a credit note:
      - **201 then cancelled:** cancellation pending → SAT cancelled → cancelled, with spec 028's holds released (follow the file's existing refund and later-receipt assertions);

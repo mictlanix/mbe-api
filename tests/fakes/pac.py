@@ -128,7 +128,8 @@ class ScriptedMultifacturas:
       resubmission of the same sealed document returns the same stamp, as the PAC deduplicates.
     - **`find_stamp`** always answers None: Multifacturas cannot look a stamp up.
     - **Errors and answers** are queued per operation (`queue('stamp', lib.PacTimeout())`), used
-      once each; an empty queue stamps, answers `PENDING` (SAT's 201) or `valid`/`none`.
+      once each; an empty queue stamps, answers `PENDING` (SAT's 201) or `valid`/`none`. A queued
+      exception is raised before the PAC stamps; `'timeout_stamped'` stamps, then times out.
     """
 
     def __init__(self) -> None:
@@ -150,8 +151,11 @@ class ScriptedMultifacturas:
         return outcome
 
     async def stamp(self, sealed_xml: bytes) -> lib.Stamp:
-        self._next('stamp')
+        outcome = self._next('stamp')
         stamped = await self._simulator.stamp(sealed_xml)
+        if outcome == 'timeout_stamped':
+            # The PAC stamped it, but the answer never came back.
+            raise lib.PacTimeout()
         return lib.Stamp(
             xml=stamped.xml.replace(
                 f'RfcProvCertif="{lib.SIMULATED_PAC_RFC}"'.encode(),

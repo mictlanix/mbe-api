@@ -506,6 +506,9 @@ async def _apply_answer(
 # A stamp not found returns the document to sealed, and SAT's "never received" closes a
 # `requested` request, only past this grace: the request that sent it may still be waiting (R3).
 STAMP_LOOKUP_GRACE = timedelta(minutes=5)
+# How long a request the PAC answered waits for SAT to show the cancellation: SAT's deadline for
+# the receiver (spec 040, FR-014).
+CANCELLATION_SAT_WAIT = timedelta(hours=72)
 _OPEN = ('requested', 'pending')
 
 
@@ -537,6 +540,7 @@ async def refresh(
                         FiscalDocumentCancellation.requested_at,
                         FiscalDocumentCancellation.reason,
                         FiscalDocumentCancellation.substitution,
+                        FiscalDocumentCancellation.answered_at,
                     ).where(
                         FiscalDocumentCancellation.fiscal_document == document_id,
                         FiscalDocumentCancellation.status.in_(_OPEN),
@@ -556,6 +560,11 @@ async def refresh(
                 credited = await _credited_ids(db, document_id)
         await db.commit()
 
+    if request is None and provider.resolves_by_resubmitting:
+        if _now() - marker < STAMP_LOOKUP_GRACE:
+            # The first request may still be in the PAC: send nothing yet (spec 040, R4).
+            return document
+        return await _resubmit(db, document_id, provider, xml, marker, employee_id, touch=touch)
     try:
         if request is None:
             found = await provider.find_stamp(xml)
@@ -592,6 +601,46 @@ async def refresh(
     return await _apply_status(db, document_id, request, sat, credited, employee_id, touch=touch)
 
 
+async def _resubmit(
+    db: AsyncSession,
+    document_id: int,
+    provider: PacProvider,
+    xml: str,
+    marker: datetime,
+    employee_id: int,
+    *,
+    touch: bool,
+) -> FiscalDocument:
+    """A PAC that cannot look a stamp up answers a resubmission of the same sealed document with
+    the stamp it already issued (spec 040, R4): past the grace, the stored sealed XML goes again,
+    byte for byte. A rejection seals the document again; no answer leaves it stamping."""
+    try:
+        issued = await provider.stamp(xml)
+    except PacRejected as error:
+        await _clear_marker(db, document_id, marker)
+        raise DomainError(
+            ErrorCode.PAC_REJECTED,
+            'The PAC rejected the document',
+            {
+                'pac_code': error.code[:PAC_CODE_LENGTH],
+                'pac_message': error.message[:PAC_MESSAGE_LENGTH],
+            },
+        ) from None
+    except PacUnavailable:
+        raise DomainError(ErrorCode.PAC_UNAVAILABLE, 'The PAC could not be reached') from None
+    except PacTimeout:
+        raise _pac_timeout('stamping') from None
+    return await _store_stamp(
+        db,
+        document_id,
+        xml,
+        issued,
+        employee_id,
+        reason=f'CFDI stamp resolved {issued.uuid}',
+        touch=touch,
+    )
+
+
 async def _not_stamped(
     db: AsyncSession, document_id: int, marker: datetime, employee_id: int, *, touch: bool
 ) -> FiscalDocument:
@@ -617,7 +666,7 @@ async def _apply_status(
 ) -> FiscalDocument:
     """Transaction 2 for an open request: the document follows SAT (FR-021), applied only to the
     request transaction 1 kept and only while its status is unchanged (rule 6)."""
-    request_id, kept, requested_at, reason, substitution = request
+    request_id, kept, requested_at, reason, substitution, answered_at = request
     async with busy_as_conflict(db, BUSY, resource=RESOURCE):
         document = await _begin_locked(db, document_id)
         orders: list[SalesOrder] = []
@@ -644,8 +693,11 @@ async def _apply_status(
                 closed = 'rejected'
                 _record(db, document, employee_id, 'Cancellation rejected', touch=touch)
             elif sat.state == 'valid' and sat.cancellation == 'none':
-                # Rule 7: a cancel within the grace may still be waiting on the PAC.
-                if kept != 'requested' or now - requested_at >= STAMP_LOOKUP_GRACE:
+                # Rule 7: a cancel within the grace may still be waiting on the PAC. A request the
+                # PAC answered (201) waits for SAT up to SAT's deadline for the receiver (spec 040).
+                if (kept == 'requested' and now - requested_at >= STAMP_LOOKUP_GRACE) or (
+                    kept == 'pending' and now - answered_at >= CANCELLATION_SAT_WAIT
+                ):
                     closed = 'failed'
                     _record(
                         db, document, employee_id, 'Cancellation not received by SAT', touch=touch

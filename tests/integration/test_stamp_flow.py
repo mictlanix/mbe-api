@@ -4,6 +4,7 @@
 one of them.
 """
 
+import asyncio
 import logging
 from datetime import timedelta
 
@@ -451,3 +452,87 @@ async def test_multifacturas_failures_answer_with_their_codes(
     if params is not None:
         assert caught.value.params == params
     assert (await invoicing.load(sealed.fiscal_document_id)).status == state
+
+
+# ── Resolving a timed-out stamp by resubmission (spec 040, US2, SC-003), T013 ─
+
+
+async def _timed_out_with_multifacturas(invoicing: Invoicing, outcome: object):  # noqa: ANN202, F811
+    provider, client = scripted_multifacturas()
+    client.queue('stamp', outcome)
+    db, current = invoicing.db, invoicing.current
+    sealed = await invoicing.confirm(await _ready(invoicing))
+    document_id = sealed.fiscal_document_id
+    with pytest.raises(HTTPException) as caught:
+        await _stamp(db, current, document_id, provider)
+    assert caught.value.code == 'pac.timeout'
+    return provider, client, document_id
+
+
+@pytest.mark.parametrize('outcome', ['timeout_stamped', lib.PacTimeout()], ids=['did', 'did_not'])
+async def test_a_timed_out_stamp_is_resolved_by_resubmission_with_one_uuid(
+    invoicing: Invoicing,  # noqa: F811
+    outcome: object,
+) -> None:
+    db, current = invoicing.db, invoicing.current
+    provider, client, document_id = await _timed_out_with_multifacturas(invoicing, outcome)
+    sealed_xml = await fds.get_xml(db, document_id)
+
+    # Within the grace nothing is sent.
+    await fiscal_stamping.refresh(db, document_id, provider, current.employee_id)
+    assert client.calls['stamp'] == 1
+    await _set_marker_back(db, document_id, 6)
+    await fiscal_stamping.refresh(db, document_id, provider, current.employee_id)
+
+    db.expire_all()
+    document = await fds.get_document(db, document_id)
+    assert (document.status, document.stamping_since) == ('issued', None)
+    assert client.calls['stamp'] == 2 and client.calls['find_stamp'] == 0
+    again = await client.stamp(sealed_xml.encode('utf-8'))
+    assert document.stamp_uuid == again.timbre.UUID
+    assert f'CFDI stamp resolved {document.stamp_uuid}' in await _comments(db, document_id)
+
+
+async def test_two_resolutions_at_once_store_one_uuid(
+    invoicing: Invoicing,  # noqa: F811
+    sessions: async_sessionmaker,
+) -> None:
+    db, current = invoicing.db, invoicing.current
+    provider, client, document_id = await _timed_out_with_multifacturas(
+        invoicing, 'timeout_stamped'
+    )
+    await _set_marker_back(db, document_id, 6)
+
+    async def resolve() -> None:
+        async with sessions() as session:
+            await fiscal_stamping.refresh(session, document_id, provider, current.employee_id)
+
+    await asyncio.gather(resolve(), resolve(), return_exceptions=True)
+
+    db.expire_all()
+    document = await fds.get_document(db, document_id)
+    assert document.status == 'issued'
+    uuids = {
+        line.split()[-1]
+        for line in await _comments(db, document_id)
+        if line.startswith('CFDI stamp resolved ')
+    }
+    assert uuids == {document.stamp_uuid}
+
+
+async def test_a_rejected_resubmission_seals_the_document_again(
+    invoicing: Invoicing,  # noqa: F811
+) -> None:
+    db, current = invoicing.db, invoicing.current
+    provider, client, document_id = await _timed_out_with_multifacturas(invoicing, lib.PacTimeout())
+    await _set_marker_back(db, document_id, 6)
+    client.queue('stamp', lib.PacRejected('CFDI40102', 'Sello'))
+
+    await _code(
+        fiscal_stamping.refresh(db, document_id, provider, current.employee_id),
+        422,
+        'pac.rejected',
+    )
+
+    document = await invoicing.load(document_id)
+    assert (document.status, document.stamping_since) == ('sealed', None)

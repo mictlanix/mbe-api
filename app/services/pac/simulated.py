@@ -115,6 +115,8 @@ def _recent(row: PacSimulation) -> bool:
 
 
 class SimulatedPac:
+    resolves_by_resubmitting = False
+
     def __init__(
         self, session_factory: async_sessionmaker[AsyncSession] = AsyncSessionLocal
     ) -> None:
