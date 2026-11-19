@@ -21,6 +21,22 @@ def _isolated_settings_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv('PAC_PROVIDER', raising=False)
 
 
+_USER, _PASSWORD = 'sentinel-user-0451', 'sentinel-password-0451'
+
+
+def _multifacturas(**overrides: object) -> Settings:
+    """A Multifacturas configuration that passes, changed by `overrides`."""
+    values: dict = {
+        'app_env': 'staging',
+        'pac_provider': 'multifacturas',
+        'multifacturas_user': _USER,
+        'multifacturas_password': SecretStr(_PASSWORD),
+        'multifacturas_production': False,
+    }
+    values.update(overrides)
+    return Settings(_env_file=None, **values)
+
+
 class TestDefaults:
     def test_a_missing_environment_is_production_with_no_pac_named(self) -> None:
         """`_env_file=None`, so a developer's own `.env` cannot change the result. The PAC has no
@@ -54,8 +70,66 @@ class TestCheckPacSettings:
     def test_every_other_combination_passes(self, app_env: str, pac_provider: str) -> None:
         check_pac_settings(Settings(_env_file=None, app_env=app_env, pac_provider=pac_provider))
 
+    def test_an_unnamed_pac_is_refused(self) -> None:
+        """Spec 040, FR-016: every `.env` names its PAC; there is no default."""
+        with pytest.raises(RuntimeError) as error:
+            check_pac_settings(Settings(_env_file=None, app_env='development'))
+
+        assert 'PAC_PROVIDER' in str(error.value)
+
+    @pytest.mark.parametrize(
+        ('app_env', 'production'),
+        [('staging', False), ('development', False), ('production', True)],
+    )
+    def test_multifacturas_in_its_matching_mode_passes(
+        self, app_env: str, production: bool
+    ) -> None:
+        check_pac_settings(_multifacturas(app_env=app_env, multifacturas_production=production))
+
+    @pytest.mark.parametrize(
+        ('overrides', 'named'),
+        [
+            ({'multifacturas_user': None}, ['MULTIFACTURAS_USER']),
+            ({'multifacturas_password': None}, ['MULTIFACTURAS_PASSWORD']),
+            (
+                {'multifacturas_user': None, 'multifacturas_password': None},
+                ['MULTIFACTURAS_USER', 'MULTIFACTURAS_PASSWORD'],
+            ),
+            (
+                {'app_env': 'staging', 'multifacturas_production': True},
+                ['MULTIFACTURAS_PRODUCTION', 'APP_ENV'],
+            ),
+            (
+                {'app_env': 'development', 'multifacturas_production': True},
+                ['MULTIFACTURAS_PRODUCTION', 'APP_ENV'],
+            ),
+            (
+                {'app_env': 'production', 'multifacturas_production': False},
+                ['MULTIFACTURAS_PRODUCTION', 'APP_ENV'],
+            ),
+            ({'multifacturas_url': 'http://ws.multifacturas.com'}, ['MULTIFACTURAS_URL']),
+            ({'multifacturas_connect_timeout': 0}, ['MULTIFACTURAS_CONNECT_TIMEOUT']),
+            ({'multifacturas_read_timeout': 0}, ['MULTIFACTURAS_READ_TIMEOUT']),
+        ],
+    )
+    def test_an_unsafe_multifacturas_configuration_is_refused(
+        self, overrides: dict, named: list[str]
+    ) -> None:
+        with pytest.raises(RuntimeError) as error:
+            check_pac_settings(_multifacturas(**overrides))
+
+        message = str(error.value)
+        for name in named:
+            assert name in message
+        assert _USER not in message and _PASSWORD not in message
+
 
 class TestGetPacProvider:
+    def test_an_unset_pac_means_no_provider(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(pac.settings, 'pac_provider', None)
+
+        assert get_pac_provider() is None
+
     def test_none_means_no_provider(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(pac.settings, 'pac_provider', 'none')
 

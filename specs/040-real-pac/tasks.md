@@ -168,14 +168,14 @@
 
 **Independent Test**: Every combination starts or refuses as the table says, naming settings, never values.
 
-- [ ] T017 [US4] In `tests/unit/test_pac_settings.py`, following its env isolation (commit 0795063), parametrize every row of contracts/configuration.md "Startup refusals":
+- [X] T017 [US4] In `tests/unit/test_pac_settings.py`, following its env isolation (commit 0795063), parametrize every row of contracts/configuration.md "Startup refusals":
   - an unset `PAC_PROVIDER` refuses, naming it;
   - `PAC_PROVIDER=none` passes, and `get_pac_provider()` returns None;
   - the valid combinations pass: `multifacturas` with test mode and `APP_ENV` staging or development, and with production mode and `APP_ENV=production`; `simulated` outside production;
   - every refusal raises, naming the listed settings;
   - no message contains the sentinel user or password;
   - a non-HTTPS URL or a timeout of 0 refuses, naming the variable.
-- [ ] T018 [US4] Extend `check_pac_settings` in `app/core/config.py`:
+- [X] T018 [US4] Extend `check_pac_settings` in `app/core/config.py`:
   - refuse `pac_provider is None` with a message naming `PAC_PROVIDER`;
   - keep the simulator's refusal in production, with its message verbatim (`tests/unit/test_resolve_fiscal_documents.py:136` and `tests/integration/test_resolve_job.py:170` match it);
   - read the `multifacturas_*` fields only when `pac_provider == 'multifacturas'`, because those tests pass settings as a `SimpleNamespace` with only `pac_provider` and `app_env`;

@@ -140,12 +140,60 @@ class Settings(BaseSettings):
 
 
 def check_pac_settings(config: Settings) -> None:
-    """Refuse the simulated PAC in production, naming both settings (spec 039, R5)."""
+    """Refuse a PAC configuration that is missing or unsafe, naming the settings and never their
+    values (spec 039 R5, spec 040 R6). The API's startup and the resolve job call it."""
+    if config.pac_provider is None:
+        raise RuntimeError(
+            'PAC_PROVIDER is not set: name the PAC in use (none, simulated or multifacturas) '
+            'in this instance\'s .env'
+        )
     if config.pac_provider == 'simulated' and config.app_env == 'production':
         raise RuntimeError(
             'pac_provider=simulated is not allowed with app_env=production: '
             'set APP_ENV to development or staging, or PAC_PROVIDER to none'
         )
+    if config.pac_provider == 'multifacturas':
+        _check_multifacturas(config)
+
+
+def _check_multifacturas(config: Settings) -> None:
+    missing = [
+        name
+        for name, value in (
+            ('MULTIFACTURAS_USER', config.multifacturas_user),
+            ('MULTIFACTURAS_PASSWORD', config.multifacturas_password),
+        )
+        if not value
+    ]
+    if missing:
+        raise RuntimeError(f'PAC_PROVIDER=multifacturas needs {" and ".join(missing)}')
+    production = config.app_env == 'production'
+    if config.multifacturas_production != production:
+        mode = 'production' if config.multifacturas_production else 'test'
+        raise RuntimeError(
+            f'MULTIFACTURAS_PRODUCTION={str(config.multifacturas_production).lower()} '
+            f'(Multifacturas {mode} mode) is not allowed with APP_ENV={config.app_env}: '
+            'production mode goes only with APP_ENV=production, and test mode with any other'
+        )
+    from mictlanix.cfdi.pac import MultifacturasSettings
+
+    try:
+        MultifacturasSettings(
+            user='',
+            password='',
+            production=config.multifacturas_production,
+            base_url=config.multifacturas_url,
+            connect_timeout=config.multifacturas_connect_timeout,
+            read_timeout=config.multifacturas_read_timeout,
+        )
+    except ValueError as error:
+        names = {
+            'base_url': 'MULTIFACTURAS_URL (it must be https://)',
+            'connect_timeout': 'MULTIFACTURAS_CONNECT_TIMEOUT (it must be positive)',
+            'read_timeout': 'MULTIFACTURAS_READ_TIMEOUT (it must be positive)',
+        }
+        named = next((text for key, text in names.items() if key in str(error)), str(error))
+        raise RuntimeError(f'Invalid {named}') from None
 
 
 settings = Settings()
