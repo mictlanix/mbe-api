@@ -292,7 +292,7 @@
   3. In the same step, deploy the branch to dev :8765 (pre-authorized) and test :8766. Both run `uv sync`.
   4. Check on dev that an old simulated document still reads `stamp.simulated` true.
   5. Before the deploy, check read-only that dev's and test's `.env` already name `PAC_PROVIDER`. Before merging, tell the user that their local `.env` (the main checkout) has no `PAC_PROVIDER` line and needs one, without editing it; otherwise they would refuse to start. Both did on 2026-11-18. Any other instance that will run this code, including production when it comes, needs `PAC_PROVIDER` written in its `.env` first: `none` for production.
-- [ ] T032 **Test configuration (needs the user's confirmation)**:
+- [ ] T032 **Test configuration (needs the user's confirmation)**. *Deferred 2026-11-19: the user keeps test on `PAC_PROVIDER=simulated` for now; T034 and T035 wait with it.*
   - in test's `.env`, set `PAC_PROVIDER=multifacturas`, `MULTIFACTURAS_USER`, `MULTIFACTURAS_PASSWORD` (from the user) and `MULTIFACTURAS_PRODUCTION=false`, keeping `APP_ENV=staging`, then restart;
   - check that a start with `MULTIFACTURAS_PRODUCTION=true` is refused;
   - check that the journal shows no credential;
