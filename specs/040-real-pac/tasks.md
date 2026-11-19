@@ -299,7 +299,7 @@
   - check that the simulator routes answer 404 on test.
 
   (SC-005, SC-006, SC-007)
-- [ ] T033 **Simulated scenarios on dev (SC-008, SC-009); needs the user's confirmation, since it writes dev documents**:
+- [X] T033 **Simulated scenarios on dev (SC-008, SC-009); needs the user's confirmation, since it writes dev documents**:
   1. Drive every row of quickstart.md §5 through dev's routes, and record each outcome there.
   2. Run the live concurrency check of research R11, part 2, on one freshly sealed dev document. Twenty concurrent stamp requests: ten over HTTP to dev :8765 and ten from a script in `/var/www/mbe-api-dev` calling `fiscal_stamping.stamp` with its own `SimulatedPac` instance. Assert:
      - one `pac simulator: stamp call` line across dev's log (`tmux capture-pane`) and the script's output;

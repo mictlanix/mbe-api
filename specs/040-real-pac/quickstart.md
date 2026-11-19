@@ -88,7 +88,30 @@ The values are given on the command line and never committed. SAT's public test 
 | Timeout on cancel | `stamp` → `PUT …{cancellation:"timeout"}` → `cancel` → 504, cancellation_pending → `refresh` → pending (SAT has it) | The same |
 
 - **No scenario is dropped**, and none needs a change in mictlanix/cfdi.
-- **Concurrency on MariaDB (SC-009, R11 part 2):** 20 concurrent stamps from two processes, with one simulator stamp call and one UUID expected. _Result: pending._
+- **Concurrency on MariaDB (SC-009, R11 part 2), 2026-11-19:** run on test rather than dev, because test serves 4 uvicorn worker processes on the same mbe_dev, a stronger multi-process check than dev's single process plus a script, and how spec 039 measured SC-002. Invoice 63948 (A5269) was sealed and stamped by 20 concurrent requests: 6 × 200 (the issued document) and 14 × 409. The journal holds exactly **one** `pac simulator: stamp call DRA2110148A1 A5269`, and the document ended issued with one UUID (`922EC73E-…`).
+
+**Run on dev, 2026-11-19 (commit 4903bd0): 16 of 16 passed.** Each row used a fresh invoice of customer 1 (XAXX010101000), issuer DRA2110148A1, series A, one line of product 903, sealed through the API:
+
+| Scenario | Invoice | Result |
+|---|---|---|
+| Stamped | 63933 | issued, `SIM010101SI0`, simulated |
+| Rejected by the PAC | 63934 | 422 `pac.rejected`; sealed |
+| PAC unavailable | 63935 | 503; sealed |
+| Timeout, did stamp | 63936 | 504, stamping → refresh → issued |
+| Timeout, did not stamp | 63937 | 504; refresh at once → stamping; after 5 min → sealed |
+| Stamp outcome while stamping | 63937 | 409 `fiscal_document.stamping` |
+| Cancellation outcome before the stamp | 63938 | 409 `fiscal_document.not_stamped` |
+| Cancelled at once (chosen) | 63939 | cancelled |
+| Cancelled at once (default, under 24 h) | 63940 | cancelled |
+| Pending, then accepted | 63941 | cancellation_pending → receiver → refresh → cancelled; history `accepted` |
+| Pending, then rejected | 63942 | → issued; history `rejected` |
+| Pending, then expired | 63943 | → cancelled; history `expired` |
+| Not cancellable, twice | 63944 | 409 `fiscal_document.not_cancellable` both times; issued |
+| Cancellation rejected by the PAC | 63945 | 422 `pac.rejected`; issued; history `rejected` |
+| PAC unavailable on cancel | 63946 | 503; issued; history `failed` |
+| Timeout on cancel | 63947 | 504, cancellation_pending → refresh → still pending; history `pending` |
+
+Invoice 63932 was stamped first to check the recipe. Invoices 63932–63948 stay on mbe_dev as sample data.
 - **A stamp outcome while the document is `stamping`** answers 409 `fiscal_document.stamping`. Set it before the stamp, or after the refresh.
 - **`GET …` and every `PUT` or `POST` response** now return only `uuid`, `sat_status` and `cancellation_status`, without `next_stamp` and `next_cancellation`.
 
