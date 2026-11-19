@@ -1,6 +1,7 @@
 """PAC settings (spec 039, research R4 and R5): the simulator is never allowed in production."""
 
 import pytest
+from pydantic import SecretStr
 
 import app.main as main
 from app.core.config import Settings, check_pac_settings
@@ -8,6 +9,7 @@ from app.core.error_codes import ErrorCode
 from app.core.errors import DomainError
 from app.services import pac
 from app.services.pac import get_pac_provider, require_provider
+from app.services.pac.adapter import CfdiPacProvider
 from app.services.pac.simulated import SimulatedPac
 
 
@@ -20,12 +22,13 @@ def _isolated_settings_env(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 class TestDefaults:
-    def test_a_missing_environment_is_production_without_a_provider(self) -> None:
-        """`_env_file=None`, so a developer's own `.env` cannot change the result."""
+    def test_a_missing_environment_is_production_with_no_pac_named(self) -> None:
+        """`_env_file=None`, so a developer's own `.env` cannot change the result. The PAC has no
+        default (spec 040, FR-016): unset is None, which `check_pac_settings` refuses."""
         settings = Settings(_env_file=None)
 
         assert settings.app_env == 'production'
-        assert settings.pac_provider == 'none'
+        assert settings.pac_provider is None
 
 
 class TestCheckPacSettings:
@@ -62,6 +65,21 @@ class TestGetPacProvider:
         monkeypatch.setattr(pac.settings, 'pac_provider', 'simulated')
 
         assert isinstance(get_pac_provider(), SimulatedPac)
+
+    def test_multifacturas_builds_the_adapter_over_the_library(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Built from settings only, without reaching the network (spec 040, T009)."""
+        monkeypatch.setattr(pac.settings, 'pac_provider', 'multifacturas')
+        monkeypatch.setattr(pac.settings, 'multifacturas_user', 'user')
+        monkeypatch.setattr(pac.settings, 'multifacturas_password', SecretStr('sentinel-0451'))
+        monkeypatch.setattr(pac.settings, 'multifacturas_production', False)
+
+        provider = get_pac_provider()
+
+        assert isinstance(provider, CfdiPacProvider)
+        assert (provider.name, provider.resolves_by_resubmitting) == ('multifacturas', True)
+        assert 'sentinel-0451' not in repr(provider)
 
     def test_a_missing_provider_answers_503(self) -> None:
         with pytest.raises(DomainError) as error:

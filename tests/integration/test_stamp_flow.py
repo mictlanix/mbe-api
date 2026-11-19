@@ -9,6 +9,7 @@ from datetime import timedelta
 
 import pytest
 from fastapi import HTTPException
+from mictlanix.cfdi import pac as lib
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -21,7 +22,12 @@ from app.services import fiscal_stamping
 from app.services import invoice_service as svc
 from app.services.pac.provider import SIMULATED_PAC_RFC, PacProvider, PacRejected, PacTimeout
 from app.services.pac.simulated import SimulatedPac
-from tests.fakes.pac import SCRIPTED_PAC_RFC, ScriptedPac
+from tests.fakes.pac import (
+    MULTIFACTURAS_RFC,
+    SCRIPTED_PAC_RFC,
+    ScriptedPac,
+    scripted_multifacturas,
+)
 from tests.integration.test_credit_note_flow import (  # noqa: F401
     CreditNotes,
     _invoice,
@@ -356,3 +362,92 @@ async def test_a_stamp_answer_after_the_reset_is_still_stored(
     document = await fds.get_document(db, document_id)
     assert (document.status, document.stamp_uuid) == ('issued', late.uuid)
     assert await fds.get_xml(db, document_id) == late.xml
+
+
+# ── Multifacturas through the adapter (spec 040, US1), T010 ───────────────────
+
+
+async def _assert_issued_by_multifacturas(db: AsyncSession, document_id: int, client) -> None:  # noqa: ANN001
+    db.expire_all()
+    document = await fds.get_document(db, document_id)
+    assert document.status == 'issued'
+    assert document.stamping_since is None
+    assert document.rfc_pac == MULTIFACTURAS_RFC
+    detail = FiscalDocumentResponse.model_validate(document)
+    assert (detail.stamp.uuid, detail.stamp.simulated) == (document.stamp_uuid, False)
+    stored = await fds.get_xml(db, document_id)
+    assert f'UUID="{document.stamp_uuid}"' in stored
+    assert f'RfcProvCertif="{MULTIFACTURAS_RFC}"' in stored
+    assert client.calls['stamp'] == 1
+
+
+async def test_multifacturas_issues_an_invoice(invoicing: Invoicing) -> None:  # noqa: F811
+    provider, client = scripted_multifacturas()
+    db, current = invoicing.db, invoicing.current
+    sealed = await invoicing.confirm(await _ready(invoicing))
+
+    await _stamp(db, current, sealed.fiscal_document_id, provider)
+
+    await _assert_issued_by_multifacturas(db, sealed.fiscal_document_id, client)
+
+
+async def test_multifacturas_issues_a_payment_receipt(receipts: Receipts) -> None:  # noqa: F811
+    provider, client = scripted_multifacturas()
+    db, current = receipts.db, receipts.current
+    invoice = await _ppd_invoice(db)
+    sealed = await receipts.confirm(await receipts.ready(invoice, '1000.00'))
+
+    await _stamp(db, current, sealed.fiscal_document_id, provider)
+
+    await _assert_issued_by_multifacturas(db, sealed.fiscal_document_id, client)
+
+
+async def test_multifacturas_issues_a_credit_note(notes: CreditNotes) -> None:  # noqa: F811
+    provider, client = scripted_multifacturas()
+    db, current = notes.db, notes.current
+    invoice = await _invoice(db)
+    source = (await _lines(db, invoice))[0]
+    draft = await notes.copy(await notes.create(invoice), source.fiscal_document_detail_id)
+    sealed = await notes.confirm(draft)
+
+    await _stamp(db, current, sealed.fiscal_document_id, provider)
+
+    await _assert_issued_by_multifacturas(db, sealed.fiscal_document_id, client)
+
+
+@pytest.mark.parametrize(
+    ('error', 'status', 'code', 'params', 'state'),
+    [
+        (
+            lib.PacRejected('CFDI40102', 'Sello'),
+            422,
+            'pac.rejected',
+            {'pac_code': 'CFDI40102', 'pac_message': 'Sello'},
+            'sealed',
+        ),
+        (lib.PacUnavailable(), 503, 'pac.unavailable', None, 'sealed'),
+        (lib.PacTimeout(), 504, 'pac.timeout', {'state': 'stamping'}, 'stamping'),
+    ],
+    ids=['rejected', 'unavailable', 'timeout'],
+)
+async def test_multifacturas_failures_answer_with_their_codes(
+    invoicing: Invoicing,  # noqa: F811
+    error: Exception,
+    status: int,
+    code: str,
+    params: dict | None,
+    state: str,
+) -> None:
+    """US1 scenarios 2 to 4."""
+    provider, client = scripted_multifacturas()
+    client.queue('stamp', error)
+    db, current = invoicing.db, invoicing.current
+    sealed = await invoicing.confirm(await _ready(invoicing))
+
+    with pytest.raises(HTTPException) as caught:
+        await _stamp(db, current, sealed.fiscal_document_id, provider)
+
+    assert (caught.value.status_code, caught.value.code) == (status, code)
+    if params is not None:
+        assert caught.value.params == params
+    assert (await invoicing.load(sealed.fiscal_document_id)).status == state
