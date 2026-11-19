@@ -29,8 +29,8 @@ The application and the resolve job refuse to start in the cases below. Each mes
 
 | Instance | `APP_ENV` | `PAC_PROVIDER` | Mode |
 |---|---|---|---|
-| dev :8765 | `development` | `simulated` | n/a |
-| test :8766 | `staging` | `multifacturas` (after the walk's confirmation) | test |
+| dev :8765 | `development` | `simulated` (the library's simulator, state in `pac_simulator_store`) | n/a |
+| test :8766 | `staging` | `multifacturas` (user's decision 2026-11-18; set with confirmation) | test |
 | production | `production` | `none` until the cutover (#57) | n/a |
 
 ## Not configured here

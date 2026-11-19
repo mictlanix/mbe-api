@@ -9,63 +9,81 @@ class PacProvider(Protocol):
     #: True when the PAC cannot look a stamp up but answers a resubmission of the same sealed
     #: document with the stamp it already issued. Refresh then resolves a document left
     #: `stamping` by calling `stamp` again with the stored sealed XML, never `find_stamp`.
-    resolves_by_resubmitting: ClassVar[bool]
+    resolves_by_resubmitting: bool
 ```
-
-| Provider | Value | `find_stamp` |
-|---|---|---|
-| `SimulatedPac` | `False` | looks the stamp up in `pac_simulation` (spec 039) |
-| `MultifacturasProvider` | `True` | not called by the API. Implemented as `return None`, so the class satisfies the protocol. |
 
 ## 2. `SIMULATED_PAC_RFC`
 
 ```python
-SIMULATED_PAC_RFC = 'SIM010101SI0'   # was 'SIM010101SIM'; RfcProvCertif must end in a digit or 'A'
+from mictlanix.cfdi.pac import SIMULATED_PAC_RFC   # 'SIM010101SI0'; was mbe-api's 'SIM010101SIM'
 ```
 
-## 3. The Multifacturas provider
+`provider.py` re-exports the library's constant, so the simulated mark always matches what the library's simulator stamps.
 
-Module: `app/services/pac/multifacturas.py`.
+## 3. The one implementation: `CfdiPacProvider`
+
+Module: `app/services/pac/adapter.py`. It replaces `app/services/pac/simulated.py`, which is deleted.
 
 ```python
-class MultifacturasProvider:
-    resolves_by_resubmitting = True
-
+class CfdiPacProvider:
     def __init__(self, pac: mictlanix.cfdi.pac.PacClient,
-                 sat: mictlanix.cfdi.sat.SatStatusClient) -> None: ...
+                 sat: mictlanix.cfdi.sat.SatStatusClient, *,
+                 name: str, resolves_by_resubmitting: bool) -> None: ...
+
+    resolves_by_resubmitting: bool
 
     async def stamp(self, sealed_xml: str) -> Stamp: ...
-    async def find_stamp(self, sealed_xml: str) -> Stamp | None: ...      # always None
+    async def find_stamp(self, sealed_xml: str) -> Stamp | None: ...
     async def request_cancellation(self, request: CancellationRequest) -> CancellationAnswer: ...
     async def query_status(self, issuer_rfc: str, recipient_rfc: str, uuid: str,
                            total: Decimal) -> SatStatus: ...
 ```
 
 **What each method calls**
-- **`stamp` and `request_cancellation`** call the library's `PacClient`.
+- **`stamp`, `find_stamp` and `request_cancellation`** call the library's `PacClient`. Multifacturas' `find_stamp` always answers None. The API never calls it there, because `resolves_by_resubmitting` is True.
 - **`query_status`** calls the library's `SatStatusClient`.
 - **Translation:** every value and error is translated as in [research.md R3](../research.md#r3-translation-table).
 
-**What may leave the provider**
-- **Errors:** only the contract's `PacRejected`, `PacUnavailable` and `PacTimeout`, each raised `from None`.
-- **Answers:** `request_cancellation` returns only `ACCEPTED` (SAT 202) or `PENDING` (SAT 201).
+**What it logs:** `stamp` writes `pac {name}: stamp call {issuer} {series}{folio}` at WARNING, one line per call, and never the XML.
 
-**`repr`:** `repr(provider)` shows the library clients' own `repr`, which hides the password.
+**What may leave the adapter**
+- **Errors:** only the contract's `PacRejected`, `PacUnavailable` and `PacTimeout`, each raised `from None`.
+- **`repr`:** `repr(provider)` shows the library clients' own `repr`, which hides the password.
 
 ### How `get_pac_provider()` builds it
 
 ```python
-MultifacturasProvider(
-    MultifacturasPac(MultifacturasSettings(
-        user=settings.multifacturas_user,
-        password=settings.multifacturas_password.get_secret_value(),
-        production=settings.multifacturas_production,
-        base_url=settings.multifacturas_url,
-        connect_timeout=settings.multifacturas_connect_timeout,
-        read_timeout=settings.multifacturas_read_timeout,
-    )),
-    SatConsultaClient(),
-)
+if settings.pac_provider == 'simulated':
+    pac = SimulatedPac(DatabaseSimulatorStore())
+    return CfdiPacProvider(pac, SimulatedSatStatusClient(pac),
+                           name='simulator', resolves_by_resubmitting=False)
+if settings.pac_provider == 'multifacturas':
+    return CfdiPacProvider(
+        MultifacturasPac(MultifacturasSettings(
+            user=settings.multifacturas_user,
+            password=settings.multifacturas_password.get_secret_value(),
+            production=settings.multifacturas_production,
+            base_url=settings.multifacturas_url,
+            connect_timeout=settings.multifacturas_connect_timeout,
+            read_timeout=settings.multifacturas_read_timeout,
+        )),
+        SatConsultaClient(),
+        name='multifacturas', resolves_by_resubmitting=True,
+    )
+return None
 ```
 
-Endpoints (`contracts/endpoints.md` of spec 039) and error codes (`contracts/error-codes.md` of spec 039) do not change.
+## 4. The simulator's store: `DatabaseSimulatorStore`
+
+Module: `app/services/pac/simulator_store.py`. It implements the library's `SimulatorStore`.
+
+```python
+class DatabaseSimulatorStore:
+    def __init__(self, session_factory: async_sessionmaker[AsyncSession] = AsyncSessionLocal): ...
+    async def get(self, key: str) -> str | None: ...       # its own session
+    async def set(self, key: str, value: str) -> None: ... # its own session; merge, commit
+```
+
+The table is `pac_simulator_store` (data-model.md). The store keeps the values without reading them.
+
+Endpoints (spec 039's `contracts/endpoints.md`) and error codes (spec 039's `contracts/error-codes.md`) do not change, except the simulator routes in [simulator-controls.md](simulator-controls.md).

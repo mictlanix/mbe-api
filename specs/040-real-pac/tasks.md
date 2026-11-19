@@ -1,14 +1,14 @@
 # Tasks: Connect stamping and cancellation to the real PAC
 
-**Input**: Design documents from `specs/040-real-pac/` — plan.md, spec.md, research.md (R1–R9), data-model.md, contracts/pac-provider.md, contracts/configuration.md, quickstart.md
+**Input**: Design documents from `specs/040-real-pac/`: plan.md, spec.md, research.md (R1–R13), data-model.md, contracts/pac-provider.md, contracts/configuration.md, contracts/simulator-controls.md and quickstart.md.
 
-**Tests**: Required. FR-023 and FR-024 ask for them, and the constitution's testing rule requires them for every change.
+**Tests**: Required. FR-028 and FR-029 ask for them, and the constitution requires tests first for every change.
 
 **Organization**: Tasks are grouped by user story (US1–US5 in spec.md), so each story can be built and tested on its own.
 
-**How to run the suite**: `DATABASE_URL='sqlite+aiosqlite:///:memory:' JWT_SECRET_KEY=test-secret-test-secret-test-secret-0123 BUSINESS_TIMEZONE=America/Mexico_City uv run pytest -q`.
+**Suite**: `DATABASE_URL='sqlite+aiosqlite:///:memory:' JWT_SECRET_KEY=test-secret-test-secret-test-secret-0123 BUSINESS_TIMEZONE=America/Mexico_City uv run pytest -q`.
 
-**Lint**: `uv run ruff check app/ migrations/ tests/`. Run `ruff format` only on the files you touch, and only if origin's version of that file was already formatted.
+**Lint**: `uv run ruff check app/ migrations/ tests/`. Run `ruff format` only on files you touch whose origin version was already formatted.
 
 ## Format: `[ID] [P?] [Story] Description`
 
@@ -26,169 +26,138 @@
   - `cryptography` resolved to ≥50.0.2;
   - `lxml` stayed on 6.1.3.
   (research R1)
-- [ ] T002 Run the full offline suite and ruff on the new lock, before any other change. It is the gate for the `cryptography` 49 → 50 move: python-jose, CSD sealing and the print tests must all pass. If anything fails, stop and report; don't patch around it. (research R1)
+- [ ] T002 Run the full offline suite and ruff on the new lock, before any other change. It is the gate for `cryptography` 49 → 50: python-jose, CSD sealing and the print tests must all pass. If anything fails, stop and report; don't patch around it. (research R1)
 - [ ] T003 [P] Add a subsection "CFDI library (private)" to `README.md` under `## Setup`. It says:
-  - the library comes from the private repository mictlanix/cfdi over SSH;
+  - the library comes from mictlanix/cfdi over SSH;
   - developers need GitHub SSH access;
-  - each server needs its user's public key added as a **read-only deploy key** on mictlanix/cfdi (xolotl: `mictlanix`'s `~/.ssh/id_ed25519.pub`), checked with `ssh -T git@github.com`;
-  - to move the pin, change `rev` in `[tool.uv.sources]` and run `uv lock`.
+  - each server needs its user's public key as a **read-only deploy key** on mictlanix/cfdi (xolotl: `mictlanix`'s `~/.ssh/id_ed25519.pub`), checked with `ssh -T git@github.com`;
+  - to move the pin, change `rev` and run `uv lock`.
   (FR-002)
 
 ---
 
 ## Phase 2: Foundational (Blocking Prerequisites)
 
-**Purpose**: The contract attribute and the settings that every story reads.
+**Purpose**: The adapter, the contract attribute and the settings that every story uses.
 
 **⚠️ CRITICAL**: No user story work can begin until this phase is complete.
 
-- [ ] T004 In `app/services/pac/provider.py`, add `resolves_by_resubmitting: ClassVar[bool]` to the `PacProvider` protocol, with the docstring from contracts/pac-provider.md §1. Then:
-  - set `resolves_by_resubmitting = False` on `SimulatedPac` in `app/services/pac/simulated.py`;
-  - in `tests/fakes/pac.py`, give `ScriptedPac` an instance attribute `resolves_by_resubmitting = False` that tests may set to True.
-  - Update the module docstring of `provider.py`: the real client is now `MultifacturasProvider`.
-  (research R4)
+- [ ] T004 In `app/services/pac/provider.py`:
+  - add `resolves_by_resubmitting: bool` to the `PacProvider` protocol, with the docstring from contracts/pac-provider.md §1;
+  - replace `SIMULATED_PAC_RFC = 'SIM010101SIM'` with a re-export of `mictlanix.cfdi.pac.SIMULATED_PAC_RFC`;
+  - update the module docstring: the library is the one implementation, through `adapter.py`.
+
+  In `tests/fakes/pac.py`, give `ScriptedPac` an instance attribute `resolves_by_resubmitting = False` that tests may set to True, and update its docstring's mention of `SIM010101SIM`. (research R2, R4)
 - [ ] T005 Add the settings from contracts/configuration.md to `app/core/config.py`:
   - widen `pac_provider` to `Literal['none', 'simulated', 'multifacturas']`;
   - add `multifacturas_user: str | None = None`, `multifacturas_password: SecretStr | None = None`, `multifacturas_production: bool = False`, `multifacturas_url: str = 'https://ws.multifacturas.com'`, `multifacturas_connect_timeout: float = 10.0` and `multifacturas_read_timeout: float = 60.0`;
-  - update the comment above `app_env`. Its "step 3 adds the real provider" is now done.
+  - update the comment above `app_env`, whose "step 3 adds the real provider" is now done.
   (research R6)
-- [ ] T006 [P] Document the new variables in `.env.example` next to `PAC_PROVIDER`. Use placeholder values only, and comment that `MULTIFACTURAS_PRODUCTION` must be `true` exactly when `APP_ENV=production`. (contracts/configuration.md)
+- [ ] T006 [P] Document the new variables in `.env.example` next to `PAC_PROVIDER`. Use placeholders only, and comment that `MULTIFACTURAS_PRODUCTION` must be `true` exactly when `APP_ENV=production`. (contracts/configuration.md)
+- [ ] T007 [P] Create `tests/unit/test_pac_adapter.py`, testing `CfdiPacProvider` (contracts/pac-provider.md §3) over the library's `SimulatedPac()` (in-memory store) and `SimulatedSatStatusClient(pac)`, plus an in-file scripted fake for what the simulators can't produce. It covers every row of research R3:
+  - **Stamp:** str → bytes, with a byte check that the client received `sealed_xml.encode('utf-8')`; `uuid`, `sat_seal`, `sat_certificate` and `provider_rfc`; `stamped_at` naive in Mexico City time; `xml` as str.
+  - **`find_stamp`:** the simulator's existing stamp, and None for an unknown document.
+  - **Cancellation:** `request_cancellation` with `csd.password` decoded, `Csd.key` → `private_key`, and `substitution` → `substitute_uuid`. `ACCEPTED`, `PENDING` and `NOT_CANCELLABLE` come back by name. A `ValidationError` (reason `01` without a substitute) becomes `PacRejected` with the first violation's rule.
+  - **Status:** `query_status` maps every `SatState`, `Cancellability` and `CancellationStatus` value.
+  - **Errors:** the library's `PacRejected`, `PacUnavailable`, `PacTimeout`, `SatRejected`, `SatUnavailable` and `SatTimeout` map to the contract's classes, with code and message kept and `__cause__`/`__context__` suppressed.
+  - **The log line:** exactly one WARNING per `stamp`, `pac {name}: stamp call {issuer} {series}{folio}`, without the XML.
+  - **`repr` and messages:** no sentinel password or CSD password appears.
 
-**Checkpoint**: the suite still passes, and nothing has changed in behavior yet.
+  Seal the input with the existing helpers and SAT test CSD (EKU9003173C9) from `tests/unit/test_cfdi_invoice.py`. For the simulator's outcomes, use `configure_stamp` and `configure_cancellation` (read `mictlanix/cfdi/pac/simulated.py` in the installed package for their signatures).
+- [ ] T008 Create `app/services/pac/adapter.py` with `CfdiPacProvider(pac, sat, *, name, resolves_by_resubmitting)`, per contracts/pac-provider.md §3 and research R3:
+  - every method translates values, and errors with `raise … from None`;
+  - `stamp` logs the WARNING line, reading issuer, `Serie` and `Folio` from the sealed XML with lxml;
+  - `__repr__` delegates to the clients.
+
+  Make T007 pass.
+
+**Checkpoint**: the adapter is complete and tested; nothing uses it yet.
 
 ---
 
 ## Phase 3: User Story 1 - Stamp with the real PAC (Priority: P1) 🎯 MVP
 
-**Goal**: With `PAC_PROVIDER=multifacturas`, a sealed invoice, payment receipt or credit note is stamped by the library's Multifacturas client, and the stamp is stored as spec 039 stores any stamp.
+**Goal**: With `PAC_PROVIDER=multifacturas`, the API stamps through the library's Multifacturas client and stores the stamp as spec 039 does.
 
-**Independent Test**: The stamp flow runs end to end with `MultifacturasProvider` built over the library's `SimulatedPac`: the document becomes issued with the PAC's UUID, it is not marked simulated, and each failure maps to its error code.
+**Independent Test**: The stamp flow runs end to end through `CfdiPacProvider` over a scripted library client that issues stamps with a real-looking provider RFC: the document is issued, not marked simulated, and each failure maps to its code.
 
-### Tests for User Story 1
+- [ ] T009 [US1] In `app/services/pac/__init__.py`, make `get_pac_provider()` build `CfdiPacProvider(MultifacturasPac(MultifacturasSettings(...)), SatConsultaClient(), name='multifacturas', resolves_by_resubmitting=True)` when `settings.pac_provider == 'multifacturas'`, exactly as in contracts/pac-provider.md. Import the library lazily inside the branch. The password comes from `settings.multifacturas_password.get_secret_value()`. Add a test in `tests/unit/test_pac_settings.py` that the factory returns a `CfdiPacProvider` with `resolves_by_resubmitting` True, without network.
+- [ ] T010 [US1] Extend `tests/integration/test_stamp_flow.py` with the flow through `CfdiPacProvider(..., resolves_by_resubmitting=True)` over an in-file scripted library `PacClient`. It stamps with provider RFC `LSO1306189R5` and can be told to raise the library's `PacRejected`, `PacUnavailable` or `PacTimeout`. Cover an invoice, a payment receipt and a credit note:
+  - **stamped:** issued; `rfc_pac` is `LSO1306189R5`; the detail's `stamp.simulated` is false; the stored XML is the client's.
+  - **rejected:** `pac.rejected`, with `pac_code` and `pac_message` in params; sealed.
+  - **unavailable:** `pac.unavailable`; sealed.
+  - **timeout:** `pac.timeout`; `stamping`.
 
-- [ ] T007 [P] [US1] Create `tests/unit/test_pac_multifacturas.py`. Build `MultifacturasProvider(pac, sat)` with `mictlanix.cfdi.pac.SimulatedPac()` and `mictlanix.cfdi.sat.SimulatedSatStatusClient(pac)`, and add a small in-file scripted fake for the cases those can't produce. The tests cover the `stamp` rows of research R3:
-  - the str → bytes encoding, and a byte check that the library received `sealed_xml.encode('utf-8')`;
-  - `uuid`, `sat_seal`, `sat_certificate` and `provider_rfc` from the TFD;
-  - `stamped_at` naive, in Mexico City local time;
-  - `xml` decoded to str;
-  - `find_stamp` returning None without calling the library;
-  - `resolves_by_resubmitting is True`;
-  - the library's `PacRejected(code, message)`, `PacUnavailable` and `PacTimeout` arriving as the contract's classes with the same code and message, and with `__cause__` and `__context__` suppressed (`from None`);
-  - `repr(provider)` containing no password (configure the library settings with a sentinel password and assert it is absent).
+  (US1 scenarios 1–4)
 
-  Use `SimulatedPac.configure_stamp(...)` outcomes `stamped`, `rejected`, `unavailable` and `timeout_not_stamped`; read the library's `pac/simulated.py` for their exact signatures. Any sealed XML the library accepts will do, for example one produced by the existing sealing fixtures with SAT's test CSD (EKU9003173C9) in `tests/unit/test_cfdi_invoice.py`.
-
-### Implementation for User Story 1
-
-- [ ] T008 [US1] Create `app/services/pac/multifacturas.py` with `MultifacturasProvider` per contracts/pac-provider.md §3:
-  - `resolves_by_resubmitting = True`;
-  - `__init__(self, pac, sat)` stores both clients;
-  - `stamp` encodes, calls `self._pac.stamp`, and maps the result to `provider.Stamp` per R3. If `FechaTimbrado` has a tzinfo, convert it to `America/Mexico_City` and drop the tzinfo; if it is naive, keep it.
-  - `find_stamp` returns None.
-  - Translate errors per R3 with `raise … from None`.
-  - `__repr__` delegates to the clients' reprs.
-
-  Write the cancellation and status methods in T015. Until then, they raise `NotImplementedError`, which T015 removes. Make T007 pass.
-- [ ] T009 [US1] In `app/services/pac/__init__.py`, make `get_pac_provider()` build `MultifacturasProvider(MultifacturasPac(MultifacturasSettings(...)), SatConsultaClient())` from settings when `settings.pac_provider == 'multifacturas'`, exactly as in contracts/pac-provider.md. Import the library lazily inside that branch, like the simulator. The password comes from `settings.multifacturas_password.get_secret_value()`.
-- [ ] T010 [US1] Extend `tests/integration/test_stamp_flow.py` with the stamp flow through `MultifacturasProvider` over the library's `SimulatedPac`, for an invoice, a payment receipt and a credit note:
-  - **stamped:** the document becomes issued; `rfc_pac` equals the library simulator's RFC, not `SIMULATED_PAC_RFC`; the detail's `stamp.simulated` is false; the stored XML is the library's stamped XML.
-  - **rejected:** `pac.rejected`, with `pac_code` and `pac_message` in params, and the document sealed.
-  - **unavailable:** `pac.unavailable`, and the document sealed.
-  - **timeout:** `pac.timeout`, and the document `stamping`.
-
-  Follow the file's existing helpers and parametrization style. (US1 scenarios 1–4)
-
-**Checkpoint**: US1 is complete. An instance configured with Multifacturas stamps.
+**Checkpoint**: an instance configured with Multifacturas stamps.
 
 ---
 
 ## Phase 4: User Story 2 - Resolve a stamp left in flight without a second UUID (Priority: P1)
 
-**Goal**: With a provider that resolves by resubmitting, a refresh of a document left `stamping` resends the stored sealed XML after the 5-minute grace and applies the stamp outcomes. The simulator's lookup stays unchanged.
+**Goal**: With a provider that resolves by resubmitting, refresh resends the stored sealed XML after the 5-minute grace and applies the stamp outcomes. The simulator's look-up is unchanged.
 
-**Independent Test**: A stamp times out, then a refresh resubmits byte-identical XML and stores one UUID. Rejected, unavailable and timeout each land in the state FR-010 gives them, and concurrent refreshes still store one UUID.
+**Independent Test**: A stamp times out. A refresh within 5 minutes sends nothing; a refresh after resubmits byte-identical XML and stores one UUID. Every failure lands in FR-010's state, and concurrent refreshes leave one UUID.
 
-### Tests for User Story 2
+- [ ] T011 [US2] In `tests/unit/test_fiscal_stamping.py`, using `ScriptedPac` with `resolves_by_resubmitting = True` and the file's existing session fakes (see `test_a_stamping_marker_that_changed_is_left_alone`), add tests for a document left `stamping`:
+  1. **Within `STAMP_LOOKUP_GRACE`:** no PAC call, and the document comes back unchanged.
+  2. **After it:** `stamp` is called once with exactly the stored XML, and `find_stamp` never.
+  3. **A stamp:** stored with the incidence `CFDI stamp resolved {uuid}`.
+  4. **`PacRejected`:** the marker is cleared only if unchanged, and `pac.rejected` is raised with params.
+  5. **`PacUnavailable` and `PacTimeout`:** the marker stays, and the matching error is raised.
+  6. **`touch=False`:** the updater and modification time stay as they were.
 
-- [ ] T011 [P] [US2] In `tests/unit/test_fiscal_stamping.py`, using `ScriptedPac` with `resolves_by_resubmitting = True` and the file's existing session fakes (see `test_a_stamping_marker_that_changed_is_left_alone` and its neighbours), add tests for a document left `stamping`:
-  1. **Within `STAMP_LOOKUP_GRACE`:** no PAC call at all, and the document is returned unchanged.
-  2. **After the grace:** `stamp` is called once with exactly the stored sealed XML, and `find_stamp` is never called.
-  3. **A stamp:** stored via `_store_stamp`, with the incidence reason `CFDI stamp resolved {uuid}`.
-  4. **`PacRejected`:** the marker is cleared only if unchanged (sealed again), and `pac.rejected` is raised with params.
-  5. **`PacUnavailable` and `PacTimeout`:** the marker stays, and `pac.unavailable` or `pac.timeout` is raised.
-  6. **The resolve job (`touch=False`):** it leaves `updater` and `modification_time` alone on a resolved stamp.
-
-  The existing simulator-path tests (`resolves_by_resubmitting = False`) must pass unchanged. (FR-008–FR-011)
-
-### Implementation for User Story 2
-
-- [ ] T012 [US2] In `app/services/fiscal_stamping.py` `refresh`, change the stamping branch (`request is None`) as research R4 describes:
-  - **If `provider.resolves_by_resubmitting`:** when `_now() - marker < STAMP_LOOKUP_GRACE`, return the document as it is without calling the PAC. Otherwise call `provider.stamp(xml)`:
+  The existing look-up tests (`resolves_by_resubmitting = False`) pass unchanged. (FR-008–FR-011)
+- [ ] T012 [US2] In `app/services/fiscal_stamping.py` `refresh`, change the stamping branch (`request is None`) per research R4:
+  - **If `provider.resolves_by_resubmitting`:** when `_now() - marker < STAMP_LOOKUP_GRACE`, return the document without calling the PAC. Otherwise call `provider.stamp(xml)`:
     - on success, `_store_stamp(..., reason=f'CFDI stamp resolved {issued.uuid}', touch=touch)`;
     - on `PacRejected`, `_clear_marker(db, document_id, marker)`, then raise the same `pac.rejected` DomainError that `stamp()` raises;
-    - on `PacUnavailable` or `PacTimeout`, raise as the branch already does.
-  - **Otherwise:** keep the `find_stamp` path untouched.
+    - on `PacUnavailable` or `PacTimeout`, raise as the branch does today.
+  - **Otherwise:** the `find_stamp` path is untouched.
 
-  Read `_clear_marker` and `_store_stamp` first. Don't change their rules. Make T011 pass.
-- [ ] T013 [US2] In `tests/integration/test_stamp_flow.py`, test the end-to-end recovery with `MultifacturasProvider`:
-  - **The sequence:** stamp → `pac.timeout` → age `stamping_since` past 5 min (the file already does this near line 280) → refresh → issued.
-  - **One UUID:** exactly one stamp, whose UUID equals what the PAC holds for that XML.
+  Make T011 pass.
+- [ ] T013 [US2] In `tests/integration/test_stamp_flow.py`, test the recovery end to end with `CfdiPacProvider(..., resolves_by_resubmitting=True)` over T010's scripted client, configured to time out on the first call and to deduplicate by sealed XML afterwards:
+  - **The sequence:** stamp → `pac.timeout` → age `stamping_since` past 5 min (as the file does near line 280) → refresh → issued with one UUID.
   - **Concurrent refreshes:** two concurrent refreshes leave one UUID, and the second finds the document issued.
-  - **A rejection on resubmission:** the document is sealed.
+  - **A rejection on resubmission:** the document is sealed again.
 
-  Use the library's `SimulatedPac` if its `timeout_stamped` outcome followed by a resubmission returns the same stamp (check in its `pac/simulated.py`); otherwise use `ScriptedPac` with `resolves_by_resubmitting = True`. (SC-003)
+  (SC-003)
 
-**Checkpoint**: US1 and US2 together satisfy #46.
+**Checkpoint**: US1 and US2 satisfy #46.
 
 ---
 
 ## Phase 5: User Story 3 - Cancel through SAT's two-step flow with the real PAC (Priority: P1)
 
-**Goal**: Cancellation through `MultifacturasProvider`: 202 cancels at once, and 201 leaves the request open until SAT's status settles it. A pending request closes as "not received by SAT" only 72 hours after the PAC's answer.
+**Goal**: 202 cancels at once. 201 (`PENDING`) leaves the request open until SAT settles it, and it closes as not received only after 72 hours.
 
-**Independent Test**: Every PAC answer and every SAT status reaches spec 039's final states, and the 72-hour rule holds on both sides of the boundary.
+**Independent Test**: Every PAC answer and SAT status reaches spec 039's final states, and the 72-hour rule holds on both sides of the boundary.
 
-### Tests for User Story 3
+- [ ] T014 [US3] In `tests/unit/test_fiscal_stamping.py`, after T011 (same file):
+  - change the `not_received` case of `test_a_result_that_closes_the_request`;
+  - **a `pending` request with SAT valid/`none`:** within 72 hours of `answered_at`, only `last_checked_at` is written, with no status change and no incidence; at or after 72 hours, `failed` with "Cancellation not received by SAT";
+  - **a `requested` request:** the 5-minute rule is unchanged on both sides.
 
-- [ ] T014 [P] [US3] Extend `tests/unit/test_pac_multifacturas.py` with the cancellation and status rows of research R3:
-  - **The request:** `request_cancellation` builds the library's `CancellationRequest`, with `csd.password` decoded from bytes, `private_key` from `Csd.key`, and `substitution` → `substitute_uuid`.
-  - **Answers and errors:**
-    - `ACCEPTED` and `PENDING` come back by name;
-    - the library's `PacRejected`, `PacUnavailable` and `PacTimeout` map to the contract's;
-    - a `ValidationError` raised while building the request (reason `01` without a substitute) becomes `PacRejected` with the first violation's rule as code;
-    - no secret appears in any message (use a sentinel CSD password).
-  - **`query_status`:**
-    - every `SatState`, `Cancellability` and `CancellationStatus` value maps to the contract's literals, with `cancellability` → `cancellable`;
-    - `SatRejected`, `SatUnavailable` and `SatTimeout` map to `PacRejected`, `PacUnavailable` and `PacTimeout`.
-
-### Implementation for User Story 3
-
-- [ ] T015 [US3] Implement `request_cancellation` and `query_status` in `app/services/pac/multifacturas.py` per research R3, removing T008's `NotImplementedError`. Build `CsdCredentials(certificate=csd.certificate, private_key=csd.key, password=csd.password.decode('utf-8'))`, and catch the library's `ValidationError` around building `CancellationRequest`. Make T014 pass.
-- [ ] T016 [P] [US3] In `tests/unit/test_fiscal_stamping.py`, change the `not_received` case of `test_a_result_that_closes_the_request`, and add cases to show:
-  - **A `pending` request** with SAT valid/`none`:
-    - **within 72 hours of `answered_at`:** only `last_checked_at` is written, with no status change, no incidence, and the document still cancellation pending;
-    - **at or after 72 hours:** `failed`, with "Cancellation not received by SAT".
-  - **A `requested` request:** the 5-minute rule is unchanged on both sides.
-
-  The status-session fake must now supply `answered_at` in the request row. (FR-014, research R5)
-- [ ] T017 [US3] In `app/services/fiscal_stamping.py`:
+  The status-session fake supplies `answered_at` in the request row. (FR-014, research R5)
+- [ ] T015 [US3] In `app/services/fiscal_stamping.py`:
   - add `CANCELLATION_SAT_WAIT = timedelta(hours=72)` next to `STAMP_LOOKUP_GRACE`;
   - add `FiscalDocumentCancellation.answered_at` to transaction 1's request select in `refresh`, and unpack it in `_apply_status`;
-  - change the `sat.state == 'valid' and sat.cancellation == 'none'` branch to close as `failed` only when `kept == 'requested'` and `now - requested_at >= STAMP_LOOKUP_GRACE`, or when `kept == 'pending'` and `now - answered_at >= CANCELLATION_SAT_WAIT`.
+  - close as `failed` on SAT valid/`none` only when `kept == 'requested'` and `now - requested_at >= STAMP_LOOKUP_GRACE`, or when `kept == 'pending'` and `now - answered_at >= CANCELLATION_SAT_WAIT`.
 
-  Make T016 pass.
-- [ ] T018 [US3] In `tests/integration/test_cancel_flow.py`:
-  1. **Update the test near line 685** ("Only the fake can answer `valid`/`none`…"). Refreshing right after the pending answer leaves the request `pending` and the document cancellation pending. After moving `answered_at` back 72 hours, a refresh closes it `failed` with the same three incidence reasons.
-  2. **Add the flow through `MultifacturasProvider`** over the library's `SimulatedPac` and `SimulatedSatStatusClient`, for invoice, payment receipt and credit note:
-     - **Pending, then cancelled:** the PAC answers pending (201) → cancellation pending → the SAT simulator reports cancelled → cancelled, with spec 028's holds released (follow the file's existing assertions for refunds and later receipts).
-     - **Pending, then rejected:** pending → the receiver rejects → issued.
-     - **Accepted:** the PAC answers accepted (202) → cancelled at once.
-     - **Refused:** the PAC refuses → `pac.rejected`, the request `rejected` with `pac_code` and `pac_message` stored, and the document issued.
-     - **Reason 01:** a substitute reaches the library as `substitute_uuid`.
+  Make T014 pass.
+- [ ] T016 [US3] In `tests/integration/test_cancel_flow.py`:
+  1. **Update the test near line 685** ("Only the fake can answer `valid`/`none`…"). A refresh right after the pending answer leaves the request `pending`. After moving `answered_at` back 72 hours, it closes `failed` with the same three incidence reasons.
+  2. **Add the flow through `CfdiPacProvider(..., resolves_by_resubmitting=True)`** over a scripted library client and a scripted SAT client, for an invoice, a payment receipt and a credit note:
+     - **201 then cancelled:** cancellation pending → SAT cancelled → cancelled, with spec 028's holds released (follow the file's existing refund and later-receipt assertions);
+     - **201 then the receiver rejects:** SAT valid/`rejected` → issued;
+     - **202:** cancelled at once;
+     - **a refusal:** `pac.rejected`, the request `rejected` with code and message stored, and the document issued;
+     - **reason 01:** the substitute reaches the client as `substitute_uuid`.
 
   (US3 scenarios 1–7, SC-004)
 
-**Checkpoint**: US3 complete; with US1 and US2 it satisfies #51.
+**Checkpoint**: with US1 and US2, this satisfies #51.
 
 ---
 
@@ -196,90 +165,147 @@
 
 **Goal**: The startup refusals of contracts/configuration.md.
 
-**Independent Test**: Every combination starts or refuses as the table says, and the refusal messages name settings, never values.
+**Independent Test**: Every combination starts or refuses as the table says, naming settings, never values.
 
-- [ ] T019 [P] [US4] In `tests/unit/test_pac_settings.py`, follow the file's pattern (it already isolates itself from the shell's env; see commit 0795063). Parametrize over every row of contracts/configuration.md "Startup refusals":
-  - each refusal raises, naming the listed settings;
-  - the valid combinations pass: `multifacturas` with test mode and `APP_ENV=staging` or `development`, and with production mode and `APP_ENV=production`;
-  - a message never contains the sentinel user or password;
-  - a non-HTTPS `MULTIFACTURAS_URL` or a timeout of 0 refuses, naming the variable.
-- [ ] T020 [US4] Extend `check_pac_settings` in `app/core/config.py` with the refusals. When `pac_provider == 'multifacturas'`, construct `MultifacturasSettings(...)` once (lazy import) and re-raise its `ValueError` as a message naming `MULTIFACTURAS_URL`, `MULTIFACTURAS_CONNECT_TIMEOUT` or `MULTIFACTURAS_READ_TIMEOUT`, without the value. Keep the simulator's refusal as it is. Make T019 pass. `app/main.py` and `app/jobs/resolve_fiscal_documents.py` already call it.
+- [ ] T017 [P] [US4] In `tests/unit/test_pac_settings.py`, following its env isolation (commit 0795063), parametrize every row of contracts/configuration.md "Startup refusals":
+  - the valid combinations pass: `multifacturas` with test mode and `APP_ENV` staging or development, and with production mode and `APP_ENV=production`; `simulated` outside production;
+  - every refusal raises, naming the listed settings;
+  - no message contains the sentinel user or password;
+  - a non-HTTPS URL or a timeout of 0 refuses, naming the variable.
+- [ ] T018 [US4] Extend `check_pac_settings` in `app/core/config.py`:
+  - keep the simulator's refusal in production;
+  - add the Multifacturas refusals;
+  - when `pac_provider == 'multifacturas'`, construct `MultifacturasSettings(...)` once (lazy import) and re-raise its `ValueError` as a message naming `MULTIFACTURAS_URL`, `MULTIFACTURAS_CONNECT_TIMEOUT` or `MULTIFACTURAS_READ_TIMEOUT`, without the value.
+
+  Make T017 pass.
 
 **Checkpoint**: US4 complete.
 
 ---
 
-## Phase 7: User Story 5 - Simulated documents keep a valid provider RFC (Priority: P3)
+## Phase 7: User Story 5 - The simulator runs on the library (Priority: P2)
 
-**Goal**: The simulator stamps with `SIM010101SI0`, and stored simulated documents keep their mark.
+**Goal**: `PAC_PROVIDER=simulated` uses the library's simulator over a database store. mbe-api's simulator is gone. The routes drive the library's simulator, and two instances never double-stamp.
 
-**Independent Test**: A simulator stamp carries the new RFC in the stamp and the XML. After migration 035, the previously simulated documents carry it too and still read as simulated.
+**Independent Test**: Every scenario of quickstart §5 passes through the routes. The two-instance test produces one UUID. Old simulated documents keep their mark after migration 036.
 
-- [ ] T021 [US5] In `app/services/pac/provider.py`, set `SIMULATED_PAC_RFC = 'SIM010101SI0'`, and update the docstrings that spell the old value: `app/services/pac/simulated.py` line 5 and `tests/fakes/pac.py` line 5. Then change the four test literals of research R7:
-  - `tests/unit/test_pac_provider.py:18`;
-  - `tests/unit/test_fiscal_document_service.py:187`;
-  - `tests/unit/test_print_contexts.py:1109`;
-  - `tests/integration/test_print_render.py:761`.
+### Store and migration
 
-  Also check `tests/unit/test_pac_simulated.py:98`. Run `grep -rn SIM010101SIM app tests` afterwards: only the migration may still contain it.
-- [ ] T022 [P] [US5] Create `migrations/035_simulated_pac_rfc.sql` and `migrations/035_simulated_pac_rfc_rollback.sql`, with a header comment in the style of 034 ("-- 035 … -- spec 040", what and why). The migration:
-  - `UPDATE fiscal_document_xml x JOIN fiscal_document d ON …` → `SET x.data = REPLACE(x.data, 'RfcProvCertif="SIM010101SIM"', 'RfcProvCertif="SIM010101SI0"') WHERE d.rfc_pac = 'SIM010101SIM'`. Read `app/models/fiscal.py` for how `fiscal_document_xml` keys to the document.
-  - Then `UPDATE fiscal_document SET rfc_pac = 'SIM010101SI0' WHERE rfc_pac = 'SIM010101SIM'`.
-  - Then `UPDATE pac_simulation SET stamped_xml = REPLACE(...) WHERE stamped_xml LIKE '%SIM010101SIM%'`.
+- [ ] T019 [P] [US5] Create `migrations/036_pac_simulator_store.sql` and `migrations/036_pac_simulator_store_rollback.sql` per research R7, with a header comment in 034's style ("-- 036 … -- spec 040").
+  - **The migration:** create `pac_simulator_store` (`store_key VARCHAR(100) NOT NULL PRIMARY KEY`, `value MEDIUMTEXT NOT NULL`, `updated_at DATETIME NOT NULL`), using the table options 034 used for `pac_simulation`. Drop `pac_simulation`. Then `UPDATE fiscal_document_xml … SET data = REPLACE(data, 'RfcProvCertif="SIM010101SIM"', 'RfcProvCertif="SIM010101SI0"')` for the documents whose `rfc_pac` is `SIM010101SIM` (read `app/models/fiscal.py` for the key), then `UPDATE fiscal_document SET rfc_pac = 'SIM010101SI0' WHERE rfc_pac = 'SIM010101SIM'`.
+  - **The rollback:** the reverse, recreating `pac_simulation` exactly as 034 created it, empty.
+  - Follow README "Writing a migration". Do not run it: T031 does, with confirmation.
+- [ ] T020 [US5] In `app/models/fiscal.py`, replace `PacSimulation` with `PacSimulatorStore` (`store_key` String(100) primary key, `value` Text, `updated_at` DateTime), matching T019. Update the resource name in `app/core/errors.py:129`, and the `pac_simulation` mention in `PacSimulationUpdate`'s docstring in `app/schemas/fiscal.py`. Update `tests/unit/test_fiscal_document_service.py:73` to the new table.
+- [ ] T021 [P] [US5] Create `tests/unit/test_simulator_store.py` for `DatabaseSimulatorStore`, on the tests' SQLite session factory:
+  - a missing key reads None;
+  - `set` then `get` returns the value;
+  - a second `set` overwrites it and moves `updated_at`;
+  - each call commits in its own session, visible to a fresh session;
+  - a session factory that raises makes `SimulatedPac.stamp` raise the library's `PacUnavailable`, which the adapter maps to `PacUnavailable`.
+- [ ] T022 [US5] Create `app/services/pac/simulator_store.py` with `DatabaseSimulatorStore(session_factory=AsyncSessionLocal)` per contracts/pac-provider.md §4 and research R10: `get` selects the value by key; `set` does `merge(PacSimulatorStore(store_key=…, value=…, updated_at=local_now()))` and commits. Each uses its own session. Make T021 pass.
 
-  The rollback does the reverse in the reverse order. Follow README "Writing a migration". Do not run it: T027 does, with confirmation.
-- [ ] T023 [P] [US5] Update the simulator's RFC in `docs/specs/10-fiscal-documents.md` (the "The simulator" paragraph). In `docs/data-dictionary.md`, add to the `pac_simulation` entry that migration 035 rewrote the stored RFC.
+### Provider and routes
 
-**Checkpoint**: All five stories complete offline.
+- [ ] T023 [US5] In `app/services/pac/__init__.py`, make `simulated` build `pac = SimulatedPac(DatabaseSimulatorStore())` and `CfdiPacProvider(pac, SimulatedSatStatusClient(pac), name='simulator', resolves_by_resubmitting=False)`. Then:
+  - delete `app/services/pac/simulated.py` and `tests/unit/test_pac_simulated.py`;
+  - in `tests/unit/test_pac_settings.py:64`, assert a `CfdiPacProvider` with `resolves_by_resubmitting` False;
+  - change `tests/unit/test_pac_provider.py:18` to `SIMULATED_PAC_RFC == 'SIM010101SI0'`.
+- [ ] T024 [US5] Move the integration tests to the library's simulator. Wherever they build `SimulatedPac(session_factory=sessions)`, build `CfdiPacProvider` over `SimulatedPac(DatabaseSimulatorStore(sessions), clock=…)` and `SimulatedSatStatusClient`. Pass `clock` wherever a test moves time, for example the 24-hour rule. Replace `isinstance(pac, SimulatedPac)` checks with the provider's `name == 'simulator'` or a fixture flag. Replace direct `PacSimulation` queries with the store, or with the simulator's own reads (`find_stamp`, `query_status`). The files are:
+  - `tests/integration/test_stamp_flow.py`;
+  - `tests/integration/test_cancel_flow.py`, keeping lines 430–433's expectations;
+  - `tests/integration/test_resolve_job.py`;
+  - `tests/integration/test_fiscal_stamping_http.py`, whose fixture `pac` and `simulated` drive outcomes through the routes or the library's `configure_*`.
+
+  Change the RFC literals in `tests/unit/test_fiscal_document_service.py:187`, `tests/unit/test_print_contexts.py:1109` and `tests/integration/test_print_render.py:761` to `SIM010101SI0`. Then run `grep -rn "SIM010101SIM\|PacSimulation\b\|pac\.simulated" app tests`; it must find only the migration.
+- [ ] T025 [US5] Rewrite `tests/api/test_pac_simulator.py` per contracts/simulator-controls.md, with `PAC_PROVIDER=simulated` and the library's simulator on the test database (no `MagicMock(spec=SimulatedPac)`). Cover:
+  - the 404 when not simulated;
+  - the privilege;
+  - 409 `not_sealed` for a draft;
+  - GET on an unstamped document (`uuid` null, `not_found`, `none`) and on a stamped one;
+  - PUT `stamp` for each outcome, applied once;
+  - PUT `cancellation` before the stamp → 409 `fiscal_document.not_stamped`, and after it for each outcome, applied once;
+  - `pac_code` and `pac_message` on `rejected`;
+  - `receiver` accept, reject and expire, then refresh;
+  - `receiver` with nothing pending → 409 `nothing_to_refresh`;
+  - `not_cancellable` permanent across two cancels;
+  - no `next_stamp` or `next_cancellation` in any response.
+
+  Update `tests/unit/test_fiscal_schemas.py` for the response without them.
+- [ ] T026 [US5] Rewrite `app/api/v1/endpoints/pac_simulator.py` per research R12:
+  - keep `require_simulator`, `_UPDATE` and the draft check;
+  - build `SimulatedPac(DatabaseSimulatorStore())` and `SimulatedSatStatusClient`;
+  - GET calls `query_status` with the document's issuer, recipient, UUID and `fiscal_document_service.xml_total(get_xml(...))`;
+  - PUT calls `configure_stamp` with the stored XML's bytes and/or `configure_cancellation` with the UUID (409 `fiscal_document.not_stamped` without one);
+  - POST calls `answer_as_receiver`, mapping the library's `PacRejected` code `SIM01`, or no UUID, to 409 `fiscal_document.nothing_to_refresh`;
+  - other library errors go through the adapter's mapping to `pac.rejected`, `pac.unavailable` or `pac.timeout`.
+
+  Remove `next_stamp` and `next_cancellation` from `PacSimulationResponse` in `app/schemas/fiscal.py`. Make T025 pass.
+- [ ] T027 [US5] In `tests/integration/test_stamp_flow.py`, add the two-instance test of research R11 (SC-009). Build two `CfdiPacProvider`s over two `SimulatedPac` instances sharing one `DatabaseSimulatorStore` on the test database, then fire 20 concurrent stamp requests for one sealed document, alternating providers, each in its own session. Assert:
+  - exactly one simulator stamp call (count the adapter's log line, or wrap the store and count the `seal:` writes that create a stamp);
+  - every request answered with the issued document or 409 `fiscal_document.stamping`;
+  - one UUID on the document, and one `uuid:` key in the store.
+
+  If SQLite can't hold the row locks the test needs, follow how spec 039's SC-002 test is written in this file. (FR-024)
+- [ ] T028 [P] [US5] Update the docs:
+  - `docs/specs/10-fiscal-documents.md`'s "The simulator" paragraph: the library's simulator, RFC `SIM010101SI0`, state in `pac_simulator_store`, outcomes set after the seal or stamp, the response without `next_*`, `not_cancellable` permanent;
+  - `docs/data-dictionary.md`: replace the `pac_simulation` entry with `pac_simulator_store` (API-only, migration 036), and note that 036 dropped `pac_simulation`.
+
+**Checkpoint**: all five stories complete offline.
 
 ---
 
-## Phase 8: Live tests (FR-024)
+## Phase 8: Live tests (FR-029)
 
-- [ ] T024 [P] Create `tests/live/__init__.py` and `tests/live/test_multifacturas_live.py`, per research R8.
-  - **Multifacturas (module-level skip unless `MULTIFACTURAS_USER` and `MULTIFACTURAS_PASSWORD` are set):** build `MultifacturasProvider` in test mode (`production=False`), and seal an invoice with SAT's test CSD (EKU9003173C9) using the existing sealing fixtures and helpers of `tests/unit/test_cfdi_invoice.py`.
-    - **Stamp twice:** the second answer has the same UUID.
-    - **Cancel with reason 02:** `PacRejected` with code `205`.
-  - **SAT status (skip unless `SAT_LIVE_VALID` and `SAT_LIVE_CANCELLED` are set):** each holds `issuer|recipient|uuid|total`, and `query_status` returns `valid` and `cancelled` respectively.
-  - **Never print** the variables' values.
+- [ ] T029 [P] Create `tests/integration/test_multifacturas_live.py` per research R8.
+  - **Multifacturas (skip unless `MULTIFACTURAS_USER` and `MULTIFACTURAS_PASSWORD` are set):** `CfdiPacProvider` over `MultifacturasPac` in test mode, with an invoice sealed with SAT's test CSD (EKU9003173C9) using the helpers in `tests/unit/test_cfdi_invoice.py`.
+    - **Stamp twice:** the same UUID.
+    - **Cancel with reason 02:** record the answer; 205 expected, not asserted hard.
+  - **SAT status (skip unless `SAT_LIVE_VALID` and `SAT_LIVE_CANCELLED` are set):** each holds `issuer|recipient|uuid|total`, and the answers are `valid` and `cancelled` over `SatConsultaClient`.
+  - **Never print** the variables.
 
-  Confirm that the default suite (no variables) collects and skips these tests.
+  Confirm that the default suite skips the module.
 
 ---
 
 ## Phase 9: Polish, deploy and walk
 
-- [ ] T025 [P] Update `docs/specs/10-fiscal-documents.md` §2b (the PAC section):
-  - the Multifacturas provider and its configuration;
-  - resolution by resubmission;
-  - the 72-hour wait;
-  - production stays `none` until #57;
-  - the cutover checks of spec.md.
-
-  Add a `CHANGELOG.md` entry for spec 040 (Added: the provider, settings and startup checks; Changed: the simulator RFC, refresh resubmission and the 72-hour wait), in the file's existing format.
-- [ ] T026 Run the final gate:
-  - the full offline suite;
-  - `uv run ruff check app/ migrations/ tests/`;
-  - format the touched files that origin had formatted;
-  - search `git diff origin/main` for credentials and CSD material (SC-005): no password, no key or certificate bytes, and no PAC payload in fixtures.
+- [ ] T030 Run the final gate:
+  - `docs/specs/10-fiscal-documents.md` §2b: the adapter, Multifacturas' configuration, resubmission, the 72-hour wait, production stays `none` until #57, and the cutover checks;
+  - a `CHANGELOG.md` entry for spec 040, in its existing format. Added: the Multifacturas provider, settings, startup checks and `pac_simulator_store`. Changed: the library's simulator replaces mbe-api's, the simulator routes' response, refresh resubmission and the 72-hour wait. Removed: `pac_simulation`;
+  - the full offline suite and ruff;
+  - format the touched files whose origin version was formatted;
+  - search `git diff origin/main` for credentials and CSD material (SC-005).
 
   Commit on the spec branch.
-- [ ] T027 **Deploy (needs the user's confirmation for each step)**:
+- [ ] T031 **Deploy (each step needs the user's confirmation)**:
   1. Add xolotl `mictlanix`'s `~/.ssh/id_ed25519.pub` as a read-only deploy key on mictlanix/cfdi, and check `ssh -T git@github.com` from xolotl.
-  2. Run migration 035 on mbe_dev, read-only check before and after: 17 documents and the `pac_simulation` rows carry `SIM010101SI0`, and none carries the old value.
-  3. Deploy the branch to dev :8765 (pre-authorized) and to test :8766 in the same step. Both run `uv sync` successfully.
-  4. Check a simulated document's detail still says `stamp.simulated` true.
-- [ ] T028 **Test configuration (needs the user's confirmation, and the user's answer on whether the walk runs on test or dev; mbe-ui#274 uses the simulator's controls)**:
-  - set `PAC_PROVIDER=multifacturas`, `MULTIFACTURAS_USER`, `MULTIFACTURAS_PASSWORD` (from the user) and `MULTIFACTURAS_PRODUCTION=false` in that instance's `.env`, then restart;
+  2. Run migration 036 on mbe_dev. Afterwards, check read-only that no `fiscal_document` or `fiscal_document_xml` row carries `SIM010101SIM`, that `pac_simulator_store` exists, and that `pac_simulation` is gone.
+  3. In the same step, deploy the branch to dev :8765 (pre-authorized) and test :8766. Both run `uv sync`.
+  4. Check on dev that an old simulated document still reads `stamp.simulated` true.
+- [ ] T032 **Test configuration (needs the user's confirmation)**:
+  - in test's `.env`, set `PAC_PROVIDER=multifacturas`, `MULTIFACTURAS_USER`, `MULTIFACTURAS_PASSWORD` (from the user) and `MULTIFACTURAS_PRODUCTION=false`, keeping `APP_ENV=staging`, then restart;
   - check that a start with `MULTIFACTURAS_PRODUCTION=true` is refused;
-  - check that the journal shows no credential (SC-006, SC-005).
-- [ ] T029 **Walk (SC-001, SC-002)**, following quickstart.md §4:
-  - stamp an invoice, a payment receipt and a credit note;
-  - cancel each with 02, and with 01 plus a substitute;
-  - fill quickstart's table with each UUID, provider RFC, PDF mark and the PAC's answer.
+  - check that the journal shows no credential;
+  - check that the simulator routes answer 404 on test.
 
-  If test mode refuses a real issuer's CSD, record the answer and ask the user about the fallback in research R9 before any write.
-- [ ] T030 Run the live tests (T024) with the user's credentials and two UUIDs of the current system chosen read-only from mbe_dev. Record the outcome in quickstart.md §2 without the values (SC-004).
+  (SC-005, SC-006, SC-007)
+- [ ] T033 **Simulated scenarios on dev (SC-008)**: drive every row of quickstart.md §5 through dev's routes, and record each outcome there.
+- [ ] T034 **Walk on test (SC-001, SC-002)**, per quickstart.md §4:
+  - stamp an invoice, a payment receipt and a credit note, plus one substitute of each;
+  - cancel each original with 02, then with 01 and its substitute;
+  - fill the table.
+
+  If test mode refuses a real issuer's CSD, record it and ask the user about research R9's fallback before any write.
+- [ ] T035 Run the live tests (T029) with the user's credentials and two UUIDs of the current system, chosen read-only from mbe_dev. Record the outcome in quickstart.md §2 without the values (SC-004).
+- [ ] T036 Update the UI handoff, mictlanix/mbe-ui#274 (FR-026), with a comment that lists:
+  - the simulator routes' new response, without `next_stamp` and `next_cancellation`;
+  - cancellation outcomes only after the stamp (409 `fiscal_document.not_stamped`);
+  - stamp outcomes after the last seal;
+  - `not_cancellable` now permanent;
+  - the provider RFC `SIM010101SI0`;
+  - that test now runs the real PAC in test mode, so the simulated scenarios run on dev.
+
+  Post it only after the user confirms the text, because it's outward-facing.
 
 ---
 
@@ -287,62 +313,53 @@
 
 ### Phase Dependencies
 
-- **Setup (Phase 1):**
+- **Setup:**
   - T001, then T002 (the gate);
   - T003 is independent.
-- **Foundational (Phase 2):** after T002. It blocks every story.
-- **User stories:**
-  - **US1:** after Phase 2.
-  - **US2:** after US1, because it needs `MultifacturasProvider.stamp` (T008) for T013. T011 and T012 need only T004.
-  - **US3:** after T008, since it shares the provider file. T016 and T017 are independent of the provider.
-  - **US4:** after T005.
-  - **US5:** after Phase 2, independent of the others.
-- **Live tests (Phase 8):** after US1 and US3.
-- **Polish:** T025 and T026 come after all stories. T027–T030 run in order, each with the user's confirmation.
-
-### Within each story
-
-The tests are written first and fail, then the implementation makes them pass.
+- **Foundational:** after T002.
+  - T004 and T005 come first;
+  - then T007 and T008, the adapter, which every story needs;
+  - T006 is independent.
+- **US1:** after T008.
+- **US2:** T011 and T012 need only T004. T013 needs T010's scripted client.
+- **US3:** T014 comes after T011, in the same file. T016 needs T008.
+- **US4:** after T005.
+- **US5:**
+  - T019, T020, T021 and T022 come first, with T022 needing T020;
+  - then T023, which deletes the old simulator;
+  - then T024 and T025/T026 (these two in that order);
+  - then T027.
+  - The other stories don't depend on US5. T023 breaks every test that still imports `app.services.pac.simulated` until T024 lands, so run T023 and T024 together.
+- **Live tests:** after T008.
+- **Polish:** T030 after all stories. T031–T036 in order, each with the user's confirmation where marked.
 
 ### Parallel Opportunities
 
 | Phase | Tasks that can run together |
 |---|---|
 | 1 | T003 ∥ T001 |
-| 2 | T006 ∥ T004 / T005 |
-| US1 | T007 ∥ T004's follow-ups |
-| US2 | T011 ∥ T013's setup. T011 and US3's T016 both edit `tests/unit/test_fiscal_stamping.py`, so run them one after the other |
-| US3 | T014 ∥ T016 |
+| 2 | T006 ∥ T004 / T005; T007 ∥ T005 |
 | US4 | all of it ∥ US2 and US3 |
-| US5 | T022 ∥ T023 ∥ T021 |
-
----
-
-## Parallel Example: User Story 3
-
-```text
-Task: "T014 Extend tests/unit/test_pac_multifacturas.py with cancellation and status translation"
-Task: "T016 72-hour cases in tests/unit/test_fiscal_stamping.py"
-```
-
----
+| US5 | T019 ∥ T021 ∥ T028 |
+| Live tests | T029 ∥ US2–US5 once T008 is done |
+| Same file | T011 and T014 share `tests/unit/test_fiscal_stamping.py`; T010, T013, T024 and T027 share `tests/integration/test_stamp_flow.py`. Run each group one after the other. |
 
 ## Implementation Strategy
 
 ### MVP
 
-1. **Phase 1–2.**
-2. **US1 and US2:** stamping with Multifacturas, and recovery without a second UUID. That completes #46 offline.
+1. **Phases 1–2:** the dependency and the adapter.
+2. **US1 and US2:** Multifacturas stamping and its recovery, which completes #46 offline.
 
 ### Incremental delivery
 
 1. **US3:** cancellation and the 72-hour wait, which completes #51.
-2. **US4:** the startup safety checks. These are required before any server is configured with Multifacturas.
-3. **US5:** the simulator's RFC and migration 035.
-4. **Then:** the live tests, the deploy (T027), test's configuration (T028) and the walk (T029–T030).
+2. **US4:** the startup checks, required before any server runs Multifacturas.
+3. **US5:** the library's simulator, the store, the routes and migration 036. It must land before deploying, because dev runs the simulator.
+4. **Then:** the live tests, the deploy (T031), test's configuration (T032), the scenarios on dev (T033), the walk (T034–T035) and the handoff update (T036).
 
 ### Notes
 
-- **Commits:** commit after each phase on `040-real-pac`. Spec-branch commits are pre-authorized.
-- **Confirmation:** nothing in T027–T030 runs without the user's confirmation, except deploying the branch to dev.
+- **Commits:** commit after each phase on `040-real-pac`; spec-branch commits are pre-authorized.
+- **Confirmation:** only deploying the branch to dev runs without confirmation. Migration 036, the test deploy, test's `.env`, the deploy key and the mbe-ui comment each need it.
 - **Credentials:** never write credentials, CSD passwords or live UUIDs into files.
