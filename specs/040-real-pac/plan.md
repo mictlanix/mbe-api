@@ -51,7 +51,7 @@ Settings select the provider and refuse unsafe combinations at startup (R6). Pro
 | I. Simplicity First | One adapter for both providers. One contract attribute. A key-value store with `get` and `set` only. No settings for SAT's client. No catch-all handler. The simulator's behavior is not rebuilt in mbe-api. | Pass |
 | II. Think Before Coding | Assumptions A1–A6, the cutover checks, the behavior differences of the library's simulator (spec Overview) and the walk's fallback (R9) are stated. | Pass |
 | III. Surgical Changes | `fiscal_stamping` changes only in the refresh's stamping branch and the `valid`/`none` case of `_apply_status`. The simulator routes keep their paths and bodies. | Pass |
-| IV. Goal-Driven Execution | Each FR maps to an offline test. SC-001/002 map to the recorded walk, SC-008 to the scenarios on dev, and SC-009 to the concurrency test. | Pass |
+| IV. Goal-Driven Execution | Each FR maps to an offline test. SC-001/002 map to the recorded walk, SC-008 to the scenarios on dev, and SC-009 to the deterministic offline test plus the live run on dev. | Pass |
 | V. Reuse Over Rebuild | Reuses the library's clients and simulators, spec 039's guard, grace, `_clear_marker` and `_store_stamp`, and the existing error codes. The new dependency is declared in FR-001. It removes mbe-api's own simulator. | Pass; additions listed below |
 | VI. Async-First | The adapter and store are `async` and use `AsyncSession`; the library offloads Multifacturas' blocking I/O to a thread. | Pass |
 | VII. Security by Default | No new endpoint. The password is a `SecretStr`, and every `repr` hides it. Errors are raised `from None`. Startup ties the mode to `APP_ENV`, and the simulator stays refused in production. | Pass |
@@ -104,7 +104,7 @@ tests/unit/test_fiscal_stamping.py       # resubmission outcomes; 72 h cases
 tests/unit/test_fiscal_schemas.py, test_fiscal_document_service.py, test_print_contexts.py, test_pac_provider.py
 tests/api/test_pac_simulator.py          # every route rule (contracts/simulator-controls.md)
 tests/integration/test_stamp_flow.py, test_cancel_flow.py, test_resolve_job.py,
-    test_fiscal_stamping_http.py, test_print_render.py      # over the library's simulator; two-instance test
+    test_fiscal_stamping_http.py, test_print_render.py      # over the library's simulator; deterministic two-instance test
 tests/integration/test_multifacturas_live.py               # NEW, opt-in
 .env.example, README.md, CHANGELOG.md, docs/specs/10-fiscal-documents.md, docs/data-dictionary.md
 ```

@@ -292,7 +292,9 @@ A tester on dev drives every simulated scenario through the same `/pac-simulator
 - **SC-006**: Every combination in FR-018 starts or refuses as specified.
 - **SC-007**: After deploy, dev's `.env` names the library's simulator and test's names Multifacturas in test mode. Production's `.env` names `none` explicitly before any production deploy of this code.
 - **SC-008**: On dev, every scenario of quickstart's "Driving each scenario" reaches its listed outcome through the simulator routes.
-- **SC-009**: With two simulator instances on one store, 20 concurrent stamp requests for one document produce exactly one stamp call to the simulator and one UUID.
+- **SC-009**: No document is stamped twice across simulator instances. Two proofs:
+  - **Offline:** while one instance's stamp is held inside the simulator, a stamp request through a second instance on the same store answers 409 `fiscal_document.stamping` without calling the simulator, and the document ends with one UUID.
+  - **On dev (MariaDB, real row locks):** 20 concurrent stamp requests for one document from two processes produce exactly one simulator stamp call and one UUID.
 
 ## Assumptions
 

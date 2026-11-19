@@ -15,7 +15,7 @@ uv run ruff check app/ migrations/ tests/
 - the resubmission in each outcome (R4, SC-003);
 - the 72-hour wait (R5);
 - each startup refusal (SC-006);
-- the database store and the two-instance concurrency test (R10, R11, SC-009);
+- the database store, and the deterministic two-instance test, where one stamp is held while a second instance is refused (R10, R11 part 1, SC-009);
 - every simulator route rule (contracts/simulator-controls.md).
 
 ## 2. Live tests (opt-in)
@@ -80,6 +80,7 @@ The values are given on the command line and never committed.
 | Timeout on cancel | `stamp` → `PUT …{cancellation:"timeout"}` → `cancel` → 504, cancellation_pending → `refresh` → pending (SAT has it) | The same |
 
 - **No scenario is dropped**, and none needs a change in mictlanix/cfdi.
+- **Concurrency on MariaDB (SC-009, R11 part 2):** 20 concurrent stamps from two processes, with one simulator stamp call and one UUID expected. _Result: pending._
 - **A stamp outcome while the document is `stamping`** answers 409 `fiscal_document.stamping`. Set it before the stamp, or after the refresh.
 - **`GET …` and every `PUT` or `POST` response** now return only `uuid`, `sat_status` and `cancellation_status`, without `next_stamp` and `next_cancellation`.
 

@@ -249,12 +249,20 @@ CfdiPacProvider(pac: PacClient, sat: SatStatusClient, *, name: str, resolves_by_
 
 So at most one `stamp` call per document is in flight at any time, whatever the number of instances. Two instances of the library's simulator never stamp the same seal concurrently. The one other writer of a seal record, the `PUT {stamp}` route, refuses while the document is `stamping` (R12).
 
-**Proof by test (SC-009)**: `tests/integration/test_stamp_flow.py` gains a test that:
-- builds two `CfdiPacProvider`s over two `SimulatedPac` instances, which share one `DatabaseSimulatorStore` on the test database;
-- fires 20 concurrent stamp requests for one sealed document, alternating providers, each in its own session;
-- asserts exactly one 200 path through the PAC: one simulator stamp call, counted through the adapter's log line or a counting store wrapper;
-- asserts every other request answered 200 with the issued document or 409 `fiscal_document.stamping`;
-- asserts one UUID on the document and one `uuid:` key in the store.
+**Proof (SC-009), in two parts.** The offline suite can't race real transactions. Its database is one SQLite file on a single shared connection (`StaticPool`, `tests/integration/conftest.py`), and SQLite ignores `SELECT … FOR UPDATE`. A burst of concurrent requests there would not test the row lock. So:
+
+1. **Offline, deterministic** (`tests/integration/test_stamp_flow.py`). It proves the marker logic across instances, which is the part that lives in code.
+   - **Setup:** two `CfdiPacProvider`s over two `SimulatedPac` instances share one `DatabaseSimulatorStore`. The store is wrapped so that its first `set` of a `seal:` key waits on an `asyncio.Event`.
+   - **The first request:** a stamp through provider A runs until it is held inside the simulator. The document is then `stamping`, committed.
+   - **The second request:** a stamp through provider B answers 409 `fiscal_document.stamping` and never calls B's simulator.
+   - **After release:** releasing the event lets A finish. Assert the document is issued with one UUID, the store holds one `seal:` and one `uuid:` record, and there is one `pac simulator: stamp call` line.
+2. **Live on dev**, where MariaDB holds real row locks (T033, with the user's confirmation, since it stamps a dev document). Twenty concurrent stamp requests for one freshly sealed document come from two processes: half over HTTP to dev's API, half from a script in `/var/www/mbe-api-dev` that calls `fiscal_stamping.stamp` with its own simulator instance. Assert:
+   - exactly one `pac simulator: stamp call` line across both processes' output;
+   - one new `uuid:` row in `pac_simulator_store`;
+   - one UUID on the document;
+   - every request answered with the issued document or 409.
+
+Spec 039's SC-002 was verified the same way, on test against MariaDB.
 
 ## R12. The simulator routes over the library (FR-025)
 

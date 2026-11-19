@@ -168,7 +168,7 @@
 
 **Independent Test**: Every combination starts or refuses as the table says, naming settings, never values.
 
-- [ ] T017 [P] [US4] In `tests/unit/test_pac_settings.py`, following its env isolation (commit 0795063), parametrize every row of contracts/configuration.md "Startup refusals":
+- [ ] T017 [US4] In `tests/unit/test_pac_settings.py`, following its env isolation (commit 0795063), parametrize every row of contracts/configuration.md "Startup refusals":
   - an unset `PAC_PROVIDER` refuses, naming it;
   - `PAC_PROVIDER=none` passes, and `get_pac_provider()` returns None;
   - the valid combinations pass: `multifacturas` with test mode and `APP_ENV` staging or development, and with production mode and `APP_ENV=production`; `simulated` outside production;
@@ -247,12 +247,16 @@
   - other library errors go through the adapter's mapping to `pac.rejected`, `pac.unavailable` or `pac.timeout`.
 
   Remove `next_stamp` and `next_cancellation` from `PacSimulationResponse` in `app/schemas/fiscal.py`. Make T025 pass.
-- [ ] T027 [US5] In `tests/integration/test_stamp_flow.py`, add the two-instance test of research R11 (SC-009). Build two `CfdiPacProvider`s over two `SimulatedPac` instances sharing one `DatabaseSimulatorStore` on the test database, then fire 20 concurrent stamp requests for one sealed document, alternating providers, each in its own session. Assert:
-  - exactly one simulator stamp call (count the adapter's log line, or wrap the store and count the `seal:` writes that create a stamp);
-  - every request answered with the issued document or 409 `fiscal_document.stamping`;
-  - one UUID on the document, and one `uuid:` key in the store.
+- [ ] T027 [US5] In `tests/integration/test_stamp_flow.py`, add the deterministic two-instance test of research R11, part 1 (SC-009). The test database is SQLite on one shared connection, so the test holds a stamp in place instead of racing.
+  - **Setup:** wrap one `DatabaseSimulatorStore` so that its first `set` of a `seal:` key awaits an `asyncio.Event`. Build two `CfdiPacProvider`s over two `SimulatedPac` instances on that wrapped store.
+  - **Start A:** start a stamp through provider A as a task, and wait until it is held, with the document `stamping`.
+  - **Then B:** a stamp through provider B, in its own session, answers 409 `fiscal_document.stamping`, and B's simulator is never called (spy on its `stamp`).
+  - **After release:** set the event and await A. Then assert:
+    - the document is issued with one UUID;
+    - the store holds one `seal:` and one `uuid:` record;
+    - exactly one `pac simulator: stamp call` line was logged (`caplog`).
 
-  If SQLite can't hold the row locks the test needs, follow how spec 039's SC-002 test is written in this file. (FR-024)
+  (FR-024)
 - [ ] T028 [P] [US5] Update the docs:
   - `docs/specs/10-fiscal-documents.md`'s "The simulator" paragraph: the library's simulator, RFC `SIM010101SI0`, state in `pac_simulator_store`, outcomes set after the seal or stamp, the response without `next_*`, `not_cancellable` permanent;
   - `docs/data-dictionary.md`: replace the `pac_simulation` entry with `pac_simulator_store` (API-only, migration 036), and note that 036 dropped `pac_simulation`.
@@ -297,7 +301,15 @@
   - check that the simulator routes answer 404 on test.
 
   (SC-005, SC-006, SC-007)
-- [ ] T033 **Simulated scenarios on dev (SC-008)**: drive every row of quickstart.md §5 through dev's routes, and record each outcome there.
+- [ ] T033 **Simulated scenarios on dev (SC-008, SC-009); needs the user's confirmation, since it writes dev documents**:
+  1. Drive every row of quickstart.md §5 through dev's routes, and record each outcome there.
+  2. Run the live concurrency check of research R11, part 2, on one freshly sealed dev document. Twenty concurrent stamp requests: ten over HTTP to dev :8765 and ten from a script in `/var/www/mbe-api-dev` calling `fiscal_stamping.stamp` with its own `SimulatedPac` instance. Assert:
+     - one `pac simulator: stamp call` line across dev's log (`tmux capture-pane`) and the script's output;
+     - one new `uuid:` row in `pac_simulator_store`, checked read-only;
+     - one UUID on the document;
+     - every answer either the issued document or 409.
+
+     Record the counts in quickstart.md §5.
 - [ ] T034 **Walk on test (SC-001, SC-002)**, per quickstart.md §4:
   - stamp an invoice, a payment receipt and a credit note, plus one substitute of each;
   - cancel each original with 02, then with 01 and its substitute;
@@ -347,10 +359,10 @@
 |---|---|
 | 1 | T003 ∥ T001 |
 | 2 | T006 ∥ T004 / T005; T007 ∥ T005 |
-| US4 | all of it ∥ US2 and US3 |
+| US4 | T017–T018 ∥ US2 and US3, after T009's edit to `test_pac_settings.py` |
 | US5 | T019 ∥ T021 ∥ T028 |
 | Live tests | T029 ∥ US2–US5 once T008 is done |
-| Same file | T011 and T014 share `tests/unit/test_fiscal_stamping.py`; T010, T013, T024 and T027 share `tests/integration/test_stamp_flow.py`. Run each group one after the other. |
+| Same file | Run each group one after the other: T011 and T014 share `tests/unit/test_fiscal_stamping.py`; T010, T013, T024 and T027 share `tests/integration/test_stamp_flow.py`; T009, T017 and T023 share `tests/unit/test_pac_settings.py`. |
 
 ## Implementation Strategy
 
