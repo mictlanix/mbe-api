@@ -1,10 +1,10 @@
 """The PAC provider contract (spec 039, research R4): what the API needs from a PAC.
 
-The API owns this interface; the simulated provider implements it now and the real PAC client
-(mictlanix/mbe-roadmap#160) will later, with nothing outside `app/services/pac/` changing. Every
-operation either returns its result or raises one of the errors below, and the API never parses a
-provider's error text. An implementation must not put credentials, CSD material or raw PAC
-payloads in an exception message or a log.
+The API owns this interface. Its one implementation is `adapter.CfdiPacProvider` over the CFDI
+library (mictlanix/cfdi, spec 040): the library's Multifacturas and SAT clients, or its simulator.
+Every operation either returns its result or raises one of the errors below, and the API never
+parses a provider's error text. An implementation must not put credentials, CSD material or raw
+PAC payloads in an exception message or a log.
 """
 
 from dataclasses import dataclass
@@ -13,8 +13,8 @@ from decimal import Decimal
 from enum import StrEnum
 from typing import Literal, Protocol
 
-#: The provider RFC only the simulator writes into a stamp.
-SIMULATED_PAC_RFC = 'SIM010101SIM'
+# The provider RFC only the simulator writes into a stamp: the library simulator's (spec 040).
+from mictlanix.cfdi.pac import SIMULATED_PAC_RFC as SIMULATED_PAC_RFC
 
 
 @dataclass(frozen=True)
@@ -90,6 +90,11 @@ class PacTimeout(PacError):
 
 
 class PacProvider(Protocol):
+    #: True when the PAC cannot look a stamp up but answers a resubmission of the same sealed
+    #: document with the stamp it already issued. Refresh then resolves a document left
+    #: `stamping` by calling `stamp` again with the stored sealed XML, never `find_stamp`.
+    resolves_by_resubmitting: bool
+
     async def stamp(self, sealed_xml: str) -> Stamp:
         """Stamp a sealed CFDI. A document the PAC already stamped (SAT 307) returns its existing
         stamp rather than raising."""

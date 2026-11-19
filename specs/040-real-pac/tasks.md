@@ -43,19 +43,19 @@
 
 **⚠️ CRITICAL**: No user story work can begin until this phase is complete.
 
-- [ ] T004 In `app/services/pac/provider.py`:
+- [X] T004 In `app/services/pac/provider.py`:
   - add `resolves_by_resubmitting: bool` to the `PacProvider` protocol, with the docstring from contracts/pac-provider.md §1;
   - replace `SIMULATED_PAC_RFC = 'SIM010101SIM'` with a re-export of `mictlanix.cfdi.pac.SIMULATED_PAC_RFC`;
   - update the module docstring: the library is the one implementation, through `adapter.py`.
 
   In `tests/fakes/pac.py`, give `ScriptedPac` an instance attribute `resolves_by_resubmitting = False` that tests may set to True, and update its docstring's mention of `SIM010101SIM`. (research R2, R4)
-- [ ] T005 Add the settings from contracts/configuration.md to `app/core/config.py`:
+- [X] T005 Add the settings from contracts/configuration.md to `app/core/config.py`:
   - widen `pac_provider` to `Literal['none', 'simulated', 'multifacturas'] | None = None`. There is no default PAC: `None` means not configured, and T018 refuses it at startup;
   - add `multifacturas_user: str | None = None`, `multifacturas_password: SecretStr | None = None`, `multifacturas_production: bool = False`, `multifacturas_url: str = 'https://ws.multifacturas.com'`, `multifacturas_connect_timeout: float = 10.0` and `multifacturas_read_timeout: float = 60.0`;
   - update the comment above `app_env`, whose "step 3 adds the real provider" is now done.
   (research R6)
-- [ ] T006 [P] Document the new variables in `.env.example` next to `PAC_PROVIDER`. Keep `PAC_PROVIDER=none` there, and comment that every instance's `.env` must name its PAC explicitly or it will not start. Use placeholders only, and comment that `MULTIFACTURAS_PRODUCTION` must be `true` exactly when `APP_ENV=production`. (contracts/configuration.md)
-- [ ] T007 [P] Create `tests/unit/test_pac_adapter.py`, testing `CfdiPacProvider` (contracts/pac-provider.md §3) over the library's `SimulatedPac()` (in-memory store) and `SimulatedSatStatusClient(pac)`, plus an in-file scripted fake for what the simulators can't produce. It covers every row of research R3:
+- [X] T006 [P] Document the new variables in `.env.example` next to `PAC_PROVIDER`. Keep `PAC_PROVIDER=none` there, and comment that every instance's `.env` must name its PAC explicitly or it will not start. Use placeholders only, and comment that `MULTIFACTURAS_PRODUCTION` must be `true` exactly when `APP_ENV=production`. (contracts/configuration.md)
+- [X] T007 [P] Create `tests/unit/test_pac_adapter.py`, testing `CfdiPacProvider` (contracts/pac-provider.md §3) over the library's `SimulatedPac()` (in-memory store) and `SimulatedSatStatusClient(pac)`, plus an in-file scripted fake for what the simulators can't produce. It covers every row of research R3:
   - **Stamp:** str → bytes, with a byte check that the client received `sealed_xml.encode('utf-8')`; `uuid`, `sat_seal`, `sat_certificate` and `provider_rfc`; `stamped_at` naive in Mexico City time; `xml` as str.
   - **`find_stamp`:** the simulator's existing stamp, and None for an unknown document.
   - **Cancellation:** `request_cancellation` with `csd.password` decoded, `Csd.key` → `private_key`, and `substitution` → `substitute_uuid`. `ACCEPTED`, `PENDING` and `NOT_CANCELLABLE` come back by name. A `ValidationError` (reason `01` without a substitute) becomes `PacRejected` with the first violation's rule.
@@ -65,7 +65,7 @@
   - **`repr` and messages:** no sentinel password or CSD password appears.
 
   Seal the input with the existing helpers and SAT test CSD (EKU9003173C9) from `tests/unit/test_cfdi_invoice.py`. For the simulator's outcomes, use `configure_stamp` and `configure_cancellation` (read `mictlanix/cfdi/pac/simulated.py` in the installed package for their signatures).
-- [ ] T008 Create `app/services/pac/adapter.py` with `CfdiPacProvider(pac, sat, *, name, resolves_by_resubmitting)`, per contracts/pac-provider.md §3 and research R3:
+- [X] T008 Create `app/services/pac/adapter.py` with `CfdiPacProvider(pac, sat, *, name, resolves_by_resubmitting)`, per contracts/pac-provider.md §3 and research R3:
   - every method translates values, and errors with `raise … from None`;
   - `stamp` logs the WARNING line, reading issuer, `Serie` and `Folio` from the sealed XML with lxml;
   - `__repr__` delegates to the clients.

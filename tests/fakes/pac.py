@@ -2,7 +2,7 @@
 
 Results and raised errors are queued per operation (`queue('stamp', PacTimeout())`); an empty queue
 falls back to a plain default, so a flow that scripts nothing still runs. Calls are counted per
-operation. The stamps it issues carry a provider RFC other than `SIM010101SIM`, so a print of one
+operation. The stamps it issues carry a provider RFC other than `SIM010101SI0`, so a print of one
 is never taken for simulated.
 """
 
@@ -24,6 +24,8 @@ OPERATIONS = ('stamp', 'find_stamp', 'request_cancellation', 'query_status')
 
 class ScriptedPac:
     def __init__(self) -> None:
+        # True to act as a PAC that resolves a timed-out stamp by resubmission (spec 040, R4).
+        self.resolves_by_resubmitting = False
         self.queues: dict[str, deque] = defaultdict(deque)
         self.calls: Counter[str] = Counter()
         self.stamped: dict[str, Stamp] = {}  # by the sealed XML's `Sello`

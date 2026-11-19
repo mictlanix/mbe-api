@@ -3,6 +3,7 @@ from decimal import Decimal
 from typing import Literal
 from zoneinfo import ZoneInfo
 
+from pydantic import SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from app.enums import CurrencyCode
@@ -122,11 +123,20 @@ class Settings(BaseSettings):
     # Where customer replies go, e.g. a sales inbox; `mail_from` is usually a no-reply address.
     mail_reply_to: str = ''
 
-    # CFDI stamping and cancellation (spec 039). `app_env` fails closed: an instance that forgets it
-    # is treated as production, where the simulated PAC must never run (R5). `pac_provider` `none`
-    # answers stamp, cancel and refresh with `pac.not_configured`; step 3 adds the real provider.
+    # CFDI stamping and cancellation (specs 039, 040). `app_env` fails closed: an instance that
+    # forgets it is treated as production, where the simulated PAC must never run (R5). The PAC in
+    # use is set explicitly in each `.env` and has no default: None means not configured, and
+    # `check_pac_settings` refuses it at startup. `none` answers stamp, cancel and refresh with
+    # `pac.not_configured`.
     app_env: Literal['development', 'staging', 'production'] = 'production'
-    pac_provider: Literal['none', 'simulated'] = 'none'
+    pac_provider: Literal['none', 'simulated', 'multifacturas'] | None = None
+    # The Multifacturas account and connection (spec 040, research R6). Never logged.
+    multifacturas_user: str | None = None
+    multifacturas_password: SecretStr | None = None
+    multifacturas_production: bool = False
+    multifacturas_url: str = 'https://ws.multifacturas.com'
+    multifacturas_connect_timeout: float = 10.0
+    multifacturas_read_timeout: float = 60.0
 
 
 def check_pac_settings(config: Settings) -> None:
