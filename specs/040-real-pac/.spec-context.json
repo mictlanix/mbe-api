@@ -1,0 +1,23 @@
+{
+  "workflow": "speckit",
+  "specName": "Connect stamping and cancellation to the real PAC",
+  "branch": "040-real-pac",
+  "currentStep": "specify",
+  "status": "specified",
+  "history": [
+    {
+      "step": "specify",
+      "substep": null,
+      "kind": "start",
+      "by": "extension",
+      "at": "2026-11-19T01:23:46.000Z"
+    },
+    {
+      "step": "specify",
+      "substep": null,
+      "kind": "complete",
+      "by": "extension",
+      "at": "2026-11-19T01:36:10.114Z"
+    }
+  ]
+}
