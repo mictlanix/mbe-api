@@ -34,6 +34,7 @@ DESCRIBED = [
     ('OutstandingOrderResponse', 'customer_display_name', "customer's own name"),
     ('DeliveryOrderSummary', 'customer_display_name', "customer's own name"),
     ('PendingDeliveryLine', 'customer_display_name', "customer's own name"),
+    ('ItineraryStopResponse', 'customer_display_name', "customer's own name"),
     ('SalesOrderCreate', 'fulfillment_intent', 'never recorded'),
     ('SalesOrderUpdate', 'fulfillment_intent', 'never recorded'),
     ('SalesOrderResponse', 'fulfillment_intent', 'never recorded'),

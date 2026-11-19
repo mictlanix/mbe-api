@@ -255,3 +255,23 @@ async def test_confirm_reads_the_cancellation_from_the_locked_invoice(prepare, c
     assert caught.value.code == code
     [lock] = [s for s in session.statements if s._for_update_arg is not None]
     assert lock.get_execution_options().get('populate_existing') is True
+
+
+class TestUsageFitsTheColumn:
+    """#341: a payment receipt's `CP01` overflowed the legacy `varchar(3)`, a 500 on MariaDB. SQLite
+    does not enforce a varchar length, so no flow test could see it; this compares the widths."""
+
+    def test_the_receipt_usage_fits_fiscal_document_usage(self) -> None:
+        from app.models.fiscal import FiscalDocument
+
+        assert len(svc.RECEIPT_USAGE) <= FiscalDocument.__table__.c.usage.type.length
+
+    def test_the_column_is_as_wide_as_the_usage_catalog(self) -> None:
+        """Any code `sat_cfdi_usage` holds can be written, not only the ones in use today."""
+        from app.models.fiscal import FiscalDocument
+        from app.models.sat_catalog import SatCfdiUsage
+
+        assert (
+            FiscalDocument.__table__.c.usage.type.length
+            == SatCfdiUsage.__table__.c.sat_cfdi_usage_id.type.length
+        )

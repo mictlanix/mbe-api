@@ -195,3 +195,45 @@ class TestRealCorpus:
         )
         assert 'UNIQUE KEY' in sql
         assert '`open_document`)' in sql
+
+    def test_035_is_discovered_and_ordered_after_034(self):
+        """#341. Not run on SQLite, which does not enforce a varchar length."""
+        versions = [m.version for m in discover(Path('migrations'))]
+        assert versions.index('035_fiscal_document_usage_width') > versions.index(
+            '034_cfdi_stamping_cancellation'
+        )
+        assert '035_fiscal_document_usage_width_rollback' not in versions
+
+    def test_035_widens_around_the_foreign_key(self):
+        """MariaDB refuses to change a column a foreign key uses (error 1832), so the key is
+        dropped first and re-added after, as it was."""
+        statements = split_statements(
+            Path('migrations/035_fiscal_document_usage_width.sql').read_text()
+        )
+        assert [s.split('`fiscal_document`', 1)[1].split()[0] for s in statements] == [
+            'DROP',
+            'MODIFY',
+            'ADD',
+        ]
+        assert 'MODIFY COLUMN `usage` VARCHAR(4) NULL' in statements[1]
+        assert 'ON DELETE NO ACTION ON UPDATE NO ACTION' in statements[2]
+
+    def test_036_is_discovered_and_ordered_after_035(self):
+        """#343. Not run on SQLite; the test schema comes from the models."""
+        versions = [m.version for m in discover(Path('migrations'))]
+        assert versions.index('036_itinerary_stop_delivery_order') > versions.index(
+            '035_fiscal_document_usage_width'
+        )
+        assert '036_itinerary_stop_delivery_order_rollback' not in versions
+
+    def test_036_adds_the_column_its_key_and_its_foreign_key(self):
+        """Nullable, with no backfill: the legacy synthetic stops mix orders and customers."""
+        statements = split_statements(
+            Path('migrations/036_itinerary_stop_delivery_order.sql').read_text()
+        )
+        assert len(statements) == 3
+        assert 'ADD COLUMN IF NOT EXISTS `delivery_order` INT(11) NULL' in statements[0]
+        assert 'ADD KEY IF NOT EXISTS' in statements[1]
+        assert 'FOREIGN KEY IF NOT EXISTS (`delivery_order`)' in statements[2]
+        assert 'REFERENCES `delivery_order` (`delivery_order_id`)' in statements[2]
+        assert not any(s.lstrip().upper().startswith('UPDATE') for s in statements)
