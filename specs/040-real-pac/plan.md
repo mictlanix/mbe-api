@@ -41,6 +41,7 @@ Settings select the provider and refuse unsafe combinations at startup (R6). Pro
   - no credentials, CSD material or raw payloads in code, tests, logs or errors;
   - the PAC in use is set explicitly in each instance's `.env`, with no default; production's says `none`;
   - dev and test share mbe_dev, so migration 036 and the restart of both go in one step.
+- **Verified:** the library accepts mbe-api's sealed invoices, credit notes and payment receipts, and its simulator stamps, deduplicates, looks up and cancels them as spec 039 expects (research R14).
 - **Scale/Scope:** five issuers that stamp; about 3,000 CFDIs per issuer per year (mbe_dev, 2025–2026).
 
 ## Constitution Check
@@ -66,7 +67,7 @@ Re-checked after Phase 1: no change.
 specs/040-real-pac/
 ├── spec.md
 ├── plan.md              # this file
-├── research.md          # R1–R13, R-legacy
+├── research.md          # R1–R14, R-legacy
 ├── data-model.md        # pac_simulator_store; dropped pac_simulation; values and transitions that change
 ├── quickstart.md        # offline suite, live tests, deploy, walk table, driving each scenario
 ├── contracts/

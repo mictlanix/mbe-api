@@ -275,6 +275,26 @@ Each scenario of spec 039's "Driving each scenario" has an equivalent in the lib
 
 Both are accepted as closer to SAT, and listed in the spec's Overview table. No scenario is dropped, and nothing needs asking in mictlanix/cfdi. The full list, with how each is driven now, is in quickstart.md §5.
 
+## R14. Checked against mbe-api's own sealed documents (2026-11-18)
+
+**Where it ran:** read-only, outside the repository, with the library at `4b41821` (its own environment).
+
+**Input:** three documents mbe-api sealed on mbe_dev, with their TFD removed:
+- invoice 63907 (type I);
+- credit note 63928 (type E);
+- payment receipt 63931 (type P, Pagos 2.0).
+
+**Results**
+- **The input check:** the library's check accepts all three.
+- **The library's `SimulatedPac` on each:**
+  - it stamps with `RfcProvCertif` `SIM010101SI0`;
+  - stamping the same sealed XML again returns the same UUID, and `find_stamp` returns it too;
+  - `FechaTimbrado` is naive (no `tzinfo`);
+  - SAT's simulated status reads `valid`, `without_acceptance` right after the stamp;
+  - a reason-02 cancellation with nothing chosen is `ACCEPTED`, after which the status reads `cancelled`/`accepted`. This is spec 039's 24-hour rule, and it agrees with R3 and R12.
+
+**Consequence:** no conversion of mbe-api's XML is needed before it reaches the library.
+
 ## R-legacy. The current system's configuration
 
 - **One global account.**
