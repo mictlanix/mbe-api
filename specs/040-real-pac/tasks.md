@@ -192,37 +192,37 @@
 
 **Goal**: `PAC_PROVIDER=simulated` uses the library's simulator over a database store. mbe-api's simulator is gone. The routes drive the library's simulator, and two instances never double-stamp.
 
-**Independent Test**: Every scenario of quickstart §5 passes through the routes. The two-instance test produces one UUID. Old simulated documents keep their mark after migration 036.
+**Independent Test**: Every scenario of quickstart §5 passes through the routes. The two-instance test produces one UUID. Old simulated documents keep their mark after migration 037.
 
 ### Store and migration
 
-- [ ] T019 [P] [US5] Create `migrations/036_pac_simulator_store.sql` and `migrations/036_pac_simulator_store_rollback.sql` per research R7, with a header comment in 034's style ("-- 036 … -- spec 040").
+- [X] T019 [P] [US5] Create `migrations/037_pac_simulator_store.sql` and `migrations/037_pac_simulator_store_rollback.sql` per research R7, with a header comment in 034's style ("-- 036 … -- spec 040").
   - **The migration:** create `pac_simulator_store` (`store_key VARCHAR(100) NOT NULL PRIMARY KEY`, `value MEDIUMTEXT NOT NULL`, `updated_at DATETIME NOT NULL`), using the table options 034 used for `pac_simulation`. Drop `pac_simulation`. Then `UPDATE fiscal_document_xml … SET data = REPLACE(data, 'RfcProvCertif="SIM010101SIM"', 'RfcProvCertif="SIM010101SI0"')` for the documents whose `rfc_pac` is `SIM010101SIM` (read `app/models/fiscal.py` for the key), then `UPDATE fiscal_document SET rfc_pac = 'SIM010101SI0' WHERE rfc_pac = 'SIM010101SIM'`.
   - **The rollback:** the reverse, recreating `pac_simulation` exactly as 034 created it, empty.
   - Follow README "Writing a migration". Do not run it: T031 does, with confirmation.
-- [ ] T020 [US5] In `app/models/fiscal.py`, replace `PacSimulation` with `PacSimulatorStore` (`store_key` String(100) primary key, `value` Text, `updated_at` DateTime), matching T019. Update the resource name in `app/core/errors.py:129`, and the `pac_simulation` mention in `PacSimulationUpdate`'s docstring in `app/schemas/fiscal.py`. Update `tests/unit/test_fiscal_document_service.py:73` to the new table.
-- [ ] T021 [P] [US5] Create `tests/unit/test_simulator_store.py` for `DatabaseSimulatorStore`, on the tests' SQLite session factory:
+- [X] T020 [US5] In `app/models/fiscal.py`, replace `PacSimulation` with `PacSimulatorStore` (`store_key` String(100) primary key, `value` Text, `updated_at` DateTime), matching T019. Update the resource name in `app/core/errors.py:129`, and the `pac_simulation` mention in `PacSimulationUpdate`'s docstring in `app/schemas/fiscal.py`. Update `tests/unit/test_fiscal_document_service.py:73` to the new table.
+- [X] T021 [P] [US5] Create `tests/unit/test_simulator_store.py` for `DatabaseSimulatorStore`, on the tests' SQLite session factory:
   - a missing key reads None;
   - `set` then `get` returns the value;
   - a second `set` overwrites it and moves `updated_at`;
   - each call commits in its own session, visible to a fresh session;
   - a session factory that raises makes `SimulatedPac.stamp` raise the library's `PacUnavailable`, which the adapter maps to `PacUnavailable`.
-- [ ] T022 [US5] Create `app/services/pac/simulator_store.py` with `DatabaseSimulatorStore(session_factory=AsyncSessionLocal)` per contracts/pac-provider.md §4 and research R10: `get` selects the value by key; `set` does `merge(PacSimulatorStore(store_key=…, value=…, updated_at=local_now()))` and commits. Each uses its own session. Make T021 pass.
+- [X] T022 [US5] Create `app/services/pac/simulator_store.py` with `DatabaseSimulatorStore(session_factory=AsyncSessionLocal)` per contracts/pac-provider.md §4 and research R10: `get` selects the value by key; `set` does `merge(PacSimulatorStore(store_key=…, value=…, updated_at=local_now()))` and commits. Each uses its own session. Make T021 pass.
 
 ### Provider and routes
 
-- [ ] T023 [US5] In `app/services/pac/__init__.py`, add the dependency `get_pac_simulator()` returning `SimulatedPac(DatabaseSimulatorStore())` (contracts/pac-provider.md §5). Make `simulated` build `pac = get_pac_simulator()` and `CfdiPacProvider(pac, SimulatedSatStatusClient(pac), name='simulator', resolves_by_resubmitting=False)`. Then:
+- [X] T023 [US5] In `app/services/pac/__init__.py`, add the dependency `get_pac_simulator()` returning `SimulatedPac(DatabaseSimulatorStore())` (contracts/pac-provider.md §5). Make `simulated` build `pac = get_pac_simulator()` and `CfdiPacProvider(pac, SimulatedSatStatusClient(pac), name='simulator', resolves_by_resubmitting=False)`. Then:
   - delete `app/services/pac/simulated.py` and `tests/unit/test_pac_simulated.py`;
   - in `tests/unit/test_pac_settings.py:64`, assert a `CfdiPacProvider` with `resolves_by_resubmitting` False;
   - change `tests/unit/test_pac_provider.py:18` to `SIMULATED_PAC_RFC == 'SIM010101SI0'`.
-- [ ] T024 [US5] Move the integration tests to the library's simulator. Wherever they build `SimulatedPac(session_factory=sessions)`, build `CfdiPacProvider` over `SimulatedPac(DatabaseSimulatorStore(sessions), clock=…)` and `SimulatedSatStatusClient`. Pass `clock` wherever a test moves time, for example the 24-hour rule. Replace `isinstance(pac, SimulatedPac)` checks with the provider's `name == 'simulator'` or a fixture flag. Replace direct `PacSimulation` queries with the store, or with the simulator's own reads (`find_stamp`, `query_status`). The files are:
+- [X] T024 [US5] Move the integration tests to the library's simulator. Wherever they build `SimulatedPac(session_factory=sessions)`, build `CfdiPacProvider` over `SimulatedPac(DatabaseSimulatorStore(sessions), clock=…)` and `SimulatedSatStatusClient`. Pass `clock` wherever a test moves time, for example the 24-hour rule. Replace `isinstance(pac, SimulatedPac)` checks with the provider's `name == 'simulator'` or a fixture flag. Replace direct `PacSimulation` queries with the store, or with the simulator's own reads (`find_stamp`, `query_status`). The files are:
   - `tests/integration/test_stamp_flow.py`;
   - `tests/integration/test_cancel_flow.py`, keeping lines 430–433's expectations;
   - `tests/integration/test_resolve_job.py`;
   - `tests/integration/test_fiscal_stamping_http.py`, whose fixture `pac` and `simulated` drive outcomes through the routes or the library's `configure_*`.
 
   Change the RFC literals in `tests/unit/test_fiscal_document_service.py:187`, `tests/unit/test_print_contexts.py:1109` and `tests/integration/test_print_render.py:761` to `SIM010101SI0`. Then run `grep -rn "SIM010101SIM\|PacSimulation\b\|pac\.simulated" app tests`; it must find only the migration.
-- [ ] T025 [US5] Rewrite `tests/api/test_pac_simulator.py` per contracts/simulator-controls.md, with `PAC_PROVIDER=simulated` and the library's simulator on the test database: override `get_pac_simulator` (and `get_pac_provider`) with a `SimulatedPac` over `DatabaseSimulatorStore(sessions)`, with no `MagicMock(spec=SimulatedPac)`. Cover:
+- [X] T025 [US5] Rewrite `tests/api/test_pac_simulator.py` per contracts/simulator-controls.md, with `PAC_PROVIDER=simulated` and the library's simulator on the test database: override `get_pac_simulator` (and `get_pac_provider`) with a `SimulatedPac` over `DatabaseSimulatorStore(sessions)`, with no `MagicMock(spec=SimulatedPac)`. Cover:
   - the 404 when not simulated;
   - the privilege;
   - 409 `not_sealed` for a draft;
@@ -237,7 +237,7 @@
   - no `next_stamp` or `next_cancellation` in any response.
 
   Update `tests/unit/test_fiscal_schemas.py` for the response without them.
-- [ ] T026 [US5] Rewrite `app/api/v1/endpoints/pac_simulator.py` per research R12:
+- [X] T026 [US5] Rewrite `app/api/v1/endpoints/pac_simulator.py` per research R12:
   - keep `require_simulator`, `_UPDATE` and the draft check;
   - take the simulator from `Depends(get_pac_simulator)` instead of `get_pac_provider`, and build `SimulatedSatStatusClient(pac)` from it;
   - refuse a stamp outcome while the document is `stamping` (409 `fiscal_document.stamping`), before calling the library;
@@ -247,7 +247,7 @@
   - other library errors go through the adapter's mapping to `pac.rejected`, `pac.unavailable` or `pac.timeout`.
 
   Remove `next_stamp` and `next_cancellation` from `PacSimulationResponse` in `app/schemas/fiscal.py`. Make T025 pass.
-- [ ] T027 [US5] In `tests/integration/test_stamp_flow.py`, add the deterministic two-instance test of research R11, part 1 (SC-009). The test database is SQLite on one shared connection, so the test holds a stamp in place instead of racing.
+- [X] T027 [US5] In `tests/integration/test_stamp_flow.py`, add the deterministic two-instance test of research R11, part 1 (SC-009). The test database is SQLite on one shared connection, so the test holds a stamp in place instead of racing.
   - **Setup:** wrap one `DatabaseSimulatorStore` so that its first `set` of a `seal:` key awaits an `asyncio.Event`. Build two `CfdiPacProvider`s over two `SimulatedPac` instances on that wrapped store.
   - **Start A:** start a stamp through provider A as a task, and wait until it is held, with the document `stamping`.
   - **Then B:** a stamp through provider B, in its own session, answers 409 `fiscal_document.stamping`, and B's simulator is never called (spy on its `stamp`).
@@ -257,9 +257,9 @@
     - exactly one `pac simulator: stamp call` line was logged (`caplog`).
 
   (FR-024)
-- [ ] T028 [P] [US5] Update the docs:
+- [X] T028 [P] [US5] Update the docs:
   - `docs/specs/10-fiscal-documents.md`'s "The simulator" paragraph: the library's simulator, RFC `SIM010101SI0`, state in `pac_simulator_store`, outcomes set after the seal or stamp, the response without `next_*`, `not_cancellable` permanent;
-  - `docs/data-dictionary.md`: replace the `pac_simulation` entry with `pac_simulator_store` (API-only, migration 036), and note that 036 dropped `pac_simulation`.
+  - `docs/data-dictionary.md`: replace the `pac_simulation` entry with `pac_simulator_store` (API-only, migration 037), and note that 037 dropped `pac_simulation`.
 
 **Checkpoint**: all five stories complete offline.
 
@@ -267,7 +267,7 @@
 
 ## Phase 8: Live tests (FR-029)
 
-- [ ] T029 [P] Create `tests/integration/test_multifacturas_live.py` per research R8.
+- [X] T029 [P] Create `tests/integration/test_multifacturas_live.py` per research R8.
   - **Multifacturas (skip unless `MULTIFACTURAS_USER` and `MULTIFACTURAS_PASSWORD` are set):** `CfdiPacProvider` over `MultifacturasPac` in test mode, with an invoice sealed with SAT's test CSD (EKU9003173C9) using the helpers in `tests/unit/test_cfdi_invoice.py`.
     - **Stamp twice:** the same UUID.
     - **Cancel with reason 02:** record the answer; 205 expected, not asserted hard.
@@ -280,7 +280,7 @@
 
 ## Phase 9: Polish, deploy and walk
 
-- [ ] T030 Run the final gate:
+- [X] T030 Run the final gate:
   - `docs/specs/10-fiscal-documents.md` §2b: the adapter, Multifacturas' configuration, resubmission, the 72-hour wait, production stays `none` until #57, and the cutover checks;
   - a `CHANGELOG.md` entry for spec 040, in its existing format. Added: the Multifacturas provider, settings, startup checks and `pac_simulator_store`. Changed: the library's simulator replaces mbe-api's, the simulator routes' response, refresh resubmission and the 72-hour wait. Removed: `pac_simulation`;
   - the full offline suite and ruff;
@@ -290,7 +290,7 @@
   Commit on the spec branch.
 - [ ] T031 **Deploy (each step needs the user's confirmation)**:
   1. Add xolotl `mictlanix`'s `~/.ssh/id_ed25519.pub` as a read-only deploy key on mictlanix/cfdi, and check `ssh -T git@github.com` from xolotl.
-  2. Run migration 036 on mbe_dev. Afterwards, check read-only that no `fiscal_document` or `fiscal_document_xml` row carries `SIM010101SIM`, that `pac_simulator_store` exists, and that `pac_simulation` is gone.
+  2. Run migration 037 on mbe_dev. Afterwards, check read-only that no `fiscal_document` or `fiscal_document_xml` row carries `SIM010101SIM`, that `pac_simulator_store` exists, and that `pac_simulation` is gone.
   3. In the same step, deploy the branch to dev :8765 (pre-authorized) and test :8766. Both run `uv sync`.
   4. Check on dev that an old simulated document still reads `stamp.simulated` true.
   5. Before the deploy, check read-only that dev's and test's `.env` already name `PAC_PROVIDER`. Before merging, tell the user that their local `.env` (the main checkout) has no `PAC_PROVIDER` line and needs one, without editing it; otherwise they would refuse to start. Both did on 2026-11-18. Any other instance that will run this code, including production when it comes, needs `PAC_PROVIDER` written in its `.env` first: `none` for production.
@@ -375,11 +375,11 @@
 
 1. **US3:** cancellation and the 72-hour wait, which completes #51.
 2. **US4:** the startup checks, required before any server runs Multifacturas.
-3. **US5:** the library's simulator, the store, the routes and migration 036. It must land before deploying, because dev runs the simulator.
+3. **US5:** the library's simulator, the store, the routes and migration 037. It must land before deploying, because dev runs the simulator.
 4. **Then:** the live tests, the deploy (T031), test's configuration (T032), the scenarios on dev (T033), the walk (T034–T035) and the handoff update (T036).
 
 ### Notes
 
 - **Commits:** commit after each phase on `040-real-pac`; spec-branch commits are pre-authorized.
-- **Confirmation:** only deploying the branch to dev runs without confirmation. Migration 036, the test deploy, test's `.env`, the deploy key and the mbe-ui comment each need it.
+- **Confirmation:** only deploying the branch to dev runs without confirmation. Migration 037, the test deploy, test's `.env`, the deploy key and the mbe-ui comment each need it.
 - **Credentials:** never write credentials, CSD passwords or live UUIDs into files.

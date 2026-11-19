@@ -22,17 +22,19 @@ uv run ruff check app/ migrations/ tests/
 
 ```bash
 # Multifacturas test mode: stamp twice with the same UUID; record the cancellation's answer
-MULTIFACTURAS_USER=… MULTIFACTURAS_PASSWORD=… uv run pytest tests/integration/test_multifacturas_live.py -q
+MULTIFACTURAS_USER=… MULTIFACTURAS_PASSWORD=… \
+SAT_TEST_CSD_DIR=../cfdi/tests/fixtures/csd SAT_TEST_CSD_PASSWORD=… \
+  uv run pytest tests/integration/test_multifacturas_live.py -q -s
 # SAT's status service: a valid and a cancelled UUID of the current system (issuer|recipient|uuid|total)
 SAT_LIVE_VALID='…' SAT_LIVE_CANCELLED='…' uv run pytest tests/integration/test_multifacturas_live.py -q
 ```
 
-The values are given on the command line and never committed.
+The values are given on the command line and never committed. SAT's public test CSD (EKU9003173C9) is read from the folder `SAT_TEST_CSD_DIR` names, such as mictlanix/cfdi's `tests/fixtures/csd`; its password is the one SAT publishes with it. No CSD material is kept in this repository.
 
 ## 3. Deploy (each step confirmed with the user)
 
 1. **Deploy key:** add xolotl's `mictlanix` public key as a read-only deploy key on mictlanix/cfdi. Check it with `ssh -T git@github.com` on xolotl.
-2. **Migration 036** on mbe_dev, then restart dev and test on the new code at once (they share mbe_dev, and the old code reads the dropped `pac_simulation`). Afterwards:
+2. **Migration 037** on mbe_dev, then restart dev and test on the new code at once (they share mbe_dev, and the old code reads the dropped `pac_simulation`). Afterwards:
    - no `fiscal_document` or `fiscal_document_xml` row carries `SIM010101SIM`;
    - `pac_simulator_store` exists;
    - `pac_simulation` is gone.

@@ -10,7 +10,6 @@ from app.core.errors import DomainError
 from app.services import pac
 from app.services.pac import get_pac_provider, require_provider
 from app.services.pac.adapter import CfdiPacProvider
-from app.services.pac.simulated import SimulatedPac
 
 
 @pytest.fixture(autouse=True)
@@ -138,7 +137,10 @@ class TestGetPacProvider:
     def test_simulated_builds_the_simulator(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(pac.settings, 'pac_provider', 'simulated')
 
-        assert isinstance(get_pac_provider(), SimulatedPac)
+        provider = get_pac_provider()
+
+        assert isinstance(provider, CfdiPacProvider)
+        assert (provider.name, provider.resolves_by_resubmitting) == ('simulator', False)
 
     def test_multifacturas_builds_the_adapter_over_the_library(
         self, monkeypatch: pytest.MonkeyPatch

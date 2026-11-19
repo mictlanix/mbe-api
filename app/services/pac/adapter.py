@@ -53,8 +53,9 @@ def _stamp(stamp: lib.Stamp) -> Stamp:
     )
 
 
-class _Translated:
-    """Turns the library's errors into the contract's, with nothing from the original attached."""
+class library_errors:  # noqa: N801 - used as `with library_errors():`, like a function
+    """Turns the library's errors into the contract's, with nothing from the original attached.
+    The /pac-simulator routes use it too (research R12)."""
 
     def __enter__(self) -> None:
         return None
@@ -91,11 +92,11 @@ class CfdiPacProvider:
     async def stamp(self, sealed_xml: str) -> Stamp:
         # One line per call and never the XML: spec 039's quickstart counts these lines (SC-002).
         log.warning('pac %s: stamp call %s', self.name, _identity(sealed_xml))
-        with _Translated():
+        with library_errors():
             return _stamp(await self._pac.stamp(sealed_xml.encode('utf-8')))
 
     async def find_stamp(self, sealed_xml: str) -> Stamp | None:
-        with _Translated():
+        with library_errors():
             found = await self._pac.find_stamp(sealed_xml.encode('utf-8'))
         return None if found is None else _stamp(found)
 
@@ -117,14 +118,14 @@ class CfdiPacProvider:
         except ValidationError as error:
             # The summary names rules and nodes, never values (research R3).
             raise PacRejected(error.violations[0].rule, str(error)) from None
-        with _Translated():
+        with library_errors():
             answer = await self._pac.request_cancellation(library_request)
         return CancellationAnswer[answer.name]
 
     async def query_status(
         self, issuer_rfc: str, recipient_rfc: str, uuid: str, total: Decimal
     ) -> SatStatus:
-        with _Translated():
+        with library_errors():
             status = await self._sat.query_status(issuer_rfc, recipient_rfc, uuid, total)
         return SatStatus(
             state=status.state.value,

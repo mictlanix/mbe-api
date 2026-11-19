@@ -15,7 +15,7 @@ The library from mictlanix/cfdi becomes the API's only PAC implementation. It is
 Outside the adapter, the plan changes three things the spec names:
 - **Resolving a document left `stamping`:** refresh resubmits the stored sealed XML after the 5-minute grace when the provider resolves that way (R4).
 - **The 72-hour wait:** a request the PAC answered with 201 (`PENDING`) closes as "not received by SAT" only after 72 hours (R5).
-- **Migration 036** creates `pac_simulator_store`, drops `pac_simulation`, and rewrites the old simulator's provider RFC (R7).
+- **Migration 037** creates `pac_simulator_store`, drops `pac_simulation`, and rewrites the old simulator's provider RFC (R7).
 
 Settings select the provider and refuse unsafe combinations at startup (R6). Production stays `PAC_PROVIDER=none`.
 
@@ -25,7 +25,7 @@ Settings select the provider and refuse unsafe combinations at startup (R6). Pro
 - **Primary Dependencies:**
   - FastAPI, SQLAlchemy 2.0 async, Pydantic v2;
   - **new:** `mictlanix-cfdi` (git, SSH, commit `4b41821b7947adc71a32a535ed5bb87dbd325b77`), which brings `cryptography` from 49.0.0 to ≥50.0.2.
-- **Storage:** MariaDB `mbe_dev`. Migration 036 adds `pac_simulator_store`, drops `pac_simulation`, and rewrites stored values.
+- **Storage:** MariaDB `mbe_dev`. Migration 037 adds `pac_simulator_store`, drops `pac_simulation`, and rewrites stored values.
 - **Testing:**
   - pytest and pytest-asyncio, offline;
   - the adapter is tested over the library's simulators, with a scripted fake for what they cannot produce;
@@ -40,7 +40,7 @@ Settings select the provider and refuse unsafe combinations at startup (R6). Pro
 - **Constraints:**
   - no credentials, CSD material or raw payloads in code, tests, logs or errors;
   - the PAC in use is set explicitly in each instance's `.env`, with no default; production's says `none`;
-  - dev and test share mbe_dev, so migration 036 and the restart of both go in one step.
+  - dev and test share mbe_dev, so migration 037 and the restart of both go in one step.
 - **Verified:** the library accepts mbe-api's sealed invoices, credit notes and payment receipts, and its simulator stamps, deduplicates, looks up and cancels them as spec 039 expects (research R14).
 - **Scale/Scope:** five issuers that stamp; about 3,000 CFDIs per issuer per year (mbe_dev, 2025–2026).
 
@@ -94,7 +94,7 @@ app/services/pac/
 app/api/v1/endpoints/pac_simulator.py    # routes over the library's simulator (R12)
 app/services/fiscal_stamping.py          # refresh: resubmission branch (R4); _apply_status: 72 h (R5)
 app/core/errors.py                       # resource name: pac_simulation → pac_simulator_store
-migrations/036_pac_simulator_store.sql (+ _rollback.sql)
+migrations/037_pac_simulator_store.sql (+ _rollback.sql)
 tests/fakes/pac.py                       # ScriptedPac gains resolves_by_resubmitting
 tests/unit/test_pac_adapter.py           # NEW: translation and errors, both providers (R3)
 tests/unit/test_simulator_store.py       # NEW: get/set, overwrite, failure → unavailable

@@ -1455,25 +1455,14 @@ One cancellation request for a stamped fiscal document (spec 039). **API-only**,
 | `last_checked_at` | datetime | YES | The last status query |
 | `open_document` | int(11) | YES | Virtual: the document while `status` is `requested` or `pending`, NULL once closed. Unique, so a document has at most one open request. Not mapped by the model |
 
-### `pac_simulation`
-State of the simulated PAC (spec 039). Empty unless `PAC_PROVIDER=simulated`. **API-only**, added by migration 034.
+### `pac_simulator_store`
+State of the CFDI library's simulated PAC (spec 040): string values under the library's own keys, shared by every API process and the resolve job. The API never interprets them. Empty unless `PAC_PROVIDER=simulated`. **API-only**, added by migration 037, which also dropped spec 039's `pac_simulation` without converting its rows.
 
 | Column | Type | Null | Description |
 |--------|------|------|-------------|
-| `pac_simulation_id` | int(11) | NO | PK |
-| `issuer` | varchar(13) | NO | Issuer RFC, from the sealed XML |
-| `batch` | varchar(10) | YES | Series; empty when the CFDI has none; NULL for a row made from a UUID it never stamped |
-| `serial` | int(11) | YES | Folio. Unique with `issuer` and `batch` |
-| `uuid` | char(36) | YES | Unique. Set once stamped |
-| `stamped_at` | datetime | YES | NULL for a row made from a UUID it never stamped |
-| `stamped_xml` | mediumtext | YES | The stamped CFDI |
-| `sat_status` | varchar(10) | NO | `valid` or `cancelled` |
-| `cancellation_status` | varchar(10) | NO | `none`, `requested`, `pending`, `accepted`, `rejected` or `expired` |
-| `next_stamp` | varchar(20) | YES | One-shot outcome of the next stamp |
-| `next_cancellation` | varchar(20) | YES | One-shot outcome of the next cancellation |
-| `pac_code` | varchar(20) | YES | Code for a chosen `rejected` outcome |
-| `pac_message` | varchar(500) | YES | Message for a chosen `rejected` outcome |
-| `updated_at` | datetime | NO | |
+| `store_key` | varchar(100) | NO | PK. `seal:<sha-256 of the issuer's seal>` per sealed document, `uuid:<UUID>` per stamp |
+| `value` | mediumtext | NO | The library's JSON record; a seal's holds the stamped CFDI |
+| `updated_at` | datetime | NO | When the row was last written |
 
 ### `fiscal_document_detail`
 Line items of a fiscal document.

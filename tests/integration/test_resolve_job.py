@@ -26,8 +26,14 @@ from app.services.pac.provider import (
     PacUnavailable,
     SatStatus,
 )
-from app.services.pac.simulated import SimulatedPac
 from tests.fakes.pac import ScriptedPac
+from tests.fakes.simulator import (
+    answer_as_receiver,
+    is_simulated,
+    set_cancellation,
+    set_stamp,
+    simulated_provider,
+)
 from tests.integration.seed import seed_cancellation_reasons
 from tests.integration.test_receipt_flow import Receipts, _ppd_invoice, receipts  # noqa: F401
 
@@ -46,9 +52,8 @@ async def _stamping(receipts: Receipts, pac: PacProvider) -> int:  # noqa: F811
     invoice = await _ppd_invoice(db)
     sealed = await receipts.confirm(await receipts.ready(invoice, '1000.00'))
     document_id = sealed.fiscal_document_id
-    if isinstance(pac, SimulatedPac):
-        keys = (None, sealed.issuer, sealed.batch or '', sealed.serial)
-        await pac.set_next(keys, stamp='timeout_stamped')
+    if is_simulated(pac):
+        await set_stamp(pac, db, document_id, 'timeout_stamped')
     else:
         pac.queue('stamp', PacTimeout())
         pac.queue('find_stamp', pac._make_stamp(await fds.get_xml(db, document_id)))
@@ -62,10 +67,8 @@ async def _pending(receipts: Receipts, pac: PacProvider) -> int:  # noqa: F811
     db, current = receipts.db, receipts.current
     uuid = '0A1B2C3D-0000-4000-8000-000000000039'
     invoice = await _ppd_invoice(db, stamp_uuid=uuid, serial=11460)
-    if isinstance(pac, SimulatedPac):
-        document = await db.get(FiscalDocument, invoice)
-        keys = (document.stamp_uuid, document.issuer, document.batch or '', document.serial)
-        await pac.set_next(keys, cancellation='pending')
+    if is_simulated(pac):
+        await set_cancellation(pac, db, invoice, 'pending')
     else:
         pac.queue('request_cancellation', CancellationAnswer.PENDING)
     await fiscal_stamping.cancel(db, invoice, '02', None, pac, current.employee_id)
@@ -112,13 +115,11 @@ async def test_one_run_resolves_a_stamping_and_a_pending_document(
 ) -> None:
     await _ready(receipts)
     db = receipts.db
-    pac = SimulatedPac(session_factory=sessions) if kind == 'simulated' else ScriptedPac()
+    pac = simulated_provider(sessions) if kind == 'simulated' else ScriptedPac()
     stamping = await _stamping(receipts, pac)
     pending = await _pending(receipts, pac)
-    if isinstance(pac, SimulatedPac):
-        document = await db.get(FiscalDocument, pending)
-        keys = (document.stamp_uuid, document.issuer, document.batch or '', document.serial)
-        await pac.answer_as_receiver(keys, 'accept')
+    if is_simulated(pac):
+        await answer_as_receiver(pac, db, pending, 'accept')
     else:
         pac.queue(
             'query_status',

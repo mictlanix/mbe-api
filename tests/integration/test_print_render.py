@@ -758,7 +758,7 @@ _SIMULATED = 'DOCUMENTO SIMULADO — SIN VALIDEZ FISCAL'
 
 
 @pytest.mark.usefixtures('seeded')
-@pytest.mark.parametrize(('provider', 'marked'), [('SIM010101SIM', True), ('LSO1306189R5', False)])
+@pytest.mark.parametrize(('provider', 'marked'), [('SIM010101SI0', True), ('LSO1306189R5', False)])
 async def test_cfdi_simulated_is_marked_only_when_simulated(
     client: AsyncClient, db: AsyncSession, provider: str, marked: bool
 ) -> None:

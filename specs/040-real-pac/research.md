@@ -163,9 +163,9 @@ CfdiPacProvider(pac: PacClient, sat: SatStatusClient, *, name: str, resolves_by_
 - **Per-issuer credentials:** rejected, because nothing in the current system uses them (R-legacy).
 - **A mode enum:** rejected, because the library takes a bool.
 
-## R7. Migration 036: the simulator's store and its provider RFC
+## R7. Migration 037: the simulator's store and its provider RFC
 
-**Decision**: `migrations/036_pac_simulator_store.sql` and its rollback. Number 035 is taken on `origin/main` by `035_fiscal_document_usage_width.sql` (#342).
+**Decision**: `migrations/037_pac_simulator_store.sql` and its rollback. Numbers 035 and 036 are taken on `origin/main` (`035_fiscal_document_usage_width.sql`, #342; `036_itinerary_stop_delivery_order.sql`).
 
 **What the migration does**
 1. **Creates `pac_simulator_store`:**
@@ -199,7 +199,7 @@ CfdiPacProvider(pac: PacClient, sat: SatStatusClient, *, name: str, resolves_by_
 
 | Test | Variables | What it checks |
 |---|---|---|
-| Stamp and duplicate | `MULTIFACTURAS_USER`, `MULTIFACTURAS_PASSWORD` (the library's own names) | a document sealed with SAT's public test CSD (EKU9003173C9, already in mbe-api's test fixtures) is stamped twice, with the same UUID |
+| Stamp and duplicate | `MULTIFACTURAS_USER`, `MULTIFACTURAS_PASSWORD` (the library's own names), `SAT_TEST_CSD_DIR`, `SAT_TEST_CSD_PASSWORD` | an invoice issued an hour ago, sealed with SAT's public test CSD (EKU9003173C9, read from the folder `SAT_TEST_CSD_DIR` names; mbe-api's fixtures carry only a self-signed certificate, which the PAC would refuse, and FR-007 keeps CSD material out of the repository), is stamped twice, with the same UUID |
 | Cancellation | same | the cancellation's answer is recorded; the expected answer is a rejection with 205 in test mode, not a hard assertion |
 | SAT status | `SAT_LIVE_VALID`, `SAT_LIVE_CANCELLED`, each `issuer|recipient|uuid|total` | the adapter reads `valid` and `cancelled` |
 
@@ -207,7 +207,7 @@ CfdiPacProvider(pac: PacClient, sat: SatStatusClient, *, name: str, resolves_by_
 
 **Prerequisites**, each confirmed with the user:
 1. The deploy key on mictlanix/cfdi.
-2. Migration 036 and the deploy of dev and test.
+2. Migration 037 and the deploy of dev and test.
 3. Test's `.env`: `PAC_PROVIDER=multifacturas`, the credentials and `MULTIFACTURAS_PRODUCTION=false`, keeping `APP_ENV=staging` (user's decision, 2026-11-18).
 
 **Steps**

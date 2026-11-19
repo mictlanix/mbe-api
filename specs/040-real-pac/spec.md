@@ -158,7 +158,7 @@ A tester on dev drives every simulated scenario through the same `/pac-simulator
 4. **Given** a document that is not stamped yet, **When** a cancellation outcome is set, **Then** the answer is 409 `fiscal_document.not_stamped`.
 5. **Given** a pending cancellation, **When** `POST …/receiver` accepts, rejects or lets it expire, **Then** the next refresh settles the document as spec 039 defines. With nothing pending, the answer is 409 `fiscal_document.nothing_to_refresh`.
 6. **Given** two API processes with their own simulator instances, **When** both receive a stamp request for the same document at once, **Then** one reaches the simulator, the other answers 409 `fiscal_document.stamping` (or the issued document, if it arrives after the first finished), and the document ends with one UUID.
-7. **Given** documents stamped by the old simulator, **When** migration 036 runs, **Then** their stored provider RFC and the `RfcProvCertif` in their stored XML are `SIM010101SI0`, and they still show as simulated.
+7. **Given** documents stamped by the old simulator, **When** migration 037 runs, **Then** their stored provider RFC and the `RfcProvCertif` in their stored XML are `SIM010101SI0`, and they still show as simulated.
 
 ### Edge Cases
 
@@ -244,10 +244,10 @@ A tester on dev drives every simulated scenario through the same `/pac-simulator
 
 - **FR-020**: mbe-api's own simulator MUST be removed. `PAC_PROVIDER=simulated` MUST use the library's simulated PAC and simulated SAT status through the adapter of FR-003. No simulator behavior MAY be rebuilt in mbe-api. A scenario the library cannot reach is either dropped or asked for in mictlanix/cfdi.
 - **FR-021**: A document is simulated when its provider RFC is the library simulator's, `SIM010101SI0`. The detail's `stamp.simulated` and the PDF's "DOCUMENTO SIMULADO — SIN VALIDEZ FISCAL" banner MUST follow it.
-- **FR-022**: Migration 036 MUST rewrite the provider RFC of the documents the old simulator stamped on mbe_dev, in the document and in the `RfcProvCertif` of its stored XML, so they stay marked as simulated. Its rollback restores the old value. Tests and fixtures that assert the old value MUST change with it.
+- **FR-022**: Migration 037 MUST rewrite the provider RFC of the documents the old simulator stamped on mbe_dev, in the document and in the `RfcProvCertif` of its stored XML, so they stay marked as simulated. Its rollback restores the old value. Tests and fixtures that assert the old value MUST change with it.
 - **FR-023**: The simulator's state MUST live in the database, shared by every API process and the resolve job:
   - a new key-value store table, which the library's simulator reads and writes, replaces `pac_simulation`;
-  - migration 036 creates the table and drops `pac_simulation` without converting its rows. On 2026-11-18 no simulated document was `stamping`, no request was open, and no outcome was queued;
+  - migration 037 creates the table and drops `pac_simulation` without converting its rows. On 2026-11-18 no simulated document was `stamping`, no request was open, and no outcome was queued;
   - a store read or write that fails is the library's "PAC unavailable".
 - **FR-024**: Spec 039's guard MUST keep a double stamp impossible across processes, because the library serializes calls only within one instance:
   - the stamp request marks the document `stamping` and commits under the row lock;

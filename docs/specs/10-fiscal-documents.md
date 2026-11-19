@@ -381,13 +381,40 @@ The API stamps and cancels invoices, payment receipts and credit notes through a
 
 Every cancellation request is kept in `fiscal_document_cancellation` and returned as the detail's `cancellations[]`: reason, substitute, requester, request, answer and resolution times, the last status check, the PAC's code and message on a rejection, and the outcome (`accepted`, `expired`, `rejected`, `not_cancellable`, `failed`). At most one is open per document. A credit note that becomes cancelled reopens the `paid` flag of its invoice's orders, as reopening it does (spec 033 FR-011). Each state change is an incidence (source 13). When a user stamps, cancels or refreshes, the document's `updater` and `modification_time` become theirs too; the resolve job leaves them as they were. No PAC credential is stored by or passed to the API's callers.
 
-**The simulator** (`PAC_PROVIDER=simulated`). It stamps a TFD 1.1 with a random UUID and provider RFC `SIM010101SIM`; the PDF of such a document carries "DOCUMENTO SIMULADO — SIN VALIDEZ FISCAL" and the detail's `stamp.simulated` is true. Its state lives in `pac_simulation`. Testers choose the next outcome per document through `/api/v1/pac-simulator/fiscal-documents/{id}` (`PUT` for the next stamp or cancellation, `POST …/receiver` to accept, reject or let expire a pending cancellation); with nothing chosen a stamp succeeds and a cancellation is accepted at once under 24 hours from the stamp and pending after. The routes answer 404 unless the simulator is configured. `specs/039-cfdi-stamping-cancellation/contracts/endpoints.md` lists how to reach each outcome.
+**The simulator** (`PAC_PROVIDER=simulated`; since spec 040, the CFDI library's). It stamps a TFD 1.1 with a random UUID and provider RFC `SIM010101SI0` (spec 039's own simulator used `SIM010101SIM`, which SAT's TFD schema rejects; migration 037 rewrote the documents it stamped); the PDF of such a document carries "DOCUMENTO SIMULADO — SIN VALIDEZ FISCAL" and the detail's `stamp.simulated` is true. Its state lives in `pac_simulator_store`, shared by every API process and the resolve job. Testers choose the next outcome through `/api/v1/pac-simulator/fiscal-documents/{id}`:
+- **`PUT {stamp}`:** the next stamp of the document as sealed now. Set it after the last seal; while the document is `stamping` it answers 409 `fiscal_document.stamping`.
+- **`PUT {cancellation}`:** the next cancellation of its UUID, so only once stamped (409 `fiscal_document.not_stamped` before). `not_cancellable` stays for every later request of that UUID.
+- **`POST …/receiver`:** accept, reject or let expire a pending cancellation.
+
+Each answers the simulated SAT's view, `uuid`, `sat_status` and `cancellation_status` (`not_found`/`none` until stamped). With nothing chosen a stamp succeeds and a cancellation is accepted at once under 24 hours from the stamp and pending after. The routes answer 404 unless the simulator is configured. `specs/040-real-pac/quickstart.md` §5 lists how to reach each outcome.
 
 **The job.** `uv run python -m app.jobs.resolve_fiscal_documents` refreshes every `stamping` document and open cancellation, oldest first, as the system employee; a failure is printed and the run moves on. Cron on dev and test: `*/10 * * * * cd <instance> && uv run python -m app.jobs.resolve_fiscal_documents`.
 
-**Settings.** `PAC_PROVIDER` is `none` (the default: stamp, cancel and refresh answer 503 `pac.not_configured`) or `simulated`. `APP_ENV` is `development`, `staging` or `production` (the default); the application and the job refuse to start with the simulator in production.
+**Settings.** `PAC_PROVIDER` is `none` (stamp, cancel and refresh answer 503 `pac.not_configured`), `simulated` or, since spec 040, `multifacturas`. It has no default: each instance's `.env` must name it, or the application and the job refuse to start. `APP_ENV` is `development`, `staging` or `production` (the default); they refuse to start with the simulator in production.
 
 **Migration 034** adds `fiscal_document.stamping_since` and `cancelling_since` and creates `fiscal_document_cancellation` and `pac_simulation`, with its rollback. The current system ignores them.
+
+### New MBE: the real PAC (spec 040, mictlanix/mbe-roadmap#46, #51)
+
+The CFDI library (private repository mictlanix/cfdi, pinned by commit) is the API's only PAC implementation. One adapter, `CfdiPacProvider` (`app/services/pac/adapter.py`), implements spec 039's contract over its clients: with `PAC_PROVIDER=multifacturas`, the client for Facturación México (the PAC the current system uses) and SAT's CFDI status service; with `simulated`, the library's simulated PAC and simulated SAT status. Every value and every error the library documents is translated there (`pac.rejected` with the PAC's or SAT's code and message, `pac.unavailable`, `pac.timeout`), and no credential, CSD material or raw payload reaches a log or an error.
+
+**Configuration** (each instance's `.env`): one PAC account for every issuer, as the current system has it; each request uses the issuer's own CSD.
+
+| Variable | |
+|---|---|
+| `MULTIFACTURAS_USER`, `MULTIFACTURAS_PASSWORD` | the account, required with `multifacturas` |
+| `MULTIFACTURAS_PRODUCTION` | `true` exactly when `APP_ENV=production`; any other pairing refuses to start (the current system sends every request to production whatever its flag says) |
+| `MULTIFACTURAS_URL`, `MULTIFACTURAS_CONNECT_TIMEOUT`, `MULTIFACTURAS_READ_TIMEOUT` | default `https://ws.multifacturas.com`, 10 s, 60 s |
+
+Production keeps `PAC_PROVIDER=none` until the invoicing cutover (#57): the current system keeps issuing CFDIs, and a function never runs in both systems at once. Dev runs the simulator; test runs Multifacturas in its test mode.
+
+**A stamp left in flight.** Multifacturas cannot look a stamp up, but it answers a resubmission of the same sealed document with the stamp it already issued. So refresh (on demand or by the job) resolves a `stamping` document by sending the stored sealed XML again, byte for byte, once 5 minutes have passed since the request; before that it sends nothing. A stamp makes it issued (incidence "CFDI stamp resolved {uuid}"); a rejection seals it again; no answer leaves it `stamping`. The simulator keeps resolving by look-up.
+
+**Cancellation.** Multifacturas answers SAT's 202 (already cancelled: the document is cancelled at once) or 201 (received). A 201 is recorded as pending, and SAT's status settles it on refresh: cancelled, rejected by the receiver, or still pending. It never says "not cancellable": a refusal is a `pac.rejected` with its code. A request the PAC answered closes as "not received by SAT" only 72 hours after the answer, SAT's deadline for the receiver; a request without an answer still after 5 minutes.
+
+**To confirm at the cutover** (test mode cannot show them): SAT's answer to cancelling a non-cancellable document; the PAC's `acuseSAT` on SAT's 307; a real 201 → pending or cancelled → the receiver's answer; the answer to wrong credentials; and that the PAC checks for a duplicate before validating again.
+
+**Migration 037** creates `pac_simulator_store` (the library simulator's state), drops `pac_simulation` without converting its rows, and rewrites the old simulator's provider RFC on its documents and their XML, with its rollback.
 
 ### Document Type Views
 Different view templates per document type:

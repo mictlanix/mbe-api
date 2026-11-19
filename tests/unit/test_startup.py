@@ -19,6 +19,12 @@ import pytest
 import app.main as main
 
 
+@pytest.fixture(autouse=True)
+def _a_pac_is_named(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The boot refuses an unnamed PAC (spec 040, FR-016); these tests are about other checks."""
+    monkeypatch.setattr(main.settings, 'pac_provider', 'none')
+
+
 class TestLifespanRunsTheCheck:
     @pytest.mark.asyncio
     async def test_the_system_employee_is_created_before_serving(self, monkeypatch) -> None:

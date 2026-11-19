@@ -11,7 +11,6 @@ from sqlalchemy import (
     Numeric,
     String,
     Text,
-    UniqueConstraint,
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -208,25 +207,12 @@ class FiscalDocumentCancellation(Base):
     last_checked_at: Mapped[datetime | None] = mapped_column(DateTime)
 
 
-class PacSimulation(Base):
-    """The simulated PAC's state (migration 034, API-only, spec 039). Empty unless it is on."""
+class PacSimulatorStore(Base):
+    """The state of the CFDI library's simulated PAC (migration 037, API-only, spec 040): string
+    values under the library's keys, which mbe-api never interprets. Empty unless it is on."""
 
-    __tablename__ = 'pac_simulation'
-    __table_args__ = (
-        UniqueConstraint('issuer', 'batch', 'serial', name='pac_simulation_document_uq'),
-    )
+    __tablename__ = 'pac_simulator_store'
 
-    pac_simulation_id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    issuer: Mapped[str] = mapped_column(String(13))
-    batch: Mapped[str | None] = mapped_column(String(10))
-    serial: Mapped[int | None] = mapped_column(Integer)
-    uuid: Mapped[str | None] = mapped_column(String(36), unique=True)
-    stamped_at: Mapped[datetime | None] = mapped_column(DateTime)
-    stamped_xml: Mapped[str | None] = mapped_column(Text)
-    sat_status: Mapped[str] = mapped_column(String(10), default='valid')
-    cancellation_status: Mapped[str] = mapped_column(String(10), default='none')
-    next_stamp: Mapped[str | None] = mapped_column(String(20))
-    next_cancellation: Mapped[str | None] = mapped_column(String(20))
-    pac_code: Mapped[str | None] = mapped_column(String(20))
-    pac_message: Mapped[str | None] = mapped_column(String(500))
+    store_key: Mapped[str] = mapped_column(String(100), primary_key=True)
+    value: Mapped[str] = mapped_column(Text)
     updated_at: Mapped[datetime] = mapped_column(DateTime)

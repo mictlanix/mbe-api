@@ -38,8 +38,13 @@ from app.services.pac.provider import (
     PacUnavailable,
     SatStatus,
 )
-from app.services.pac.simulated import SimulatedPac
 from tests.fakes.pac import ScriptedPac, scripted_multifacturas
+from tests.fakes.simulator import (
+    answer_as_receiver,
+    is_simulated,
+    set_cancellation,
+    simulated_provider,
+)
 from tests.integration.seed import (
     ISSUER_RFC,
     seed_cancellation_reasons,
@@ -80,7 +85,7 @@ _PAC_CODE, _PAC_MESSAGE = 'CANC205', 'UUID no encontrado'
 @pytest.fixture(params=['simulated', 'scripted'])
 def pac(request: pytest.FixtureRequest, sessions: async_sessionmaker) -> PacProvider:
     if request.param == 'simulated':
-        return SimulatedPac(session_factory=sessions)
+        return simulated_provider(sessions)
     return ScriptedPac()
 
 
@@ -104,13 +109,10 @@ async def _choose(db: AsyncSession, pac: PacProvider, document_id: int, outcome:
         )
         pac.queue('request_cancellation', answer)
         return
-    db.expire_all()
-    document = await db.get(FiscalDocument, document_id)
-    keys = (document.stamp_uuid, document.issuer, document.batch or '', document.serial)
     if outcome == 'rejected':
-        await pac.set_next(keys, cancellation=outcome, pac_code=_PAC_CODE, pac_message=_PAC_MESSAGE)
+        await set_cancellation(pac, db, document_id, outcome, code=_PAC_CODE, message=_PAC_MESSAGE)
     else:
-        await pac.set_next(keys, cancellation=outcome)
+        await set_cancellation(pac, db, document_id, outcome)
 
 
 def _pac_calls(pac: PacProvider) -> int | None:
@@ -380,6 +382,9 @@ async def test_a_refusal_by_the_pac_leaves_the_document_issued(
     if outcome == 'rejected':
         assert (request.pac_code, request.pac_message) == (_PAC_CODE, _PAC_MESSAGE)
     assert await _reasons(db, invoice) == ['Cancellation requested (02)', reason]
+    if is_simulated(pac) and outcome == 'not_cancellable':
+        # The library's simulator keeps a UUID not cancellable for good: no new request to make.
+        return
     # Closed, so a new request can be made.
     await _choose(db, pac, invoice, 'pending')
     await _cancel(db, current, invoice, pac)
@@ -429,10 +434,10 @@ async def test_a_document_the_current_system_stamped_can_be_cancelled(
     await _cancel(db, current_user, document_id, pac)
 
     # The simulator never saw its stamp date, so SAT waits for the receiver; the fake accepts.
-    expected = 'cancellation_pending' if isinstance(pac, SimulatedPac) else 'cancelled'
+    expected = 'cancellation_pending' if is_simulated(pac) else 'cancelled'
     assert (await _load(db, document_id)).status == expected
     [request] = await _requests(db, document_id)
-    assert request.status == ('pending' if isinstance(pac, SimulatedPac) else 'accepted')
+    assert request.status == ('pending' if is_simulated(pac) else 'accepted')
 
 
 # ── Holds while pending, freed once cancelled (SC-005, FR-016, FR-020), T026 ──
@@ -586,7 +591,7 @@ async def test_xml_and_pdf_while_issued_pending_and_cancelled(
 ) -> None:
     db, current = notes.db, notes.current
     await seed_cancellation_reasons(db)
-    pac = SimulatedPac(session_factory=sessions)
+    pac = simulated_provider(sessions)
     invoice = await _invoice(db)
     lines = await _lines(db, invoice)
 
@@ -630,10 +635,7 @@ async def _receiver(db: AsyncSession, pac: PacProvider, document_id: int, answer
     if isinstance(pac, ScriptedPac):
         pac.queue('query_status', _RECEIVER_STATUS[answer])
         return
-    db.expire_all()
-    document = await db.get(FiscalDocument, document_id)
-    keys = (document.stamp_uuid, document.issuer, document.batch or '', document.serial)
-    await pac.answer_as_receiver(keys, answer)
+    await answer_as_receiver(pac, db, document_id, answer)
 
 
 async def _refresh(db: AsyncSession, current: CurrentUser, document_id: int, pac) -> None:  # noqa: ANN001

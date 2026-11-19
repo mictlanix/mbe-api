@@ -126,7 +126,7 @@ RESOURCE_NAMES: dict[str, str] = {
     'lot_serial_rqmt': 'stock_reservation',
     'lot_serial_tracking': 'stock_movement',
     'notarization': 'notarization',
-    'pac_simulation': 'pac_simulation',
+    'pac_simulator_store': 'pac_simulator_store',
     'payment_method_option': 'payment_method_option',
     'point_sale': 'point_of_sale',
     'postal_code': 'postal_code',

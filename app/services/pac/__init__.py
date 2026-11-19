@@ -1,23 +1,32 @@
-"""The PAC provider in use (spec 039): `provider.py` is the interface, this picks the class."""
+"""The PAC provider in use (specs 039, 040): `provider.py` is the interface, and the one
+implementation is `adapter.CfdiPacProvider` over the CFDI library's clients, picked here by
+`PAC_PROVIDER`."""
+
+from mictlanix.cfdi.pac import MultifacturasPac, MultifacturasSettings, SimulatedPac
+from mictlanix.cfdi.sat import SatConsultaClient, SimulatedSatStatusClient
 
 from app.core.config import settings
 from app.core.error_codes import ErrorCode
 from app.core.errors import DomainError
+from app.services.pac.adapter import CfdiPacProvider
 from app.services.pac.provider import PacProvider
+from app.services.pac.simulator_store import DatabaseSimulatorStore
+
+
+def get_pac_simulator() -> SimulatedPac:
+    """The library's simulated PAC over the database store (spec 040, R10, R12): the provider and
+    the /pac-simulator routes share it. A FastAPI dependency, which tests override."""
+    return SimulatedPac(DatabaseSimulatorStore())
 
 
 def get_pac_provider() -> PacProvider | None:
     """The configured provider, or None while there is none. A FastAPI dependency."""
     if settings.pac_provider == 'simulated':
-        from app.services.pac.simulated import SimulatedPac
-
-        return SimulatedPac()
+        pac = get_pac_simulator()
+        return CfdiPacProvider(
+            pac, SimulatedSatStatusClient(pac), name='simulator', resolves_by_resubmitting=False
+        )
     if settings.pac_provider == 'multifacturas':
-        from mictlanix.cfdi.pac import MultifacturasPac, MultifacturasSettings
-        from mictlanix.cfdi.sat import SatConsultaClient
-
-        from app.services.pac.adapter import CfdiPacProvider
-
         password = settings.multifacturas_password
         return CfdiPacProvider(
             MultifacturasPac(

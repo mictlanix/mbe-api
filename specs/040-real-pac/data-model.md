@@ -2,13 +2,13 @@
 
 **Spec**: [spec.md](spec.md) | **Research**: [research.md](research.md)
 
-Migration 036 replaces the simulator's table and rewrites the old simulator's provider RFC. Two existing transitions change when they happen.
+Migration 037 replaces the simulator's table and rewrites the old simulator's provider RFC. Two existing transitions change when they happen.
 
 ## Configuration (not stored)
 
 **PAC account**: one per instance. It is held in settings and never in the database. See [contracts/configuration.md](contracts/configuration.md).
 
-## New table: `pac_simulator_store` (migration 036, API-only)
+## New table: `pac_simulator_store` (migration 037, API-only)
 
 The library's simulated PAC keeps its state here (research R10). mbe-api never interprets the values.
 
@@ -27,7 +27,7 @@ It is dropped without converting its rows (research R7).
 - **Measured on 2026-11-18:** 21 rows, none with a queued outcome. No simulated document is `stamping`, and no cancellation request is open.
 - **Rollback:** the rollback recreates it, empty.
 
-## Stored values rewritten by migration 036 (mbe_dev)
+## Stored values rewritten by migration 037 (mbe_dev)
 
 | Table.column | Rows (2026-11-18) | Change |
 |---|---|---|
