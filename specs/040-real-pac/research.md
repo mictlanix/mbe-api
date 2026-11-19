@@ -134,7 +134,7 @@ CfdiPacProvider(pac: PacClient, sat: SatStatusClient, *, name: str, resolves_by_
 
 | Setting | Type, default | Notes |
 |---|---|---|
-| `PAC_PROVIDER` | `none` \| `simulated` \| `multifacturas`, `none` | |
+| `PAC_PROVIDER` | `none` \| `simulated` \| `multifacturas` \| None, None | must be set in `.env`; None (unset) refuses the start |
 | `MULTIFACTURAS_USER` | `str \| None`, None | required with `multifacturas` |
 | `MULTIFACTURAS_PASSWORD` | `SecretStr \| None`, None | required with `multifacturas`; never logged |
 | `MULTIFACTURAS_PRODUCTION` | `bool`, False | must equal `APP_ENV == 'production'` |
@@ -142,7 +142,11 @@ CfdiPacProvider(pac: PacClient, sat: SatStatusClient, *, name: str, resolves_by_
 | `MULTIFACTURAS_CONNECT_TIMEOUT` | `float`, 10 | seconds |
 | `MULTIFACTURAS_READ_TIMEOUT` | `float`, 60 | seconds |
 
-**Startup refusals.** `check_pac_settings` (already called at startup and by the resolve job) keeps the simulator's refusal in production and gains three more, each naming settings, never values:
+**Where the PAC is configured.** In each instance's `.env`, as the user required on 2026-11-18. An environment variable of the same name overrides it, as for every setting.
+- **No default:** `PAC_PROVIDER` is typed `… | None = None` rather than a required field. A required field would fail at import, in every test, script and tool that loads `settings` without an `.env`.
+- **Where unset refuses:** `check_pac_settings`, which the API's startup and the resolve job already call, refuses `None`.
+
+**Startup refusals.** `check_pac_settings` refuses an unset `PAC_PROVIDER`, keeps the simulator's refusal in production, and gains three more. Each names settings, never values:
 - `PAC_PROVIDER=multifacturas` without a user or password;
 - `MULTIFACTURAS_PRODUCTION=true` with `APP_ENV` not production;
 - `MULTIFACTURAS_PRODUCTION=false` with `APP_ENV=production` and `PAC_PROVIDER=multifacturas`.

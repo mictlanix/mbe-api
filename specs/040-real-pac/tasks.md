@@ -49,11 +49,11 @@
 
   In `tests/fakes/pac.py`, give `ScriptedPac` an instance attribute `resolves_by_resubmitting = False` that tests may set to True, and update its docstring's mention of `SIM010101SIM`. (research R2, R4)
 - [ ] T005 Add the settings from contracts/configuration.md to `app/core/config.py`:
-  - widen `pac_provider` to `Literal['none', 'simulated', 'multifacturas']`;
+  - widen `pac_provider` to `Literal['none', 'simulated', 'multifacturas'] | None = None`. There is no default PAC: `None` means not configured, and T018 refuses it at startup;
   - add `multifacturas_user: str | None = None`, `multifacturas_password: SecretStr | None = None`, `multifacturas_production: bool = False`, `multifacturas_url: str = 'https://ws.multifacturas.com'`, `multifacturas_connect_timeout: float = 10.0` and `multifacturas_read_timeout: float = 60.0`;
   - update the comment above `app_env`, whose "step 3 adds the real provider" is now done.
   (research R6)
-- [ ] T006 [P] Document the new variables in `.env.example` next to `PAC_PROVIDER`. Use placeholders only, and comment that `MULTIFACTURAS_PRODUCTION` must be `true` exactly when `APP_ENV=production`. (contracts/configuration.md)
+- [ ] T006 [P] Document the new variables in `.env.example` next to `PAC_PROVIDER`. Keep `PAC_PROVIDER=none` there, and comment that every instance's `.env` must name its PAC explicitly or it will not start. Use placeholders only, and comment that `MULTIFACTURAS_PRODUCTION` must be `true` exactly when `APP_ENV=production`. (contracts/configuration.md)
 - [ ] T007 [P] Create `tests/unit/test_pac_adapter.py`, testing `CfdiPacProvider` (contracts/pac-provider.md §3) over the library's `SimulatedPac()` (in-memory store) and `SimulatedSatStatusClient(pac)`, plus an in-file scripted fake for what the simulators can't produce. It covers every row of research R3:
   - **Stamp:** str → bytes, with a byte check that the client received `sealed_xml.encode('utf-8')`; `uuid`, `sat_seal`, `sat_certificate` and `provider_rfc`; `stamped_at` naive in Mexico City time; `xml` as str.
   - **`find_stamp`:** the simulator's existing stamp, and None for an unknown document.
@@ -168,11 +168,14 @@
 **Independent Test**: Every combination starts or refuses as the table says, naming settings, never values.
 
 - [ ] T017 [P] [US4] In `tests/unit/test_pac_settings.py`, following its env isolation (commit 0795063), parametrize every row of contracts/configuration.md "Startup refusals":
+  - an unset `PAC_PROVIDER` refuses, naming it;
+  - `PAC_PROVIDER=none` passes, and `get_pac_provider()` returns None;
   - the valid combinations pass: `multifacturas` with test mode and `APP_ENV` staging or development, and with production mode and `APP_ENV=production`; `simulated` outside production;
   - every refusal raises, naming the listed settings;
   - no message contains the sentinel user or password;
   - a non-HTTPS URL or a timeout of 0 refuses, naming the variable.
 - [ ] T018 [US4] Extend `check_pac_settings` in `app/core/config.py`:
+  - refuse `pac_provider is None` with a message naming `PAC_PROVIDER`;
   - keep the simulator's refusal in production;
   - add the Multifacturas refusals;
   - when `pac_provider == 'multifacturas'`, construct `MultifacturasSettings(...)` once (lazy import) and re-raise its `ValueError` as a message naming `MULTIFACTURAS_URL`, `MULTIFACTURAS_CONNECT_TIMEOUT` or `MULTIFACTURAS_READ_TIMEOUT`, without the value.
@@ -282,6 +285,7 @@
   2. Run migration 036 on mbe_dev. Afterwards, check read-only that no `fiscal_document` or `fiscal_document_xml` row carries `SIM010101SIM`, that `pac_simulator_store` exists, and that `pac_simulation` is gone.
   3. In the same step, deploy the branch to dev :8765 (pre-authorized) and test :8766. Both run `uv sync`.
   4. Check on dev that an old simulated document still reads `stamp.simulated` true.
+  5. Before the deploy, check read-only that dev's and test's `.env` already name `PAC_PROVIDER`; otherwise they would refuse to start. Both did on 2026-11-18. Any other instance that will run this code, including production when it comes, needs `PAC_PROVIDER` written in its `.env` first: `none` for production.
 - [ ] T032 **Test configuration (needs the user's confirmation)**:
   - in test's `.env`, set `PAC_PROVIDER=multifacturas`, `MULTIFACTURAS_USER`, `MULTIFACTURAS_PASSWORD` (from the user) and `MULTIFACTURAS_PRODUCTION=false`, keeping `APP_ENV=staging`, then restart;
   - check that a start with `MULTIFACTURAS_PRODUCTION=true` is refused;

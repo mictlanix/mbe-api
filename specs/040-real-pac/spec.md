@@ -64,6 +64,7 @@ Everything that decides a document's state stays where spec 039 put it, with thr
 - Q: The library cannot read back queued outcomes; how does `GET /pac-simulator/fiscal-documents/{id}` keep `next_stamp` and `next_cancellation`? → A: It drops them. GET and PUT return `uuid`, `sat_status` and `cancellation_status` only. mbe-ui#274 is told (FR-025).
 - Q: How is the PAC's 201 recorded? → A: As `PENDING`, as planned. The request reads "pending" from the PAC's answer until SAT's status settles it (FR-012).
 - Q: Which PAC does test (:8766) run after this spec? → A: Multifacturas in test mode, where the walk runs. Dev (:8765) stays on the simulator and serves the UI's simulated scenarios (SC-007).
+- Q: What does "the PAC in use must be configured in the config file" require? → A: Each instance's `.env` names its PAC explicitly. `PAC_PROVIDER` has no default, and an instance whose configuration doesn't set it refuses to start. Production's `.env` says `PAC_PROVIDER=none` (FR-016, FR-018).
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -124,7 +125,7 @@ A billing user cancels an issued document with a SAT reason (02, or 01 with a su
 
 ### User Story 4 - Configure an instance safely (Priority: P2)
 
-An operator chooses an instance's PAC with settings only: none, the simulator, or Multifacturas with its account, mode, endpoint and timeouts. The instance refuses to start with a combination that would issue real CFDIs from a non-production instance, test CFDIs from production, or simulated CFDIs in production.
+An operator chooses an instance's PAC in its configuration file (`.env`), explicitly: none, the simulator, or Multifacturas with its account, mode, endpoint and timeouts. An instance that does not name its PAC does not start. The instance refuses to start with a combination that would issue real CFDIs from a non-production instance, test CFDIs from production, or simulated CFDIs in production.
 
 **Why this priority**: The current system sends every request to production regardless of its flag. One wrong setting on dev or test would issue real CFDIs for real taxpayers.
 
@@ -132,11 +133,12 @@ An operator chooses an instance's PAC with settings only: none, the simulator, o
 
 **Acceptance Scenarios**:
 
-1. **Given** no PAC settings, **When** the application starts, **Then** the provider is `none` and stamp, cancel and refresh answer `pac.not_configured`.
-2. **Given** `PAC_PROVIDER=multifacturas` without a user or password, **When** the application starts, **Then** it refuses to start, naming the missing settings but not their values.
-3. **Given** `APP_ENV` other than production and Multifacturas in production mode, **When** the application starts, **Then** it refuses to start.
-4. **Given** `APP_ENV=production` and Multifacturas in test mode, **When** the application starts, **Then** it refuses to start.
-5. **Given** `APP_ENV=production` and `PAC_PROVIDER=simulated`, **When** the application starts, **Then** it refuses to start (spec 039, unchanged).
+1. **Given** a configuration without `PAC_PROVIDER`, **When** the application or the resolve job starts, **Then** it refuses to start, naming `PAC_PROVIDER`.
+2. **Given** `PAC_PROVIDER=none`, **When** the application starts, **Then** stamp, cancel and refresh answer `pac.not_configured`.
+3. **Given** `PAC_PROVIDER=multifacturas` without a user or password, **When** the application starts, **Then** it refuses to start, naming the missing settings but not their values.
+4. **Given** `APP_ENV` other than production and Multifacturas in production mode, **When** the application starts, **Then** it refuses to start.
+5. **Given** `APP_ENV=production` and Multifacturas in test mode, **When** the application starts, **Then** it refuses to start.
+6. **Given** `APP_ENV=production` and `PAC_PROVIDER=simulated`, **When** the application starts, **Then** it refuses to start (spec 039, unchanged).
 
 ---
 
@@ -221,14 +223,15 @@ A tester on dev drives every simulated scenario through the same `/pac-simulator
 
 **Configuration**
 
-- **FR-016**: `PAC_PROVIDER` MUST accept `none` (default), `simulated` and `multifacturas`. With `multifacturas`, these MUST come from settings, with none hard-coded:
+- **FR-016**: The PAC in use MUST be configured in each instance's configuration file (`.env`; an environment variable of the same name may override it, as for every setting), never in the database or the code. `PAC_PROVIDER` MUST be set explicitly to `none`, `simulated` or `multifacturas`; it has no default. With `multifacturas`, these MUST come from the same configuration, with none hard-coded:
   - the account (user and password);
   - the mode (test or production);
   - the endpoint;
   - the connection and read timeouts.
   Defaults are allowed for the endpoint and timeouts only.
 - **FR-017**: One PAC account MUST serve every issuer of an instance, as in the current system. Each request MUST use the issuing taxpayer's own CSD.
-- **FR-018**: The application MUST refuse to start when:
+- **FR-018**: The application and the resolve job MUST refuse to start when:
+  - `PAC_PROVIDER` is not set;
   - `PAC_PROVIDER=simulated` and `APP_ENV=production` (spec 039, unchanged);
   - `PAC_PROVIDER=multifacturas` lacks a user or a password;
   - the Multifacturas mode is production and `APP_ENV` is not production;
@@ -271,7 +274,7 @@ A tester on dev drives every simulated scenario through the same `/pac-simulator
 
 ### Key Entities
 
-- **PAC account (configuration)**: one per instance. It holds the user, password, mode, endpoint and timeouts. It is never stored in the database.
+- **PAC configuration**: one per instance, in its `.env`. It names the PAC (`PAC_PROVIDER`, required) and, for Multifacturas, the user, password, mode, endpoint and timeouts. It is never stored in the database.
 - **Stamp (existing, spec 039)**: the UUID, stamp date, SAT seal, SAT certificate number, provider RFC and the stamped XML. The provider RFC tells simulated stamps (`SIM010101SI0`) from real ones.
 - **Cancellation request (existing, spec 039)**: an open request now also waits, after the PAC's 201, until SAT shows the cancellation or 72 hours pass (FR-014).
 - **Simulator store (new, replaces `pac_simulation`)**: string values under string keys, written and read only by the library's simulator. One row per key; mbe-api never interprets the values.
@@ -286,7 +289,7 @@ A tester on dev drives every simulated scenario through the same `/pac-simulator
 - **SC-004**: Every final state of spec 039's cancellation is reached from SAT's status in the offline tests. The live SAT query reads a valid and a cancelled UUID of the current system correctly.
 - **SC-005**: A search of the test suite, the logs of the test walk and the error answers finds no credential, CSD material or raw PAC payload.
 - **SC-006**: Every combination in FR-018 starts or refuses as specified.
-- **SC-007**: After deploy, dev runs the library's simulator and test runs Multifacturas in test mode, by configuration only. Production stays `none`.
+- **SC-007**: After deploy, dev's `.env` names the library's simulator and test's names Multifacturas in test mode. Production's `.env` names `none` explicitly before any production deploy of this code.
 - **SC-008**: On dev, every scenario of quickstart's "Driving each scenario" reaches its listed outcome through the simulator routes.
 - **SC-009**: With two simulator instances on one store, 20 concurrent stamp requests for one document produce exactly one stamp call to the simulator and one UUID.
 

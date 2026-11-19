@@ -36,7 +36,7 @@ The values are given on the command line and never committed.
    - no `fiscal_document` or `fiscal_document_xml` row carries `SIM010101SIM`;
    - `pac_simulator_store` exists;
    - `pac_simulation` is gone.
-3. **Dev** keeps `PAC_PROVIDER=simulated` and `APP_ENV=development`. Check that a simulated document's detail still says `stamp.simulated` true.
+3. **Dev** keeps `PAC_PROVIDER=simulated` and `APP_ENV=development` in its `.env`. Every instance's `.env` must name `PAC_PROVIDER`, since there is no default. Check that a simulated document's detail still says `stamp.simulated` true.
 4. **Test's `.env`:** set `PAC_PROVIDER=multifacturas`, `MULTIFACTURAS_USER`, `MULTIFACTURAS_PASSWORD` and `MULTIFACTURAS_PRODUCTION=false`, keep `APP_ENV=staging`, then restart.
 5. **Check:**
    - test starts;

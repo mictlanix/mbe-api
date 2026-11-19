@@ -1,11 +1,11 @@
 # Contract: PAC configuration
 
-Settings come from the environment or `.env` (`app/core/config.py`). Every name below is new except `APP_ENV` and `PAC_PROVIDER`.
+The PAC in use is configured in each instance's `.env`, read by `app/core/config.py`. An environment variable of the same name overrides it, as for every setting. `PAC_PROVIDER` is required: an instance whose configuration does not name its PAC refuses to start. Every name below is new except `APP_ENV` and `PAC_PROVIDER`.
 
 | Variable | Values | Default | Required when |
 |---|---|---|---|
 | `APP_ENV` | `development`, `staging`, `production` | `production` | (spec 039) |
-| `PAC_PROVIDER` | `none`, `simulated`, `multifacturas` | `none` | |
+| `PAC_PROVIDER` | `none`, `simulated`, `multifacturas` | — (no default) | always |
 | `MULTIFACTURAS_USER` | the PAC account | — | `PAC_PROVIDER=multifacturas` |
 | `MULTIFACTURAS_PASSWORD` | the PAC account's password | — | `PAC_PROVIDER=multifacturas` |
 | `MULTIFACTURAS_PRODUCTION` | `true`, `false` | `false` | |
@@ -19,6 +19,7 @@ The application and the resolve job refuse to start in the cases below. Each mes
 
 | Condition | Message names |
 |---|---|
+| `PAC_PROVIDER` not set | `PAC_PROVIDER` |
 | `PAC_PROVIDER=simulated` and `APP_ENV=production` | `PAC_PROVIDER`, `APP_ENV` (spec 039, unchanged) |
 | `PAC_PROVIDER=multifacturas` and the user or password is missing | the missing variable(s) |
 | `PAC_PROVIDER=multifacturas`, `MULTIFACTURAS_PRODUCTION=true`, and `APP_ENV` is not `production` | `MULTIFACTURAS_PRODUCTION`, `APP_ENV` |
@@ -31,7 +32,7 @@ The application and the resolve job refuse to start in the cases below. Each mes
 |---|---|---|---|
 | dev :8765 | `development` | `simulated` (the library's simulator, state in `pac_simulator_store`) | n/a |
 | test :8766 | `staging` | `multifacturas` (user's decision 2026-11-18; set with confirmation) | test |
-| production | `production` | `none` until the cutover (#57) | n/a |
+| production | `production` | `none`, written explicitly in its `.env` before this code reaches it; until the cutover (#57) | n/a |
 
 ## Not configured here
 

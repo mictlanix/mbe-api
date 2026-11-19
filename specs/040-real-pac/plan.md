@@ -39,7 +39,7 @@ Settings select the provider and refuse unsafe combinations at startup (R6). Pro
   - **The simulator** does one short database transaction per store read or write.
 - **Constraints:**
   - no credentials, CSD material or raw payloads in code, tests, logs or errors;
-  - production keeps `none`;
+  - the PAC in use is set explicitly in each instance's `.env`, with no default; production's says `none`;
   - dev and test share mbe_dev, so migration 036 and the restart of both go in one step.
 - **Scale/Scope:** five issuers that stamp; about 3,000 CFDIs per issuer per year (mbe_dev, 2025–2026).
 
