@@ -283,6 +283,7 @@ Specs 037 and 038. Measure and dimension keys are the catalog's (`GET /analytics
 | Code | Status | Params | Situation |
 |---|---|---|---|
 | `itinerary.cancelled` | 409 | — | Printing a cancelled itinerary. |
+| `itinerary.empty_stops` | 409 | stop_ids: list[int], sequences: list[int] | Departing an itinerary with a stop that has no lines loaded. Both lists are in stop order. |
 | `itinerary.lines_overcommitted` | 422 | — (dict `detail` kept: message, lines) | Lines are committed beyond what remains to deliver. Phase 3 moves the lines to `errors[]`. |
 | `itinerary.not_departed` | 409 | status: enum:ItineraryStatus | Printing or closing stops of an itinerary that has not departed. |
 | `itinerary.not_open` | 409 | status: enum:ItineraryStatus | Changing an itinerary that is no longer OPEN. |

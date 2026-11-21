@@ -19,8 +19,9 @@ from httpx import AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.enums import DeliveryOrderStatus, ItineraryStatus
-from app.models.logistics import DeliveryOrderDetail
+from app.enums import DeliveryOrderStatus, EntityStatus, ItineraryStatus
+from app.models.core import Vehicle
+from app.models.logistics import DeliveriesItineraryDetail, DeliveryOrderDetail
 from tests.integration.seed import seed_sales_order
 from tests.problem import assert_problem
 
@@ -44,6 +45,19 @@ async def _approved_delivery_order(client: AsyncClient, db: AsyncSession) -> int
     confirmed = await client.post(f'/api/v1/delivery-orders/{delivery_id}/confirm')
     assert confirmed.status_code == 200, confirmed.text
     return delivery_id
+
+
+async def _vehicle(db: AsyncSession) -> int:
+    row = Vehicle(
+        license_plate='ABC-123',
+        name='Camión',
+        nickname='Torton',
+        tons_capacity=10,
+        status=EntityStatus.ACTIVE,
+    )
+    db.add(row)
+    await db.commit()
+    return row.vehicle_id
 
 
 async def test_an_itinerary_is_opened_and_read_back(client: AsyncClient, seeded: None) -> None:
@@ -348,3 +362,98 @@ async def test_the_pending_deliveries_view_lists_what_is_loadable(
         for row in bucket['items']
     ]
     assert delivery_id in listed
+
+
+async def test_an_update_cannot_put_a_vehicle_on_a_second_open_trip(
+    client: AsyncClient, db: AsyncSession, seeded: None
+) -> None:
+    """Follow-up to #343: create enforced one open trip per vehicle, update did not."""
+    busy, free = await _vehicle(db), await _vehicle(db)
+    holder = (
+        await client.post('/api/v1/delivery-itineraries', json={'warehouse': 1, 'vehicle': busy})
+    ).json()['deliveries_itinerary_id']
+    itinerary_id = (
+        await client.post('/api/v1/delivery-itineraries', json={'warehouse': 1, 'vehicle': free})
+    ).json()['deliveries_itinerary_id']
+    path = f'/api/v1/delivery-itineraries/{itinerary_id}'
+
+    refused = await client.put(path, json={'vehicle': busy})
+
+    problem = assert_problem(refused, 409, 'vehicle.open_itinerary_exists')
+    assert problem['params'] == {'vehicle_id': busy, 'itinerary_id': holder}
+    assert (await client.get(path)).json()['vehicle'] == free
+
+    # Its own vehicle does not count against it.
+    kept = await client.put(path, json={'vehicle': free, 'comment': 'Mismo camión'})
+    assert kept.status_code == 200, kept.text
+
+
+async def test_an_update_may_move_to_a_free_vehicle_or_one_whose_trip_is_closed(
+    client: AsyncClient, db: AsyncSession, seeded: None
+) -> None:
+    """Only an OPEN trip holds a vehicle, as at creation."""
+    first, second, spare = await _vehicle(db), await _vehicle(db), await _vehicle(db)
+    cancelled = (
+        await client.post('/api/v1/delivery-itineraries', json={'warehouse': 1, 'vehicle': second})
+    ).json()['deliveries_itinerary_id']
+    done = await client.post(
+        f'/api/v1/delivery-itineraries/{cancelled}/cancel', json={'reason': 'Camión averiado'}
+    )
+    assert done.status_code == 200, done.text
+    itinerary_id = (
+        await client.post('/api/v1/delivery-itineraries', json={'warehouse': 1, 'vehicle': first})
+    ).json()['deliveries_itinerary_id']
+    path = f'/api/v1/delivery-itineraries/{itinerary_id}'
+
+    moved = await client.put(path, json={'vehicle': spare})
+    assert moved.status_code == 200, moved.text
+    assert moved.json()['vehicle'] == spare
+
+    moved = await client.put(path, json={'vehicle': second})
+    assert moved.status_code == 200, moved.text
+    assert moved.json()['vehicle'] == second
+
+
+async def test_departure_refuses_a_stop_with_nothing_loaded(
+    client: AsyncClient, db: AsyncSession, seeded: None
+) -> None:
+    """Follow-up to #343: an empty stop would ride along and block closing the trip."""
+    loaded_order = await _approved_delivery_order(client, db)
+    empty_order = await _approved_delivery_order(client, db)
+    itinerary_id = (
+        await client.post('/api/v1/delivery-itineraries', json={'warehouse': 1})
+    ).json()['deliveries_itinerary_id']
+    path = f'/api/v1/delivery-itineraries/{itinerary_id}'
+    loaded_stop = (
+        await client.post(f'{path}/stops', json={'delivery_order': loaded_order})
+    ).json()['stops'][0]
+    stops = (await client.post(f'{path}/stops', json={'delivery_order': empty_order})).json()[
+        'stops'
+    ]
+    loaded_id = loaded_stop['deliveries_itinerary_stop_id']
+    empty_stop = next(s for s in stops if s['deliveries_itinerary_stop_id'] != loaded_id)
+    loaded = await client.post(
+        f'{path}/stops/{loaded_id}/lines/all',
+        json={'delivery_order': loaded_order},
+    )
+    assert loaded.status_code == 200, loaded.text
+
+    refused = await client.post(f'{path}/depart')
+
+    problem = assert_problem(refused, 409, 'itinerary.empty_stops')
+    assert problem['params'] == {
+        'stop_ids': [empty_stop['deliveries_itinerary_stop_id']],
+        'sequences': [empty_stop['sequence']],
+    }
+    assert str(empty_stop['sequence']) in problem['detail']
+    # Nothing moved: still open, nothing frozen as sent.
+    assert (await client.get(path)).json()['status'] == ItineraryStatus.OPEN
+    sent = (await db.execute(select(DeliveriesItineraryDetail.sent_quantity))).scalars().all()
+    assert sent and all(quantity == 0 for quantity in sent)
+
+    removed = await client.delete(f'{path}/stops/{empty_stop["deliveries_itinerary_stop_id"]}')
+    assert removed.status_code == 200, removed.text
+    departed = await client.post(f'{path}/depart')
+
+    assert departed.status_code == 200, departed.text
+    assert departed.json()['status'] == ItineraryStatus.DEPARTED
