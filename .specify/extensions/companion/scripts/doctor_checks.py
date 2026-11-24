@@ -38,7 +38,7 @@ from spec_context import (  # noqa: E402
     _is_per_task,
     _is_step_level,
 )
-from task_sync import parse_task_markers  # noqa: E402
+from task_sync import parse_task_markers, waves_spanned  # noqa: E402
 
 #: Steps whose boundaries the extension stamps; an `ai` complete there is an
 #: anomaly, because it lands first and permanently blocks the hook's close.
@@ -261,7 +261,10 @@ def check_record(feature_dir: Path, ctx: dict, now: datetime | None = None) -> t
     # run journaling four tasks at the identical millisecond, three times over,
     # scored a 60s span and warned about nothing. Cluster first, then judge each
     # cluster on its own span.
-    finishes = _agent_task_finish_times(ctx)
+    # A wave closed in one call is one unit on purpose; only its total is timed.
+    summaries = ctx.get("task_summaries") if isinstance(ctx.get("task_summaries"), dict) else {}
+    waved = {t for t, s in summaries.items() if isinstance(s, dict) and s.get("wave")}
+    finishes = [f for f in _agent_task_finish_times(ctx) if f[0] not in waved]
     clusters, current = [], []
     for entry in finishes:
         if current and (entry[1] - current[0][1]).total_seconds() > BURST_WINDOW_SECONDS:
@@ -285,6 +288,25 @@ def check_record(feature_dir: Path, ctx: dict, now: datetime | None = None) -> t
             "took, so the summaries are still trustworthy and the durations are not",
             {"tasks": [t for c in bursts for t, _ in c],
              "batches": len(bursts), "largest_batch": len(worst), "span_seconds": span},
+        ))
+
+    # The other half of a deferred close: a list that spans several tasks.md waves is recorded as one
+    # unit, so it never reads as a burst above, and only its span says the waves went unclosed.
+    units: dict = {}
+    for tid, s in summaries.items():
+        if isinstance(s, dict) and isinstance(s.get("wave"), str):
+            units.setdefault(s["wave"], []).append(tid)
+    deferred = {label: n for label, tids in units.items()
+                if (n := waves_spanned(feature_dir / "tasks.md", tids)) > 1}
+    if deferred:
+        label, spanned = max(deferred.items(), key=lambda kv: kv[1])
+        findings.append(Finding(
+            "record", "warning",
+            f"{plural(sum(deferred.values()), 'wave')} closed in "
+            f"{plural(len(deferred), 'call')} instead of one call each",
+            f"{label} closed {spanned} waves together, so the viewer shows one time for all of "
+            "them; close each wave the moment its last task is done",
+            {"units": deferred},
         ))
 
     for step, by, at, why in _attribution_anomalies(ctx, _tasks_all_checked(feature_dir)):
@@ -479,8 +501,7 @@ def check_verification(feature_dir: Path, ctx: dict) -> tuple:
     Running the project's own checks is prompt text, and prompt text has no
     observer. `verified[]` is already written whenever a run records a check it
     executed, so a completed implement with an empty list is a run that shipped
-    code nothing was ever run against. Judged only as empty-or-not: interpreting
-    entry contents is drift's job, not this check's.
+    code nothing was ever run against. Judged only as empty-or-not.
     """
     skip = _no_record("verification", feature_dir, ctx)
     if skip is not None:
@@ -512,48 +533,36 @@ def check_verification(feature_dir: Path, ctx: dict) -> tuple:
     )]
 
 
-def check_briefed(feature_dir: Path, ctx: dict) -> tuple:
-    """Did a run with living specs turned on actually read any?
+def check_retired_living(root: Path) -> tuple:
+    """A leftover `livingSpecs:` block in the config is dead weight; say so once."""
+    cfg = Path(root) / ".specify" / "companion.yml"
+    try:
+        text = cfg.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return CheckStatus("retired_living", "skipped", "no .specify/companion.yml"), []
+    if not re.search(r"^livingSpecs\s*:", text, re.MULTILINE):
+        return CheckStatus("retired_living", "skipped", "no livingSpecs block in the config"), []
+    return CheckStatus("retired_living", "ran"), [Finding(
+        "retired_living", "note", "livingSpecs is retired; safe to delete",
+        "the `livingSpecs:` block in .specify/companion.yml is ignored; nothing reads it.",
+    )]
 
-    Loading them is best-effort and never fails, so a run that skipped the load
-    looks exactly like one with nothing to load: `livingSpecs.loaded` is empty
-    either way, no step reports a miss, and the run proceeds unbriefed. The two
-    cases are told apart by the registry — a project with capabilities and the
-    feature on had something to load, and an empty `loaded` there means the
-    briefing did not happen rather than that it was not wanted.
-    """
-    skip = _no_record("briefed", feature_dir, ctx)
-    if skip is not None:
-        return skip, []
 
-    living = ctx.get("livingSpecs") or {}
-    loaded = living.get("loaded") or []
-    if loaded:
-        return CheckStatus("briefed", "ran"), []
-
-    registry = None
-    for name in ("living-specs.yml", "living-specs.yaml"):
-        candidate = feature_dir.parent.parent / name
-        if candidate.exists():
-            registry = candidate
-            break
-    if registry is None:
-        return CheckStatus("briefed", "skipped", "no living-spec registry — nothing to load"), []
-
-    text = registry.read_text(encoding="utf-8", errors="replace")
-    if "enabled: true" not in text:
-        return CheckStatus("briefed", "skipped", "living specs are off for this project"), []
-    if "- name:" not in text:
-        return CheckStatus("briefed", "skipped", "registry holds no capabilities"), []
-
-    return CheckStatus("briefed", "ran"), [Finding(
-        "briefed", "problem",
-        "The run was never briefed",
-        "living specs are enabled and the registry holds capabilities, but `livingSpecs.loaded` "
-        "is empty: the load step was skipped, so this run drafted and implemented without the "
-        "context every other run in this project gets. Nothing failed, which is why it went "
-        "unnoticed — the load never fails by design.",
-        {"registry": registry.name, "loaded": 0},
+def check_persistence_model(root: Path) -> tuple:
+    """A constitution written around flow-back or living specs gets one pointer to the model Companion keeps."""
+    constitution = Path(root) / ".specify" / "memory" / "constitution.md"
+    try:
+        text = constitution.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return CheckStatus("persistence_model", "skipped", "no constitution"), []
+    if not re.search(r"flow[- ]?back|fold[- ]?back|living[- ]specs?", text, re.IGNORECASE):
+        return CheckStatus("persistence_model", "skipped", "constitution names no flow-back or living specs"), []
+    return CheckStatus("persistence_model", "ran"), [Finding(
+        "persistence_model", "note",
+        "The constitution mentions flow-back or living specs",
+        "Companion keeps specs flow-forward: one folder per change, completed is final, and lineage "
+        "links connect related changes. See \"How Companion keeps specs\" at "
+        "https://speckit-companion.dev/docs/steps#how-companion-keeps-specs",
     )]
 
 
@@ -567,8 +576,7 @@ def check_dispatch(feature_dir: Path, ctx: dict) -> tuple:
     and the same holds for the design docs when the size budget kept both. A
     `simple` run folds plan, so plan is not judged there. A closed implement whose
     Foundational phase had waves of four or more tasks and no wave check-ins built
-    them inline, and one offered a living-spec reviewer that never checked in folded
-    its deltas unreviewed.
+    them inline,.
     """
     skip = _no_record("dispatch", feature_dir, ctx)
     if skip is not None:
@@ -627,14 +635,6 @@ def check_dispatch(feature_dir: Path, ctx: dict) -> tuple:
                 "one checked in — dispatch the printed briefs as written",
                 {"waves": skipped},
             ))
-    if "implement" in closed and "living" in offered and not any(l.startswith("living:") for l in labels):
-        findings.append(Finding(
-            "dispatch", "warning",
-            "implement folded its living-spec deltas without dispatching their reviewer",
-            "`dispatch-briefs.py --living` printed a reviewer brief for this run and no reviewer checked in "
-            "— dispatch the printed brief before the fold",
-            {"expected": 1, "checked_in": 0},
-        ))
     return CheckStatus("dispatch", "ran"), findings
 
 
@@ -888,6 +888,131 @@ def check_agents(root: Path) -> tuple:
             "agents", "note", "The specify CLI is not on this shell's PATH",
             "Headless dispatch and Spec Kit's hooks call `specify`; if they fail, install it or add it to their PATH."))
     return CheckStatus("agents", "ran"), findings
+
+
+_PLUGINS_REPORTED: set = set()
+
+
+def _plugins_dir() -> Path:
+    import os
+    return Path(os.environ.get("CLAUDE_CONFIG_DIR") or Path.home() / ".claude") / "plugins"
+
+
+def _read_json(path: Path):
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+
+
+def _version_tuple(version) -> tuple | None:
+    parts = re.findall(r"\d+", str(version or "").split("-")[0])
+    return tuple(int(p) for p in parts) if parts else None
+
+
+def _marketplace_version(location, name: str) -> str | None:
+    """The version a marketplace checkout offers for `name`: its manifest entry, else the plugin's own plugin.json."""
+    if not location:
+        return None
+    base = Path(location)
+    listing = _read_json(base / ".claude-plugin" / "marketplace.json") or {}
+    for entry in listing.get("plugins") or []:
+        if isinstance(entry, dict) and entry.get("name") == name:
+            if entry.get("version"):
+                return str(entry["version"])
+            source = entry.get("source")
+            if isinstance(source, str):
+                own = _read_json(base / source / ".claude-plugin" / "plugin.json") or {}
+                return str(own["version"]) if own.get("version") else None
+    return None
+
+
+def check_plugins(root: Path, plugins_dir: Path | None = None) -> tuple:
+    """Is each Claude Code plugin the project's Companion config or nodes name behind its marketplace?"""
+    root = Path(root).resolve()
+    if root in _PLUGINS_REPORTED:
+        return CheckStatus("plugins", "skipped", "reported with the first spec of this run"), []
+    sources = [root / ".specify" / "companion.yml", *sorted((root / ".specify" / "companion" / "nodes").glob("*.md"))]
+    text = "\n".join(p.read_text(encoding="utf-8", errors="replace") for p in sources if p.is_file())
+    if not text:
+        return CheckStatus("plugins", "not-applicable", "no Companion config or project nodes"), []
+    plugins_dir = Path(plugins_dir) if plugins_dir is not None else _plugins_dir()
+    installed = (_read_json(plugins_dir / "installed_plugins.json") or {}).get("plugins") or {}
+    marketplaces = _read_json(plugins_dir / "known_marketplaces.json") or {}
+    known = set(installed)
+    for market, info in marketplaces.items():
+        place = info.get("installLocation") if isinstance(info, dict) else None
+        listing = _read_json(Path(place) / ".claude-plugin" / "marketplace.json") if place else None
+        known |= {f"{e['name']}@{market}" for e in (listing or {}).get("plugins") or []
+                  if isinstance(e, dict) and e.get("name")}
+    referenced = sorted({key for key in known
+                         if re.search(rf"(?<![\w-]){re.escape(key.split('@')[0])}:[\w-]", text)})
+    if not referenced:
+        return CheckStatus("plugins", "not-applicable", "the config and nodes name no installed plugin"), []
+    _PLUGINS_REPORTED.add(root)
+    findings = []
+    for key in referenced:
+        name, _, market = key.partition("@")
+        entries = installed.get(key)
+        have = entries[0].get("version") if isinstance(entries, list) and entries and isinstance(entries[0], dict) else None
+        place = (marketplaces.get(market) or {}).get("installLocation") if isinstance(marketplaces.get(market), dict) else None
+        offered = _marketplace_version(place, name)
+        have_t, offered_t = _version_tuple(have), _version_tuple(offered)
+        if have is None and offered_t is not None:
+            findings.append(Finding("plugins", "note", f"{name}: not installed",
+                                    f"The project's Companion nodes call {name}, but it is not installed. "
+                                    f"Run `claude plugin install {key}`.",
+                                    {"plugin": key, "installed": None, "marketplace": offered}))
+        elif have_t is None or offered_t is None:
+            missing = "installed version" if have_t is None else f"version in the {market} marketplace"
+            findings.append(Finding("plugins", "note", f"{name}: version unknown",
+                                    f"Could not read the {missing}, so freshness was not checked.",
+                                    {"plugin": key, "installed": have, "marketplace": offered}))
+        elif have_t < offered_t:
+            findings.append(Finding("plugins", "warning", f"{name} is behind: {have} installed, {offered} available",
+                                    f"The project's Companion nodes call {name}, and {market} offers a newer version. "
+                                    f"Run `claude plugin marketplace update {market}` and `claude plugin update {key}`.",
+                                    {"plugin": key, "installed": have, "marketplace": offered}))
+    return CheckStatus("plugins", "ran"), findings
+
+
+_WORKFLOW_REPORTED: set = set()
+_SHIPPED_WORKFLOW = Path(".specify/extensions/companion/workflows/speckit-companion.workflow.yml")
+_REGISTERED_WORKFLOW = Path(".specify/workflows/speckit-companion/workflow.yml")
+
+
+def check_workflow(root: Path) -> tuple:
+    """Can `specify workflow run speckit-companion` find the workflow Companion ships, at its current version?"""
+    root = Path(root).resolve()
+    if root in _WORKFLOW_REPORTED:
+        return CheckStatus("workflow", "skipped", "reported with the first spec of this run"), []
+    shipped = root / _SHIPPED_WORKFLOW
+    if not shipped.is_file():
+        return CheckStatus("workflow", "not-applicable", "Companion ships no workflow here"), []
+    _WORKFLOW_REPORTED.add(root)
+    registered = root / _REGISTERED_WORKFLOW
+    fix = (f"Run `specify workflow add {_SHIPPED_WORKFLOW.as_posix()}`, or "
+           f"`python3 .specify/extensions/companion/scripts/doctor.py --fix`.")
+    if not registered.is_file():
+        title = "The Companion workflow is not registered with spec-kit's workflow engine"
+        detail = f"`specify workflow list` does not show it, so `specify workflow run speckit-companion` fails. {fix}"
+    elif registered.read_bytes() != shipped.read_bytes():
+        title = "The registered Companion workflow is out of date"
+        detail = f"The engine runs an older copy than the one this Companion version ships. {fix}"
+    else:
+        return CheckStatus("workflow", "ran"), []
+    return CheckStatus("workflow", "ran"), [Finding("workflow", "warning", title, detail)]
+
+
+def register_workflow(root: Path) -> int:
+    """Register the shipped workflow with the engine; without the CLI, say the command to run."""
+    import shutil
+    import subprocess
+    command = ["specify", "workflow", "add", _SHIPPED_WORKFLOW.as_posix()]
+    if shutil.which("specify") is None:
+        print(f"[doctor] The specify CLI is not on PATH. Run this from the project: {' '.join(command)}")
+        return 1
+    return subprocess.run(command, cwd=root).returncode
 
 
 def check_template(feature_dir: Path) -> tuple:

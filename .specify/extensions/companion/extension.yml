@@ -3,7 +3,7 @@ schema_version: "1.0"
 extension:
   id: companion
   name: "SpecKit Companion"
-  version: "0.26.0"
+  version: "0.29.0"
   description: "Records your spec-kit runs live: status, resume, and a health check for what actually happened."
   author: alfredoperez
   repository: https://github.com/alfredoperez/speckit-companion
@@ -46,12 +46,21 @@ provides:
     - name: speckit.companion.after-converge
       file: commands/speckit.companion.after-converge.md
       description: "Record the converge finish in .spec-context.json for the Companion GUI"
+    - name: speckit.companion.before-bug
+      file: commands/speckit.companion.before-bug.md
+      description: "Record a spec-kit bug stage's start in the bug's .spec-context.json for the Companion GUI"
+    - name: speckit.companion.after-bug
+      file: commands/speckit.companion.after-bug.md
+      description: "Record a spec-kit bug stage's finish and outcome in the bug's .spec-context.json for the Companion GUI"
     - name: speckit.companion.status
       file: commands/speckit.companion.status.md
       description: "Report where the active spec stands — current step, status, recorded decisions, and the next action — from .spec-context.json"
     - name: speckit.companion.resume
       file: commands/speckit.companion.resume.md
       description: "Continue the spec-driven pipeline from the last completed step, carrying recorded decisions into scope, and dispatch the next command"
+    - name: speckit.companion.amend
+      file: commands/speckit.companion.amend.md
+      description: "Edit the active spec in place when you change your mind after plan or implement, record the change, and re-plan only when a requirement was added or removed"
     - name: speckit.companion.specify
       file: commands/speckit.companion.specify.md
       description: "Companion specify — a feature spec with prioritized user stories"
@@ -75,28 +84,7 @@ provides:
       description: "Companion auto — run the whole pipeline hands-off (specify → plan → tasks → implement → converge), no pauses"
     - name: speckit.companion.doctor
       file: commands/speckit.companion.doctor.md
-      description: "Report on a spec's run health — unfinished steps, unjournaled tasks, step bleed, drift you can judge, a step that closed having verified nothing, a step that closed without the file it promised, and why completion did not land (read-only, retroactive, never halts)"
-    - name: speckit.companion.living-adopt
-      file: commands/speckit.companion.living-adopt.md
-      description: "Brownfield adoption wizard — draft living specs for the code areas you name, central or colocated, and register them (opt-in, surface-first, [DRAFT])"
-    - name: speckit.companion.living-move
-      file: commands/speckit.companion.living-move.md
-      description: "Move a living spec between central and colocated storage — file, tiers, and registry together (opt-in, reversible)"
-    - name: speckit.companion.living-drift
-      file: commands/speckit.companion.living-drift.md
-      description: "Report living-spec drift — per capability, the source files changed since the spec was last committed (opt-in, never halts)"
-    - name: speckit.companion.living-show
-      file: commands/speckit.companion.living-show.md
-      description: "Print one slice of a living spec — a capability's requirement headings, one requirement in full, or the requirements that describe one file (opt-in, read-only, never halts)"
-    - name: speckit.companion.living-validate
-      file: commands/speckit.companion.living-validate.md
-      description: "Check the shape of living specs and a feature spec's deltas — a requirement with no scenario, a scenario missing WHEN or THEN, a duplicate heading, a delta pointing at nothing (opt-in, read-only, never halts)"
-    - name: speckit.companion.living-coverage
-      file: commands/speckit.companion.living-coverage.md
-      description: "Report living-spec requirement→test coverage — per requirement, whether its coverage tier maps a test (opt-in, read-only, never halts)"
-    - name: speckit.companion.living-sync
-      file: commands/speckit.companion.living-sync.md
-      description: "Sync living specs from your current changes — group working-tree changes (uncommitted included) by capability and update every affected spec in one pass (opt-in, update-not-regenerate, never halts)"
+      description: "Report on a spec's run health — unfinished steps, unjournaled tasks, step bleed, a step that closed having verified nothing, a step that closed without the file it promised, and why completion did not land (read-only, retroactive, never halts)"
     - name: speckit.companion.on-prompt
       file: commands/speckit.companion.on-prompt.md
       description: "Record a step's start from spec-kit's prompt-submitted event"
@@ -145,6 +133,30 @@ hooks:
     command: speckit.companion.after-converge
     optional: false
     description: "Record the converge finish"
+  before_bug_assess:
+    command: speckit.companion.before-bug
+    optional: false
+    description: "Record the bug assess start"
+  after_bug_assess:
+    command: speckit.companion.after-bug
+    optional: false
+    description: "Record the bug assess finish and verdict"
+  before_bug_fix:
+    command: speckit.companion.before-bug
+    optional: false
+    description: "Record the bug fix start"
+  after_bug_fix:
+    command: speckit.companion.after-bug
+    optional: false
+    description: "Record the bug fix finish and status"
+  before_bug_test:
+    command: speckit.companion.before-bug
+    optional: false
+    description: "Record the bug test start"
+  after_bug_test:
+    command: speckit.companion.after-bug
+    optional: false
+    description: "Record the bug test finish and result"
 
 events:
   user_prompt_submit:
@@ -159,6 +171,4 @@ events:
 tags:
   - "vscode"
   - "progress"
-  - "living-specs"
-  - "drift"
   - "hooks"
