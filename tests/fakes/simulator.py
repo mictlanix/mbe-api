@@ -1,8 +1,8 @@
 """The CFDI library's simulated PAC as the integration tests use it (spec 040, research R10).
 
 `simulated_provider(sessions)` is what `PAC_PROVIDER=simulated` builds, over the tests' database:
-the adapter around a `SimulatedPac` on a `DatabaseSimulatorStore`. The `set_*` helpers choose the
-next outcome for a document as the /pac-simulator routes do (contracts/simulator-controls.md).
+the adapter around a `SimulatedPac` on a `DatabaseSimulatorStore`. The `set_*` helpers and
+`answer_as_receiver` drive the library's simulator directly; the API exposes no controls for it.
 """
 
 from collections.abc import Callable

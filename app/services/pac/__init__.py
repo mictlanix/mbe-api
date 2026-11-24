@@ -13,16 +13,11 @@ from app.services.pac.provider import PacProvider
 from app.services.pac.simulator_store import DatabaseSimulatorStore
 
 
-def get_pac_simulator() -> SimulatedPac:
-    """The library's simulated PAC over the database store (spec 040, R10, R12): the provider and
-    the /pac-simulator routes share it. A FastAPI dependency, which tests override."""
-    return SimulatedPac(DatabaseSimulatorStore())
-
-
 def get_pac_provider() -> PacProvider | None:
     """The configured provider, or None while there is none. A FastAPI dependency."""
     if settings.pac_provider == 'simulated':
-        pac = get_pac_simulator()
+        # The library's simulated PAC, its state on the database (spec 040, R10).
+        pac = SimulatedPac(DatabaseSimulatorStore())
         return CfdiPacProvider(
             pac, SimulatedSatStatusClient(pac), name='simulator', resolves_by_resubmitting=False
         )
