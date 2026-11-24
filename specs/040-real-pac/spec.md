@@ -15,7 +15,7 @@ Spec 039 finished the fiscal lifecycle in the API: it stamps, cancels and refres
 This spec makes the library the API's **only PAC implementation**:
 - **One adapter** in `app/services/pac/` implements the contract over the library's clients. With `PAC_PROVIDER=multifacturas` they are the library's Multifacturas client and SAT status client. With `PAC_PROVIDER=simulated` they are the library's simulated PAC and simulated SAT status.
 - **mbe-api's own simulator goes away.** Its state moves to a store on the database that the library's simulator reads and writes.
-- **The simulator controls keep their routes**, which the UI uses (mbe-ui#274). They now drive the library's simulator.
+- ~~**The simulator controls keep their routes**, which the UI uses (mbe-ui#274). They now drive the library's simulator.~~ *Amended 2026-11-24: the `/pac-simulator` routes were removed. The configuration alone decides which PAC answers `/stamp`, `/cancel` and `/refresh`, and the library's simulator answers with its defaults.*
 
 Everything that decides a document's state stays where spec 039 put it, with three exceptions this spec names:
 - how a document left `stamping` is resolved with a PAC that cannot look a stamp up (FR-008 to FR-011);
@@ -65,6 +65,10 @@ Everything that decides a document's state stays where spec 039 put it, with thr
 - Q: How is the PAC's 201 recorded? → A: As `PENDING`, as planned. The request reads "pending" from the PAC's answer until SAT's status settles it (FR-012).
 - Q: Which PAC does test (:8766) run after this spec? → A: Multifacturas in test mode, where the walk runs. Dev (:8765) stays on the simulator and serves the UI's simulated scenarios (SC-007).
 - Q: What does "the PAC in use must be configured in the config file" require? → A: Each instance's `.env` names its PAC explicitly. `PAC_PROVIDER` has no default, and an instance whose configuration doesn't set it refuses to start. Production's `.env` says `PAC_PROVIDER=none` (FR-016, FR-018).
+
+### Amendment 2026-11-24
+
+- After this spec merged (#348), the user decided that `PAC_PROVIDER=simulated` must go through the same `/stamp`, `/cancel` and `/refresh` routes as the real PAC, with the configuration alone deciding which PAC answers, and that the API needs no routes of its own for the simulator. The `/pac-simulator` routes were removed (mbe-api `chore/remove-pac-simulator-routes`), and with them `get_pac_simulator()` and `contracts/simulator-controls.md`'s behavior. FR-025 and FR-026 are withdrawn; User Story 5, FR-028 and SC-008 are narrowed. The library's simulator still runs behind `PAC_PROVIDER=simulated`, with its state in `pac_simulator_store` (FR-020 to FR-024 stand), and answers with its defaults: a stamp succeeds, and a cancellation is accepted at once under 24 hours from the stamp and pending after. The other outcomes are reached by the offline tests, which drive the simulator directly.
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -144,7 +148,7 @@ An operator chooses an instance's PAC in its configuration file (`.env`), explic
 
 ### User Story 5 - The simulator runs on the library (Priority: P2)
 
-A tester on dev drives every simulated scenario through the same `/pac-simulator` routes as before (mbe-ui#274). Behind them, the library's simulated PAC and simulated SAT status now answer, with their state in the database, so the API's processes and the resolve job see the same simulated PAC. Simulated stamps carry the provider RFC `SIM010101SI0`, which SAT's TFD schema accepts. Documents the old simulator stamped keep their simulated mark.
+*Amended 2026-11-24: scenarios 2 to 5 are withdrawn with the `/pac-simulator` routes; on dev the simulator gives only its defaults, through `/stamp`, `/cancel` and `/refresh`, and the other outcomes are covered offline.* A tester on dev drives every simulated scenario through the same `/pac-simulator` routes as before (mbe-ui#274). Behind them, the library's simulated PAC and simulated SAT status now answer, with their state in the database, so the API's processes and the resolve job see the same simulated PAC. Simulated stamps carry the provider RFC `SIM010101SI0`, which SAT's TFD schema accepts. Documents the old simulator stamped keep their simulated mark.
 
 **Why this priority**: The UI's screens are built against the simulator, and one PAC implementation means the simulated path exercises the same adapter as the real one.
 
@@ -153,10 +157,10 @@ A tester on dev drives every simulated scenario through the same `/pac-simulator
 **Acceptance Scenarios**:
 
 1. **Given** the simulator, **When** a document is stamped, **Then** its provider RFC is `SIM010101SI0` and its detail reports `stamp.simulated` true.
-2. **Given** a stamp outcome set through `PUT /pac-simulator/fiscal-documents/{id}`, **When** the document is stamped, **Then** that outcome happens once, and the next stamp succeeds.
-3. **Given** a cancellation outcome set through the same route on a stamped document, **When** it is cancelled, **Then** that outcome happens once.
-4. **Given** a document that is not stamped yet, **When** a cancellation outcome is set, **Then** the answer is 409 `fiscal_document.not_stamped`.
-5. **Given** a pending cancellation, **When** `POST …/receiver` accepts, rejects or lets it expire, **Then** the next refresh settles the document as spec 039 defines. With nothing pending, the answer is 409 `fiscal_document.nothing_to_refresh`.
+2. *(Withdrawn 2026-11-24.)* **Given** a stamp outcome set through `PUT /pac-simulator/fiscal-documents/{id}`, **When** the document is stamped, **Then** that outcome happens once, and the next stamp succeeds.
+3. *(Withdrawn 2026-11-24.)* **Given** a cancellation outcome set through the same route on a stamped document, **When** it is cancelled, **Then** that outcome happens once.
+4. *(Withdrawn 2026-11-24.)* **Given** a document that is not stamped yet, **When** a cancellation outcome is set, **Then** the answer is 409 `fiscal_document.not_stamped`.
+5. *(Withdrawn 2026-11-24.)* **Given** a pending cancellation, **When** `POST …/receiver` accepts, rejects or lets it expire, **Then** the next refresh settles the document as spec 039 defines. With nothing pending, the answer is 409 `fiscal_document.nothing_to_refresh`.
 6. **Given** two API processes with their own simulator instances, **When** both receive a stamp request for the same document at once, **Then** one reaches the simulator, the other answers 409 `fiscal_document.stamping` (or the issued document, if it arrives after the first finished), and the document ends with one UUID.
 7. **Given** documents stamped by the old simulator, **When** migration 037 runs, **Then** their stored provider RFC and the `RfcProvCertif` in their stored XML are `SIM010101SI0`, and they still show as simulated.
 
@@ -171,9 +175,9 @@ A tester on dev drives every simulated scenario through the same `/pac-simulator
 - **Refreshing a test-mode request.** SAT does not know test UUIDs, so SAT reports "not found" and the document stays unchanged, as spec 039 defines.
 - **Mismatched stamp.** The PAC returns a stamp whose seal does not match the submitted document: the library rejects it (`MF-ANSWER`), and the document stays sealed.
 - **Library input error.** The library refuses an input, for example a malformed substitute UUID that slipped past the API's checks: this is a `pac.rejected` with the library's code, never a 500.
-- **Simulated documents stamped before the switch.** Their old simulator state is gone (FR-023). A cancellation of one is answered as for a UUID the simulator never stamped: pending, waiting for the receiver, and the receiver controls then work on it.
-- **A stamp outcome set before resealing.** The library keys a stamp outcome by the sealed document, so reopening and resealing discards it. Testers set outcomes after the last seal.
-- **An outcome set during a stamp.** The simulator's instances don't lock each other, so a stamp outcome written while another process stamps the same document could erase that stamp from the simulator. The route refuses a stamp outcome while the document is `stamping`.
+- **Simulated documents stamped before the switch.** Their old simulator state is gone (FR-023). A cancellation of one is answered as for a UUID the simulator never stamped: pending, waiting for the receiver, and, since the receiver controls were removed on 2026-11-24, it stays pending.
+- *(Moot since 2026-11-24: outcomes are set only by tests.)* **A stamp outcome set before resealing.** The library keys a stamp outcome by the sealed document, so reopening and resealing discards it. Testers set outcomes after the last seal.
+- *(Moot since 2026-11-24: the route is gone.)* **An outcome set during a stamp.** The simulator's instances don't lock each other, so a stamp outcome written while another process stamps the same document could erase that stamp from the simulator. The route refuses a stamp outcome while the document is `stamping`.
 - **Not cancellable is permanent.** Once the simulator answers "not cancellable" for a UUID, every later cancellation of it gets the same answer.
 - **The simulator's store fails.** A store read or write that fails is the library's "PAC unavailable", answered as `pac.unavailable`.
 
@@ -254,12 +258,12 @@ A tester on dev drives every simulated scenario through the same `/pac-simulator
   - the PAC is called with no lock held;
   - the stamp is stored under the lock again.
   A test MUST prove it with two simulator instances on the same store.
-- **FR-025**: The simulator routes MUST keep their paths, privileges, the 404 when the simulator is not configured, and their bodies, except that the response no longer carries `next_stamp` and `next_cancellation` (the library cannot read them back):
+- **FR-025** *(withdrawn 2026-11-24: the routes were removed; see the Amendment)*: The simulator routes MUST keep their paths, privileges, the 404 when the simulator is not configured, and their bodies, except that the response no longer carries `next_stamp` and `next_cancellation` (the library cannot read them back):
   - **`GET /pac-simulator/fiscal-documents/{id}`** returns `uuid`, `sat_status` and `cancellation_status`. For a document not yet stamped, `uuid` is null, `sat_status` is `not_found` and `cancellation_status` is `none`.
   - **`PUT` the same route** sets the outcome of the next stamp, for a sealed document, or of the next cancellation, for a stamped one. A cancellation outcome for a document not yet stamped answers 409 `fiscal_document.not_stamped`. A stamp outcome for a document that is `stamping` answers 409 `fiscal_document.stamping`, because writing it could overwrite the stamp another process is storing in the simulator.
   - **`POST …/receiver`** accepts, rejects or lets expire a pending cancellation. With nothing pending, it answers 409 `fiscal_document.nothing_to_refresh`.
   - A library refusal on these routes, for example SAT's 307 for a stamp outcome on a document the old simulator stamped, is `pac.rejected` with the library's code.
-- **FR-026**: The UI handoff (mbe-ui#274) MUST be updated with the routes' new response, the not-stamped rule for cancellation outcomes, and the behavior differences in the Overview's table.
+- **FR-026** *(withdrawn 2026-11-24 with FR-025; mictlanix/mbe-ui#288 is corrected separately)*: The UI handoff (mbe-ui#274) MUST be updated with the routes' new response, the not-stamped rule for cancellation outcomes, and the behavior differences in the Overview's table.
 - **FR-027**: The log line `pac simulator: stamp call {issuer} {series}{folio}` that spec 039's quickstart counts MUST remain: one line per stamp call to the simulator, never with the XML.
 
 **Testing**
@@ -268,7 +272,7 @@ A tester on dev drives every simulated scenario through the same `/pac-simulator
   - every translation in FR-004 and every error in FR-005;
   - the recovery in FR-008 to FR-010;
   - every final state in FR-013;
-  - every scenario of the simulator routes.
+  - ~~every scenario of the simulator routes~~ every simulator outcome, driven on the library's simulator directly (amended 2026-11-24).
 - **FR-029**: Live tests MUST be opt-in through environment variables and skipped without them:
   - against Multifacturas' test mode: stamp, the duplicate answer, cancellation;
   - against SAT's status service: a valid UUID and a cancelled one.
@@ -291,7 +295,7 @@ A tester on dev drives every simulated scenario through the same `/pac-simulator
 - **SC-005**: A search of the test suite, the logs of the test walk and the error answers finds no credential, CSD material or raw PAC payload.
 - **SC-006**: Every combination in FR-018 starts or refuses as specified.
 - **SC-007**: After deploy, dev's `.env` names the library's simulator and test's names Multifacturas in test mode. Production's `.env` names `none` explicitly before any production deploy of this code.
-- **SC-008**: On dev, every scenario of quickstart's "Driving each scenario" reaches its listed outcome through the simulator routes.
+- **SC-008** *(met 2026-11-19, then withdrawn 2026-11-24 with the routes; on dev only the defaults remain)*: On dev, every scenario of quickstart's "Driving each scenario" reaches its listed outcome through the simulator routes.
 - **SC-009**: No document is stamped twice across simulator instances. Two proofs:
   - **Offline:** while one instance's stamp is held inside the simulator, a stamp request through a second instance on the same store answers 409 `fiscal_document.stamping` without calling the simulator, and the document ends with one UUID.
   - **On dev (MariaDB, real row locks):** 20 concurrent stamp requests for one document from two processes produce exactly one simulator stamp call and one UUID.

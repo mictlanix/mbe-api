@@ -47,6 +47,10 @@ The API talks to the PAC only through a **PAC provider contract** that mbe-api o
 
 - Q: What does the API require of the substitute for reason 01? → A: The substitute must be a stamped, live document with the same issuer and recipient. The API does not require the 04 relation, and spec 027 is unchanged. If SAT rejects the substitute, the PAC's rejection is returned.
 
+### Amendment 2026-11-24
+
+- The `/pac-simulator` routes that implemented FR-006 were removed by the user's decision (mbe-api `chore/remove-pac-simulator-routes`). `PAC_PROVIDER=simulated` goes through the same `/stamp`, `/cancel` and `/refresh` routes as a real PAC, the configuration alone decides which PAC answers, and the simulator (since spec 040, the CFDI library's) answers with its defaults. Choosing other outcomes is left to the offline tests, which drive the simulator directly. FR-006 and SC-001 are withdrawn; User Story 5 is narrowed to match.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Stamp a sealed document (Priority: P1)
@@ -125,6 +129,8 @@ The UI lists fiscal documents and shows each one's fiscal state: draft, sealed, 
 
 ### User Story 5 - Drive every PAC outcome in the simulator (Priority: P2)
 
+*Amended 2026-11-24: the `/pac-simulator` routes were removed; the configuration alone decides which PAC answers `/stamp`, `/cancel` and `/refresh`, and the API exposes no controls for the simulator.* Through the API, the simulator now gives only its default answers (scenario 2); the other outcomes are reached by the offline tests, which drive the simulator directly. Scenario 1 and the text below record what was built and then withdrawn.
+
 A developer or a UI tester reaches every PAC outcome through the API alone, with no code change or redeploy:
 - stamped, rejected by the PAC, PAC unavailable, timeout with unknown outcome;
 - cancellation accepted at once, pending then accepted, pending then rejected, not cancellable.
@@ -173,7 +179,7 @@ A developer or a UI tester reaches every PAC outcome through the API alone, with
 **Simulated PAC**
 
 - **FR-005**: The simulated provider MUST return a well-formed TFD 1.1 with a fresh random UUID, the current stamp date, and a SAT seal and SAT certificate number that look real. It MUST use a fixed provider RFC reserved for simulation.
-- **FR-006**: The simulated provider MUST let a tester choose each outcome through the API alone, per document, with no code change or restart:
+- **FR-006** *(withdrawn 2026-11-24: the routes that implemented it were removed; outcomes beyond the simulator's defaults are chosen only by the offline tests)*: The simulated provider MUST let a tester choose each outcome through the API alone, per document, with no code change or restart:
   - stamped, rejected (with a chosen code and message), unavailable, timeout;
   - cancellation accepted at once, pending, not cancellable;
   - for a pending cancellation, the receiver accepting or rejecting it.
@@ -252,7 +258,7 @@ A developer or a UI tester reaches every PAC outcome through the API alone, with
 
 ### Measurable Outcomes
 
-- **SC-001**: Every outcome listed in User Story 5 can be reached through the API alone, on dev, by following the handoff's instructions: the 13 paths listed in contracts/endpoints.md "Driving each scenario", 0 code changes.
+- **SC-001** *(withdrawn 2026-11-24 with FR-006; it was met on dev before the routes were removed)*: Every outcome listed in User Story 5 can be reached through the API alone, on dev, by following the handoff's instructions: the 13 paths listed in contracts/endpoints.md "Driving each scenario", 0 code changes.
 - **SC-002**: In a concurrency test of 20 simultaneous stamp requests on one sealed document, the PAC receives exactly 1 stamp call and the document ends with 1 UUID. Measured on the test deployment, whose database enforces row locks.
 - **SC-003**: Every timeout left stamping is resolved by the first periodic run, after the 5-minute grace, in which the PAC answers. No document stays stamping after 2 such runs with the PAC available.
 - **SC-004**: No document is ever stamped twice. Across the test suite and the dev scenarios, each sealed document maps to at most one UUID.
@@ -267,7 +273,7 @@ A developer or a UI tester reaches every PAC outcome through the API alone, with
 - **The stamped state keeps its existing name, `issued`**, which spec 020 and the UI already use. "Stamped" in this spec means issued.
 - **The PAC is assumed to support the look-up operation** (FR-001). Facturación México returns a stamp's acknowledgement by UUID, but a look-up by sealed document (issuer, series and folio) must be confirmed in #160. If the PAC cannot do it, #160's provider must implement the look-up some other way that does not stamp twice. The contract does not change.
 - **The receiver-acceptance rule** is SAT's, and arrives through the PAC. §2 states only the 24-hour rule, and the current system never tracked acceptance at all. The simulator defaults to §2's rule; the real rules are confirmed against the PAC in #160.
-- **Choosing a simulated outcome** uses a per-document instruction that the simulator reads, for example a marker in the document's comment or a dev-only endpoint. The plan picks the means; the handoff documents it.
+- **Choosing a simulated outcome** uses a per-document instruction that the simulator reads, for example a marker in the document's comment or a dev-only endpoint. The plan picks the means; the handoff documents it. *(Amended 2026-11-24: the dev-only endpoint the plan chose was removed; the API has no means.)*
 - **Retentions, payroll, transfer and global-invoice CFDIs are out of scope**, as are the CFDI package, the real PAC client, connecting them (#160, #46, #51) and the invoicing cutover (#57).
 - **The mbe-ui handoff** for #52, #54 and #56 opens after this spec merges. It lists the endpoints, states, error codes and how to drive each simulated outcome.
 - **SAT reversals are not detected.** Cancelled documents are not queried again, so a cancellation that SAT later reverses is not seen by the API.

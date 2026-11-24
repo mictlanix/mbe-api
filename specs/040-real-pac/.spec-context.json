@@ -295,5 +295,29 @@
       "at": "2026-11-19T04:53:07.969Z"
     }
   ],
-  "currentTask": "T031"
+  "currentTask": "T031",
+  "amendments": [
+    {
+      "what": "FR-025 and FR-026 withdrawn; User Story 5, FR-028 and SC-008 narrowed",
+      "why": "The user removed the /pac-simulator routes: the configuration alone decides which PAC answers",
+      "by": "you",
+      "replanned": false,
+      "at": "2026-11-24T19:10:16.037Z"
+    }
+  ],
+  "telemetryInstanceId": "2d1bb0eb-a5fb-497f-9c02-093f536aa306",
+  "decisions": [
+    {
+      "decision": "Remove the /pac-simulator routes, get_pac_simulator and their tests",
+      "id": "amend-keep-FR-025",
+      "by": "you",
+      "at": "2026-11-24T19:10:17.006Z"
+    },
+    {
+      "decision": "Correct the UI handoff mbe-ui#288 separately instead of FR-026",
+      "id": "amend-keep-FR-026",
+      "by": "you",
+      "at": "2026-11-24T19:10:18.001Z"
+    }
+  ]
 }

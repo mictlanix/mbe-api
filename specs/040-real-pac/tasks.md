@@ -10,6 +10,9 @@
 
 **Lint**: `uv run ruff check app/ migrations/ tests/`. Run `ruff format` only on files you touch whose origin version was already formatted.
 
+
+> **Amended 2026-11-24:** the `/pac-simulator` routes built by T023, T025 and T026 were removed after merge (spec Amendment); T033's dev walk and T036's handoff describe them as they were.
+
 ## Format: `[ID] [P?] [Story] Description`
 
 - **[P]**: Can run in parallel (different files, no dependency on an incomplete task)

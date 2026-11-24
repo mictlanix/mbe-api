@@ -1,5 +1,7 @@
 # Contract: Simulated PAC controls (changes from spec 039)
 
+> **Removed 2026-11-24.** These routes no longer exist: `PAC_PROVIDER=simulated` goes through the same `/stamp`, `/cancel` and `/refresh` routes as the real PAC, and the API exposes no controls for the library's simulator. This contract records what spec 040 built.
+
 Spec 039's section "Simulated PAC controls" in `contracts/endpoints.md` still holds for:
 - the routes;
 - the Update privilege on 23;

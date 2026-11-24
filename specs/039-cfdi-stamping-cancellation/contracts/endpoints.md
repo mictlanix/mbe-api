@@ -63,6 +63,8 @@ Not changed: `/xml` and `/pdf` (issued, pending and cancelled documents) and `/e
 
 ## Simulated PAC controls (dev and test only)
 
+> **Removed 2026-11-24.** Amended 2026-11-24: the `/pac-simulator` routes were removed; the configuration alone decides which PAC answers `/stamp`, `/cancel` and `/refresh`, and the API exposes no controls for the simulator. The section below records what spec 039 built.
+
 Every simulator route answers 404 `request.route_not_found` unless `PAC_PROVIDER=simulated` (checked per request, before authentication). Each needs Update on 23. The document must be sealed or later, otherwise 409 `fiscal_document.not_sealed`.
 
 | Method | Route | Body | Effect |
@@ -82,6 +84,8 @@ With nothing chosen:
 - **cancellation:** `accepted` when the stamp is under 24 hours old, otherwise `pending`.
 
 ### Driving each scenario (for the mbe-ui handoff)
+
+> **Removed 2026-11-24** with the routes above: these steps no longer work. Only the defaults remain (a stamp succeeds; a cancellation is accepted at once under 24 hours from the stamp and pending after).
 
 | Scenario | Steps |
 |---|---|
