@@ -10,7 +10,7 @@ The library from mictlanix/cfdi becomes the API's only PAC implementation. It is
 - **One adapter,** `CfdiPacProvider` in `app/services/pac/`, implements spec 039's contract over the library's clients (research R2, R3):
   - `PAC_PROVIDER=multifacturas`: `MultifacturasPac` and `SatConsultaClient`;
   - `PAC_PROVIDER=simulated`: the library's `SimulatedPac` and `SimulatedSatStatusClient`, with their state in a new database store (R10).
-- **mbe-api's own simulator is deleted.** Its `/pac-simulator` routes now drive the library's simulator (R12), without `next_stamp` and `next_cancellation`.
+- **mbe-api's own simulator is deleted.** *(Amended 2026-11-24: the `/pac-simulator` routes were removed afterwards.)* Its `/pac-simulator` routes now drive the library's simulator (R12), without `next_stamp` and `next_cancellation`.
 
 Outside the adapter, the plan changes three things the spec names:
 - **Resolving a document left `stamping`:** refresh resubmits the stored sealed XML after the 5-minute grace when the provider resolves that way (R4).

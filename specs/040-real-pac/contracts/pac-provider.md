@@ -88,6 +88,8 @@ The table is `pac_simulator_store` (data-model.md). The store keeps the values w
 
 ## 5. The simulator for the routes: `get_pac_simulator()`
 
+> **Removed 2026-11-24** with the routes. `get_pac_provider()` builds `SimulatedPac(DatabaseSimulatorStore())` itself.
+
 In `app/services/pac/__init__.py`, a FastAPI dependency beside `get_pac_provider()`:
 
 ```python

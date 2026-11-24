@@ -69,6 +69,8 @@ The values are given on the command line and never committed. SAT's public test 
 
 ## 5. Driving each scenario (dev, `PAC_PROVIDER=simulated`; for the mbe-ui handoff)
 
+> **Removed 2026-11-24** with the `/pac-simulator` routes. The steps and results below record the walk of 2026-11-19; through the API the simulator now gives only its defaults (a stamp succeeds; a cancellation is accepted at once under 24 hours from the stamp and pending after). The offline tests in `tests/integration/test_fiscal_stamping_http.py` still drive every outcome on the simulator directly.
+
 `PUT …` and `POST …/receiver` are `/pac-simulator/fiscal-documents/{id}` and its `/receiver`. `stamp`, `cancel` and `refresh` are spec 039's endpoints. Set a stamp outcome **after** the document's last seal, and a cancellation outcome **after** its stamp.
 
 | Scenario | Steps now | What changed from spec 039 |

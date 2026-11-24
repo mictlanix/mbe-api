@@ -6,6 +6,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Removed
+- **The `/pac-simulator` routes** (`GET`/`PUT /pac-simulator/fiscal-documents/{id}`, `POST …/receiver`). `PAC_PROVIDER=simulated` goes through the same `/stamp`, `/cancel` and `/refresh` routes as the real PAC, and the configuration alone decides which PAC answers; the API exposes no controls for the library's simulator, which answers with its defaults. The schemas `PacSimulationResponse`, `PacSimulationUpdate` and `ReceiverAnswer` went with them.
+
 ### Added
 - **CFDI stamping and cancellation with the real PAC** (mictlanix/mbe-roadmap#46, #51, spec 040). The CFDI library (public repository mictlanix/cfdi, installed over HTTPS and pinned to a commit) is the API's only PAC implementation, behind spec 039's contract and routes, which do not change:
   - **`PAC_PROVIDER=multifacturas`** stamps and cancels with Facturación México, the PAC the current system uses, and reads SAT's CFDI status service. The library's errors become `pac.rejected` (with the PAC's or SAT's code and message), `pac.unavailable` or `pac.timeout`; no credential, CSD material or raw payload reaches a log or an error.
@@ -17,7 +20,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 - **`PAC_PROVIDER` has no default** (spec 040). Every instance's `.env` names its PAC (`none`, `simulated` or `multifacturas`); without it the API and the resolve job refuse to start.
-- **The simulator is the CFDI library's** (spec 040). `PAC_PROVIDER=simulated` runs the library's simulated PAC and simulated SAT status through the same adapter as the real PAC, with its state in `pac_simulator_store`, shared by every process. Its stamps carry provider RFC `SIM010101SI0` (SAT's TFD schema rejects the old `SIM010101SIM`); documents stamped before keep their simulated mark. The `/pac-simulator` routes keep their paths and bodies, but answer only `uuid`, `sat_status` and `cancellation_status` (no `next_stamp`, `next_cancellation`); a cancellation outcome needs the stamp first (409 `fiscal_document.not_stamped`), a stamp outcome is refused while the document is `stamping` (409 `fiscal_document.stamping`), and `not_cancellable` stays for every later request of that UUID. `specs/040-real-pac/quickstart.md` §5 has the steps for each outcome.
+- **The simulator is the CFDI library's** (spec 040). `PAC_PROVIDER=simulated` runs the library's simulated PAC and simulated SAT status through the same adapter as the real PAC, with its state in `pac_simulator_store`, shared by every process. Its stamps carry provider RFC `SIM010101SI0` (SAT's TFD schema rejects the old `SIM010101SIM`); documents stamped before keep their simulated mark. It answers with its defaults: a stamp succeeds, and a cancellation is accepted at once under 24 hours from the stamp and pending after.
 - **A cancellation the PAC answered waits 72 hours for SAT** (spec 040). A pending request closes as "not received by SAT" only 72 hours after the PAC's answer, SAT's deadline for the receiver; one without an answer still after 5 minutes.
 
 ### Added

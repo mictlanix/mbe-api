@@ -265,6 +265,8 @@ Spec 039's SC-002 was verified the same way, on test against MariaDB.
 
 ## R12. The simulator routes over the library (FR-025)
 
+> **Removed 2026-11-24** (spec Amendment). Kept as the record of what was built.
+
 The routes in `app/api/v1/endpoints/pac_simulator.py` keep their paths, privileges, the per-request 404 when `PAC_PROVIDER` is not `simulated`, and the 409 `fiscal_document.not_sealed` for a draft.
 - **Getting the simulator:** the routes take it from a new FastAPI dependency, `get_pac_simulator()`, which returns `SimulatedPac(DatabaseSimulatorStore())`. They build `SimulatedSatStatusClient(pac)` from it, over the same state as the provider's.
 - **Why a dependency:** a route that built the store itself would always use the real database's session factory, and tests could not point it at theirs. Today the routes take the simulator from `get_pac_provider`, which `tests/integration/test_fiscal_stamping_http.py` overrides; the new dependency keeps that pattern.
