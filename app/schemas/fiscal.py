@@ -395,18 +395,18 @@ class FiscalDocumentCancelRequest(BaseModel):
 
 
 class PacSimulationResponse(BaseModel):
-    """What the simulator holds for a document."""
+    """The simulated SAT's view of a document (spec 040): `sat_status` is `not_found` and
+    `cancellation_status` `none` until the document has a UUID. The library cannot read back a
+    queued outcome, so the response does not carry one."""
 
     uuid: str | None
     sat_status: str
     cancellation_status: str
-    next_stamp: str | None
-    next_cancellation: str | None
 
 
 class PacSimulationUpdate(BaseModel):
     """The outcome of the document's next stamp or cancellation call only. `pac_code` and
-    `pac_message` are a `rejected` outcome's, as the `pac_simulation` columns hold them."""
+    `pac_message` are a `rejected` outcome's (spec 040: the library's simulator keeps them)."""
 
     stamp: (
         Literal['stamped', 'rejected', 'unavailable', 'timeout_stamped', 'timeout_not_stamped']

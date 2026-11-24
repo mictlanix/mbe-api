@@ -1106,7 +1106,7 @@ class TestFiscalDocument:
         assert context['cancelled'] == expected
 
     @pytest.mark.parametrize(
-        ('provider', 'expected'), [('SIM010101SIM', True), ('LSO1306189R5', False)]
+        ('provider', 'expected'), [('SIM010101SI0', True), ('LSO1306189R5', False)]
     )
     async def test_simulated_only_when_the_simulator_stamped_it(
         self, provider: str, expected: bool

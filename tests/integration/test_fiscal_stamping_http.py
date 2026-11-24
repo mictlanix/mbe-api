@@ -17,8 +17,9 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from app.core.config import settings
 from app.main import app
 from app.models.fiscal import FiscalDocument
-from app.services.pac import get_pac_provider
-from app.services.pac.simulated import Keys, SimulatedPac
+from app.services.pac import get_pac_provider, get_pac_simulator
+from app.services.pac.adapter import CfdiPacProvider
+from tests.fakes.simulator import set_cancellation, simulated_provider
 from tests.integration.seed import seed_cancellation_reasons, seed_fiscal_document
 from tests.integration.test_invoice_flow import Invoicing, _ready, invoicing  # noqa: F401
 
@@ -29,22 +30,17 @@ _PAC_CODE, _PAC_MESSAGE = 'CANC205', 'UUID no encontrado'
 
 
 @pytest.fixture
-async def pac(client: AsyncClient, sessions: async_sessionmaker) -> AsyncIterator[SimulatedPac]:
+async def pac(client: AsyncClient, sessions: async_sessionmaker) -> AsyncIterator[CfdiPacProvider]:
     """The simulator behind every route that takes a provider. `client` clears the override."""
-    simulator = SimulatedPac(session_factory=sessions)
-    app.dependency_overrides[get_pac_provider] = lambda: simulator
-    yield simulator
+    provider = simulated_provider(sessions)
+    app.dependency_overrides[get_pac_provider] = lambda: provider
+    app.dependency_overrides[get_pac_simulator] = lambda: provider.simulator
+    yield provider
 
 
 async def _sealed(invoicing: Invoicing) -> int:  # noqa: F811
     """A new invoice, sealed with the next serial and ready to stamp."""
     return inspect(await invoicing.confirm(await _ready(invoicing))).identity[0]
-
-
-async def _keys(db: AsyncSession, document_id: int) -> Keys:
-    db.expire_all()
-    document = await db.get(FiscalDocument, document_id)
-    return (document.stamp_uuid, document.issuer, document.batch or '', document.serial)
 
 
 def _ok(response: Response) -> dict:
@@ -126,11 +122,11 @@ async def test_the_list_filters_by_each_of_the_six_states(
 async def test_the_cancel_response_lists_the_request_it_created(
     client: AsyncClient,
     invoicing: Invoicing,  # noqa: F811
-    pac: SimulatedPac,
+    pac: CfdiPacProvider,
 ) -> None:
     await seed_cancellation_reasons(invoicing.db)
     document_id = (await _issued(client, invoicing))['fiscal_document_id']
-    await pac.set_next(await _keys(invoicing.db, document_id), cancellation='pending')
+    await set_cancellation(pac, invoicing.db, document_id, 'pending')
 
     body = _ok(await client.post(f'{_URL}/{document_id}/cancel', json={'reason': '02'}))
 
@@ -146,20 +142,19 @@ async def test_the_cancel_response_lists_the_request_it_created(
 async def test_a_document_rejected_once_and_then_cancelled_lists_both_requests(
     client: AsyncClient,
     invoicing: Invoicing,  # noqa: F811
-    pac: SimulatedPac,
+    pac: CfdiPacProvider,
 ) -> None:
     db = invoicing.db
     await seed_cancellation_reasons(db)
     document_id = (await _issued(client, invoicing))['fiscal_document_id']
     substitute = (await _issued(client, invoicing))['stamp_uuid']
-    keys = await _keys(db, document_id)
 
-    await pac.set_next(keys, cancellation='rejected', pac_code=_PAC_CODE, pac_message=_PAC_MESSAGE)
+    await set_cancellation(pac, db, document_id, 'rejected', code=_PAC_CODE, message=_PAC_MESSAGE)
     rejected = await client.post(f'{_URL}/{document_id}/cancel', json={'reason': '02'})
     assert rejected.status_code == 422, rejected.text
     assert rejected.json()['code'] == 'pac.rejected'
 
-    await pac.set_next(keys, cancellation='accepted')
+    await set_cancellation(pac, db, document_id, 'accepted')
     body = _ok(
         await client.post(
             f'{_URL}/{document_id}/cancel', json={'reason': '01', 'substitution': substitute}
@@ -206,16 +201,14 @@ _SIMULATOR = '/api/v1/pac-simulator/fiscal-documents'
 
 
 @pytest.fixture
-def simulated(pac: SimulatedPac, monkeypatch: pytest.MonkeyPatch) -> SimulatedPac:
+def simulated(pac: CfdiPacProvider, monkeypatch: pytest.MonkeyPatch) -> CfdiPacProvider:
     """`PAC_PROVIDER=simulated`, which opens the simulator's routes."""
     monkeypatch.setattr(settings, 'pac_provider', 'simulated')
     return pac
 
 
 async def _choose(client: AsyncClient, document_id: int, **outcome: str) -> None:
-    body = _ok(await client.put(f'{_SIMULATOR}/{document_id}', json=outcome))
-    for operation, chosen in outcome.items():
-        assert body[f'next_{operation}'] == chosen
+    _ok(await client.put(f'{_SIMULATOR}/{document_id}', json=outcome))
 
 
 async def _post(client: AsyncClient, document_id: int, action: str, **body: object) -> Response:
@@ -261,7 +254,7 @@ async def _cancel_with(client: AsyncClient, invoicing: Invoicing, outcome: str) 
 async def test_scenario_stamped(
     client: AsyncClient,
     invoicing: Invoicing,  # noqa: F811
-    simulated: SimulatedPac,
+    simulated: CfdiPacProvider,
 ) -> None:
     document_id = await _sealed(invoicing)
 
@@ -280,7 +273,7 @@ async def test_scenario_stamped(
 async def test_scenario_stamp_refused_leaves_it_sealed(
     client: AsyncClient,
     invoicing: Invoicing,  # noqa: F811
-    simulated: SimulatedPac,
+    simulated: CfdiPacProvider,
     outcome: str,
     status: int,
     code: str,
@@ -293,7 +286,7 @@ async def test_scenario_stamp_refused_leaves_it_sealed(
 async def test_scenario_timeout_did_stamp(
     client: AsyncClient,
     invoicing: Invoicing,  # noqa: F811
-    simulated: SimulatedPac,
+    simulated: CfdiPacProvider,
 ) -> None:
     document_id = await _stamp_refused(client, invoicing, 'timeout_stamped', 504, 'pac.timeout')
     assert await _status(client, document_id) == 'stamping'
@@ -307,7 +300,7 @@ async def test_scenario_timeout_did_stamp(
 async def test_scenario_timeout_did_not_stamp(
     client: AsyncClient,
     invoicing: Invoicing,  # noqa: F811
-    simulated: SimulatedPac,
+    simulated: CfdiPacProvider,
 ) -> None:
     db = invoicing.db
     document_id = await _stamp_refused(client, invoicing, 'timeout_not_stamped', 504, 'pac.timeout')
@@ -327,7 +320,7 @@ async def test_scenario_timeout_did_not_stamp(
 async def test_scenario_cancelled_at_once(
     client: AsyncClient,
     invoicing: Invoicing,  # noqa: F811
-    simulated: SimulatedPac,
+    simulated: CfdiPacProvider,
 ) -> None:
     document_id, response = await _cancel_with(client, invoicing, 'accepted')
 
@@ -346,7 +339,7 @@ async def test_scenario_cancelled_at_once(
 async def test_scenario_pending_then_answered_by_the_receiver(
     client: AsyncClient,
     invoicing: Invoicing,  # noqa: F811
-    simulated: SimulatedPac,
+    simulated: CfdiPacProvider,
     answer: str,
     state: str,
     history: str,
@@ -365,7 +358,7 @@ async def test_scenario_pending_then_answered_by_the_receiver(
 async def test_scenario_not_cancellable(
     client: AsyncClient,
     invoicing: Invoicing,  # noqa: F811
-    simulated: SimulatedPac,
+    simulated: CfdiPacProvider,
 ) -> None:
     document_id, response = await _cancel_with(client, invoicing, 'not_cancellable')
 
@@ -383,7 +376,7 @@ async def test_scenario_not_cancellable(
 async def test_scenario_cancellation_refused_leaves_it_issued(
     client: AsyncClient,
     invoicing: Invoicing,  # noqa: F811
-    simulated: SimulatedPac,
+    simulated: CfdiPacProvider,
     outcome: str,
     status: int,
     code: str,
@@ -399,7 +392,7 @@ async def test_scenario_cancellation_refused_leaves_it_issued(
 async def test_scenario_timeout_on_cancel(
     client: AsyncClient,
     invoicing: Invoicing,  # noqa: F811
-    simulated: SimulatedPac,
+    simulated: CfdiPacProvider,
 ) -> None:
     document_id, response = await _cancel_with(client, invoicing, 'timeout')
     _refused(response, 504, 'pac.timeout')

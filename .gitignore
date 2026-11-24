@@ -219,5 +219,6 @@ __marimo__/
 
 images/
 license-photos/
+pod/
 exports/
 .DS_Store
