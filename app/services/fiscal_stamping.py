@@ -739,7 +739,8 @@ async def _rejection_is_its_own(
 
     - a request the PAC hasn't answered (`requested`) is never closed by it;
     - a request the PAC answered (`pending`) is, once SAT has shown it in process
-      (`sat_pending_at`), or when no earlier request of the document was rejected."""
+      (`sat_pending_at`), or when SAT rejected no earlier request of the document. A request the
+      PAC refused (`pac_code`) never reached SAT, so its rejection can't be the stale one."""
     if kept != 'pending':
         return False
     if sat_pending_at is not None:
@@ -750,6 +751,7 @@ async def _rejection_is_its_own(
             FiscalDocumentCancellation.fiscal_document == document_id,
             FiscalDocumentCancellation.fiscal_document_cancellation_id < request_id,
             FiscalDocumentCancellation.status == 'rejected',
+            FiscalDocumentCancellation.pac_code.is_(None),
         )
         .limit(1)
     )

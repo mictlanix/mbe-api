@@ -880,7 +880,8 @@ def _pending(**overrides: object) -> SimpleNamespace:
 class RefreshSession(CancelSession):
     """`CancelSession` that also answers refresh's read of the open request (`request`, a row of
     id, status, requested_at, reason and substitution), the status and `sat_pending_at` read by id
-    (`by_id`, `sat_pending_at`) and the look for an earlier rejected request (`rejected_before`)."""
+    (`by_id`, `sat_pending_at`) and the look for an earlier request SAT rejected
+    (`rejected_before`); `rejected_by_pac` is an earlier one the PAC refused (with `pac_code`)."""
 
     def __init__(
         self,
@@ -890,6 +891,7 @@ class RefreshSession(CancelSession):
         by_id: dict[int, list[str]] | None = None,
         sat_pending_at: datetime | None = None,
         rejected_before: bool = False,
+        rejected_by_pac: bool = False,
         **kwargs: object,
     ) -> None:
         super().__init__(locks, **kwargs)
@@ -897,12 +899,14 @@ class RefreshSession(CancelSession):
         self.by_id = {key: list(value) for key, value in (by_id or {}).items()}
         self.sat_pending_at = sat_pending_at
         self.rejected_before = rejected_before
+        self.rejected_by_pac = rejected_by_pac
 
     def _respond(self, sql: str) -> list:
         flat = ' '.join(sql.split())
         if flat.startswith('SELECT fiscal_document_cancellation.fiscal_document_cancellation_id'):
             if 'fiscal_document_cancellation_id <' in flat:
-                return [(39,)] if self.rejected_before else []
+                by_pac = self.rejected_by_pac and 'pac_code IS NULL' not in flat
+                return [(39,)] if self.rejected_before or by_pac else []
             return [self.request] if self.request is not None else []
         if flat.startswith('SELECT fiscal_document_cancellation.status'):
             request_id = int(re.search(r'fiscal_document_cancellation_id = (\d+)', flat).group(1))
@@ -1445,6 +1449,21 @@ async def test_an_earlier_requests_rejection_fails_a_pending_request_after_72_ho
     [write] = _request_writes(session)
     assert (write['status'], write['resolved_at']) == ('failed', _NOW)
     assert _incidences(session) == ['Cancellation not received by SAT']
+
+
+async def test_an_earlier_refusal_by_the_pac_does_not_hold_a_rejection() -> None:
+    """A request the PAC refused (`pac_code`) never reached SAT: SAT's rejection is this one's."""
+    pac = ScriptedPac()
+    pac.queue('query_status', _sat('valid', 'rejected'))
+    row = _pending()
+    session = _status_session(row, 'pending', rejected_by_pac=True)
+
+    await _refresh(session, pac)
+
+    assert fiscal_stamping.fds.document_status(row, has_xml=True) == 'issued'
+    [write] = _request_writes(session)
+    assert (write['status'], write['resolved_at']) == ('rejected', _NOW)
+    assert _incidences(session) == ['Cancellation rejected']
 
 
 async def test_a_rejection_after_sat_showed_the_request_in_process_closes_it() -> None:

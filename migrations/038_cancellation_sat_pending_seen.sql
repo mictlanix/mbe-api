@@ -5,8 +5,8 @@
 -- request against the first one's rejection: the document stayed issued here while SAT cancelled
 -- it once the receiver accepted (#349, document 63952). `sat_pending_at` is when a refresh first
 -- saw SAT report `pending` for this request. A `rejected` answer then closes a request the PAC
--- answered only once SAT has shown it in process, or when no earlier request of the document was
--- rejected. Nullable, set by the API only; no backfill.
+-- answered only once SAT has shown it in process, or when SAT rejected no earlier request of the
+-- document. Nullable, set by the API only; no backfill.
 --
 -- MEASURED against mbe_dev 2026-11-24: 37 requests on 29 documents, 1 open (`pending`, no earlier
 -- rejection). 6 requests follow an earlier rejected one; one of them is #33 of #349, closed
