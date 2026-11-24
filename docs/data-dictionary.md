@@ -1453,6 +1453,7 @@ One cancellation request for a stamped fiscal document (spec 039). **API-only**,
 | `answered_at` | datetime | YES | The PAC's first answer |
 | `resolved_at` | datetime | YES | When the status became final |
 | `last_checked_at` | datetime | YES | The last status query |
+| `sat_pending_at` | datetime | YES | Added by migration 038 (#349). When a refresh first saw SAT report this request pending. Until then, SAT's `rejected` closes a request the PAC answered only if SAT rejected no earlier request of the document, since SAT may still be reporting that one. Not in the API response |
 | `open_document` | int(11) | YES | Virtual: the document while `status` is `requested` or `pending`, NULL once closed. Unique, so a document has at most one open request. Not mapped by the model |
 
 ### `pac_simulator_store`

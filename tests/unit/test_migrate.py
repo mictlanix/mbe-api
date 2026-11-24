@@ -237,3 +237,26 @@ class TestRealCorpus:
         assert 'FOREIGN KEY IF NOT EXISTS (`delivery_order`)' in statements[2]
         assert 'REFERENCES `delivery_order` (`delivery_order_id`)' in statements[2]
         assert not any(s.lstrip().upper().startswith('UPDATE') for s in statements)
+
+    def test_038_is_discovered_and_ordered_after_037(self):
+        """#349. Not run on SQLite; the test schema comes from the models."""
+        versions = [m.version for m in discover(Path('migrations'))]
+        assert versions.index('038_cancellation_sat_pending_seen') > versions.index(
+            '037_pac_simulator_store'
+        )
+        assert '038_cancellation_sat_pending_seen_rollback' not in versions
+
+    def test_038_adds_one_nullable_column_with_no_backfill(self):
+        """NULL on every existing row keeps today's flow for the open request."""
+        statements = split_statements(
+            Path('migrations/038_cancellation_sat_pending_seen.sql').read_text()
+        )
+        assert len(statements) == 1
+        assert 'ALTER TABLE `fiscal_document_cancellation`' in statements[0]
+        assert 'ADD COLUMN IF NOT EXISTS `sat_pending_at` DATETIME NULL' in statements[0]
+        rollback = split_statements(
+            Path('migrations/038_cancellation_sat_pending_seen_rollback.sql').read_text()
+        )
+        assert rollback == [
+            'ALTER TABLE `fiscal_document_cancellation` DROP COLUMN IF EXISTS `sat_pending_at`'
+        ]

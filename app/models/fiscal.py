@@ -205,6 +205,8 @@ class FiscalDocumentCancellation(Base):
     answered_at: Mapped[datetime | None] = mapped_column(DateTime)
     resolved_at: Mapped[datetime | None] = mapped_column(DateTime)
     last_checked_at: Mapped[datetime | None] = mapped_column(DateTime)
+    # When a refresh first saw SAT report this request in process (migration 038, #349).
+    sat_pending_at: Mapped[datetime | None] = mapped_column(DateTime)
 
 
 class PacSimulatorStore(Base):

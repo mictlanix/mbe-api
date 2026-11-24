@@ -673,13 +673,13 @@ async def _apply_status(
         if credited is not None and sat.state == 'cancelled':
             orders = await _lock_credited(db, *credited)
         # Rule 11: the status as the row holds it now, by the id transaction 1 kept.
-        status = (
+        status, sat_pending_at = (
             await db.execute(
-                select(FiscalDocumentCancellation.status).where(
-                    FiscalDocumentCancellation.fiscal_document_cancellation_id == request_id
-                )
+                select(
+                    FiscalDocumentCancellation.status, FiscalDocumentCancellation.sat_pending_at
+                ).where(FiscalDocumentCancellation.fiscal_document_cancellation_id == request_id)
             )
-        ).scalar_one()
+        ).first()
         now = _now()
         values: dict[str, object] = {'last_checked_at': now}
         if status == kept:
@@ -689,12 +689,17 @@ async def _apply_status(
                 await _apply_cancelled(
                     db, document, reason, substitution, orders, employee_id, touch=touch
                 )
-            elif sat.state == 'valid' and sat.cancellation == 'rejected':
+            elif (
+                sat.state == 'valid'
+                and sat.cancellation == 'rejected'
+                and await _rejection_is_its_own(db, document_id, request_id, kept, sat_pending_at)
+            ):
                 closed = 'rejected'
                 _record(db, document, employee_id, 'Cancellation rejected', touch=touch)
-            elif sat.state == 'valid' and sat.cancellation == 'none':
+            elif sat.state == 'valid' and sat.cancellation in ('none', 'rejected'):
                 # Rule 7: a cancel within the grace may still be waiting on the PAC. A request the
                 # PAC answered (201) waits for SAT up to SAT's deadline for the receiver (spec 040).
+                # A rejection that may be an earlier request's is no news either (#349).
                 if (kept == 'requested' and now - requested_at >= STAMP_LOOKUP_GRACE) or (
                     kept == 'pending' and now - answered_at >= CANCELLATION_SAT_WAIT
                 ):
@@ -702,9 +707,14 @@ async def _apply_status(
                     _record(
                         db, document, employee_id, 'Cancellation not received by SAT', touch=touch
                     )
-            elif sat.state == 'valid' and sat.cancellation == 'pending' and kept == 'requested':
-                values.update(status='pending', answered_at=now)
-                _record(db, document, employee_id, 'Cancellation pending the receiver', touch=touch)
+            elif sat.state == 'valid' and sat.cancellation == 'pending':
+                if sat_pending_at is None:
+                    values['sat_pending_at'] = now
+                if kept == 'requested':
+                    values.update(status='pending', answered_at=now)
+                    _record(
+                        db, document, employee_id, 'Cancellation pending the receiver', touch=touch
+                    )
             if closed is not None:
                 values.update(status=closed, resolved_at=now)
                 document.cancelling_since = None
@@ -715,3 +725,34 @@ async def _apply_status(
         )
         await db.commit()
     return document
+
+
+async def _rejection_is_its_own(
+    db: AsyncSession,
+    document_id: int,
+    request_id: int,
+    kept: str,
+    sat_pending_at: datetime | None,
+) -> bool:
+    """Whether SAT's `rejected` answers this request (#349). SAT's status names no request, and it
+    keeps reporting an earlier request's rejection until it registers the new one. So:
+
+    - a request the PAC hasn't answered (`requested`) is never closed by it;
+    - a request the PAC answered (`pending`) is, once SAT has shown it in process
+      (`sat_pending_at`), or when SAT rejected no earlier request of the document. A request the
+      PAC refused (`pac_code`) never reached SAT, so its rejection can't be the stale one."""
+    if kept != 'pending':
+        return False
+    if sat_pending_at is not None:
+        return True
+    earlier = await db.execute(
+        select(FiscalDocumentCancellation.fiscal_document_cancellation_id)
+        .where(
+            FiscalDocumentCancellation.fiscal_document == document_id,
+            FiscalDocumentCancellation.fiscal_document_cancellation_id < request_id,
+            FiscalDocumentCancellation.status == 'rejected',
+            FiscalDocumentCancellation.pac_code.is_(None),
+        )
+        .limit(1)
+    )
+    return earlier.first() is None
