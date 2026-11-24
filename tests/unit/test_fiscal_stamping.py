@@ -879,7 +879,8 @@ def _pending(**overrides: object) -> SimpleNamespace:
 
 class RefreshSession(CancelSession):
     """`CancelSession` that also answers refresh's read of the open request (`request`, a row of
-    id, status, requested_at, reason and substitution) and the status read by id (`by_id`)."""
+    id, status, requested_at, reason and substitution), the status and `sat_pending_at` read by id
+    (`by_id`, `sat_pending_at`) and the look for an earlier rejected request (`rejected_before`)."""
 
     def __init__(
         self,
@@ -887,19 +888,25 @@ class RefreshSession(CancelSession):
         *,
         request: tuple | None = None,
         by_id: dict[int, list[str]] | None = None,
+        sat_pending_at: datetime | None = None,
+        rejected_before: bool = False,
         **kwargs: object,
     ) -> None:
         super().__init__(locks, **kwargs)
         self.request = request
         self.by_id = {key: list(value) for key, value in (by_id or {}).items()}
+        self.sat_pending_at = sat_pending_at
+        self.rejected_before = rejected_before
 
     def _respond(self, sql: str) -> list:
         flat = ' '.join(sql.split())
         if flat.startswith('SELECT fiscal_document_cancellation.fiscal_document_cancellation_id'):
+            if 'fiscal_document_cancellation_id <' in flat:
+                return [(39,)] if self.rejected_before else []
             return [self.request] if self.request is not None else []
         if flat.startswith('SELECT fiscal_document_cancellation.status'):
             request_id = int(re.search(r'fiscal_document_cancellation_id = (\d+)', flat).group(1))
-            return [(self._next(self.by_id[request_id]),)]
+            return [(self._next(self.by_id[request_id]), self.sat_pending_at)]
         return super()._respond(sql)
 
 
@@ -1328,7 +1335,7 @@ async def test_anything_else_only_records_the_check(status: str, sat: SatStatus)
     pac.queue('query_status', sat)
     row = _pending()
     before = dict(vars(row))
-    session = _status_session(row, status)
+    session = _status_session(row, status, sat_pending_at=_NOW - timedelta(hours=1))
 
     document = await _refresh(session, pac)
 
@@ -1337,6 +1344,125 @@ async def test_anything_else_only_records_the_check(status: str, sat: SatStatus)
     [write] = _request_writes(session)
     assert write == {'last_checked_at': _NOW, 'fiscal_document_cancellation_id_1': _REQUEST_ID}
     assert not _incidences(session)
+
+
+@pytest.mark.parametrize('kept', ['requested', 'pending'])
+async def test_sat_pending_is_recorded_the_first_time_it_is_seen(kept: str) -> None:
+    """#349: when SAT first shows the request in process, whoever answered it."""
+    pac = ScriptedPac()
+    pac.queue('query_status', _sat('valid', 'pending'))
+    row = _pending()
+    session = _status_session(row, kept)
+
+    await _refresh(session, pac)
+
+    [write] = _request_writes(session)
+    assert write['sat_pending_at'] == _NOW
+    assert row.cancelling_since is not None
+
+
+async def test_sat_pending_seen_before_is_not_overwritten() -> None:
+    pac = ScriptedPac()
+    pac.queue('query_status', _sat('valid', 'pending'))
+    row = _pending()
+    session = _status_session(row, 'pending', sat_pending_at=_NOW - timedelta(minutes=10))
+
+    await _refresh(session, pac)
+
+    [write] = _request_writes(session)
+    assert 'sat_pending_at' not in write
+
+
+@pytest.mark.parametrize('rejected_before', [False, True])
+async def test_a_rejection_within_the_grace_of_a_requested_request_is_unchanged(
+    rejected_before: bool,
+) -> None:
+    """#349: the PAC hasn't answered, so SAT's rejection may be an earlier request's; it is no
+    news, as valid/none is (rule 7)."""
+    pac = ScriptedPac()
+    pac.queue('query_status', _sat('valid', 'rejected'))
+    row = _pending()
+    request = _open('requested', age=timedelta(seconds=1))
+    session = _status_session(row, 'requested', request=request, rejected_before=rejected_before)
+
+    await _refresh(session, pac)
+
+    assert fiscal_stamping.fds.document_status(row, has_xml=True) == 'cancellation_pending'
+    [write] = _request_writes(session)
+    assert write == {'last_checked_at': _NOW, 'fiscal_document_cancellation_id_1': _REQUEST_ID}
+    assert not _incidences(session)
+
+
+async def test_a_rejection_past_the_grace_of_a_requested_request_fails_it() -> None:
+    pac = ScriptedPac()
+    pac.queue('query_status', _sat('valid', 'rejected'))
+    row = _pending()
+    request = _open('requested', age=timedelta(minutes=5, seconds=1))
+    session = _status_session(row, 'requested', request=request)
+
+    await _refresh(session, pac)
+
+    assert fiscal_stamping.fds.document_status(row, has_xml=True) == 'issued'
+    [write] = _request_writes(session)
+    assert (write['status'], write['resolved_at']) == ('failed', _NOW)
+    assert _incidences(session) == ['Cancellation not received by SAT']
+
+
+@pytest.mark.parametrize(
+    'answered_age', [timedelta(seconds=1), timedelta(hours=71, minutes=59, seconds=59)]
+)
+async def test_an_earlier_requests_rejection_leaves_a_pending_request_open(
+    answered_age: timedelta,
+) -> None:
+    """#349: an earlier request was rejected and SAT hasn't shown this one in process yet."""
+    pac = ScriptedPac()
+    pac.queue('query_status', _sat('valid', 'rejected'))
+    row = _pending()
+    request = _open('pending', age=answered_age)
+    session = _status_session(row, 'pending', request=request, rejected_before=True)
+
+    await _refresh(session, pac)
+
+    assert fiscal_stamping.fds.document_status(row, has_xml=True) == 'cancellation_pending'
+    [write] = _request_writes(session)
+    assert write == {'last_checked_at': _NOW, 'fiscal_document_cancellation_id_1': _REQUEST_ID}
+    assert not _incidences(session)
+    [earlier] = [sql for sql in session.log if 'fiscal_document_cancellation_id <' in sql]
+    assert "status = 'rejected'" in earlier and 'fiscal_document = 9' in earlier
+
+
+async def test_an_earlier_requests_rejection_fails_a_pending_request_after_72_hours() -> None:
+    """The rejection never became this request's: FR-014's 72 hours apply, as to valid/none."""
+    pac = ScriptedPac()
+    pac.queue('query_status', _sat('valid', 'rejected'))
+    row = _pending()
+    request = _open('pending', age=timedelta(hours=72))
+    session = _status_session(row, 'pending', request=request, rejected_before=True)
+
+    await _refresh(session, pac)
+
+    assert fiscal_stamping.fds.document_status(row, has_xml=True) == 'issued'
+    [write] = _request_writes(session)
+    assert (write['status'], write['resolved_at']) == ('failed', _NOW)
+    assert _incidences(session) == ['Cancellation not received by SAT']
+
+
+async def test_a_rejection_after_sat_showed_the_request_in_process_closes_it() -> None:
+    """Once SAT has shown this request pending, its rejection is this request's."""
+    pac = ScriptedPac()
+    pac.queue('query_status', _sat('valid', 'rejected'))
+    row = _pending()
+    session = _status_session(
+        row, 'pending', sat_pending_at=_NOW - timedelta(minutes=10), rejected_before=True
+    )
+
+    await _refresh(session, pac)
+
+    assert fiscal_stamping.fds.document_status(row, has_xml=True) == 'issued'
+    [write] = _request_writes(session)
+    assert (write['status'], write['resolved_at']) == ('rejected', _NOW)
+    assert _incidences(session) == ['Cancellation rejected']
+    assert not any('fiscal_document_cancellation_id <' in sql for sql in session.log)
 
 
 async def test_a_request_whose_status_changed_is_left_alone() -> None:

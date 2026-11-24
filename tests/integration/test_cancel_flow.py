@@ -752,6 +752,61 @@ async def test_refresh_of_a_timed_out_cancel_reports_it_pending(
     assert (await _reasons(db, invoice))[-1] == 'Cancellation pending the receiver'
 
 
+async def test_a_second_cancel_is_not_closed_by_the_first_ones_rejection(
+    receipts: Receipts,  # noqa: F811
+    sessions: async_sessionmaker,
+) -> None:
+    """#349: SAT's status names no request and still shows the first request's rejection when the
+    job refreshes the second, between its row and the PAC's answer. The second stays open."""
+    await _receipts_ready(receipts)
+    db, current = receipts.db, receipts.current
+    pac = simulated_provider(sessions)
+    invoice = await _ppd_invoice(db)
+    await _cancelled_as(db, current, invoice, pac, 'pending')
+    await _receiver(db, pac, invoice, 'reject')
+    await _refresh(db, current, invoice, pac)
+    assert [r.status for r in await _requests(db, invoice)] == ['rejected']
+
+    class JobRefreshesFirst:
+        """The resolve job's refresh runs while the PAC holds the second request."""
+
+        def __getattr__(self, name: str) -> object:
+            return getattr(pac, name)
+
+        async def request_cancellation(self, request: object) -> object:
+            async with sessions() as job:
+                await fiscal_stamping.refresh(job, invoice, pac, current.employee_id, touch=False)
+            return await pac.request_cancellation(request)
+
+    await _choose(db, pac, invoice, 'pending')
+    await _cancel(db, current, invoice, JobRefreshesFirst())  # type: ignore[arg-type]
+
+    assert (await _load(db, invoice)).status == 'cancellation_pending'
+    first, second = await _requests(db, invoice)
+    assert (second.status, second.resolved_at) == ('pending', None)
+    assert second.answered_at is not None and second.last_checked_at is not None
+    assert second.sat_pending_at is None
+
+    # SAT shows the second request in process, then the receiver accepts it.
+    await _refresh(db, current, invoice, pac)
+    [second] = (await _requests(db, invoice))[1:]
+    assert (second.status, second.sat_pending_at is not None) == ('pending', True)
+    await _receiver(db, pac, invoice, 'accept')
+    await _refresh(db, current, invoice, pac)
+
+    document = await _load(db, invoice)
+    assert (document.status, document.cancelling_since) == ('cancelled', None)
+    assert [r.status for r in await _requests(db, invoice)] == ['rejected', 'accepted']
+    assert await _reasons(db, invoice) == [
+        'Cancellation requested (02)',
+        'Cancellation pending the receiver',
+        'Cancellation rejected',
+        'Cancellation requested (02)',
+        'Cancellation pending the receiver',
+        'CFDI cancelled',
+    ]
+
+
 # ── Multifacturas through the adapter (spec 040, US3), T016 ───────────────────
 
 
